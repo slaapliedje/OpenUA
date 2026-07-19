@@ -12,21 +12,37 @@ Treasure events (`ev[12..19]`) and shop stock select items by these ids, and the
 byte-swapped (stored little-endian on disk). `node[40]` (template `[0]`) is the
 item TYPE.
 
-Field map (what's confidently identified; the rest is per-type and not fully
-mapped — see docs/item-table.md):
+Field map (code-confirmed against the engine readers; see docs/item-fields.md
+for the full per-type detail and confidence levels):
 
-    [0]    item type (1..105) — indexes the engine's built-in item name/behaviour
-    [3]    secondary type (mirrors [0] in the base table)
-    [4..5] little-endian value word (cost/level; per-type meaning)
-    [6..7] little-endian value word
-    [11]   flags (low 3 bits cleared for a "plain"/give-flagged item)
-    [12]   weapon range code ((v-1)//3 = reach in the -27944 table)
-    [13]   usable-by class mask
+    [0]    item type (category) — indexes the -27944 behaviour table; for base
+           items also == the primary name-word index [3]
+    [1..3] name-word indices ([3] primary noun) — see docs/item-names.md
+    [4..5] WEIGHT   (little-endian; tenths of a pound — Plate 450 = 45 lb)
+    [6..7] VALUE    (little-endian; appraised worth in gp; jt932 pricing input)
+    [8]    to-hit / damage bonus (signed: +N, or 253=-3 for cursed)
+    [9]    AC / save bonus (signed)
+    [10]   usability / identify flag
+    [11]   known-name-parts mask (which words show before the item is identified)
+    [13]   stack / ammo count (Arrow 20, Dart 10)
+    [14]   charges (wands / consumables)
+    [15]   spell / effect id (dispatched via l77a0 / l2d78)
+    [16]   hook: bit7 = worn/passive effect; low 7 bits = hook kind (JT[1]@0x2da2)
+
+Weapon RANGE and usable-by CLASS are NOT in this template — they live in the
+per-type behaviour table at A5 -27944 (16-byte stride, keyed by item type),
+read by the engine's l0be0 / l0b3e. Fields [12] and [17] are unused in the base
+table. For scrolls, [14..16] instead hold up to three spell ids.
 
 This is host-side tooling; no engine or copyrighted data is needed to build a
 fresh item table. `data/` is git-ignored — never commit one.
 """
 import struct
+
+
+def _s8(b):
+    """Interpret an unsigned byte as a signed 8-bit value."""
+    return b - 256 if b >= 128 else b
 
 ITEM_SIZE   = 18
 ITEM_COUNT  = 254                       # ids 1..254 (id 0 unused, 255 = money)
@@ -49,35 +65,81 @@ class Item:
     @property
     def type(self):        return self.raw[0]
     @type.setter
-    def type(self, v):     self.raw[0] = v & 0xff; self.raw[3] = v & 0xff
+    def type(self, v):
+        # [0] is the item category (indexes the -27944 behaviour table); for
+        # BASE items it also equals the primary name-word index [3], so mirror
+        # it there for convenience. Set `.name_word` afterwards to decouple.
+        self.raw[0] = v & 0xff
+        self.raw[3] = v & 0xff
 
     @property
-    def value(self):       return struct.unpack_from("<H", self.raw, 4)[0]
+    def name_word(self):   return self.raw[3]        # primary name-word index
+    @name_word.setter
+    def name_word(self, v): self.raw[3] = v & 0xff
+
+    # --- the two little-endian value words at [4..5] / [6..7] --------------
+    @property
+    def weight(self):      return struct.unpack_from("<H", self.raw, 4)[0]
+    @weight.setter
+    def weight(self, v):   struct.pack_into("<H", self.raw, 4, v & 0xffff)
+
+    @property
+    def value(self):       return struct.unpack_from("<H", self.raw, 6)[0]
     @value.setter
-    def value(self, v):    struct.pack_into("<H", self.raw, 4, v & 0xffff)
+    def value(self, v):    struct.pack_into("<H", self.raw, 6, v & 0xffff)
+
+    # --- per-item static fields (see docs/item-fields.md) -----------------
+    @property
+    def hit_bonus(self):   return _s8(self.raw[8])    # to-hit/damage, signed
+    @hit_bonus.setter
+    def hit_bonus(self, v): self.raw[8] = v & 0xff
 
     @property
-    def value2(self):      return struct.unpack_from("<H", self.raw, 6)[0]
-    @value2.setter
-    def value2(self, v):   struct.pack_into("<H", self.raw, 6, v & 0xffff)
+    def ac_bonus(self):    return _s8(self.raw[9])    # AC/save bonus, signed
+    @ac_bonus.setter
+    def ac_bonus(self, v): self.raw[9] = v & 0xff
 
     @property
-    def range_code(self):  return self.raw[12]
-    @range_code.setter
-    def range_code(self, v): self.raw[12] = v & 0xff
+    def usable(self):      return self.raw[10]        # identify/usability flag
+    @usable.setter
+    def usable(self, v):   self.raw[10] = v & 0xff
 
     @property
-    def class_mask(self):  return self.raw[13]
-    @class_mask.setter
-    def class_mask(self, v): self.raw[13] = v & 0xff
+    def known_mask(self):  return self.raw[11]        # name-parts shown pre-ID
+    @known_mask.setter
+    def known_mask(self, v): self.raw[11] = v & 0xff
+
+    @property
+    def count(self):       return self.raw[13]        # stack / ammo count
+    @count.setter
+    def count(self, v):    self.raw[13] = v & 0xff
+
+    @property
+    def charges(self):     return self.raw[14]        # wand/consumable charges
+    @charges.setter
+    def charges(self, v):  self.raw[14] = v & 0xff
+
+    @property
+    def effect_id(self):   return self.raw[15]        # spell/effect id (l77a0)
+    @effect_id.setter
+    def effect_id(self, v): self.raw[15] = v & 0xff
+
+    @property
+    def hook(self):        return self.raw[16]        # bit7=worn; low7=hook kind
+    @hook.setter
+    def hook(self, v):     self.raw[16] = v & 0xff
+
+    @property
+    def worn_effect(self): return bool(self.raw[16] & 0x80)
 
     @property
     def empty(self):       return self.raw[0] in (0, 255)
 
     def __repr__(self):
-        return ("Item(type=%d value=%d value2=%d range=%d class_mask=0x%02x)"
-                % (self.type, self.value, self.value2,
-                   self.range_code, self.class_mask))
+        return ("Item(type=%d name_word=%d weight=%d value=%d hit=%+d ac=%+d "
+                "count=%d)" % (self.type, self.name_word, self.weight,
+                               self.value, self.hit_bonus, self.ac_bonus,
+                               self.count))
 
 
 class ItemTable:

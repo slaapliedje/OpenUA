@@ -25,18 +25,35 @@ def test_blank_table_roundtrips():
 def test_item_fields_encode_decode():
     it = Item()
     it.type = 5
-    it.value = 1500
-    it.value2 = 300
-    it.range_code = 7
-    it.class_mask = 0xAB
+    it.weight = 1500
+    it.value = 300
+    it.hit_bonus = 2
+    it.ac_bonus = -3
+    it.count = 20
+    it.charges = 7
+    it.effect_id = 47
+    it.hook = 0x86
     it = Item(it.raw)
     assert it.type == 5
-    assert it.raw[0] == 5 and it.raw[3] == 5     # type mirrors into [3]
-    assert it.value == 1500
-    assert struct.unpack_from("<H", it.raw, 4)[0] == 1500   # little-endian
-    assert it.value2 == 300
-    assert it.range_code == 7
-    assert it.class_mask == 0xAB
+    assert it.raw[0] == 5 and it.raw[3] == 5     # type mirrors into name word [3]
+    assert it.weight == 1500
+    assert struct.unpack_from("<H", it.raw, 4)[0] == 1500   # weight is [4..5] LE
+    assert it.value == 300
+    assert struct.unpack_from("<H", it.raw, 6)[0] == 300    # value is [6..7] LE
+    assert it.hit_bonus == 2
+    assert it.ac_bonus == -3 and it.raw[9] == 253            # signed byte
+    assert it.count == 20
+    assert it.charges == 7
+    assert it.effect_id == 47
+    assert it.hook == 0x86 and it.worn_effect                # bit7 set
+
+
+def test_name_word_decouples_from_type():
+    it = Item()
+    it.type = 18            # mirrors into [3] for base items
+    assert it.name_word == 18
+    it.name_word = 44       # custom item: behaviour type 18, named after word 44
+    assert it.type == 18 and it.name_word == 44
 
 
 def test_item_ids_are_1_based():
