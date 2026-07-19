@@ -114,7 +114,7 @@ Named from `l709e`'s handlers (`tools/geo.py` `EVENT_TYPES`):
 | 12 | Scripted movement | | 36 | Yes/No Question |
 | 13 | HP percentage | | 37 | Set standard rumors |
 | 14 | Message (conditional) | | 38 | Set quest-flag |
-| 15 | Conditional event | | 16, 17 | (l6020), Play sounds |
+| 15 | Conditional event | | 16, 17 | **Set variable**, Play sounds |
 
 ### Combat event (types 1 & 33) — fully mapped
 
@@ -237,18 +237,60 @@ A merchant (`l5586`): a category and a stock list of items for sale.
 |---|---|
 | 5 | **shop type** (merchant category → `rec[40]`) |
 | 6 | picture id (defaults to the shop backdrop when 0) |
-| 8–19 | four 3-byte **stock slots** — `jt188` bit-selects items from the design's treasure table: index = `(slot[0]>>4)*20 + bit` |
+| 8–19 | four 3-byte **stock slots** — each a `jt188` trigger cell selecting items from the item-selector grid (`docs/item-selector.md`): `kind = slot[0]>>4`, bits pick columns |
 
-`set_shop(shop_type, stock=[...])` packs a list of treasure-table item indices
-(grouped by `index//20`, one row per slot, up to 4). The indices reference the
-design's item/treasure table — a separate subsystem — so the numbers are
-faithful but only meaningful against that table.
+`set_shop(shop_type, stock=[...])` packs a list of item-selector indices
+(grouped by `index//20`, one row per slot, up to 4). The indices resolve to item
+ids through the built-in `-12645` grid — see
+[item-selector](item-selector.md) and `tools/itemsel.py`.
+
+### Set-design-variable event (type 16) — mapped
+
+`l6020` — pure arithmetic on the design-variable byte array (`rec[var+69]`,
+`rec` = A5 `-28006`). Variables persist in the design state and gate later
+events (condition types 1/2 test them).
+
+| byte | field |
+|---|---|
+| 4 | **op bits**: 0–1 = set(1)/add-saturating(2)/subtract(3) `var[ev5]` by `ev6`; bit2 = AND-reduce; bit3 = OR-reduce; bit4 = reload the play screen |
+| 5 | target variable id (set/add/sub) |
+| 6 | operand value |
+| 7–12 | six source variable ids (AND/OR reduce) |
+| 13 | destination variable id — gets `1` if all/any source vars are nonzero |
+
+`set_variable(op=…, target=…, value=…)` or
+`set_variable(reduce="and"/"or", sources=[…6], dest=…)`.
+
+### Yes/No Question event (type 36) — mapped
+
+`l3118` — show a question, run a Yes/No modal, and branch. Text ids are STRG
+indices (little-endian, like every event text id).
+
+| byte | field |
+|---|---|
+| 4–5 | **question** text id (LE) |
+| 6 | picture id (0 → redraw the 3D view) |
+| 7 | branch side-effect flags (0x04/0x08 force-jump on yes/no; 0x20/0x10 set a flag) |
+| 8 | **yes-chain** event index (run on YES) |
+| 9 | **no-chain** event index (run on NO) |
+| 10–11 | yes-response text id (LE) |
+| 12–13 | no-response text id (LE) |
+
+`set_question(question, yes_chain=…, no_chain=…, yes_text=…, no_text=…)`.
+
+### Conditional-variable branch (type 35) — mapped (decode)
+
+`l6436` — ask a prompt (six variants via `ev[7]` bits 3–5), record the answer
+into variable `ev[8]` (255/increment on yes, 128 on no), and chain to `ev[10]`
+(yes) / `ev[11]` (no). `var_branch()` decodes it; the shared branch outcome
+framework `l3cd6` (also used by attribute/pay/keyword checks, types 18–20)
+encodes yes/no actions in `ev[10]`.
 
 ### Other per-type parameters
 
-Combat, Message, Passage, Treasure, Temple and Shop are mapped to the byte. The
-remaining types read their own bytes — a continued effort, best done per type as
-a module needs it.
+Combat, Message, Passage, Treasure, Temple, Shop, Variable and Question are
+mapped to the byte. The remaining types read their own bytes — a continued
+effort, best done per type as a module needs it.
 
 A bare area with no events zero-fills this chunk.
 

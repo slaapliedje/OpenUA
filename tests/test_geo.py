@@ -458,3 +458,66 @@ def test_odd_size_tolerated():
     # the engine pads odd file sizes; parse should accept GEO_SIZE+1.
     data = Geo.blank(4, 4).build() + b"\x00"
     assert Geo.parse(data).width == 4
+
+
+def test_variable_event_roundtrip():
+    g = Geo.blank(8, 8)
+    g.set_variable(0, op="add", target=22, value=1)
+    v = g.variable(0)
+    assert v["op"] == "add" and v["target"] == 22 and v["value"] == 1
+    assert v["reduce"] is None and not v["reload"]
+    # AND-reduce form
+    g.set_variable(1, reduce="and", sources=[10, 11, 12, 13, 14, 15], dest=20,
+                   reload=True)
+    v = g.variable(1)
+    assert v["op"] is None and v["reduce"] == "and"
+    assert v["sources"] == [10, 11, 12, 13, 14, 15] and v["dest"] == 20
+    assert v["reload"] is True
+    # survives a build/parse cycle
+    assert Geo.parse(g.build()).variable(1) == v
+    assert g.event_type(0) == 16
+
+
+def test_question_event_roundtrip():
+    g = Geo.blank(8, 8)
+    g.set_question(3, question=6, yes_chain=9, no_chain=4, yes_text=41,
+                   no_text=42, picture=134)
+    q = g.question(3)
+    assert q["question"] == 6 and q["picture"] == 134
+    assert q["yes_chain"] == 9 and q["no_chain"] == 4
+    assert q["yes_text"] == 41 and q["no_text"] == 42
+    # text ids are little-endian in the record
+    ev = g.event(3)
+    assert ev[4] == 6 and ev[5] == 0
+    assert ev[10] == 41 and ev[12] == 42
+    assert Geo.parse(g.build()).question(3) == q
+
+
+def test_question_large_textid_is_little_endian():
+    g = Geo.blank(4, 4)
+    g.set_question(0, question=300, yes_text=511)   # spill into the high byte
+    ev = g.event(0)
+    assert ev[4] == 300 & 0xff and ev[5] == 1        # 300 = 0x012c -> 2c 01
+    assert g.question(0)["question"] == 300
+    assert g.question(0)["yes_text"] == 511
+
+
+def test_var_branch_decode():
+    g = Geo.blank(4, 4)
+    # hand-build a type-35 record: prompt-variant 5, var 20
+    rec = bytearray(EVENT_SIZE)
+    rec[0] = 35
+    rec[7] = 0x28          # bits 3-5 = 5
+    rec[8] = 20
+    g.set_event(0, rec)
+    b = g.var_branch(0)
+    assert b["prompt_variant"] == 5 and b["variable"] == 20
+
+
+def test_wrong_type_rejected():
+    g = Geo.blank(4, 4)
+    g.set_message(0, [1])
+    with pytest.raises(GeoError):
+        g.question(0)
+    with pytest.raises(GeoError):
+        g.variable(0)

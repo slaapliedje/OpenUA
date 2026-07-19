@@ -64,7 +64,7 @@ EVENT_TYPES = {
     13: "HP percentage",
     14: "Message (conditional)",
     15: "Conditional event",
-    16: "(handler l6020)",
+    16: "Set design variable",
     17: "Play sounds",
     18: "Question outcome / branch",
     19: "Question outcome / branch",
@@ -479,6 +479,104 @@ class Geo:
             rec[8 + s * 2] = tid & 0xff              # little-endian
             rec[9 + s * 2] = (tid >> 8) & 0xff
         self.encr[o:o + EVENT_SIZE] = rec
+
+    # ---- Design variables (type 16) + branch questions (types 35/36) ----
+    # Design variables are a byte array in the design record (rec[var+69],
+    # rec = A5 -28006); var ids run 0..~180. See docs/geo-format.md.
+    def variable(self, idx):
+        """Decode a Set-design-variable event (type 16, l6020). Returns the op
+        selected by ev[4]: {op: 'set'|'add'|'sub'|None, target, value,
+        reduce: 'and'|'or'|None, sources:[6], dest, reload}."""
+        ev = self.event(idx)
+        if ev[0] != 16:
+            raise GeoError("event %d is type %d, not Variable (16)" % (idx, ev[0]))
+        op = {1: "set", 2: "add", 3: "sub"}.get(ev[4] & 3)
+        reduce_ = "and" if (ev[4] & 4) else ("or" if (ev[4] & 8) else None)
+        return {"type": 16, "op": op, "target": ev[5], "value": ev[6],
+                "reduce": reduce_, "sources": list(ev[7:13]), "dest": ev[13],
+                "reload": bool(ev[4] & 16)}
+
+    def set_variable(self, idx, op=None, target=0, value=0, reduce=None,
+                     sources=(), dest=0, reload=False,
+                     cond_type=0, cond_param=0, chain=0, once_only=False):
+        """Build a Set-design-variable event. `op` in set/add/sub applies
+        `value` to variable `target`; `reduce` in and/or stores whether all/any
+        of the six `sources` variables are nonzero into variable `dest`."""
+        rec = bytearray(EVENT_SIZE)
+        rec[0] = 16
+        rec[1] = ((cond_type & 0x1f) << 3) | (1 if once_only else 0)
+        rec[2] = cond_param & 0xff
+        rec[3] = chain & 0xff
+        opbits = {None: 0, "set": 1, "add": 2, "sub": 3}[op]
+        if reduce == "and":
+            opbits |= 4
+        elif reduce == "or":
+            opbits |= 8
+        if reload:
+            opbits |= 16
+        rec[4] = opbits
+        rec[5] = target & 0xff
+        rec[6] = value & 0xff
+        for i, s in enumerate(tuple(sources)[:6]):
+            rec[7 + i] = s & 0xff
+        rec[13] = dest & 0xff
+        self.encr[idx * EVENT_SIZE:(idx + 1) * EVENT_SIZE] = rec
+
+    def question(self, idx):
+        """Decode a Yes/No Question event (type 36, l3118). Returns {question:
+        text_id, picture, yes_chain, no_chain, yes_text, no_text, flags}. The
+        engine chains to the yes_chain event on YES, no_chain on NO."""
+        ev = self.event(idx)
+        if ev[0] != 36:
+            raise GeoError("event %d is type %d, not Question (36)" % (idx, ev[0]))
+        return {"type": 36,
+                "question": ev[4] | (ev[5] << 8),      # STRG text id (LE)
+                "picture":  ev[6],
+                "flags":    ev[7],
+                "yes_chain": ev[8], "no_chain": ev[9],
+                "yes_text": ev[10] | (ev[11] << 8),
+                "no_text":  ev[12] | (ev[13] << 8)}
+
+    def set_question(self, idx, question, yes_chain=0, no_chain=0,
+                     yes_text=0, no_text=0, picture=0, flags=0,
+                     cond_type=0, cond_param=0, chain=0, once_only=False):
+        """Build a Yes/No Question event. `question`/`yes_text`/`no_text` are STRG
+        text ids; on YES the engine runs event `yes_chain`, on NO `no_chain`."""
+        rec = bytearray(EVENT_SIZE)
+        rec[0] = 36
+        rec[1] = ((cond_type & 0x1f) << 3) | (1 if once_only else 0)
+        rec[2] = cond_param & 0xff
+        rec[3] = chain & 0xff
+        rec[4] = question & 0xff                        # text ids little-endian
+        rec[5] = (question >> 8) & 0xff
+        rec[6] = picture & 0xff
+        rec[7] = flags & 0xff
+        rec[8] = yes_chain & 0xff
+        rec[9] = no_chain & 0xff
+        rec[10] = yes_text & 0xff
+        rec[11] = (yes_text >> 8) & 0xff
+        rec[12] = no_text & 0xff
+        rec[13] = (no_text >> 8) & 0xff
+        self.encr[idx * EVENT_SIZE:(idx + 1) * EVENT_SIZE] = rec
+
+    def var_branch(self, idx):
+        """Decode a Conditional-variable branch event (type 35, l6436): ask a
+        prompt, record the answer into a variable, and branch. Returns {question,
+        picture, prompt_variant, variable, set_255_on_yes, set_128_on_no,
+        yes_chain, no_chain}. prompt_variant (ev[7] bits 3-5): 0 ask/force-No,
+        1 ask, 2 ask/invert, 3 ask/force-Yes, 4 no-ask force-No, 5 no-ask
+        force-Yes."""
+        ev = self.event(idx)
+        if ev[0] != 35:
+            raise GeoError("event %d is type %d, not Var-branch (35)" % (idx, ev[0]))
+        return {"type": 35,
+                "question": ev[4] | (ev[5] << 8),
+                "picture":  ev[6],
+                "prompt_variant": (ev[7] & 0x38) >> 3,
+                "set_128_on_no":  bool(ev[7] & 0x04),
+                "set_255_on_yes": bool(ev[7] & 0x40),
+                "variable": ev[8],
+                "yes_chain": ev[10], "no_chain": ev[11]}
 
     # ---- STRG string table ----
     def strg_read(self):
