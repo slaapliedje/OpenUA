@@ -126,7 +126,7 @@ group at random. Layout (verified against 1590 real combat events, 0 mismatches)
 |---|---|
 | 0 | type (1 or 33) |
 | 1–3 | common header (condition, once-only, auto-chain) |
-| 4–5 | **descriptive text id** — big-endian word into the area STRG table (0 = none) |
+| 4–5 | **descriptive text id** — *little-endian* word into the area STRG table (0 = none) |
 | 6 | **picture id** — 0 = none, `<240` = sprite/PIC marker, `≥240` = bigpic backdrop |
 | 7 | bit7 = picture is a sprite; bits0–6 → combat config (`rec[27]`) |
 | 8–19 | **six monster-group slots**, slot *s* at `(ev[8+2s], ev[9+2s])` |
@@ -156,7 +156,7 @@ id into the area STRG table, with an optional picture and sound.
 | 4 | per-line **confirm mask** — bit *i* pauses for a click after line *i*; bit5 sets a follow-up flag |
 | 6 | picture id (same encoding as Combat) |
 | 7 | per-line **style mask** — bit *(i+2)* selects text style 3 vs 7 for line *i* |
-| 8,10,12,14,16 | five **text-id word slots** (big-endian; 0 = no line) into STRG |
+| 8,10,12,14,16 | five **text-id word slots** (*little-endian*; 0 = no line) into STRG |
 | 18 | event **sound** id |
 
 ```python

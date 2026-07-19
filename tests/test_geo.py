@@ -338,12 +338,22 @@ def test_message_build_decode_and_resolve():
     assert tbl[m["lines"][0] - 1] == "YOU ENTER A DARK CAVERN."
 
 
-def test_message_slots_big_endian():
+def test_message_slots_little_endian():
+    # Event text ids are LITTLE-endian (low byte first) — verified against real
+    # data: big-endian matched 0 real message events, little-endian 6379.
     g = Geo.blank(4, 4)
     g.set_message(0, text_ids=[0x0102, 0x0304])
     raw = g.event(0)
-    assert raw[8] == 0x01 and raw[9] == 0x02     # big-endian
-    assert raw[10] == 0x03 and raw[11] == 0x04
+    assert raw[8] == 0x02 and raw[9] == 0x01     # little-endian (low byte first)
+    assert raw[10] == 0x04 and raw[11] == 0x03
+
+
+def test_combat_text_id_little_endian():
+    g = Geo.blank(4, 4)
+    g.set_combat(0, [(1, 1)], text_id=0x0102)
+    raw = g.event(0)
+    assert raw[4] == 0x02 and raw[5] == 0x01     # low byte at ev[4]
+    assert Geo.parse(g.build()).combat(0)["text_id"] == 0x0102
 
 
 def test_message_rejects_too_many_lines():

@@ -241,7 +241,7 @@ class Geo:
             "type":    ev[0],
             "random":  ev[0] == 33,   # type 1 = all groups; 33 = one picked at random
             "groups":  groups,
-            "text_id": (ev[4] << 8) | ev[5],       # big-endian STRG index (0=none)
+            "text_id": ev[4] | (ev[5] << 8),       # little-endian STRG index (0=none)
             "picture": ev[6],                       # 0=none, <240 sprite PIC, >=240 bigpic
         }
 
@@ -258,8 +258,8 @@ class Geo:
         rec[1] = ((cond_type & 0x1f) << 3) | (1 if once_only else 0)
         rec[2] = cond_param & 0xff
         rec[3] = chain & 0xff
-        rec[4] = (text_id >> 8) & 0xff
-        rec[5] = text_id & 0xff
+        rec[4] = text_id & 0xff                 # little-endian
+        rec[5] = (text_id >> 8) & 0xff
         rec[6] = picture & 0xff
         for s, (mid, count) in enumerate(groups):
             if not (1 <= count <= 31):
@@ -367,7 +367,7 @@ class Geo:
             raise GeoError("event %d is type %d, not Message (2/14)" % (idx, ev[0]))
         lines = []
         for s in range(5):
-            tid = (ev[8 + s * 2] << 8) | ev[9 + s * 2]   # big-endian STRG index
+            tid = ev[8 + s * 2] | (ev[9 + s * 2] << 8)   # little-endian STRG index
             if tid:
                 lines.append(tid)
         return {"type": ev[0], "lines": lines, "picture": ev[6],
@@ -389,8 +389,8 @@ class Geo:
         rec[6] = picture & 0xff
         rec[18] = sound & 0xff
         for s, tid in enumerate(text_ids):
-            rec[8 + s * 2] = (tid >> 8) & 0xff       # big-endian
-            rec[9 + s * 2] = tid & 0xff
+            rec[8 + s * 2] = tid & 0xff              # little-endian
+            rec[9 + s * 2] = (tid >> 8) & 0xff
         self.encr[o:o + EVENT_SIZE] = rec
 
     # ---- STRG string table ----
