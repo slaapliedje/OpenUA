@@ -193,6 +193,71 @@ def test_combat_on_non_combat_event_raises():
         g.combat(0)
 
 
+def test_strg_roundtrip_uppercase():
+    g = Geo.blank(4, 4)
+    g.strg_write(["", "You enter a dark cavern.", "A cold wind blows.", "ATTACK!"])
+    g = Geo.parse(g.build())
+    s = g.strg_read()
+    assert s[0] == ""
+    assert s[1] == "YOU ENTER A DARK CAVERN."     # folds to uppercase
+    assert s[2] == "A COLD WIND BLOWS."
+    assert s[3] == "ATTACK!"
+
+
+def test_strg_is_fixed_point():
+    g = Geo.blank(4, 4)
+    src = ["HELLO WORLD", "", "1234567890", "A", "AB", "ABC", "ABCD", "ABCDE"]
+    g.strg_write(src)
+    once = g.strg_read()[:len(src)]
+    g.strg_write(once)
+    assert g.strg_read()[:len(src)] == once      # re-encode is stable
+
+
+def test_strg_header_and_index():
+    g = Geo.blank(4, 4)
+    g.strg_write(["", "HI", "WORLD"])
+    # header body-capacity word (LE on disk)
+    assert struct.unpack_from("<H", g.strg, 0)[0] == STRG_SIZE - 406
+    assert struct.unpack_from("<H", g.strg, 2)[0] == 0xffff
+    # index: slot 0 empty, slots 1/2 have packed lengths
+    assert g.strg[6 + 0] == 0
+    assert g.strg[6 + 1] > 0 and g.strg[6 + 2] > 0
+
+
+def test_strg_body_overflow_raises():
+    g = Geo.blank(4, 4)
+    with pytest.raises(GeoError):
+        g.strg_write(["X" * 9000])         # exceeds the 6762-byte body
+
+
+def test_message_build_decode_and_resolve():
+    g = Geo.blank(4, 4)
+    g.strg_write(["", "You enter a dark cavern.", "A cold wind blows."])
+    g.set_message(0, text_ids=[2, 3], picture=5, sound=9)
+    g = Geo.parse(g.build())
+    m = g.message(0)
+    assert m["lines"] == [2, 3]
+    assert m["picture"] == 5 and m["sound"] == 9
+    assert g.event_info(0)["name"] == "Message / Text"
+    tbl = g.strg_read()
+    # event text ids are 1-based -> strg_read()[id-1]
+    assert tbl[m["lines"][0] - 1] == "YOU ENTER A DARK CAVERN."
+
+
+def test_message_slots_big_endian():
+    g = Geo.blank(4, 4)
+    g.set_message(0, text_ids=[0x0102, 0x0304])
+    raw = g.event(0)
+    assert raw[8] == 0x01 and raw[9] == 0x02     # big-endian
+    assert raw[10] == 0x03 and raw[11] == 0x04
+
+
+def test_message_rejects_too_many_lines():
+    g = Geo.blank(4, 4)
+    with pytest.raises(GeoError):
+        g.set_message(0, text_ids=[1, 2, 3, 4, 5, 6])
+
+
 def test_event_type_and_condition_tables():
     assert EVENT_TYPES[1] == "Combat"
     assert EVENT_TYPES[2].startswith("Message")

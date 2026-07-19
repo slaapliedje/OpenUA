@@ -270,6 +270,88 @@ class Geo:
             rec[9 + s * 2] = mid & 0xff
         self.encr[o:o + EVENT_SIZE] = rec
 
+    # ---- Message / Text events (type 2 / 14) — l4d26 ----
+    def message(self, idx):
+        """Decode a Message event. Returns {lines: [text_id,...] (up to 5, into
+        the STRG table), picture, sound, confirm (per-line pause mask ev[4])}."""
+        ev = self.event(idx)
+        if ev[0] not in (2, 14):
+            raise GeoError("event %d is type %d, not Message (2/14)" % (idx, ev[0]))
+        lines = []
+        for s in range(5):
+            tid = (ev[8 + s * 2] << 8) | ev[9 + s * 2]   # big-endian STRG index
+            if tid:
+                lines.append(tid)
+        return {"type": ev[0], "lines": lines, "picture": ev[6],
+                "sound": ev[18], "confirm_mask": ev[4]}
+
+    def set_message(self, idx, text_ids, picture=0, sound=0, confirm_mask=0x1f,
+                    cond_type=0, cond_param=0, chain=0, once_only=False):
+        """Build a Message event from up to 5 STRG text ids. `confirm_mask` bit i
+        pauses for confirm after line i (default: pause after every line)."""
+        if len(text_ids) > 5:
+            raise GeoError("at most 5 text lines")
+        o = idx * EVENT_SIZE
+        rec = bytearray(EVENT_SIZE)
+        rec[0] = 2
+        rec[1] = ((cond_type & 0x1f) << 3) | (1 if once_only else 0)
+        rec[2] = cond_param & 0xff
+        rec[3] = chain & 0xff
+        rec[4] = confirm_mask & 0xff
+        rec[6] = picture & 0xff
+        rec[18] = sound & 0xff
+        for s, tid in enumerate(text_ids):
+            rec[8 + s * 2] = (tid >> 8) & 0xff       # big-endian
+            rec[9 + s * 2] = tid & 0xff
+        self.encr[o:o + EVENT_SIZE] = rec
+
+    # ---- STRG string table ----
+    def strg_read(self):
+        """Decode the area string table -> a list of up to 400 strings (empty
+        strings for unused slots). Uppercase, per the 6-bit alphabet."""
+        lt = self.strg[STRG_INDEX_OFF:STRG_INDEX_OFF + STRG_MAX_STR]
+        body = self.strg[STRG_BODY_OFF:]
+        strings, off = [], 0
+        for i in range(STRG_MAX_STR):
+            n = lt[i]
+            if n == 255:                 # unused-slot marker
+                strings.append("")
+                continue
+            if n == 0:
+                strings.append("")
+                continue
+            nchars = (n << 2) // 3
+            codes = _unpack6(body[off:off + n + 1], nchars)
+            s = "".join(chr(_code6_to_char(c)) for c in codes).split("\x00")[0]
+            strings.append(s)
+            off += n
+        return strings
+
+    def strg_write(self, strings):
+        """Build the string table from a list of strings (<=400; text folds to
+        uppercase). Event text ids are 1-based (jt232 reads index num-1)."""
+        if len(strings) > STRG_MAX_STR:
+            raise GeoError("at most %d strings" % STRG_MAX_STR)
+        index = bytearray(STRG_MAX_STR)
+        body = bytearray()
+        for i, s in enumerate(strings):
+            b = s.encode("mac-roman", "replace") if isinstance(s, str) else bytes(s)
+            if not b:
+                index[i] = 0
+                continue
+            packed = _pack6([_char_to_code6(c) for c in b])
+            if len(packed) > 254:      # index byte is 1 byte; 255 = unused marker
+                raise GeoError("string %d too long (%d packed bytes > 254)"
+                               % (i, len(packed)))
+            if len(body) + len(packed) > STRG_BODY_CAP:
+                raise GeoError("string body exceeds %d bytes" % STRG_BODY_CAP)
+            index[i] = len(packed)
+            body += packed
+        header = struct.pack("<HHH", STRG_BODY_CAP, 0xffff, 0)  # LE on disk
+        strg = header + bytes(index) + bytes(body)
+        strg += bytes(STRG_SIZE - len(strg))                    # zero-pad body
+        self.strg = bytearray(strg)
+
     # ---- container round-trip ----
     @classmethod
     def parse(cls, data):
@@ -324,6 +406,68 @@ class Geo:
         return g
 
 
+# ---- STRG string table: a 6-bit packed uppercase char pool ----
+# Header (6 bytes, little-endian on disk; the engine byte-swaps it in l4e3a):
+#   [0] body capacity (6762)   [2] 0xffff   [4] 0
+# then a 400-byte length index (lt[i] = packed byte count of string i), then the
+# body at +406. String i lives at body[sum(lt[0..i-1])]; its char count is
+# lt[i]*4//3 (four 6-bit chars per three bytes; l4fbe/l4c88).
+STRG_INDEX_OFF = 6
+STRG_BODY_OFF  = 406
+STRG_MAX_STR   = 400
+STRG_BODY_CAP  = STRG_SIZE - STRG_BODY_OFF   # 6762
+
+
+def _char_to_code6(c):
+    """ASCII byte -> 6-bit code (l4c88 inverse). Lowercase folds to upper; the
+    packed alphabet is uppercase A-Z, digits, space and punctuation only."""
+    if 97 <= c <= 122:      # a-z -> A-Z
+        c -= 32
+    if 65 <= c <= 95:       # A-Z [\]^_  -> codes 1..31
+        return c - 64
+    if 32 <= c <= 63:       # space ! " ... 0-9 : ; < = > ?  -> codes 32..63
+        return c
+    return 32               # unsupported char -> space
+
+
+def _code6_to_char(v):
+    if 1 <= v <= 31:
+        return v + 64
+    return v                # 0 (pad) or 32..63 literal
+
+
+def _pack6(codes):
+    """Pack 6-bit codes into bytes, 4 codes per 3 bytes (minimal length)."""
+    out = bytearray()
+    for i in range(0, len(codes), 4):
+        g = codes[i:i + 4] + [0] * (4 - len(codes[i:i + 4]))
+        b0 = (g[0] << 2) | (g[1] >> 4)
+        b1 = ((g[1] & 0xf) << 4) | (g[2] >> 2)
+        b2 = ((g[2] & 0x3) << 6) | g[3]
+        n = len(codes) - i               # codes left in this group
+        for k, b in enumerate((b0, b1, b2)):
+            if k < min(n, 3):            # only the bytes this group actually needs
+                out.append(b)
+    return bytes(out)
+
+
+def _unpack6(data, nchars):
+    """Unpack `nchars` 6-bit codes from `data` (l4c88)."""
+    codes = []
+    phase, si, cur, prev = 1, -1, 0, 0
+    for _ in range(nchars):
+        if phase < 4:
+            si += 1
+            prev, cur = cur, (data[si] if si < len(data) else 0)
+        if   phase == 1: v = (cur >> 2) & 0x3f
+        elif phase == 2: v = ((prev << 4) + (cur >> 4)) & 0x3f
+        elif phase == 3: v = ((prev << 2) + (cur >> 6)) & 0x3f
+        else:            v = cur & 0x3f
+        phase = phase + 1 if phase < 4 else 1
+        codes.append(v)
+    return codes
+
+
 class _Walker:
     def __init__(self, data):
         self.d = data
@@ -370,13 +514,22 @@ def main(argv):
                 for c in range(g.width) for r in range(g.height)
                 if g.cell_special(c, r)]
     print("cells with an event hook:", len(specials), specials[:8])
-    events = [g.event_info(i) for i in range(MAX_EVENTS)]
-    events = [e for e in events if e]
-    print("events:", len(events))
-    for i, e in enumerate(events[:12]):
-        print("  [%2d] type %2d %-24s cond=%-8s param=%3d chain=%3d%s"
-              % (i, e["type"], e["name"], e["cond_name"].split(" (")[0],
-                 e["cond_param"], e["chain"], " once" if e["once_only"] else ""))
+    strings = g.strg_read()
+    nstr = sum(1 for s in strings if s)
+    print("strings:", nstr, "non-empty")
+    for i in range(MAX_EVENTS):
+        e = g.event_info(i)
+        if not e:
+            continue
+        extra = ""
+        if e["type"] in (1, 33):
+            extra = "  " + repr(g.combat(i)["groups"])
+        elif e["type"] in (2, 14):
+            lines = g.message(i)["lines"]
+            extra = "  " + repr([strings[t - 1][:40] for t in lines if t])
+        print("  [%2d] %-24s cond=%-14s chain=%3d%s%s"
+              % (i, e["name"], e["cond_name"].split(" (")[0], e["chain"],
+                 " once" if e["once_only"] else "", extra))
     return 0
 
 

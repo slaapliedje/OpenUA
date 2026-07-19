@@ -146,21 +146,57 @@ g.set_combat(idx=0, groups=[(66, 4), (25, 1)])   # 4× monster 66, 1× monster 2
 info = g.combat(0)     # {'groups': [(66,4),(25,1)], 'text_id':…, 'picture':…, 'random':False}
 ```
 
+### Message / Text event (types 2 & 14) — mapped
+
+The narrative event (`l4d26`). Displays up to five lines of text, each a string
+id into the area STRG table, with an optional picture and sound.
+
+| byte | field |
+|---|---|
+| 4 | per-line **confirm mask** — bit *i* pauses for a click after line *i*; bit5 sets a follow-up flag |
+| 6 | picture id (same encoding as Combat) |
+| 7 | per-line **style mask** — bit *(i+2)* selects text style 3 vs 7 for line *i* |
+| 8,10,12,14,16 | five **text-id word slots** (big-endian; 0 = no line) into STRG |
+| 18 | event **sound** id |
+
+```python
+g.strg_write(["", "You enter a dark cavern.", "A cold wind blows."])
+g.set_message(idx=0, text_ids=[2, 3])   # ids are 1-based -> STRG slots 1 and 2
+```
+
 ### Other per-type parameters
 
-The type table above is complete, but the *per-type parameter bytes* beyond the
-common header are mapped only for Combat so far. Text (2/14), Passage (5/11/34)
-and the rest read their own bytes (e.g. Message uses five text-id word slots at
-`ev[8/10/12/14/16]`; Passage type 11 targets level `ev[14]`) — a continued
-effort, best done per type as a module needs it.
+Combat and Message are mapped to the byte. The remaining types read their own
+bytes (e.g. Passage type 11 targets level `ev[14]`) — a continued effort, best
+done per type as a module needs it.
 
 A bare area with no events zero-fills this chunk.
 
 ## STRG — the string table (A5 `-13034`)
 
-7168-byte string pool for the area's event text. **If the whole chunk is NUL the
-loader re-seeds it** (`l7226` → `l4db4` + `l4e3a`), so a generated area may leave
-STRG all zero and let the engine initialise it.
+The area's event text — a **6-bit packed, uppercase-only string pool** of up to
+400 strings. Decoded by `l4fbe`/`l4c88`, initialised by `l4db4`. Layout:
+
+| offset | size | contents |
+|---|---|---|
+| 0 | 6 | header (3 words, **little-endian** — the engine byte-swaps them in `l4e3a`): `[0]` body capacity (6762), `[2]` = 0xffff, `[4]` = 0 |
+| 6 | 400 | **length index** — `lt[i]` = packed byte count of string *i* (0 = empty, 255 = unused slot) |
+| 406 | 6762 | **body** — the packed character data |
+
+String *i* starts at `body[Σ lt[0..i-1]]` (`l4a30`, skipping 255s); its character
+count is `lt[i] * 4 // 3`. The body packs **four 6-bit codes into every three
+bytes**; a code maps to a character as: `0` -> pad, `1..31` -> `code + 64` (A-Z,
+`[\]^_`), `32..63` -> literal ASCII (space, punctuation, digits). There is **no
+lowercase** — text folds to upper case. An event's *text id* is **1-based**
+(`jt232` reads string `num-1`), so the displayed line is `strg_read()[text_id-1]`.
+
+**If the whole chunk is NUL the loader re-seeds it** (`l7226` -> `l4db4`), so a
+bare area may leave STRG all zero and let the engine initialise an empty table.
+
+```python
+g.strg_write(["", "You enter a dark cavern.", "A cold wind blows."])  # slots 0,1,2
+g.strg_read()[1]      # 'YOU ENTER A DARK CAVERN.'
+```
 
 ## Generating an area
 
