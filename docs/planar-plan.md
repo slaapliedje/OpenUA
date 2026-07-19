@@ -116,11 +116,23 @@ Y), or (b) cache converted pieces by (set-id, piece-idx, band). Prefer (a) — i
 also steadies the roster/HUD colours and removes the #40 banding shimmer.
 
 **Steps (each build + STE screenshot-diff + stprof):**
-- **B1 — fixed per-scene palette + engine-exposed remap.** Compute the band
-  palette once on scene load (stop the per-present reband path from re-quanting an
-  unchanged scene); pin wall/UI colours to stable slots; expose `remap` via a HAL
-  query. Everything still chunky+c2p → renders identically (screenshot-diff), but
-  the palette is now fixed and shared. Foundation for every later step.
+- **B1 — fixed per-scene palette + engine-exposed remap.** DONE across three
+  commits: `dsp_planar_remap()` HAL query (foundation); the reband-skip guard
+  (`c96e59f` — skip when the CLUT is byte-identical; measured low-value, only
+  1/9 boot rebands are redundant); and the **fixed per-scene palette**
+  (`7d02cd2`) — `st_reband` now does ONE global reduce replicated to all bands
+  instead of 10 independent per-band median-cuts. That retires the visible **#40
+  banding** (flat panels were striped brown/green/olive because a spanning colour
+  quantised differently per band); live-verified seam-free on the menu +
+  roster screens. Post-B2.1 the per-band scheme was moot (its beneficiary, the
+  viewport, is composited separately), so global is both the seam fix and
+  approach B's target palette model. The raster-split hardware is retained.
+  - **No-regret refinement (future):** per-band ANCHORING — pin global-common
+    colours to fixed slots, fill the rest per-band — restores >16 colours for
+    art-heavy screens WITHOUT reintroducing seams. Not needed while the flat HUD
+    is the only shared-surface content; revisit if an event picture looks
+    posterised. This is also where the composited walls would get their own
+    colours pinned (they currently map via the global luma fallback).
 - **B2 — composite plumbing + planar dungeon viewport.** Add the planar-region
   composite to `st_present`/`st_present_rect` (`planar_blit_stlow`); convert the
   three viewport writers (fills = planar rect-fill, backdrop = pre-converted
