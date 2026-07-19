@@ -117,3 +117,24 @@ So a module can be authored either way, and the two round-trip through the same
 file. `geo.py` is the headless, testable path (the editor cannot be exercised
 without the mouse-driven UI); this doc records what the interactive editor does
 to the identical underlying data.
+
+## Automated round-trip test
+
+`tests/test_geo_editor_roundtrip.py` locks down the contract that the editor and
+`geo.py` share the same on-disk GEO. It asserts, at the **file-contract** level:
+
+1. a synthetic edit → save → reload persists every change (walls, entry point,
+   an attached event) and is idempotent — what re-opening a saved area must do;
+2. **byte-for-byte** `parse → build` against **real engine/editor-authored**
+   `GEO*.DAT` (all 199 staged areas pass) — proof `geo.py` reads and writes
+   exactly what the in-engine editor saves. Skipped when `data/work/gamedata`
+   is absent (the copyrighted files are git-ignored, so this is a no-op in CI).
+
+It is deliberately **not** a live GUI drive: the editor's Save is behind a Mac
+press-drag pulldown, and synthetic input can't reach it reliably (Alt+letter
+menu accelerators race the modifier release — `compat/events.c:169`; a held
+mouse button under Hatari's SDL grab deadlocks the X server; the SDL window is
+recreated on every video-mode change). Driving that would be flaky, so the test
+asserts the invariant the GUI round-trip rests on instead. See the
+`run-falcon-port` skill's input notes for the headless-editor recipe (keyboard
+to reach it; assert by saving and re-reading with `geo.py`).
