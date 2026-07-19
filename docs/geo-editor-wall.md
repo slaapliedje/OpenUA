@@ -1,11 +1,15 @@
 # GEO / design-editor cluster — worklist (ADR-0008 phase-2)
 
-> **DONE (2026-07-07).** The whole CODE 11 GEO editor — `jt243` + `jt242` + the
-> hub `l28d4` + all ~40 helpers — is faithfully lifted (details in the C-phase
-> notes below). This file is the lift-campaign record; for what the editor
-> *does* (tool palette, cell data model, relationship to `tools/geo.py`) see the
-> operational spec **[geo-editor.md](geo-editor.md)**. The editor stays dormant
-> (mouse-gated) until the ADR-0006 editor UI is wired.
+> **DONE (2026-07-07), and LIVE (2026-07-18).** The whole CODE 11 GEO editor —
+> `jt243` + `jt242` + the hub `l28d4` + all ~40 helpers — is faithfully lifted
+> (details in the C-phase notes below) **and reachable from the running game**:
+> main menu → `E` (Edit Modules) → `l0004_22(7)` → `jt243`, verified live in
+> Hatari (module picker → editing canvas, command-bar keys responding). This
+> file is the lift-campaign record; for what the editor *does* and how it's
+> reached see the operational spec **[geo-editor.md](geo-editor.md)**. The one
+> remaining limitation is mouse input (Hatari injects no mouse buttons), so
+> mouse-driven cell placement isn't headless-testable — the reachability,
+> render, and keyboard command path are.
 
 Opening the last big cluster: the **design editor** (jt315 main menu →
 EDIT MODULES). ADR-0008 defers the tools behind the runtime; the runtime

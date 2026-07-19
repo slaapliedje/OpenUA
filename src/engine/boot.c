@@ -18451,11 +18451,15 @@ static short l0096(unsigned char *ctx) __attribute__((unused));
  * Before the loop JT[358]() is OR'd into the flags' high word (ctx[8]).
  * The chosen start handler then transitions among modes until one returns
  * mode 14 (JT[241], the play/dungeon action) — e.g. mode 4 -> ... -> mode 11
- * (JT[248], CODE 2+0x2a86 returns 14) -> mode 14. Those CODE 2/10 mode
- * handlers are the deferred next step (see jt315's selection dispatch); until
- * they land an unhandled start mode stops L0096 cleanly, so this entry is
- * lifted but not yet wired into the live menu. Called locally from jt315
- * (CODE 22+0x5180/0x5266).
+ * (JT[248], CODE 2+0x2a86 returns 14) -> mode 14.
+ *
+ * WIRED AND LIVE (2026-07-18): jt315's selection dispatch calls this for all
+ * four editor items (Game Settings -> arg 6, Edit Modules -> arg 7 = the GEO
+ * map editor jt243, Art Gallery -> 8, Monster Editor -> 9). Verified live in
+ * Hatari: main menu 'E' -> the Map Editor's module picker -> Open -> the
+ * editing canvas (FILE/MAP/UTILITIES bar, 3D cell view, PLACE/BLOCK tool
+ * palette, SELECT/LEFT/PLACE/RIGHT/UNDO/MARK command bar), command-bar keys
+ * responding. See docs/geo-editor.md. Called from jt315 (CODE 22+0x5180/0x5266).
  *
  * Field offsets in the 342-byte ctx (= L0096's struct):
  *   ctx[0] byte stop  ctx[2] word command  ctx[4] word mode

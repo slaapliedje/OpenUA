@@ -5,32 +5,32 @@ placing events, and painting cells into a GEO area. This document is its
 **operational spec**: what the editor does and how it mutates the same GEO cell
 table that `tools/geo.py` authors offline.
 
-## Status — lifted, but dormant
+## Status — WIRED AND LIVE
 
 **The whole CODE 11 GEO editor is faithfully lifted** (`jt233`–`jt244`, incl. the
 two giants `jt242` and `jt243`; completed 2026-07-07 — see
-`docs/geo-editor-wall.md` for the campaign record). Every function is a real
-transcription, not a stub.
+`docs/geo-editor-wall.md` for the campaign record) **and reachable from the
+running game** (verified 2026-07-18).
 
-It is **not yet reachable**, for two structural reasons (unchanged from the
-wall doc):
+**Verified live in Hatari.** From the main menu, the `E` key ("Edit Modules")
+opens the Map Editor's module picker; selecting an area and pressing Return
+(Open) brings up the full editing canvas — the FILE / MAP / UTILITIES menu bar,
+the 3D cell view, the `PLACE / BLOCK / PASSABLE` tool palette, and the
+`SELECT / LEFT / PLACE / RIGHT / UNDO / MARK` command bar. The command-bar keys
+(`S/L/P/R/U/M`) register — the bar highlights the active command — so the
+keyboard command path is exercised end-to-end.
 
-1. **Mouse-gated.** Entry is `jt315` (main menu) → EDIT MODULES →
-   `l0004_22(7)` → editor mode 2 → `jt243`. Every tool is a mouse click, and
-   Hatari does not inject mouse buttons (see the `run-falcon-port` skill), so
-   the editor is **not headless-testable** — correctness rests on faithful
-   transcription against the disasm.
-2. **UI not wired.** The editor UI (Dialog/Control/TextEdit, ADR-0006) is a
-   separate large effort. Until it is wired, `jt243` and its subtree are
-   dormant `__attribute__((unused))` lifts that only prove boot-unregressed.
-
-So there is no lifting work left here — this doc closes the gap by documenting
-the editor's *behaviour*, connecting it to the [geo-format](geo-format.md)
-cell model.
+**Caveat — mouse.** The editor's *primary* input is the mouse (click a map cell
+to edit it), and Hatari does not inject mouse buttons (see the
+`run-falcon-port` skill). So full cell-by-cell editing still can't be driven
+headless; the reachability, rendering, and keyboard command path are verified,
+the mouse-driven cell placement is not. `tools/geo.py` remains the fully
+headless-testable authoring path (and edits the same file — see below).
 
 ## How it is reached
 
-The CODE 22 command dispatcher `l0096` routes editor commands:
+Main menu (`jt315`) → **`E` / "Edit Modules"** → `l0004_22(7)` → editor mode 2 →
+`jt243`. Inside, the CODE 22 command dispatcher `l0096` routes editor commands:
 
 | cmd | target | role |
 |---|---|---|

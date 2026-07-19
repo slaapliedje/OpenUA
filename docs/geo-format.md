@@ -374,5 +374,6 @@ python3 tools/geo.py path/to/GEO001.DAT   # dump a summary of an existing area
 `geo.py` is the offline, headless-testable way to build an area. The engine
 also ships an **interactive map editor** (`jt243`) that edits the same GEO cell
 table and saves the same container — see [geo-editor](geo-editor.md) for its
-tool palette and data model. It is fully lifted but dormant (mouse-gated), so
-`geo.py` is the validatable authoring path today.
+tool palette and data model. It is lifted and **live** (reachable from the main
+menu via the `E` key, verified in Hatari); `geo.py` stays the fully
+headless-testable path because the editor's cell placement is mouse-driven.
