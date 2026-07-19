@@ -213,11 +213,42 @@ g.treasure(3)   # {'platinum': 100, 'gems': 6, 'jewelry': 2, 'items': [85], ...}
 Verified against 748 real treasure events (0 mismatches) + round-trip. Item ids
 index the design's item library; gems/jewelry later convert to XP when appraised.
 
+### Temple event (type 9) — mapped
+
+A temple offering built-in cure/resurrect services (`l216a`). The event only
+frames it — picture + two text lines:
+
+| byte | field |
+|---|---|
+| 6 | picture id (defaults to the temple backdrop when 0) |
+| 7 | bit3 = add the extra service menu row |
+| 13–14 | **intro text id** (little-endian STRG id, shown on entry) |
+| 15–16 | **wish/prompt text id** ("what is your wish?") |
+
+```python
+g.set_temple(idx, intro_text=13, wish_text=14, healing=True)
+```
+
+### Shop event (type 8) — mapped
+
+A merchant (`l5586`): a category and a stock list of items for sale.
+
+| byte | field |
+|---|---|
+| 5 | **shop type** (merchant category → `rec[40]`) |
+| 6 | picture id (defaults to the shop backdrop when 0) |
+| 8–19 | four 3-byte **stock slots** — `jt188` bit-selects items from the design's treasure table: index = `(slot[0]>>4)*20 + bit` |
+
+`set_shop(shop_type, stock=[...])` packs a list of treasure-table item indices
+(grouped by `index//20`, one row per slot, up to 4). The indices reference the
+design's item/treasure table — a separate subsystem — so the numbers are
+faithful but only meaningful against that table.
+
 ### Other per-type parameters
 
-Combat, Message, Passage and Treasure are mapped to the byte. The remaining
-types read their own bytes — a continued effort, best done per type as a module
-needs it.
+Combat, Message, Passage, Treasure, Temple and Shop are mapped to the byte. The
+remaining types read their own bytes — a continued effort, best done per type as
+a module needs it.
 
 A bare area with no events zero-fills this chunk.
 

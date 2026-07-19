@@ -247,6 +247,56 @@ def test_treasure_on_non_treasure_raises():
         g.treasure(0)
 
 
+def test_temple_build_decode():
+    g = Geo.blank(8, 8)
+    g.set_temple(0, intro_text=13, wish_text=14, picture=220, healing=True)
+    g = Geo.parse(g.build())
+    t = g.temple(0)
+    assert t["type"] == 9
+    assert t["intro_text"] == 13 and t["wish_text"] == 14
+    assert t["picture"] == 220 and t["healing"] is True
+
+
+def test_temple_text_ids_little_endian():
+    g = Geo.blank(8, 8)
+    g.set_temple(0, intro_text=0x0102, wish_text=0x0304)
+    raw = g.event(0)
+    assert raw[13] == 0x02 and raw[14] == 0x01   # LE low byte first
+    assert raw[15] == 0x04 and raw[16] == 0x03
+
+
+def test_temple_on_non_temple_raises():
+    g = Geo.blank(8, 8)
+    g.set_combat(0, [(1, 1)])
+    with pytest.raises(GeoError):
+        g.temple(0)
+
+
+def test_shop_build_decode():
+    g = Geo.blank(8, 8)
+    g.set_shop(0, shop_type=14, picture=134, stock=[15, 31, 47])
+    g = Geo.parse(g.build())
+    s = g.shop(0)
+    assert s["type"] == 8
+    assert s["shop_type"] == 14 and s["picture"] == 134
+    assert s["stock"] == [15, 31, 47]
+
+
+def test_shop_stock_packs_across_table_rows():
+    g = Geo.blank(8, 8)
+    stock = [0, 7, 8, 19, 25, 39, 41]   # spans rows 0, 1, 2 (index//20)
+    g.set_shop(0, shop_type=1, stock=stock)
+    g = Geo.parse(g.build())
+    assert g.shop(0)["stock"] == sorted(set(stock))
+
+
+def test_shop_stock_too_many_rows_raises():
+    g = Geo.blank(8, 8)
+    # 5 distinct rows (0,20,40,60,80 -> index//20 = 0..4) > 4 slots
+    with pytest.raises(GeoError):
+        g.set_shop(0, stock=[0, 20, 40, 60, 80])
+
+
 def test_passage_build_decode():
     g = Geo.blank(8, 8)
     g.set_passage(0, dest_area=6, x=3, y=4, facing=2)

@@ -316,6 +316,93 @@ class Geo:
             rec[12 + k] = iid & 0xff
         self.encr[o:o + EVENT_SIZE] = rec
 
+    # ---- Temple event (type 9) — l216a ----
+    def temple(self, idx):
+        """Decode a Temple event (`l216a`). Returns {picture, intro_text (a STRG
+        id shown on entry), wish_text (the 'what is your wish?' prompt id), and
+        healing (bool — the extra ev[7] bit3 service row)}. The temple's cure/
+        resurrect services are built-in; the event just sets the framing."""
+        ev = self.event(idx)
+        if ev[0] != 9:
+            raise GeoError("event %d is type %d, not Temple (9)" % (idx, ev[0]))
+        return {
+            "type":       9,
+            "picture":    ev[6],
+            "intro_text": ev[13] | (ev[14] << 8),    # little-endian STRG id
+            "wish_text":  ev[15] | (ev[16] << 8),
+            "healing":    bool(ev[7] & 0x08),
+        }
+
+    def set_temple(self, idx, intro_text=0, wish_text=0, picture=0,
+                   healing=False, cond_type=0, cond_param=0, chain=0,
+                   once_only=False):
+        """Build a Temple event: `intro_text`/`wish_text` are STRG ids (0 uses the
+        engine's default greeting/prompt). healing=True adds the extra service
+        row. Leaving picture 0 lets the engine default it (temple backdrop)."""
+        o = idx * EVENT_SIZE
+        rec = bytearray(EVENT_SIZE)
+        rec[0] = 9
+        rec[1] = ((cond_type & 0x1f) << 3) | (1 if once_only else 0)
+        rec[2] = cond_param & 0xff
+        rec[3] = chain & 0xff
+        rec[6] = picture & 0xff
+        rec[7] = 0x08 if healing else 0
+        rec[13] = intro_text & 0xff              # little-endian
+        rec[14] = (intro_text >> 8) & 0xff
+        rec[15] = wish_text & 0xff
+        rec[16] = (wish_text >> 8) & 0xff
+        self.encr[o:o + EVENT_SIZE] = rec
+
+    # ---- Shop event (type 8) — l5586 ----
+    def shop(self, idx):
+        """Decode a Shop event (`l5586`). Returns {shop_type (the merchant
+        category -> rec[40]), picture, stock: item-table indices offered}. The
+        four 3-byte stock slots select items from the design's treasure table by
+        bit (jt188: index = (slot[0]>>4)*20 + bit)."""
+        ev = self.event(idx)
+        if ev[0] != 8:
+            raise GeoError("event %d is type %d, not Shop (8)" % (idx, ev[0]))
+        stock = []
+        for k in range(4):
+            slot = ev[8 + k * 3:11 + k * 3]
+            hi = (slot[0] >> 4) & 15
+            for i in range(20):                  # jt188 bit scan
+                if slot[2 - (i >> 3)] & (1 << (i & 7)):
+                    stock.append(hi * 20 + i)
+        return {"type": 8, "shop_type": ev[5], "picture": ev[6],
+                "stock": sorted(set(stock))}
+
+    def set_shop(self, idx, shop_type=0, picture=0, stock=(),
+                 cond_type=0, cond_param=0, chain=0, once_only=False):
+        """Build a Shop event. `shop_type` is the merchant category; `stock` is a
+        list of treasure-table item indices to offer (packed into the four
+        jt188 bit-slots — up to four distinct index/20 groups)."""
+        o = idx * EVENT_SIZE
+        rec = bytearray(EVENT_SIZE)
+        rec[0] = 8
+        rec[1] = ((cond_type & 0x1f) << 3) | (1 if once_only else 0)
+        rec[2] = cond_param & 0xff
+        rec[3] = chain & 0xff
+        rec[5] = shop_type & 0xff
+        rec[6] = picture & 0xff
+        # group stock indices by row (index//20); each row -> one 3-byte slot.
+        rows = {}
+        for iid in stock:
+            rows.setdefault(iid // 20, set()).add(iid % 20)
+        if len(rows) > 4:
+            raise GeoError("stock spans %d table rows; max 4 slots" % len(rows))
+        for k, (hi, bits) in enumerate(sorted(rows.items())):
+            b0 = (hi << 4) & 0xff
+            b1 = b2 = 0
+            for i in bits:
+                if i < 8:      b2 |= 1 << i
+                elif i < 16:   b1 |= 1 << (i - 8)
+                else:          b0 |= 1 << (i - 16)   # bits 16..19 in low nibble
+            rec[8 + k * 3] = b0
+            rec[9 + k * 3] = b1
+            rec[10 + k * 3] = b2
+        self.encr[o:o + EVENT_SIZE] = rec
+
     # ---- Passage / transfer events (type 5 / 11 / 34) — l5676 ----
     def passage(self, idx):
         """Decode a Passage event. For a type-11 level change: {dest_area (the
@@ -622,6 +709,13 @@ def main(argv):
             t = g.treasure(i)
             extra = "  %dpp %dg %dj items=%r" % (t["platinum"], t["gems"],
                                                  t["jewelry"], t["items"])
+        elif e["type"] == 9:
+            t = g.temple(i)
+            extra = "  intro=%d wish=%d" % (t["intro_text"], t["wish_text"])
+        elif e["type"] == 8:
+            s = g.shop(i)
+            extra = "  shop_type=%d stock=%d items" % (s["shop_type"],
+                                                       len(s["stock"]))
         print("  [%2d] %-24s cond=%-14s chain=%3d%s%s"
               % (i, e["name"], e["cond_name"].split(" (")[0], e["chain"],
                  " once" if e["once_only"] else "", extra))
