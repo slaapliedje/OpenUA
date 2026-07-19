@@ -75729,6 +75729,153 @@ static void l0abc_c08(short x, short y, short attr, short width,
 	}
 }
 
+/* L0942 (CODE 8 local) — ACTIVATE a numeric field for editing: mark every list
+ * item dirty (l30ba = JT[446]), commit its current value, flip the odd/even
+ * edit bit off the old active bit, raise the "active" bit (2), drop the high
+ * flag bits, seed the shared edit cursor (jt1113 into -11620/-11618) and clear
+ * the commit flag -11622. jt373 msg 3/18 call it. */
+static void l0942_c08(unsigned char *H) __attribute__((unused));
+static void l0942_c08(unsigned char *H)
+{
+	unsigned char *data  = *(unsigned char **)(H + 8);   /* fp@-6 */
+	unsigned char  saved = H[28];                         /* fp@-1 */
+
+	l30ba((short)0, (short)(jt455() - 1), (short)128);
+	if (data != NULL)
+		*(long *)(data + 12) = *(long *)(data + 8);
+	if (saved & 0x04) H[28] &= (unsigned char)~0x08;
+	else              H[28] |= 0x08;
+	H[28] |= 0x04;
+	H[28] &= 0x1f;
+	jt1113((short *)&g_a5_word(-11620), (short *)&g_a5_word(-11618));
+	g_a5_byte(-11622) = 0;
+}
+
+/* L09ce (CODE 8 local) — DEACTIVATE / validate: if the current value sits inside
+ * [low,high] commit it (write-back, clear the active/edit/drawn bits, raise the
+ * -11622 commit flag); otherwise pop the "Valid numbers: lo - hi" banner
+ * (jt360 = L7404) and roll the value back to the last committed one. jt373 msg
+ * 26 and the msg-5 enter/tab/cancel paths call it. */
+static void l09ce_c08(unsigned char *H) __attribute__((unused));
+static void l09ce_c08(unsigned char *H)
+{
+	unsigned char *data = *(unsigned char **)(H + 8);
+
+	if (data == NULL) {
+		g_a5_byte(-11622) = 1;
+		return;
+	}
+	if (*(long *)(data + 8) >= *(long *)(data + 4)           /* >= low */
+	    && *(long *)(data + 8) <= *(long *)(data + 0)) {      /* <= high */
+		if (*(long *)(data + 16) != 0)
+			*(long *)(uintptr_t)*(long *)(data + 16) =
+			    *(long *)(data + 8);
+		H[28] &= 0x73;
+		g_a5_byte(-11622) = 1;
+	} else {
+		jt360(ua_strs_at(0x3516) /* "Valid numbers: %ld - %ld" */,
+		      *(long *)(data + 4), *(long *)(data + 0));
+		*(long *)(data + 8) = *(long *)(data + 12);
+		if (*(long *)(data + 16) != 0)
+			*(long *)(uintptr_t)*(long *)(data + 16) =
+			    *(long *)(data + 8);
+		H[28] &= 0x7f;
+	}
+}
+
+/* L0b8c (CODE 8 local) — the numeric field KEY handler. Applies `key` to the
+ * value at *valptr, bounded by [low,high]: 264/260 step by one; 262/258 ×10/÷10;
+ * 261/263 jump to high/low; 8/266 backspace (drop a digit); a digit char (or its
+ * shifted symbol via jt409 over ")!@#$%^&*(") appends a place; '-' toggles the
+ * sign of a zero when the low bound is negative. Out-of-range results pop the
+ * jt360 "Valid numbers" banner and are rejected. Returns 1 when the value
+ * changed, -1 when the key was a rejected numeric edit, 0 when not consumed. */
+static short l0b8c_c08(short key, long high, long low,
+                       long *valptr, unsigned char *signptr)
+                       __attribute__((unused));
+static short l0b8c_c08(short key, long high, long low,
+                       long *valptr, unsigned char *signptr)
+{
+	long d4;
+
+	switch (key) {                          /* JT[1]@0xbba */
+	case 264:                               /* increment */
+		if (high <= *valptr) return -1;
+		*valptr += 1;
+		return 1;
+	case 260:                               /* decrement */
+		if (low >= *valptr) return -1;
+		*valptr -= 1;
+		return 1;
+	case 262:                               /* ×10 — shift a place in */
+		if (l0a86_c08(*valptr) >= 11) return -1;
+		if (jt4(*valptr, 10) > high) return -1;
+		if (jt4(*valptr, 10) < low) return -1;
+		*valptr = jt4(*valptr, 10);
+		return 1;
+	case 258:                               /* ÷10 bounded to low */
+		if (*valptr == 0) return -1;
+		d4 = jt7(*valptr, 10);
+		if (d4 < low) return -1;
+		*valptr = d4;
+		return 1;
+	case 263:                               /* jump to low */
+		if (low == *valptr) return -1;
+		*valptr = low;
+		return 1;
+	case 261:                               /* jump to high */
+		if (high == *valptr) return -1;
+		*valptr = high;
+		return 1;
+	case 8: case 266:                       /* backspace — drop last digit */
+		if (*valptr == 0) return -1;
+		*valptr = jt7(*valptr, 10);
+		return 1;
+	default:                                /* L0cac — digit / sign entry */
+		if (jt409(ua_strs_at(0x353e) /* ")!@#$%^&*(" */, 10, key) < 10)
+			key = (short)(jt409(ua_strs_at(0x354a) /* ")!@#$%^&*(" */,
+			                    (short)10, key) + 48);
+		if (key >= 48 && key <= 57) {           /* a digit '0'..'9' */
+			short digit = (short)(key - 48);
+			long  nv    = 0;
+			int   ok    = 0;
+			if (l0a86_c08(*valptr) < 11
+			    && jt7(high - digit, 10) >= *valptr) {
+				if (*valptr < 0
+				    || (*valptr == 0 && *signptr != 0)) {
+					nv = jt4(*valptr, 10) - digit;
+					*signptr = 0;
+				} else {
+					nv = jt4(*valptr, 10) + digit;
+				}
+				if (((low > 0) || nv >= low) && nv <= high) {
+					*valptr = nv;
+					ok = 1;
+				}
+			}
+			if (ok)
+				return 1;
+			jt360(ua_strs_at(0x3556) /* "Valid numbers: %ld - %ld" */,
+			      low, high);
+			return -1;
+		}
+		if (key == 45) {                        /* '-' */
+			if (*valptr == 0 && low < 0)
+				*signptr = (unsigned char)(*signptr == 0
+				                           ? 1 : 0);
+			d4 = jt4(*valptr, -1);
+			if (d4 >= low && d4 <= high) {
+				*valptr = d4;
+				return 1;
+			}
+			jt360(ua_strs_at(0x3570) /* "Valid numbers: %ld - %ld" */,
+			      low, high);
+			return -1;
+		}
+		return 0;                               /* not consumed */
+	}
+}
+
 /* jt373 (CODE 8 + 0x0004) — the list-widget LDEF: the DLItem method for the
  * record editor's list columns (l1ae2 arm 7 stores &jt373; l348e-style pickers
  * use it too). Dispatches on the message (JT[1]@0x003c): 0 init/measure, 1 draw,
@@ -75736,13 +75883,16 @@ static void l0abc_c08(short x, short y, short attr, short width,
  * 4/19/21/22/27 no-op; default -> jt443 (=l1676, the generic DLItem handler). A
  * sibling of jt335. (NOT the CODE-4/6 l0004 menu dispatcher — a different fn.)
  *
- * WIP (Phase D): the head + NULL guards + the message switch + the common exit +
- * default routing are lifted, plus msg 0 (init/measure — L0080) and msg 1 (draw
- * — L023a) with their helpers l0a86_c08 / l0abc_c08, so l1ae2 arm-7 fields now
- * RENDER (the Game-Settings experience/platinum/gems/jewelry value boxes). The
- * interactive handlers (2/3/5/18/26/36/40/42) and their helper tree
- * (L0942/L09ce/L0b8c + JT[446]/L7404) are the next step — until then those
- * messages exit with result 0, so a field draws but is not yet click-editable. */
+ * FULLY LIFTED (Phase D): the message switch dispatches every arm the Mac does —
+ *   0 init/measure (L0080)   1 draw (L023a)   2 hit-test (L0504)
+ *   3 track/activate (L057a) 5 key input (L0604)  18 activate  26 deactivate
+ *   36 set value  40 generic+clear bit0  42 set width  128 exists  else l1676
+ * with the helper tree l0a86_c08 (digit count), l0abc_c08 (value formatter),
+ * l0942_c08 (activate), l09ce_c08 (validate/commit), l0b8c_c08 (key editor);
+ * JT[446] resolves to l30ba and L7404 to jt360. RENDER is verified live in
+ * Hatari; the edit path (msg 5) can't be headless-tested — Hatari injects no
+ * mouse-button events, so a field can't be click-focused — so it builds and
+ * mirrors CODE_08.s block-by-block but a click-to-edit round-trip is unverified. */
 static short jt373(void *rec_v, short msg, short p14, short p16)
     __attribute__((unused));
 static short jt373(void *rec_v, short msg, short p14, short p16)
@@ -75856,13 +76006,117 @@ static short jt373(void *rec_v, short msg, short p14, short p16)
 		}
 		break;
 	}
+	case 2: {                                        /* L0504 — hit-test the box */
+		short row, col;                          /* fp@-2 / fp@-4 */
+		if ((H[28] & 0x03) != 0)
+			break;
+		jt1139(*(short *)(H + 16), *(short *)(H + 18),
+		       p14, p16, &row, &col);
+		if (row >= 0 && row < 4 && col >= 0
+		    && (*(short *)(H + 22) * 4 + 2) > col)
+			result = 1;
+		break;
+	}
+	case 3: {                                        /* L057a — track: wait, hit, activate */
+		short py, px;                            /* fp@-2 / fp@-4 */
+		do { } while ((jt1132(&py, &px) & 0xff) == 0);
+		if (jt373(H, (short)2, py, px) != 0) {
+			l0942_c08(H);
+			result = 1;
+		}
+		break;
+	}
+	case 5:                                          /* L0604 — key while active */
+		if (!(H[28] & 0x04))                     /* bit2 — must be active */
+			break;
+		if (p14 == 96 || p14 == 27) {            /* cancel / esc — revert */
+			long t = *(long *)(data + 8);
+			*(long *)(data + 8)  = *(long *)(data + 12);
+			*(long *)(data + 12) = t;
+			H[28] |= 0x60;
+			if (*(long *)(data + 16) != 0)
+				*(long *)(uintptr_t)*(long *)(data + 16) =
+				    *(long *)(data + 8);
+			l09ce_c08(H);
+			result = 1;
+		} else if (p14 == 13 || p14 == 10) {     /* enter — commit */
+			l09ce_c08(H);
+			result = 1;
+		} else if (p14 == 9) {                   /* tab — next field */
+			short idx = (short)(((unsigned char *)H
+			    - (unsigned char *)(uintptr_t)g_a5_long(-9254))
+			    >> 5);
+			l09ce_c08(H);
+			for (;;) {
+				unsigned char *item;
+				if (jt455() - 1 > idx) idx++;
+				else                   idx = 0;
+				item = (unsigned char *)(uintptr_t)
+				       g_a5_long(-9254) + idx * 32;
+				if (((dlitem_method_t)(uintptr_t)
+				     *(long *)item)(item, (short)128) != 0) {
+					((dlitem_method_t)(uintptr_t)
+					 *(long *)item)(item, (short)18);
+					break;
+				}
+			}
+			result = 1;
+		} else {                                 /* digit / edit key */
+			if (H[28] & 0x08) {              /* bit3 — fresh field */
+				*(long *)(data + 8) = 0;
+				H[28] &= 0x77;
+			}
+			result = l0b8c_c08(p14, *(long *)(data + 0),
+			                   *(long *)(data + 4),
+			                   (long *)(data + 8), &data[20]);
+			if (result > 0) {               /* value changed — redraw */
+				short cx = (short)((*(short *)(H + 22) - 1) * 4
+				                   + *(short *)(H + 18));
+				long  m  = jt8(*(long *)(data + 8), 10);
+				short sg = (*(long *)(data + 8) < 0)
+				               ? (short)-1 : (short)1;
+				l0abc_c08(*(short *)(H + 16),
+				          *(short *)(H + 18), (short)240,
+				          *(short *)(H + 22),
+				          *(long *)(data + 8),
+				          (short)data[20]);
+				jt1089(*(short *)(H + 16), cx, (short)15,
+				       ua_strs_at(0x3510) /* "%1ld" */,
+				       jt4(m, sg));
+				H[28] |= 0x80;
+			}
+			result = (result != 0) ? 1 : 0;
+		}
+		break;
+	case 18:                                         /* L05be — activate on focus */
+		if (!(H[28] & 0x04))
+			l0942_c08(H);
+		break;
+	case 26:                                         /* L05e4 — deactivate / validate */
+		if (H[28] & 0x04)
+			l09ce_c08(H);
+		break;
+	case 36:                                         /* L0860 — set value from p14 */
+		if ((long)(short)p14 != *(long *)(data + 8)) {
+			*(long *)(data + 8) = (long)(short)p14;
+			if (*(long *)(data + 16) != 0)
+				*(long *)(uintptr_t)*(long *)(data + 16) =
+				    *(long *)(data + 8);
+			H[28] &= 0x7f;
+		}
+		break;
+	case 42: {                                       /* L08a4 — set field width from p14 */
+		short w = jt397((short)1, p14);
+		if (w != *(short *)(H + 22)) {
+			*(short *)(H + 22) = w;
+			H[28] &= 0x7f;
+		}
+		break;
+	}
 	case 128:                                        /* L05de — "exists" */
 		result = 1;
 		break;
 	case 4: case 19: case 21: case 22: case 27:      /* L091e — no-op */
-		break;
-	case 2: case 3: case 5:
-	case 18: case 26: case 36: case 42:              /* TODO — interaction pending */
 		break;
 	case 40:                                         /* L08da — generic + clear H@19 bit0 */
 		result = l1676(H, msg, p14, p16);
