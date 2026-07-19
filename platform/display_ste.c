@@ -303,6 +303,28 @@ static void st_blit_full(void)
 static void st_reband(void)
 {
 	short b, i;
+	const unsigned char *qsrc = s_chunky;
+
+	/* Pin the composited walls' colours (ADR-0016 B1). After B2.1 the dungeon
+	 * viewport renders into the planar SCRATCH, not s_chunky, so the reband never
+	 * saw the wall/backdrop colours and the composite mapped their CLUT indices
+	 * through the luma fallback — walls came out in HUD greys, not their authored
+	 * stone/wood/sky. When a viewport is committed (s_vp_active, still set here —
+	 * the composite that clears it runs after us), quant over a copy of s_chunky
+	 * with the scratch's viewport rect overlaid, so the fixed palette is derived
+	 * from the walls too and their indices get exact slots. The temp lives in
+	 * s_shadow, which the forced-full blit right after this rebuilds anyway. */
+	if (s_vp_active) {
+		short r;
+		memcpy(s_shadow, s_chunky, (long)ST_W * ST_H);
+		for (r = 0; r < s_vp_h; r++) {
+			short yy = (short)(s_vp_y + r);
+			memcpy(s_shadow + (long)yy * ST_W + s_vp_x,
+			       s_vp_scratch + (long)yy * VP_SCR_PITCH + s_vp_x,
+			       (size_t)s_vp_w);
+		}
+		qsrc = s_shadow;
+	}
 
 	/* ADR-0016 B1 (fixed per-scene palette): ONE global reduce over the whole
 	 * frame (nbands=1 histograms all rows), replicated to every band. A flat
@@ -311,11 +333,11 @@ static void st_reband(void)
 	 * brown/green/olive stripes — vanish. This is also approach B's target
 	 * palette model: the per-band scheme existed to stop the granite chrome
 	 * starving the viewport, but post-B2.1 the viewport is composited as its own
-	 * planar region, so the shared surface holds only the (flat, seam-prone) HUD,
-	 * for which one 16-colour palette is ample. The raster-split machinery stays
-	 * (identical per-band loads) so per-band anchoring can return later if an
-	 * art-heavy screen ever needs the extra colours. */
-	quant_banded(s_chunky, ST_W, ST_H, s_clut,
+	 * planar region, so the shared surface holds only the (flat, seam-prone) HUD
+	 * plus the overlaid walls above, which one 16-colour palette covers. The
+	 * raster-split machinery stays (identical per-band loads) so per-band
+	 * anchoring can return later if an art-heavy screen needs the extra colours. */
+	quant_banded(qsrc, ST_W, ST_H, s_clut,
 	             1, ST_NCOL, ST_BITS, s_band_pal, s_band_remap);
 	for (b = 1; b < ST_NBANDS; b++) {
 		memcpy(s_band_pal + (long)b * ST_NCOL * 3, s_band_pal,
