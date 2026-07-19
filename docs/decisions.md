@@ -767,3 +767,52 @@ session starts from the bisection, not from scratch. Related follow-up: the
 Amiga in-game **HUD text** (party roster, command bar) does not render even
 with the hooks off — a separate, pre-existing Amiga text/blit issue, tracked
 apart from this.
+
+---
+
+## ADR-0016 — Native planar rendering on the bitplane machines (ST/STe/Amiga), diverging from the Mac chunky model
+
+**Status:** ratified 2026-07-19. Work on the `planar-native` branch. Amends
+ADR-0005 (the display HAL) for the bitplane backends.
+
+**Context.** The engine is a Macintosh decompilation: every draw goes through
+the QuickDraw shim into a single **8-bit chunky (palette-indexed) surface**, and
+each present converts that surface to the machine's native format. The Falcon
+(VIDEL 8bpp) and TT are chunky-native, so this is free-ish for them and they have
+CPU headroom above the Mac's 68020 minimum. The **ST/STe (8 MHz 68000)** and
+**Amiga (7 MHz 68000, ECS/OCS)** are **bitplane** machines with **no chunky
+mode**, so every present pays a per-frame **chunky→planar (c2p)** tax on the
+slowest CPUs we target. Measured on the ECS build: the menu renders correctly in
+32 colours, but the in-game feel is slow — the cost is the pure-CPU c2p
+(`platform/amiga/c2p_amiga.c`, no blitter) plus a per-force-full median-cut
+re-band (`quant_banded`). A blitter-assisted c2p would help, but c2p is the wrong
+tax to optimise: **nothing in this engine needs a chunky framebuffer.** It is a
+*grid* dungeon — 2D tiles, sprites, perspective-scaled wall slabs at a small set
+of **discrete depths**, and 2D UI/text. No per-pixel shading or texture-mapping.
+
+**Decision.** On the **bitplane machines, render natively in planar bitplanes**;
+do **not** round-trip through a chunky surface. Concretely:
+
+1. **Pre-convert + pre-scale art to planar once, per wall-set load** (not per
+   frame). A grid dungeon shows each wall piece at only a handful of on-screen
+   sizes, so each piece is quantised to the target palette (32-colour ECS,
+   16-colour ST) and pre-scaled to its discrete depth slots, stored as planar
+   bitplane data with a transparency mask.
+2. **The dungeon render becomes plane blits** at precomputed slot rectangles —
+   **blitter-driven on the Amiga and STe**, CPU planar blit on the plain ST.
+   No per-frame c2p in the dungeon.
+3. **Static chrome/UI (menu, HUD frame) converts to planar once** and is blitted;
+   only the dynamic viewport and text redraw. Palette-cycle animation (torch/fire)
+   stays free — it is just colour-register writes in planar.
+
+The **Mac/Falcon/TT keep the chunky path unchanged** (they can afford it and the
+VIDEL wants it). This is a deliberate, target-specific **fork of the render path**
+for the bitplane HAL backends — the divergence ADR-0005 anticipated but did not
+yet require.
+
+**Why an ADR:** it splits the render architecture by target class (chunky vs
+planar) — a structural departure from "one chunky surface, HAL converts at
+present." It is a large, multi-phase effort (see `docs/planar-plan.md`), done on
+a branch so `main` stays shippable while it lands phase by phase. The **Falcon/TT
+chunky path is explicitly retained**, not deprecated; those two get faster c2p
+later if ever needed, but they are not blocked on this work.
