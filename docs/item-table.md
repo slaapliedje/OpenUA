@@ -19,8 +19,10 @@ unused, id 255 is the money pseudo-item). `tools/items.py` reads and builds it.
 
 | offset | field | confidence |
 |---|---|---|
-| 0 | **item type** (1..105) — indexes the engine's built-in item name/behaviour | confirmed (`node[40]`) |
-| 3 | secondary type (mirrors `[0]` in the base table) | tentative |
+| 0 | **item type** (1..105) — category/behaviour; for base items equals the primary name-word index `[3]` | confirmed (`node[40]`) |
+| 1 | **name-word index** — trailing modifier word (emitted last) | confirmed (`jt28`; see [item-names](item-names.md)) |
+| 2 | **name-word index** — modifier word (emitted second) | confirmed (`jt28`) |
+| 3 | **name-word index** — primary noun (emitted first); usually == `type` | confirmed (`jt28`) |
 | 4–5 | little-endian **value** word (cost / level; per-type) | partial |
 | 6–7 | little-endian value word | partial |
 | 11 | flags (the give-flag clears its low 3 bits) | confirmed (`jt187`) |
@@ -34,9 +36,6 @@ properties and the whole record as `.raw` for the rest.
 
 ## Not yet mapped
 
-- The **built-in item name/behaviour list** that `type` (`[0]`) indexes — the
-  ~105 standard names ("Long Sword", "Plate Mail", …). These are engine data,
-  not per-design, so item names are shared across designs.
 - The per-type field semantics of `[4..7]` (damage, AC bonus, charges, spell id).
 - The **`-12645` selector table** source (built into the design state; not traced
   to a standalone file yet).
