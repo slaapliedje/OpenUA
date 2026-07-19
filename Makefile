@@ -18,7 +18,7 @@ MACHINE ?= falcon
 
 # Shared platform sources (machine-neutral): the chunky->planar converter is
 # pure 68k asm used by any bitplane display backend (AGA; a future STe).
-PLATFORM_SHARED := platform/c2p.S
+PLATFORM_SHARED := platform/c2p.S platform/planar.c
 
 ifeq ($(MACHINE),amiga)
 include toolchain/m68k-amigaos.mk

@@ -47,3 +47,13 @@ void plat_get_datetime(struct plat_datetime *out)
 	out->minute = (int)((t >> 5) & 0x3f);
 	out->second = (int)((t & 0x1f) * 2);
 }
+
+/* Native-planar blit acceleration (ADR-0016). XBIOS Blitmode(-1) returns the
+ * current config word without changing it; bit 1 = the BLiTTER hardware is
+ * present (STe/Mega ST always; the plain ST had an optional socket). The call
+ * exists on TOS >= 1.2, which every ST/STe/Falcon TOS we boot satisfies. The
+ * Falcon/TT report their blitter too, harmless — those targets stay chunky. */
+int plat_have_blitter(void)
+{
+	return (Blitmode(-1) & 0x0002) != 0;
+}

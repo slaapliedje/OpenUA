@@ -92,4 +92,12 @@ void plat_get_datetime(struct plat_datetime *out)
 	out->second = (int)(ds.ds_Tick / TICKS_PER_SECOND);
 }
 
+/* Native-planar blit acceleration (ADR-0016). The Amiga blitter is core
+ * chipset — always present on OCS/ECS/AGA — so this is unconditional. Phase 4
+ * drives it via OwnBlitter/BltBitMap under the planar_blit interface. */
+int plat_have_blitter(void)
+{
+	return 1;
+}
+
 #endif /* FRUA_AMIGA */

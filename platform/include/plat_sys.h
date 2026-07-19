@@ -32,4 +32,10 @@ struct plat_datetime {
 };
 void plat_get_datetime(struct plat_datetime *out);
 
+/* Is a hardware blitter available for native planar blits (ADR-0016)?
+ * 1 = use the blitter path, 0 = CPU fallback. Amiga: always 1 (core chipset).
+ * Atari: STe/Mega ST always have it; the plain ST had an optional socket, so
+ * this probes XBIOS Blitmode(-1). Queried once at display init. */
+int plat_have_blitter(void);
+
 #endif /* PLATFORM_PLAT_SYS_H */
