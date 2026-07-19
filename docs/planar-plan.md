@@ -81,87 +81,59 @@ Plane blits are the hot primitive. Hardware support varies:
   expected planes; masked blit composites correctly over a background;
   transparency keys drop the right pixels. No emulator needed.
 
-### Staging constraint (found during Phase 2 scoping)
+### Approach B — fixed-palette FULL-FRAME planar (chosen 2026-07-19)
 
-The 8bpp surface is **shared**: ~30 distinct engine sites (plus the QuickDraw
-shim primitives) grab `qd_screen_pixels()` and write chunky indices directly —
-the dungeon leaf (`l309c_tile`), text (`DrawChar`), fills, chrome, cursor, event
-pictures, the automap, etc. As long as **any** one writes chunky, the surface is
-chunky and the backend must c2p it. So "drop chunky + c2p" cannot be one commit;
-it is the *last* step, after every writer is planar. The end state is unchanged
-(full native planar, c2p gone); the phasing converts writers in value order and
-keeps the frame coherent during transition with a **composite**: the backend
-still c2p's the chunky surface (row-diffed → nearly free for the mostly-static
-UI) and then blits the native-planar regions over it. c2p disappears only when
-the last chunky writer is converted and the surface itself becomes planar.
+Scoping the viewport-only hybrid surfaced FOUR escalating wrinkles, the last
+fundamental: (1) the viewport has THREE writers (perspective fills via `map_px`
+`boot.c:11167`, the BACK.CTL backdrop `g_back_img`, wall pieces via
+`l309c_tile`/`cw_blit_piece`); (2) pre-converting pieces needs the palette before
+the scene renders; (3) `g_cwf_body[]` is a single-set cache `jt200_layer` thrashes
+per frame; and **(4) one palette per scanline** — the ST raster-split and the
+Amiga copper both allow only one palette per scanline, and the viewport SHARES
+scanlines with the roster, so the viewport cannot have an independent palette.
 
-**Phase 2 — native-planar dungeon viewport (composited).**
-- The dungeon viewport is the hot redraw path (it repaints every step; the UI is
-  mostly static). Render it natively planar into a **separate planar viewport
-  buffer** instead of the chunky hole: `FRUA_PLANAR` fork in `l309c_tile`
-  (`boot.c:12709`) + `cw_blit_piece` writes plane bits via `planar_blit`; wall
-  pieces convert to planar once at `cw_load_slot`/`cw_finalize`
-  (`boot.c:11628`/`11764`) into a store beside `g_cwf_body[]`.
-- Backend: after the (row-diffed) c2p of the chunky surface, **blit the planar
-  viewport buffer into the viewport hole** (the 88×88 colour / 176×176 mono
-  region). The per-step cost drops from "c2p the viewport" to "plane-blit the
-  viewport" — the win, incrementally, on the path that redraws every step.
-- Palette: the viewport band's hardware palette carries the wall-set colours
-  (base 32/69/106), so pieces convert with a near-identity band remap; the UI
-  bands keep the UI palette (the per-band copper split the ECS backend already
-  runs). Grab the walk-step baseline first so the win is a real number.
-- Verify: the 3D dungeon renders identically to the chunky build
-  (screenshot-diff) in amiberry (ECS) + Hatari (ST/STe).
+**(4) kills the hybrid but *enables* B.** The resolution to (4) — a single
+**fixed per-scene palette** that both the planar walls and the chunky roster in
+the same rows share — is exactly the end-state. With one fixed per-scene palette
+(computed ONCE on scene load, not per present), **chunky and planar regions
+coexist consistently**, so writers can convert to planar one region at a time
+against the SAME shared remap, with no palette conflict. The hybrid fought the
+constraint; B works with it.
 
-### Phase 2 concrete design (locked, from reading the render path)
+**The model.** On scene load, quant once → the per-band palette + a `remap[256]`
+(clut index → slot), exposed to the engine. Every writer draws native-planar
+against `remap`; during the transition, un-converted writers stay chunky and the
+backend **composites**: row-diff-c2p the chunky surface (same fixed `remap`), then
+overlay the planar regions. Because the palette is fixed per scene, the two agree.
+When the last writer is planar, the chunky surface and c2p are removed — present
+is a flip. No per-present c2p, no reband.
 
-The colour dungeon viewport is **88×88 at (24,24)-(112,112)** (`boot.c:13752`),
-and it has **THREE** writers into the shared surface, all of which must render
-into the separate-plane viewport buffer instead:
-1. **Perspective fills** (sky/ceiling/floor solid rects) — `map_px` (`boot.c:11167`)
-   → a planar rect-fill into the buffer.
-2. **Backdrop image** (BACK.CTL `g_back_img`, jt121 → `map_px`) — pre-convert to
-   planar once at `load_backdrop`, blit into the buffer.
-3. **Wall pieces** — `l309c_tile`'s direct `g_cwf_px[...] = v` (`boot.c:12709`) +
-   `cw_blit_piece`'s `map_px` (`boot.c:12806`) → `planar_blit_cpu` of pre-converted
-   pieces.
+**Per-band piece conversion.** The per-band palettes mean a clut index can map to
+different slots in different bands, and a wall piece spans several viewport bands
+(rows 24-112 = bands 1-5). Either (a) **pin the wall colours to consistent slots
+across the viewport bands** in the quant (so a piece converts once regardless of
+Y), or (b) cache converted pieces by (set-id, piece-idx, band). Prefer (a) — it
+also steadies the roster/HUD colours and removes the #40 banding shimmer.
 
-**Palette (the chicken-and-egg):** pre-converting pieces needs the N-colour
-palette *before* the scene renders, but the viewport shows up to 3 wall sets
-(3×`CW_BAND`=111 clut entries, `g_cw_sr/sg/sb` at bases 32/69/106) that must fit
-16 (ST) / 32 (ECS). Resolve with a **load-time union-quant**: at `cw_finalize`
-(`boot.c:11764`), feed the union of the loaded sets' palettes to `quant_reduce_n`
-(`quantize.h:91`) → a fixed N-colour **viewport palette** + a `remap[32..142]`.
-Pieces + backdrop convert through that remap once; the viewport band's hardware
-registers carry the viewport palette. Lossy (111→N) but the walls are limited-
-palette art, and the current per-band quant is already 16/band — comparable.
-Verify quality on screen; tune in Phase 5.
+**Steps (each build + STE screenshot-diff + stprof):**
+- **B1 — fixed per-scene palette + engine-exposed remap.** Compute the band
+  palette once on scene load (stop the per-present reband path from re-quanting an
+  unchanged scene); pin wall/UI colours to stable slots; expose `remap` via a HAL
+  query. Everything still chunky+c2p → renders identically (screenshot-diff), but
+  the palette is now fixed and shared. Foundation for every later step.
+- **B2 — composite plumbing + planar dungeon viewport.** Add the planar-region
+  composite to `st_present`/`st_present_rect` (`planar_blit_stlow`); convert the
+  three viewport writers (fills = planar rect-fill, backdrop = pre-converted
+  planar, walls = `planar_blit_cpu` of pieces cached per the (a) scheme) into a
+  separate-plane viewport buffer the composite overlays. The per-step walk cost
+  drops from viewport-c2p to a plane blit.
+- **B3 — convert the remaining writers** (chrome once, `DrawChar` text, panel
+  fills, GLIB art, cursor, automap) to planar against `remap`, shrinking the c2p
+  region each time.
+- **B4 — drop chunky + c2p.** When the last writer is planar, the surface IS the
+  bitplanes; delete the composite and the c2p. Present = flip.
 
-**Piece store thrashes — needs a persistent planar cache.** `g_cwf_body[]`
-(what `l309c_tile` blits from, `boot.c:12835`) is a SINGLE-set cache: `jt200_layer`
-reloads it (via `cw_setglib_load`/`jt468`) each time the frustum walk switches
-wall sets, so it is repopulated several times per frame. "Convert pieces once at
-load" therefore does not hold — convert **lazily on first blit and cache by
-(set-id, piece-idx)** in a persistent planar-piece store (a small hash / direct
-map over the ≤3 resident sets × `CW_NPIECE`), keyed off the same set id
-`jt200_layer` resolves. Invalidate a set's planar cache when its wall id changes.
-
-**Composite in BOTH present paths:** the full present (`st_present`) row-diffs the
-chunky UI then composites the viewport; the per-STEP path is `st_present_rect`
-(`boot.c:14718` → `st_present_rect`, NOT the profiled `st_present`), so the
-composite hook lives there too — that is the walk-responsiveness path.
-
-**Steady-walk cost = viewport re-render** (confirmed: same wall set → no palette
-load → no reband), so this directly targets "walking feels slow." The reband is
-a per-scene-change cost the full-planar end state (phase 3) removes.
-
-**Phase 3 — convert the remaining chunky writers; drop the composite.**
-- Convert the rest of the ~30 surface writers to planar in value order: chrome
-  (static → convert once), `DrawChar` text (`compat/quickdraw.c:2212`), rect
-  fills (`jt1161`/panels), GLIB art blits (bigpics/backdrop), cursor, automap.
-- When the last writer is planar, the surface itself becomes planar: **remove the
-  composite and the c2p** — backend `present` is a flip. Chunky is gone on
-  `FRUA_PLANAR` builds.
+Then Phase 4 (blitter) and Phase 5 (palette polish, folds in #40) as below.
 
 **Phase 4 — blitter acceleration.**
 - Drop the hardware blitter under `planar_blit` (Amiga blitter; Atari BLiTTER),
