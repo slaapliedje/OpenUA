@@ -75685,6 +75685,50 @@ static void l100c(unsigned char *desc, void *rec_v, short w2, short w3, short mo
 	}
 }
 
+/* L0a86 (CODE 8 local) — count the base-10 digits `val` prints as. Seed 1 for
+ * val>=0, 2 for val<0 (the Mac reserves a column for the sign), then divide by
+ * ten until zero. jt373's field width + value-box formatting both use it. */
+static short l0a86_c08(long val) __attribute__((unused));
+static short l0a86_c08(long val)
+{
+	short n = (val < 0) ? 2 : 1;                    /* fp@-2 */
+	val = jt7(val, 10);
+	while (val != 0) {
+		n++;
+		val = jt7(val, 10);
+	}
+	return n;
+}
+
+/* L0abc (CODE 8 local) — draw a numeric field value right-justified in `width`
+ * character columns at (x,y) in colour `attr`. When the value fits (digit count
+ * <= width) it prints "%*ld" and, for a signed-but-zero field, an extra "-";
+ * when it overflows the width it prints the low `width` digits zero-padded
+ * ("%0*ld" of value % 10^width, sign stripped). jt373's msg-1 draw calls it. */
+static void l0abc_c08(short x, short y, short attr, short width,
+                      long value, short signflag) __attribute__((unused));
+static void l0abc_c08(short x, short y, short attr, short width,
+                      long value, short signflag)
+{
+	if (l0a86_c08(value) <= width) {               /* L0b40 — fits */
+		jt1089(x, y, attr, ua_strs_at(0x3536) /* "%*ld" */,
+		       (short)width, value);
+		if (value == 0 && (signflag & 0xff) != 0)
+			jt1089(x, y, attr, ua_strs_at(0x353c) /* "-" */);
+	} else {                                        /* overflow — low digits */
+		long  p = 1;
+		short w = width;
+		if (value < 0)
+			value = jt4(value, -1);
+		while (w != 0) {
+			p = jt4(p, 10);
+			w--;
+		}
+		jt1089(x, y, attr, ua_strs_at(0x3530) /* "%0*ld" */,
+		       (short)0, jt8(value, p));
+	}
+}
+
 /* jt373 (CODE 8 + 0x0004) — the list-widget LDEF: the DLItem method for the
  * record editor's list columns (l1ae2 arm 7 stores &jt373; l348e-style pickers
  * use it too). Dispatches on the message (JT[1]@0x003c): 0 init/measure, 1 draw,
@@ -75693,10 +75737,12 @@ static void l100c(unsigned char *desc, void *rec_v, short w2, short w3, short mo
  * sibling of jt335. (NOT the CODE-4/6 l0004 menu dispatcher — a different fn.)
  *
  * WIP (Phase D): the head + NULL guards + the message switch + the common exit +
- * default routing are lifted; the substantive handlers (0/1/2/3/5/18/26/36/40/42)
- * and jt373's own local helper tree (L0a86/L0942/L09ce/...) are its own multi-step
- * lift (a ~2362-byte widget) and land incrementally — until then those messages
- * exit with result 0. Defining jt373 unblocks l1ae2 arm 7. */
+ * default routing are lifted, plus msg 0 (init/measure — L0080) and msg 1 (draw
+ * — L023a) with their helpers l0a86_c08 / l0abc_c08, so l1ae2 arm-7 fields now
+ * RENDER (the Game-Settings experience/platinum/gems/jewelry value boxes). The
+ * interactive handlers (2/3/5/18/26/36/40/42) and their helper tree
+ * (L0942/L09ce/L0b8c + JT[446]/L7404) are the next step — until then those
+ * messages exit with result 0, so a field draws but is not yet click-editable. */
 static short jt373(void *rec_v, short msg, short p14, short p16)
     __attribute__((unused));
 static short jt373(void *rec_v, short msg, short p14, short p16)
@@ -75712,13 +75758,115 @@ static short jt373(void *rec_v, short msg, short p14, short p16)
 		return 0;
 
 	switch (msg) {                                   /* JT[1]@0x003c */
+	case 0: {                                        /* L0080 — init / measure */
+		/* commit current -> committed, clear the redraw bits */
+		*(long *)(data + 12) = *(long *)(data + 8);
+		H[28] &= 0x9f;
+		/* normalise the bounds so data[0] is the HIGH bound, data[4]
+		 * the LOW bound (the Mac stores them swapped) */
+		if (*(long *)(data + 0) < *(long *)(data + 4)) {
+			long t = *(long *)(data + 0);
+			*(long *)(data + 0) = *(long *)(data + 4);
+			*(long *)(data + 4) = t;
+		} else if (*(long *)(data + 0) == *(long *)(data + 4)) {
+			*(long *)(data + 0) = 0x7fffffffL;
+			*(long *)(data + 4) = (long)0x80000001UL;
+		}
+		if (*(long *)(data + 4) == (long)0x80000000UL)
+			*(long *)(data + 4) += 1;
+		/* clamp the current value into [low, high] and write it back */
+		if (*(long *)(data + 8) < *(long *)(data + 4))
+			*(long *)(data + 8) = *(long *)(data + 4);
+		if (*(long *)(data + 8) > *(long *)(data + 0))
+			*(long *)(data + 8) = *(long *)(data + 0);
+		if (*(long *)(data + 16) != 0)
+			*(long *)(uintptr_t)*(long *)(data + 16) =
+			    *(long *)(data + 8);
+		data[20] = 0;
+		/* field width = max digit count of the two bounds, >= 1 */
+		if (*(short *)(H + 22) <= 0)
+			*(short *)(H + 22) = jt397((short)1,
+			    jt397(l0a86_c08(*(long *)(data + 0)),
+			          l0a86_c08(*(long *)(data + 4))));
+		H[19] &= ~0x01;
+		/* place the value column past the label text */
+		if (*(long *)(H + 12) != 0) {
+			short W = jt397(l0a86_c08(*(long *)(data + 0)),
+			                l0a86_c08(*(long *)(data + 4)));
+			short lx = (short)((80 - W) * 4);
+			short le = (short)(jt423((const char *)(uintptr_t)
+			               *(long *)(H + 12)) * 4
+			               + *(short *)(H + 18) + 4);
+			*(short *)(H + 18) = jt397(lx, le);
+		}
+		if (H[31] == 0)
+			H[31] = (unsigned char)0x87;
+		break;
+	}
+	case 1: {                                        /* L023a — draw */
+		short attr;                              /* fp@-16 */
+		short r1a, r1b, r2a, r2b;                /* fp@-6/-8/-10/-12 */
+
+		if ((signed char)H[28] < 0)              /* bit7 — already drawn */
+			break;
+		H[28] |= 0x80;
+		if (H[28] & 0x02)                        /* bit1 — hidden */
+			break;
+		if (H[28] & 0x04)      g_a5_word(-27914) = 1;
+		else if (H[28] & 0x01) g_a5_word(-27914) = 2;
+		else                   g_a5_word(-27914) = 0;
+		if (*(short *)(H + 26) != 0)             /* optional sub-cell */
+			jt448(*(short *)(H + 16), *(short *)(H + 18),
+			      (short)(*(short *)(H + 26) >> 10),
+			      (short)((*(short *)(H + 26) & 1023)
+			              + g_a5_word(-27914)));
+		if (*(long *)(H + 12) != 0) {            /* the field label */
+			short lw = (short)(jt423((const char *)(uintptr_t)
+			               *(long *)(H + 12)) * 4);
+			short lc = (H[28] & 0x01) ? (short)384 : (short)H[31];
+			jt1089(*(short *)(H + 16),
+			       (short)(*(short *)(H + 18) - lw - 4), lc,
+			       (const char *)(uintptr_t)*(long *)(H + 12));
+		}
+		if (H[28] & 0x01)      attr = 384;
+		else if (H[28] & 0x04) attr = 240;
+		else                   attr = 112;
+		jt1135(*(short *)(H + 16), *(short *)(H + 18), &r1a, &r1b);
+		jt1135((short)(*(short *)(H + 16) + 4),
+		       (short)(*(short *)(H + 22) * 4 + *(short *)(H + 18)),
+		       &r2a, &r2b);
+		jt1161((short)(r1a - 2), (short)(r1b - 1),
+		       (short)(r2a + 1), (short)(r2b + 1), (short)0);
+		jt1161((short)(r1a - 1), r1b, r2a, r2b,
+		       (short)((attr & 240) >> 4));
+		if (H[28] & 0x08)
+			attr = 15;
+		l0abc_c08(*(short *)(H + 16), *(short *)(H + 18), attr,
+		          *(short *)(H + 22), *(long *)(data + 8),
+		          (short)data[20]);
+		/* edit-cursor last-digit overlay: (H@28 & 12) == 4 */
+		if ((H[28] & 0x0c) == 0x04) {
+			short cx = (short)((*(short *)(H + 22) - 1) * 4
+			                   + *(short *)(H + 18));
+			long  m  = jt8(*(long *)(data + 8), 10);
+			short sg = (*(long *)(data + 8) < 0) ? (short)-1
+			                                     : (short)1;
+			jt1089(*(short *)(H + 16), cx, (short)15,
+			       ua_strs_at(0x350a) /* "%1ld" */, jt4(m, sg));
+		}
+		break;
+	}
 	case 128:                                        /* L05de — "exists" */
 		result = 1;
 		break;
 	case 4: case 19: case 21: case 22: case 27:      /* L091e — no-op */
 		break;
-	case 0: case 1: case 2: case 3: case 5:
-	case 18: case 26: case 36: case 40: case 42:     /* TODO — real handlers pending */
+	case 2: case 3: case 5:
+	case 18: case 26: case 36: case 42:              /* TODO — interaction pending */
+		break;
+	case 40:                                         /* L08da — generic + clear H@19 bit0 */
+		result = l1676(H, msg, p14, p16);
+		H[19] &= ~0x01;
 		break;
 	default:                                         /* L0902 — generic handler */
 		result = l1676(H, msg, p14, p16);
