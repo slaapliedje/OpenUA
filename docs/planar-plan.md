@@ -155,11 +155,80 @@ also steadies the roster/HUD colours and removes the #40 banding shimmer.
     (pre-convert wall pieces at load via `chunky_to_planar_piece` + the (a)
     stable-slot pinning from B1; fills → planar rect-fill; backdrop → pre-converted
     planar), dropping the chunky scratch. Then Amiga's `dsp_viewport_scratch`.
-- **B3 — convert the remaining writers** (chrome once, `DrawChar` text, panel
-  fills, GLIB art, cursor, automap) to planar against `remap`, shrinking the c2p
-  region each time.
-- **B4 — drop chunky + c2p.** When the last writer is planar, the surface IS the
-  bitplanes; delete the composite and the c2p. Present = flip.
+### B3 — shrink/eliminate the full-frame c2p (the #41 bottleneck). SCOPED 2026-07-19.
+
+**Profiling result (STE, after B1+B2):** the full-frame c2p (`st_blit_full`) is
+~100% of `st_present` cost on recomposes — ~125 ticks ≈ **2.1s EMULATED per full
+64000px present**, i.e. the ~12s/key menu lag. Reband = 0 during nav (B1 tamed
+it); composite = ~0 (B2 is free). So the c2p is the whole story.
+
+**Key architectural fact:** the ST backend is **single-buffered** — `st_blit_rows`
+writes `s_screen`, the LIVE displayed page (`Setscreen(...,s_screen,0)`). The c2p
+therefore contends with the video shifter's DMA and the per-scanline Timer-B
+raster-split interrupts. **The measured c2p cost is compute + contention, and the
+split is unknown** — that unknown decides the whole strategy, so resolve it first.
+
+Do these CHEAP, DECISIVE steps before converting any writer:
+
+- **B3.0a — why is a menu present full-frame?** Row-diff should skip unchanged
+  rows, yet a keypress converts ~200 rows. Confirm whether the menu genuinely
+  redraws the whole screen, or a spurious `s_force_full` / needless full recompose
+  is set. If only a few rows truly change, making the menu present the changed
+  RECT (`present_rect`) — or fixing the force-full — is a large win for ~no effort.
+  (Instrument `rows converted` per menu keypress; inspect the menu recompose path.)
+- **B3.0b — compute vs contention.** Time an identical c2p into a NON-displayed
+  buffer (fast-RAM, or an off-screen ST-RAM page) vs the live `s_screen`. This one
+  experiment forks the plan:
+  - **contention dominates → double-buffer (B3.1)** captures most of the win with
+    a small backend-only change, and the multi-week native-planar B3.2+ may be
+    UNNECESSARY for #41.
+  - **compute dominates → the c2p must shrink/disappear → native planar (B3.2+)**
+    or a **blitter c2p** (Phase 4).
+
+- **B3.1 (if contention) — double-buffer + flip.** Two ST-RAM pages; c2p to the
+  back (Logbase) page; flip Physbase on VBL. Removes live-screen contention AND is
+  the required substrate for B4 (present = flip). Handle: (a) the raster-split
+  palette is display-timed → works across a flip unchanged; (b) row-diff needs
+  BOTH pages current → adopt the VIDEL 2-page pattern (`pages`-many presents, or
+  per-page dirty tracking); (c) the viewport composite targets the same back page.
+  Backend-only, no engine change. Verify with stprof.
+
+- **B3.2+ (if compute, or as the ADR-0016 end state) — native-planar writers.**
+  Convert the chunky writers to write plane bits directly against the fixed
+  per-scene `remap` (B1), region by region, shrinking the c2p until B4 drops it.
+  Writer inventory (all funnel through the 8bpp `s_chunky` via `qd_screen_pixels`):
+  1. **Chrome** — the FRAME.CTL granite frame + panel dividers (`port_draw_play_frame`,
+     GLIB `CopyBits`). STATIC, drawn once per screen; biggest single region.
+     Convert once → the frame stops being c2p'd every present. *Highest value.*
+  2. **Fills** — `PaintRect` / `qd_pixmap_fill` (quickdraw.c:671/564): solid rects
+     → planar rect-fill of `remap[colour]`'s bits.
+  3. **Text** — `DrawChar`/`DrawString` (quickdraw.c:2102/2212) + `jt94`/`jt1089`
+     label paints (roster names, stats, menu labels). Needs a planar glyph blit
+     (1bpp font → N planes via `remap[fg]`/`remap[bg]`). *The fiddly one.*
+  4. **DLItem shape paints** — button/list/field cells (`l14d0` shape-3, `jt377`
+     shape-7 label, `l1676`) that draw the menu chrome + rows.
+  5. **Cursor** — the software sword/shield (plat_cursor inactive on ST → shim
+     composites into `s_chunky`). Planar sprite blit, or move to the VBL path.
+  6. **GLIB art / event pictures** — `CopyBits` of decoded art (BIGPIC etc.).
+     Pre-convert once + planar blit; OR keep these chunky+c2p (rare, art-heavy —
+     the anchoring caveat), c2p only their rect.
+  7. **Automap** — the top-down AREA overlay.
+  Order by c2p-area removed per unit effort: **chrome → fills → text → DLItem →
+  cursor/automap/art.** Each conversion removes its region from the per-present
+  c2p; measure the c2p-tick drop after each.
+
+- **B4 — drop chunky + c2p.** When the last writer is planar, `s_screen` (planar,
+  double-buffered from B3.1) IS the surface; delete `s_chunky` + the c2p; present
+  = flip.
+
+**Recommendation for next session:** B3.0a then B3.0b FIRST (a few hours total).
+They may reveal that a force-full fix and/or double-buffering capture most of the
+#41 win cheaply, making the large native-planar conversion optional. Do NOT start
+converting writers until B3.0b shows compute is the floor.
+
+**Amiga/ECS:** same c2p cost, never got B2.1 (ST-only). Its double-buffer story
+differs (copper palette, separate planes) — a parallel track once the ST path is
+proven.
 
 Then Phase 4 (blitter) and Phase 5 (palette polish, folds in #40) as below.
 
