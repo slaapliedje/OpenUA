@@ -53,6 +53,25 @@ int main(void)
 			return 1;
 		}
 	}
+
+	/* FLAT fast path: c2p4st_32_flat(v) must equal c2p4st_32 on an all-`v`
+	 * span, for every value/LUT, and c2p4st_is_flat must classify correctly. */
+	for (trial = 0; trial < 2000; trial++) {
+		unsigned char v = rnd();
+		for (i = 0; i < 256; i++) lut[i] = (unsigned char)(rnd() & 15);
+		for (i = 0; i < 32; i++)  src[i] = v;
+		c2p4st_32(src, lut, ref);
+		c2p4st_32_flat(v, lut, fast);
+		if (memcmp(ref, fast, sizeof ref)) {
+			printf("FLAT MISMATCH trial %d v=%d\n", trial, v);
+			for (i = 0; i < 8; i++)
+				printf("  d[%d]: ref %04x flat %04x\n", i, ref[i], fast[i]);
+			return 1;
+		}
+		if (!c2p4st_is_flat(src, 32)) { printf("is_flat false on flat\n"); return 1; }
+		src[17] ^= 0xFF;
+		if (c2p4st_is_flat(src, 32)) { printf("is_flat true on non-flat\n"); return 1; }
+	}
 	printf("OK 2000 trials\n");
 	return 0;
 }

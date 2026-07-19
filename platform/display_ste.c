@@ -246,18 +246,28 @@ static void st_c2p_span(const unsigned char *src, unsigned char *dst, short w,
 {
 	short x;
 
-	for (x = 0; x + 32 <= w; x += 32)
-		c2p4st_32(src + x,  lut,
-		          (unsigned short *)(dst + (long)(x / 16) * 8));
+	for (x = 0; x + 32 <= w; x += 32) {
+		unsigned short *out = (unsigned short *)(dst + (long)(x / 16) * 8);
+
+		/* ADR-0016 B3.2: a flat 32-px span skips the transpose entirely. */
+		if (c2p4st_is_flat(src + x, 32))
+			c2p4st_32_flat(src[x], lut, out);
+		else
+			c2p4st_32(src + x, lut, out);
+	}
 	if (x < w) {                            /* 16-pixel tail */
 		unsigned char pad[32];
 		unsigned short d[8];
 		unsigned short *out = (unsigned short *)(dst + (long)(x / 16) * 8);
 		short p;
 
-		memcpy(pad, src + x, 16);
-		memset(pad + 16, 0, 16);        /* pads land only in d[4..7] */
-		c2p4st_32(pad, lut, d);
+		if (c2p4st_is_flat(src + x, 16)) {
+			c2p4st_32_flat(src[x], lut, d);
+		} else {
+			memcpy(pad, src + x, 16);
+			memset(pad + 16, 0, 16);        /* pads land only in d[4..7] */
+			c2p4st_32(pad, lut, d);
+		}
 		for (p = 0; p < ST_DEPTH; p++)
 			out[p] = d[p];          /* store pixels 0-15 only */
 	}

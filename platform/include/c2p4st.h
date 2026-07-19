@@ -71,4 +71,46 @@ static void c2p4st_32(const unsigned char *src, const unsigned char *lut,
 	d[7] = (unsigned short)a1;
 }
 
+/*
+ * FLAT fast path (ADR-0016 B3.2). When all 32 chunky pixels share one value the
+ * four plane words are CONSTANT (each plane is all-0 or all-1 for the remapped
+ * nibble), so the whole transpose collapses to four constant stores — the bulk
+ * of the compute vanishes. This is the overlay-safe core of blitter-accelerated
+ * fills: the flat panels/backgrounds that dominate a menu/HUD screen convert at
+ * a fraction of the c2p cost, WITHOUT any writer change (a text word over the
+ * fill is not flat, so it takes the normal transpose). Output is byte-identical
+ * to c2p4st_32 on an all-`v` input — verified in tests/test_c2p4st.py.
+ *
+ * `v` is the pre-remap chunky value (the caller has already checked flatness).
+ */
+static void c2p4st_32_flat(unsigned char v, const unsigned char *lut,
+                           unsigned short *d)
+{
+	unsigned char s = lut[v];
+	unsigned short p0 = (s & 1) ? 0xFFFFu : 0u;
+	unsigned short p1 = (s & 2) ? 0xFFFFu : 0u;
+	unsigned short p2 = (s & 4) ? 0xFFFFu : 0u;
+	unsigned short p3 = (s & 8) ? 0xFFFFu : 0u;
+
+	d[0] = p0; d[1] = p1; d[2] = p2; d[3] = p3;     /* pixels 0-15  */
+	d[4] = p0; d[5] = p1; d[6] = p2; d[7] = p3;     /* pixels 16-31 */
+}
+
+/*
+ * True iff all `n` bytes at `src` are equal. Early-exits on the first mismatch,
+ * so on non-flat data (the dungeon, textured chrome) it costs ~one compare and
+ * the caller falls straight through to the transpose — a negligible tax for a
+ * large saving on flat spans. `n` is 32 (body) or 16 (tail).
+ */
+static int c2p4st_is_flat(const unsigned char *src, short n)
+{
+	unsigned char v = src[0];
+	short i;
+
+	for (i = 1; i < n; i++)
+		if (src[i] != v)
+			return 0;
+	return 1;
+}
+
 #endif /* PLATFORM_C2P4ST_H */
