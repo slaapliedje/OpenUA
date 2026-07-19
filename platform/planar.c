@@ -4,6 +4,40 @@
  * tests/test_planar.py). Interface + rationale in platform/include/planar.h.
  */
 #include "planar.h"
+#include "display.h"
+
+/* --- dungeon-viewport composite dispatch (ADR-0016 B2) -------------------
+ *
+ * The engine renders the first-person viewport into a backend-supplied chunky
+ * scratch and hands it back for compositing (see display.h). Which backend
+ * services that — if any — is only known at runtime (dsp_detect picks one), and
+ * the two build trees link different backend objects (the Amiga build has no
+ * display_ste.c). Rather than force every build to define the pair, the shared
+ * planar module (linked in BOTH trees) owns the entry points and dispatches
+ * through a hook the active bitplane backend installs at init. A backend that
+ * keeps the chunky path (Falcon/TT VIDEL, and Amiga until its own B2 lands)
+ * never registers, so dsp_viewport_scratch() returns NULL and the engine
+ * renders straight into the shared surface exactly as before. */
+static unsigned char *(*s_vp_scratch_fn)(short *pitch);
+static void           (*s_vp_commit_fn)(short x, short y, short w, short h);
+
+void planar_viewport_register(unsigned char *(*scratch)(short *pitch),
+                              void (*commit)(short, short, short, short))
+{
+	s_vp_scratch_fn = scratch;
+	s_vp_commit_fn  = commit;
+}
+
+unsigned char *dsp_viewport_scratch(short *pitch)
+{
+	return s_vp_scratch_fn ? s_vp_scratch_fn(pitch) : (unsigned char *)0;
+}
+
+void dsp_viewport_commit(short x, short y, short w, short h)
+{
+	if (s_vp_commit_fn)
+		s_vp_commit_fn(x, y, w, h);
+}
 
 void chunky_to_planar_piece(const unsigned char *src, short src_pitch,
                             short w, short h,

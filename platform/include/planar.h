@@ -89,4 +89,17 @@ void planar_blit_stlow(unsigned char *const src_planes[], short src_stride,
                        unsigned char *dst, short dst_line_bytes,
                        short dst_w, short dst_h, short dx, short dy);
 
+/*
+ * Install the active bitplane backend's dungeon-viewport composite hooks
+ * (ADR-0016 B2). `scratch(pitch)` returns the chunky buffer the engine renders
+ * the viewport into (absolute screen coords) and fills *pitch; `commit(x,y,w,h)`
+ * converts that rect to planes for the next present's composite. The shared
+ * dispatch (dsp_viewport_scratch / dsp_viewport_commit in display.h) routes
+ * through these; pass (0, 0) to unregister (backend shutdown). Backends that
+ * keep the chunky c2p path never call this, so the engine falls back to
+ * rendering straight into the shared surface.
+ */
+void planar_viewport_register(unsigned char *(*scratch)(short *pitch),
+                              void (*commit)(short x, short y, short w, short h));
+
 #endif /* PLATFORM_PLANAR_H */

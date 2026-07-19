@@ -76,6 +76,24 @@ const dsp_backend_t *dsp_detect(void);
  * planar path (or before the first palette is installed). */
 const unsigned char *dsp_planar_remap(short *nbands, short *screen_h);
 
+/* Native-planar dungeon viewport (ADR-0016 B2). A bitplane backend renders the
+ * first-person viewport as a SEPARATELY-composited planar region instead of
+ * letting the (churning) viewport dirty the shared 8bpp surface's rows — so the
+ * static roster/HUD sharing those scanlines stops being re-converted every step.
+ *
+ *   dsp_viewport_scratch(&pitch) — returns a chunky scratch buffer to render the
+ *     viewport into using ABSOLUTE screen coords (so existing clip/placement math
+ *     is unchanged), and sets *pitch. Returns NULL on backends that keep the
+ *     chunky c2p path (Falcon/TT, and Amiga until its own B2) — the engine then
+ *     renders straight into the shared surface exactly as before.
+ *   dsp_viewport_commit(x,y,w,h) — after rendering, hand back the rect (absolute
+ *     coords) to convert to planes; the next present composites it into the hole.
+ *
+ * Implemented via the planar_viewport_register() hook (planar.h); the entry
+ * points themselves live in the shared planar module so both build trees link. */
+unsigned char *dsp_viewport_scratch(short *pitch);
+void           dsp_viewport_commit(short x, short y, short w, short h);
+
 /* Atari builds: the _VDO cookie value (video hardware id in the high word:
  * 0 ST, 1 STE, 2 TT, 3 VIDEL; 0 when no jar). Cached after the first call.
  * Other machines' backends do not define it. */

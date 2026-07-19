@@ -45,6 +45,7 @@
 #include "files.h"            /* FSOpen / FSRead (jt398 file-open chain) */
 #include "toolbox.h"          /* ExitToShell (jt415)                     */
 #include "quickdraw.h"        /* MoveTo, DrawString, GetPort (jt1089) */
+#include "display.h"          /* dsp_viewport_scratch/commit (ADR-0016 B2 viewport) */
 #include "printing.h"         /* the Pr* face over GDOS/VDI (jt428 print chain) */
 #include "dialogs.h"          /* GetNewDialog / ModalDialog (l6d40)   */
 #include "events.h"           /* WaitNextEvent (jt1125 event poll)   */
@@ -13842,8 +13843,25 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	 * handles; jt199 -> l5b42 -> jt200 -> jt114 -> l309c_tile blits the
 	 * pre-sized colour tiles, clipped to the viewport. jt199 args are
 	 * (horizontal=8012, vertical=8016, row=partyY, col=partyX, facing). */
-	g_cwf_px = px;
-	cw_view_clip(pitch, sw, sh, VL, VT, VR, VB);
+	/* ADR-0016 B2: on a bitplane backend (ST/STe today) render the viewport into
+	 * the backend's private chunky scratch — addressed in the SAME absolute
+	 * screen coords, so the wall/fill placement math below is untouched — instead
+	 * of the shared 8bpp surface. The backend converts it to planes and
+	 * composites it into the hole, so the churning viewport stops dirtying the
+	 * roster/HUD scanlines it shares (they then skip re-conversion). NULL on
+	 * chunky backends (Falcon/TT): vtgt == px, i.e. render straight into the
+	 * surface exactly as before. */
+	short vp_pitch = pitch;
+	unsigned char *vp    = dsp_viewport_scratch(&vp_pitch);
+	unsigned char *vtgt  = vp ? vp : px;
+	short          vpitch = vp ? vp_pitch : pitch;
+	if (vp) {
+		short vy;
+		for (vy = VT; vy < VB; vy++)
+			memset(vp + (long)vy * vpitch + VL, 0, (size_t)(VR - VL));
+	}
+	g_cwf_px = vtgt;
+	cw_view_clip(vpitch, sw, sh, VL, VT, VR, VB);
 	/* FAITHFUL blit path: jt200 -> jt114 -> l309c -> l2d4e clips to the
 	 * QuickDraw rect (g_a5_-3054 top / -3050 bottom / -3056 left / -3052 right).
 	 * Point it at FRAME.CTL set 9's 88x88 viewport hole so the wall tiles are
@@ -13882,7 +13900,7 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 			cr = (x2 < (short)g_a5_3052) ? x2 : (short)g_a5_3052;
 			for (yy = ct; yy < cb; yy++)
 				for (xx = cl; xx < cr; xx++)
-					map_px(px, pitch, sw, sh, xx, yy,
+					map_px(vtgt, vpitch, sw, sh, xx, yy,
 					       (unsigned char)fill);
 		}
 	}
@@ -13911,7 +13929,7 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 				/* backdrop image bytes are DIRECT clut indices (the night
 				 * skies use 144..175 = the band load_backdrop lays the
 				 * palette into); do NOT re-offset them. */
-				map_px(px, pitch, sw, sh, (short)(bvl + xx),
+				map_px(vtgt, vpitch, sw, sh, (short)(bvl + xx),
 				       (short)(bvt + yy), v);
 			}
 		}
@@ -13946,6 +13964,10 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	      (short)g_a5_12288, (short)g_a5_12287, f);
 	g_a5_3054 = sav_ct; g_a5_3050 = sav_cb;   /* restore play-screen clip rect */
 	g_a5_3056 = sav_cl; g_a5_3052 = sav_cr;
+	/* Hand the rendered viewport rect to the backend for the planar composite
+	 * (ADR-0016 B2). No-op when vtgt == px (chunky backends). */
+	if (vp)
+		dsp_viewport_commit(VL, VT, (short)(VR - VL), (short)(VB - VT));
 #if defined(FRUA_SKIP_ENTRY_EVENTS) && !defined(FRUA_AMIGA)   /* task #25: not 68EC020-safe */
 	g_j2_active = 0;
 	j200_dump();

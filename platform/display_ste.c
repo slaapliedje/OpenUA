@@ -32,6 +32,7 @@
 #include "dbglog.h"
 #include "c2p4st.h"             /* the nibble-optimized 4-plane span */
 #include "quantize.h"
+#include "planar.h"             /* dungeon-viewport planar composite (B2) */
 
 #define ST_W        320
 #define ST_H        200
@@ -75,6 +76,31 @@ short *st_band_ptr;                             /* next band for Timer B */
 static short                   s_dirty;
 static short                   s_have_pal;
 static short                   s_vbl_slot = -1;
+
+/* --- dungeon-viewport planar composite (ADR-0016 B2) ---------------------
+ *
+ * The engine renders the first-person viewport into s_vp_scratch (a private
+ * chunky buffer, addressed in ABSOLUTE screen coords so the existing wall/fill
+ * placement math is untouched) rather than into s_chunky. At present time the
+ * committed rect is converted to ST-Low planes through the SAME per-band remap
+ * the c2p uses (so it shares the fixed per-scene palette) and dropped into the
+ * viewport hole with planar_blit_stlow. Because the viewport no longer touches
+ * s_chunky, the roster/HUD/chrome sharing those scanlines is static there and
+ * st_blit_full's row-diff skips it — the point of the exercise.
+ *
+ * VP_MAX bounds the buffers; the live viewport is 88x88 at (24,24). The scratch
+ * is addressed absolutely, so it must span up to the viewport's bottom-right. */
+#define VP_MAX          128                     /* max viewport extent (abs) */
+#define VP_SCR_PITCH    VP_MAX
+#define VP_PLANE_STRIDE ((VP_MAX + 15) / 16 * 2)/* 16 bytes/plane row         */
+static unsigned char s_vp_scratch[(long)VP_SCR_PITCH * VP_MAX];
+static unsigned char s_vp_planes[ST_DEPTH * VP_PLANE_STRIDE * VP_MAX];
+static short         s_vp_x, s_vp_y, s_vp_w, s_vp_h;
+static short         s_vp_active;               /* a committed rect awaits composite */
+static short         s_st_active;               /* this backend is the live one */
+static unsigned char *st_vp_scratch(short *pitch);
+static void           st_vp_commit(short x, short y, short w, short h);
+static void           st_vp_composite(void);
 
 /* --- raster-split interrupt handlers -------------------------------------
  *
@@ -333,12 +359,23 @@ static int st_init(short want_w, short want_h)
 	Xbtimer(1, 8, ST_RPB, st_timerb_trampoline);   /* timer B, event count */
 	s_ints_on = 1;
 
+	/* Take over the dungeon-viewport composite (ADR-0016 B2). */
+	s_vp_active = 0;
+	s_st_active = 1;
+	planar_viewport_register(st_vp_scratch, st_vp_commit);
+
 	dbg_log("ste: ST-low 320x200x4 16-colour, per-band Timer-B palette up");
 	return 0;
 }
 
 static void st_shutdown(void)
 {
+	if (s_st_active) {
+		planar_viewport_register((unsigned char *(*)(short *))0,
+		                         (void (*)(short, short, short, short))0);
+		s_st_active = 0;
+		s_vp_active = 0;
+	}
 	if (s_ints_on) {
 		Jdisint(8);                      /* stop Timer B (MFP channel 8) */
 		Supexec(st_vbl_remove_super);
@@ -369,6 +406,76 @@ const unsigned char *dsp_planar_remap(short *nbands, short *screen_h)
 	return s_have_pal ? s_band_remap : (const unsigned char *)0;
 }
 
+/* --- dungeon-viewport composite hooks (registered via planar_viewport_register) */
+
+/* The engine's viewport render target: our private chunky scratch, addressed in
+ * absolute screen coords. */
+static unsigned char *st_vp_scratch(short *pitch)
+{
+	if (pitch)
+		*pitch = VP_SCR_PITCH;
+	return s_vp_scratch;
+}
+
+/* Record the just-rendered viewport rect; the next present converts + composites
+ * it (deferred so it runs AFTER any re-band, i.e. against the live palette). */
+static void st_vp_commit(short x, short y, short w, short h)
+{
+	if (w <= 0 || h <= 0) { s_vp_active = 0; return; }
+	if (x < 0 || y < 0 || x + w > VP_MAX || y + h > VP_MAX) {
+		s_vp_active = 0;                 /* out of the buffer's reach: skip */
+		return;
+	}
+	s_vp_x = x; s_vp_y = y; s_vp_w = w; s_vp_h = h;
+	s_vp_active = 1;
+}
+
+/* Convert the committed rect (chunky, per-band remap) to ST-Low planes and drop
+ * it into the viewport hole. One-shot: cleared after compositing so a later
+ * full recompose (menu/combat) that did NOT re-commit leaves the surface alone.
+ * Called at the tail of every present. */
+static void st_vp_composite(void)
+{
+	unsigned char *pp[ST_DEPTH];
+	long planebytes;
+	short r, c, p;
+
+	if (!s_vp_active)
+		return;
+	s_vp_active = 0;                         /* one-shot per commit */
+	if (!s_have_pal)
+		return;                          /* no palette yet: nothing to map */
+
+	planebytes = (long)VP_PLANE_STRIDE * s_vp_h;
+	for (p = 0; p < ST_DEPTH; p++)
+		pp[p] = s_vp_planes + (long)p * planebytes;
+	memset(s_vp_planes, 0, (size_t)(planebytes * ST_DEPTH));
+
+	/* chunky -> separate planes, remapping each pixel through its band's LUT
+	 * (the viewport spans bands 1..5; the row's band picks the map). */
+	for (r = 0; r < s_vp_h; r++) {
+		short yy   = (short)(s_vp_y + r);
+		short band = (short)((long)yy * ST_NBANDS / ST_H);
+		const unsigned char *lut = s_band_remap + (long)band * 256;
+		const unsigned char *srow =
+		    s_vp_scratch + (long)yy * VP_SCR_PITCH + s_vp_x;
+		long rowoff = (long)r * VP_PLANE_STRIDE;
+
+		for (c = 0; c < s_vp_w; c++) {
+			unsigned char slot = lut[srow[c]];
+			unsigned char bit  = (unsigned char)(0x80u >> (c & 7));
+			short byte = (short)(c >> 3);
+
+			for (p = 0; p < ST_DEPTH; p++)
+				if ((slot >> p) & 1)
+					pp[p][rowoff + byte] |= bit;
+		}
+	}
+
+	planar_blit_stlow(pp, VP_PLANE_STRIDE, s_vp_w, s_vp_h, ST_DEPTH,
+	                  s_screen, LINE_BYTES, ST_W, ST_H, s_vp_x, s_vp_y);
+}
+
 #ifdef FRUA_STPROF
 /* Coarse present-path profile: every 128 full presents, log wall ticks vs
  * ticks spent inside present and the rows actually converted. TickCount is
@@ -391,6 +498,7 @@ static void st_present(void)
 	if (s_dirty)
 		st_reband();
 	st_blit_full();
+	st_vp_composite();                       /* overlay the planar viewport */
 #ifdef FRUA_STPROF
 	sp_in += TickCount() - t0;
 	sp_rows = g_stprof_rows;
@@ -425,6 +533,7 @@ static void st_present_rect(short x, short y, short w, short h)
 	x1 = (short)((x + w + 15) & ~15);        /* 16-pixel plane groups */
 	x  = (short)(x & ~15);
 	st_blit_rows(x, (short)(x1 - x), y, h);
+	st_vp_composite();                       /* overlay the planar viewport */
 }
 
 static void st_set_palette(const dsp_color_t *colors, short first, short count)
