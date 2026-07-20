@@ -985,6 +985,36 @@ screen still has no selection highlight, no `* NAME` marker and no command bar �
 a *separate* root cause from the boot path. The ADR's core claim (the A5 world
 is load-bearing) stands; only its account of the boot symptom was mistaken.
 
+**Progress update (2026-07-20) — the A5 world's four sources, and two
+corrections a deeper test forced.** The replay-off world is now rebuilt from:
+(1) the A4/STRS pointer map + A5-internal relocations (`tools/a4map.py`,
+generated position tables), (2) port-authored functional constants
+(`src/engine/a5_scalars.c`, committed), (3) shared game-rule tables read from
+the user's DOS `CKIT.EXE` with a per-run checksum (`src/engine/dos_scalars.c`),
+and (4) the DATA replay itself, still the fallback. On the menu / Training-Hall
+/ party path this reached byte-exact parity, and it was tempting to call the
+scalar half characterised. Driving one screen deeper (HEIRS caravan → treasure →
+3D-view HUD, #72) broke two claims:
+
+- **The 7 above-A5 relocations are NOT harmless.** ADR text and the generated
+  `a4_map.c` recorded them as "cannot be modelled, have not mattered". Isolated
+  on the deep path they ARE load-bearing — dropping them alone leaves the
+  compass rose a bare dome (no ticks, no cardinal letter). The port models only
+  below-A5 (`g_a5_below[]`), so reproducing them needs an above-A5 region the
+  port does not have. Genuinely open.
+- **"2105 bytes of scalars" was a filtered lower bound presented as the whole.**
+  `--refs-from` keeps only slots the lifted C *names*; the deep path also needs
+  scalars reached *indirectly* (address-of-a-slot-then-walk, memcpy'd structs).
+  Full parity on the deep path required the UNFILTERED set — 6445 bytes / 1298
+  runs, of which 3786 are DOS-extractable and **2659 (41%, not 410) are the
+  hand-authoring residue**. The 410 figure was for the shallow path only.
+
+This is the same lesson as the boot symptom, one level up: a plausible parity
+result on a shallow path is not parity. The scalar/relocation accounting must be
+re-measured per screen as deeper paths are exercised (combat, chargen, shops,
+the editor remain untested), and "unmodellable" gaps must be tested, not
+assumed. Tracked in #71 (residue) and #72 (deep-path parity).
+
 **Why an ADR:** it fixes the end-state that a large grind (#67) will be measured
 against, and records *why* two tempting shortcuts are closed — dropping the
 replay (measured: breaks the interactive layer) and retargeting to Mac 1.2
