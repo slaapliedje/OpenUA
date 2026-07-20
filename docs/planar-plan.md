@@ -651,6 +651,54 @@ The infrastructure is sound and reusable; the composition model is the blocker.
 FRUA_AUTOPLAY did not advance past the party hall this session, so the dungeon HUD was not
 re-verified under FRUA_PLANAR (a harness issue, separate from the overlay).
 
+### DRAW-TIME PRESENT MODEL — chosen 2026-07-19 (user picked option 1)
+
+Both incremental composite attempts (chrome, text) hit the SAME wall: to skip the transpose
+for a converted writer, its pixels must be excluded from the batch c2p, which is only possible
+if nothing un-converted draws over them — false for every shared-surface writer (base+overlay).
+The B2.1 viewport is the sole clean fit because it is a fully self-contained rectangle. So the
+composite path is EXHAUSTED beyond self-contained regions; the remaining #41 payoff needs the
+draw-time model. It is a **big-bang**: correctness cannot be verified per-writer incrementally
+(a converted writer's plane output is invisible while the batch c2p still overwrites its
+region, and excluding the region re-opens the z-order wall). The unit of verification is the
+whole conversion.
+
+**Model.** The 8bpp `s_chunky` + deferred batch c2p is replaced by DRAW-TIME conversion: every
+surface writer emits ST-Low plane bits into `s_screen` at the moment it draws, in draw order,
+through the scene-stable per-band remap (`dsp_planar_remap`, Phase-0). Draw order is preserved
+by construction (each write lands in `s_screen` when it happens), so base+overlay compose
+correctly with no separate overlay and no z-order reconstruction. When the last writer is
+converted, `s_chunky` and the c2p are deleted; present becomes a VBL page-flip (the
+`b4-pageflip-wip` substrate).
+
+**Writers to convert (all must land before the c2p is dropped):**
+- Shim primitives (compat/quickdraw.c), centrally hookable: `qd_pixmap_fill` (fills + pen),
+  `DrawChar` (glyphs), `CopyBits` (art/chrome blits), `cursor_composite`/`cursor_restore`.
+- Engine-direct writers (the ~22 non-read-only `qd_screen_pixels` sites): the GLIB piece
+  blitter `l2d4e`/`l309c_tile`, `port_draw_play_frame` grey fill, the full-screen memsets
+  (`jt904`, `encounter_screen`, `port_show_intro`), `draw_bevel`/`jt1161` panel boxes,
+  `ui_glib_blit`, `jt357`→`jt200` art. These write bytes to `px[y*pitch+x]` today and are the
+  bulk of the work — each must switch to a plane store.
+- Viewport (B2.1) already planar.
+
+**The engine-direct writers are the crux.** They assume a chunky byte array. Two options to
+convert them without rewriting all the index math: (a) each site switches its `px[i]=v` store
+to a plane-store helper `planar_put(screen, x, y, remap[v])`; or (b) they keep writing a small
+chunky scratch and immediately c2p just that primitive's rect into `s_screen` (an "immediate
+c2p bridge") — mechanical, preserves the index math, and shrinks to nothing as (a) lands.
+Prefer (b) for the blitters (keeps the RLE/transparency decode intact) and (a) for the flat
+fills (trivial constant plane words).
+
+**Substrate to build first (host-testable, no integration risk):** the plane-store primitives
+this all rests on — `planar_fill_stlow` (rect → constant plane words for a slot),
+`planar_put_stlow` (one pixel's slot bits), and a `planar_glyph_stlow` (1bpp mask → planes via
+remap[fg]/remap[bg]). Host tests assert each against a naive reference (same discipline as
+tests/test_c2p4st.py). These are correct and testable in isolation; integration (routing the
+writers through them) is the big-bang that follows, verified by screenshot-diffing the fully
+converted FRUA_PLANAR build against the current batch build across menu / hall / dungeon /
+combat. The text-overlay HAL/composite code on `b-text-overlay-wip` is superseded by this
+(draw-time text is a `DrawChar` plane store, no separate overlay/scratch/lifecycle).
+
 Then Phase 4 (blitter) and Phase 5 (palette polish, folds in #40) as below.
 
 **Phase 4 — blitter acceleration.**

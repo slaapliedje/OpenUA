@@ -102,4 +102,52 @@ void planar_blit_stlow(unsigned char *const src_planes[], short src_stride,
 void planar_viewport_register(unsigned char *(*scratch)(short *pitch),
                               void (*commit)(short x, short y, short w, short h));
 
+/* --- draw-time plane store (ADR-0016 draw-time present model) -------------
+ *
+ * The primitives the draw-time model routes every writer through: set slot bits
+ * straight into the LIVE ST-Low INTERLEAVED screen at draw time (no chunky, no
+ * batch c2p). ST-Low packs `nplanes` big-endian words per 16-pixel group; plane
+ * p's word for group g sits at dst + y*line_bytes + g*nplanes*2 + p*2, MSB =
+ * leftmost pixel. `slot` is the remapped 0..2^nplanes-1 palette index.
+ * Header-inline + 68000-clean so the ST backend inlines them and the host test
+ * (tests/test_planar_fill.py) exercises the same code. Correctness-first
+ * per-pixel form; a word-constant fast path (constant plane words for aligned
+ * flat spans, like c2p4st_32_flat) can drop in under the same interface later. */
+static inline void planar_put_stlow(unsigned char *dst, short line_bytes,
+                                    short nplanes, short x, short y,
+                                    unsigned char slot)
+{
+	short g    = (short)(x >> 4);           /* 16-pixel group        */
+	short bit  = (short)(x & 15);           /* 0 = leftmost (MSB)    */
+	short byte = (short)(bit >> 3);         /* byte 0/1 of the word  */
+	unsigned char  mask = (unsigned char)(0x80u >> (bit & 7));
+	unsigned char *grp  = dst + (long)y * line_bytes + (long)g * nplanes * 2;
+	short p;
+
+	for (p = 0; p < nplanes; p++) {
+		unsigned char *d = grp + (long)p * 2 + byte;
+		if ((slot >> p) & 1)
+			*d = (unsigned char)(*d | mask);
+		else
+			*d = (unsigned char)(*d & ~mask);
+	}
+}
+
+/* Fill rect [x,x+w) x [y,y+h), clipped to (dst_w x dst_h), with `slot`. */
+static inline void planar_fill_stlow(unsigned char *dst, short line_bytes,
+                                     short nplanes, short dst_w, short dst_h,
+                                     short x, short y, short w, short h,
+                                     unsigned char slot)
+{
+	short yy, xx, x1 = (short)(x + w), y1 = (short)(y + h);
+
+	if (x < 0) x = 0;
+	if (y < 0) y = 0;
+	if (x1 > dst_w) x1 = dst_w;
+	if (y1 > dst_h) y1 = dst_h;
+	for (yy = y; yy < y1; yy++)
+		for (xx = x; xx < x1; xx++)
+			planar_put_stlow(dst, line_bytes, nplanes, xx, yy, slot);
+}
+
 #endif /* PLATFORM_PLANAR_H */
