@@ -203,16 +203,24 @@ A4MAP_C := src/engine/a4_map.c
 # otherwise the build would fail to link against a table generated without it.
 # The scalars are copyrighted payload: DIAGNOSTIC BUILDS ONLY, never a release.
 ifneq ($(findstring FRUA_SCALAR_SEED,$(EXTRA_CFLAGS)),)
-A4MAP_ARGS := --with-scalars --refs-from src/engine/boot.c \
-              --refs-from src/engine/master.c
+A4MAP_ARGS := --with-scalars
 endif
 
 # The generated table depends on the flag, not just the inputs; the .machine
 # buildstamp already folds EXTRA_CFLAGS in and purges objects on a change, so
 # regenerate here whenever the stamp moved.
+# The DOS scalar map (ADR-0017) needs the DOS executable at generation time to
+# locate the shared game-rule tables inside it. It records positions and a
+# checksum only, never values, so it ships. Absent -> an empty table, and the
+# runtime loader simply finds nothing to do.
+DOSEXE ?= data/dos-frua/CKIT.EXE
+
 $(A4MAP_C): tools/a4map.py tools/datapool.py tools/macrsrc.py .machine
-	@if [ -f "$(RFORK)" ]; then \
-		python3 tools/a4map.py "$(RFORK)" $(A4MAP_ARGS) --emit-c $(A4MAP_C); \
+	@dos=""; [ -f "$(DOSEXE)" ] && dos="--dos $(DOSEXE)"; \
+	if [ -f "$(RFORK)" ]; then \
+		python3 tools/a4map.py "$(RFORK)" $$dos $(A4MAP_ARGS) \
+			--refs-from src/engine/boot.c \
+			--refs-from src/engine/master.c --emit-c $(A4MAP_C); \
 	else \
 		python3 tools/a4map.py --stub $(A4MAP_ARGS) --emit-c $(A4MAP_C); \
 	fi

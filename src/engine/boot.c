@@ -44,6 +44,7 @@
 #include "str.h"              /* ua_strcmp, ua_get_string */
 #include "a4_map.h"          /* g_a4_map — ADR-0017 A4/STRS slot table */
 #include "a5_scalars.h"      /* a5_seed_authored_scalars — #71 */
+#include "dos_scalars.h"     /* dos_scalars_load — ADR-0017 */
 #include "files.h"            /* FSOpen / FSRead (jt398 file-open chain) */
 #include "toolbox.h"          /* ExitToShell (jt415)                     */
 #include "quickdraw.h"        /* MoveTo, DrawString, GetPort (jt1089) */
@@ -10958,6 +10959,12 @@ void boot_a5_seed_defaults(void)
 		 * pointer tables; the values are verified byte-exact against
 		 * that image. */
 		a5_seed_authored_scalars();
+
+		/* Shared game-rule tables from the user's own DOS CKIT.EXE
+		 * (ADR-0017): positions ship, the bytes are theirs. Silent
+		 * no-op on a Mac-only install, where the replay supplies
+		 * them; refuses loudly if the file does not match the map. */
+		(void)dos_scalars_load();
 
 		for (i = 0; i < g_a4_map_count; i++) {
 			short slot = g_a4_map[i].slot;

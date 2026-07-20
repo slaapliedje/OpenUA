@@ -222,11 +222,18 @@ def emit_c_dos_scalars(locatable, fh):
     fh.write("\n/* Scalar runs recoverable from the user's DOS CKIT.EXE:\n"
              " * \"the A5 global at `slot` is `len` bytes taken from DOS+`off`\".\n"
              " * Shared game-rule tables, byte-identical between the releases.\n"
-             " * Positions only — no values here, so this ships.\n"
+             " * Positions and a checksum only — no values — so this ships.\n"
+             " *\n"
+             " * `sum` is the 16-bit sum of the run's bytes. ADR-0017 requires\n"
+             " * install-time verification rather than trusting offsets: a\n"
+             " * repacked or different build shifts every offset, and reading\n"
+             " * from the wrong place would silently poison the A5 world. A\n"
+             " * checksum catches that without carrying the values themselves.\n"
              " */\n"
-             "const struct a4_run g_a5_dos_scalars[] = {\n")
+             "const struct a4_dos_run g_a5_dos_scalars[] = {\n")
     for slot, b, off in locatable:
-        fh.write(f"\t{{ {slot:7d}, {len(b):4d}, {off:6d} }},\n")
+        chk = sum(b) & 0xFFFF
+        fh.write(f"\t{{ {slot:7d}, {len(b):4d}, {off:7d}L, 0x{chk:04x} }},\n")
     fh.write("};\n\n"
              f"const short g_a5_dos_scalar_count = {len(locatable)};\n")
 
@@ -277,6 +284,7 @@ def main(argv=None):
         with open(args.emit_c, "w") as fh:
             emit_c([], b"", fh)
             emit_c_internal([], [], fh)
+            emit_c_dos_scalars([], fh)
             if args.with_scalars:
                 emit_c_scalars([], fh)
         print(f"a4_map: STUBBED (no resource fork) -> {args.emit_c}",
@@ -301,34 +309,39 @@ def main(argv=None):
         with open(args.emit_c, "w") as fh:
             emit_c(pairs, strs, fh)
             emit_c_internal(below, above, fh)
+
+            # The DOS scalar map is SHIPPABLE (positions + checksum, no
+            # values), so it is emitted unconditionally — empty when no DOS
+            # executable was given — otherwise the engine would not link.
+            runs = scalar_runs(img, drel)
+            allb = sum(len(b) for _, b in runs)
+            if args.refs_from:
+                refs = referenced_offsets(args.refs_from)
+                runs = filter_runs_to_refs(runs, refs)
+                print(f"  scalars filtered to {len(refs)} referenced offsets",
+                      file=sys.stderr)
+            loc, res = [], runs
+            if args.dos:
+                loc, res = split_by_dos(runs, open(args.dos, "rb").read())
+                lb = sum(len(b) for _, b, _ in loc)
+                rb = sum(len(b) for _, b in res)
+                print(f"  DOS-extractable: {len(loc)} runs / {lb} bytes; "
+                      f"residue: {len(res)} runs / {rb} bytes "
+                      f"({100*rb/(lb+rb):.1f}%)", file=sys.stderr)
+                if args.residue_report:
+                    with open(args.residue_report, "w") as rf2:
+                        rf2.write("# A5 scalar residue — port-author these\n")
+                        rf2.write("# Not recoverable from the DOS binary "
+                                  "(absent, or too short to locate).\n")
+                        rf2.write(f"# {len(res)} runs, {rb} bytes\n\n")
+                        for slot, b in sorted(res, key=lambda x: -len(x[1])):
+                            rf2.write(f"A5{slot:<8} len {len(b):<4} "
+                                      f"{b.hex(' ')}\n")
+                    print(f"  residue worklist -> {args.residue_report}",
+                          file=sys.stderr)
+            emit_c_dos_scalars(loc, fh)
+
             if args.with_scalars:
-                runs = scalar_runs(img, drel)
-                allb = sum(len(b) for _, b in runs)
-                if args.refs_from:
-                    refs = referenced_offsets(args.refs_from)
-                    runs = filter_runs_to_refs(runs, refs)
-                    print(f"  scalars filtered to {len(refs)} referenced "
-                          f"offsets", file=sys.stderr)
-                if args.dos:
-                    dosb = open(args.dos, "rb").read()
-                    loc, res = split_by_dos(runs, dosb)
-                    emit_c_dos_scalars(loc, fh)
-                    lb = sum(len(b) for _, b, _ in loc)
-                    rb = sum(len(b) for _, b in res)
-                    print(f"  DOS-extractable: {len(loc)} runs / {lb} bytes; "
-                          f"residue to hand-author: {len(res)} runs / {rb} "
-                          f"bytes ({100*rb/(lb+rb):.1f}%)", file=sys.stderr)
-                    if args.residue_report:
-                        with open(args.residue_report, "w") as rf2:
-                            rf2.write("# A5 scalar residue — port-author these\n")
-                            rf2.write("# Not recoverable from the DOS binary "
-                                      "(absent, or too short to locate).\n")
-                            rf2.write(f"# {len(res)} runs, {rb} bytes\n\n")
-                            for slot, b in sorted(res, key=lambda x: -len(x[1])):
-                                rf2.write(f"A5{slot:<8} len {len(b):<4} "
-                                          f"{b.hex(' ')}\n")
-                        print(f"  residue worklist -> {args.residue_report}",
-                              file=sys.stderr)
                 emit_c_scalars(runs, fh)
                 print(f"  + {len(runs)} scalar runs "
                       f"({sum(len(b) for _, b in runs)} of {allb} bytes) "
