@@ -859,7 +859,15 @@ decision stands** — the bitplane fork is real and shipped (viewport + fixed
 palette + the c2p optimisations above); it simply lands at a pragmatic Phase-0
 rather than the full chunky-surface removal. If ST/StE perf is reopened, the lever
 is **c2p throughput** (a tighter `st_c2p_span`/`c2p4st` inner loop, or the Atari
-BLiTTER for plane fills on transitions), not writer conversion. The page-flip
-substrate is complete and parked on `b4-pageflip-wip`. Full findings:
+BLiTTER for plane fills on transitions), not writer conversion. Full findings:
 `docs/planar-plan.md`. **Amiga/ECS** shares the c2p tax and never received B2.1 —
 a parallel track if that target's perf is prioritised later.
+
+**Update (2026-07-19): the B4 double-buffered page-flip was MERGED to `planar-native`
+(merge 5583964) and is now the ST/StE default** — for the anti-tear on progressive draws,
+on its own merits (the native-writer end-state that would have made it a pure win is not
+pursued). Cost: 2 c2p's per re-band (~+60% c2p on scene TRANSITIONS; normal presents 1x, the
+dungeon walk untouched) — an accepted trade for tear-free rendering. Reconciled with Phase-0:
+a within-scene palette change takes the register-only `st_repalette` (both pages' planes stay
+valid, no both-pages c2p); only a genuine re-band pays it. Verified on the STE (menu + dungeon
+render correctly, gold roster intact).
