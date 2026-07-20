@@ -50,7 +50,9 @@ pos_get() { cat "$STATE/mousepos" 2>/dev/null || echo "160 100"; }
 pos_set() { echo "$1 $2" > "$STATE/mousepos"; }
 
 cmd_build() {
-	( cd "$REPO" && make MACHINE=amiga ) || return 1
+	# Extra args pass straight through to make — e.g. the ECS variant:
+	#   driver.sh build CPU68K=68000 EXTRA_CFLAGS=-DFRUA_FORCE_ECS
+	( cd "$REPO" && make MACHINE=amiga "$@" ) || return 1
 	cp "$REPO/frua" "$MOUNT/frua"
 	echo "staged: $MOUNT/frua"
 }

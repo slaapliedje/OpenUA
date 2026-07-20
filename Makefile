@@ -288,6 +288,15 @@ run-amiga:
 	$(AMIGA_DRIVER) build
 	$(AMIGA_DRIVER) start
 
+# Amiga ECS/OCS (32-colour native bitplanes): same delegation, but builds the ECS
+# variant (CPU68K=68000 + FRUA_FORCE_ECS — the driver passes these through to make)
+# and boots the ECS amiberry machine config. Override AMIGA_ECS_CONF for a
+# different ECS/OCS machine (e.g. an A600/KS2.0 config).
+AMIGA_ECS_CONF ?= $(HOME)/Amiberry/Configurations/openua-ecs.uae
+run-amiga-ecs:
+	$(AMIGA_DRIVER) build CPU68K=68000 EXTRA_CFLAGS='-DFRUA_FORCE_ECS $(EXTRA_CFLAGS)'
+	AMIBERRY_CONF="$(AMIGA_ECS_CONF)" $(AMIGA_DRIVER) start
+
 # Staged game-data folder for module-load testing. The engine opens
 # .DAT/.GLB/.CTL files by bare filename from the GEMDOS mount, but the
 # unpacked Mac release nests them under data/frua-mac/joined/. This
@@ -599,4 +608,4 @@ release-all:
 
 -include $(DEP)
 
-.PHONY: installer installer-amiga all run run-ste run-mono run-amiga run-game gamedata probe fc-audit cg-audit test test-slow clean distclean data-pool-regen release release-ste release-amiga release-amiga-ecs release-all strip-target
+.PHONY: installer installer-amiga all run run-ste run-mono run-amiga run-amiga-ecs run-game gamedata probe fc-audit cg-audit test test-slow clean distclean data-pool-regen release release-ste release-amiga release-amiga-ecs release-all strip-target
