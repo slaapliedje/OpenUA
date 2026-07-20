@@ -16283,6 +16283,9 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 	else
 		g_a5_byte(-2592) = (unsigned char)(g_a5_byte(-2592) | 0x02);
 	g_walk_input = 1;
+#ifdef FRUA_CBTAUTO
+	dbg_log("cbtauto: l63c0 walk input loop ENTER");
+#endif
 
 	/* --- the input / movement loop (L64ae .. L67ae) --- */
 	for (;;) {
@@ -16324,6 +16327,22 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 
 		pollres = l2d3e();              /* event poll (JT[456]) */
 #ifdef FRUA_CBTSND
+#ifdef FRUA_CBTAUTO
+		/* Auto-fire (#74): the 'k' latch never trips under the headless
+		 * driver (the keypress reaches the engine — Escape/arrows work —
+		 * but not the walk-input latch at l2d3e Phase 1). Rather than
+		 * fight the injection path, fire the combat OURSELVES after the
+		 * walk loop has run a few polls, exactly as 'k' would. Once. */
+		{
+			static short s_cbtauto_polls;
+
+			if (s_cbtauto_polls >= 0 && ++s_cbtauto_polls > 24) {
+				s_cbtauto_polls = -1;   /* once */
+				g_cbtsnd_fire = 1;
+				dbg_log("cbtauto: walk stable - auto-firing");
+			}
+		}
+#endif
 		if (g_cbtsnd_fire) {            /* harness: start the fight from the walk */
 			g_cbtsnd_fire = 0;
 			/* Load the level AT FIRE TIME: the walk loads its own level
@@ -19274,7 +19293,15 @@ void frua_areatest_entry(void)
 	 *   - The walk RELOADS its own level, so jt198 must run at FIRE time.
 	 *
 	 * `make EXTRA_CFLAGS="-DFRUA_AREATEST -DFRUA_CBTSND -DFRUA_SKIP_ENTRY_EVENTS"`,
-	 * then press 'k' and Return a few times. The player turn is then driven by
+	 * then press 'k' and Return a few times. -DFRUA_CBTAUTO adds auto-fire
+	 * attempts in l63c0's loop and l2d3e — but #74's instrumentation shows
+	 * NEITHER ever executes in the current play flow (the l63c0 ENTER marker
+	 * and an unconditional l2d3e heartbeat both stay silent from menu through
+	 * walk, while input still works), so this whole harness — 'k' latch
+	 * included — is stranded on a dead path. Until the port's LIVE input loop
+	 * is identified and the fire relocated there, combat is not reachable
+	 * headless. Camp exits with Escape; the CURRENT DESIGN must start in a
+	 * dungeon (TUTORIAL.DSN, not HEIRS — repoint start.dat). The player turn is then driven by
 	 * the ARROW KEYS (move into a monster to attack; "CAN'T GO THERE" is l1162
 	 * rejecting an illegal step) — QUICK ('q') is a convenience, not a
 	 * requirement. Arrow-driven play produces MORE sound than QUICK does: the
@@ -24407,6 +24434,31 @@ static short l2d3e(void)
 	dlitem_method_t method;
 
 	PROBE("L2d3e");
+#if defined(FRUA_CBTSND) && defined(FRUA_CBTAUTO)
+	/* Auto-fire (#74), placed HERE because l2d3e is the one poll every
+	 * screen funnels through: the 'k' latch and its l63c0 consumer sit on
+	 * a walk driver the current play flow never enters (instrumented —
+	 * l63c0's loop marker never fires), so a latch there is dead code.
+	 * Instead: once the DUNGEON play mode is up (-27990 == 4, set by
+	 * jt948's entry arms) and ~60 polls have settled it, fire the GEO007
+	 * type-1 combat exactly as 'k' would have. State -1 marks done BEFORE
+	 * the fire so combat's own nested l2d3e polls cannot re-trigger. */
+	{
+		static short s_cbtauto;
+		static long  s_cbtauto_seen;
+
+		if ((s_cbtauto_seen++ % 500) == 0)      /* poll + mode heartbeat */
+			dbg_log_num("cbtauto: l2d3e poll, mode = ",
+			            (long)g_a5_27990);
+		if (s_cbtauto >= 0 && g_a5_27990 == 4 && ++s_cbtauto > 60) {
+			s_cbtauto = -1;
+			dbg_log("cbtauto: dungeon mode 4 stable - firing GEO007 ev37");
+			jt198((short)7);
+			l709e((short)37);
+			dbg_log("cbtauto: combat returned");
+		}
+	}
+#endif
 #ifdef FRUA_KBTRACE
 	{ extern long g_kbt_l2d3e; g_kbt_l2d3e++; }
 #endif
