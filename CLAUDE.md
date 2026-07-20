@@ -46,6 +46,26 @@ relocations). `data/` is git-ignored; nothing there is committed.
 annotated disassembly under `data/work/disasm/`. The runtime model and the
 lifting workflow are in `docs/decompilation.md`.
 
+## Reference tooling (MCP)
+
+Two local MCP servers back this work — check whether they're connected (their
+`mcp__…` tools appear in the session); if a needed one is missing, register it
+and reconnect the session (MCP servers load at session start).
+
+- **`frua-reference`** — the FRUA/Mac-Toolbox corpus: `jt_lookup`, `fc_groups`,
+  `toolbox_search`/`toolbox_get`/`toolbox_list`, plus disasm/symbol/trace tools.
+  Use before lifting Resource-Manager / purgeable-handle / FC-cache code.
+- **`atari-compendium`** — Scott Sanders' *Atari Compendium* (842 pages: XBIOS,
+  GEMDOS, BIOS, VDI, AES, Line-A, hardware registers) as a searchable index.
+  Tools: `search`, `get_page`, `table_of_contents`. Reach for it on ANY
+  Atari-hardware/OS detail — `Blitmode`/BLiTTER, `Setscreen`/`Vsync`, VDI
+  blits, colour-register/copper timing behind the ST/StE/Falcon display work.
+  Server: `tools/atari-compendium-mcp/` (see its README). Register with:
+  `claude mcp add atari-compendium -s user -- \
+   tools/atari-compendium-mcp/.venv/bin/python \
+   tools/atari-compendium-mcp/server.py` (use absolute paths). The PDF + its
+  text cache are NOT committed (copyright, like `data/`); only the server code.
+
 ## Layer rule
 
 `src/engine/` (engine) → `compat/` (Mac Toolbox shim) → `platform/` (HAL) →
