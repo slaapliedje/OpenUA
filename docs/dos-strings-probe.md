@@ -107,6 +107,32 @@ python3 tools/strs_dos_probe.py <rfork> <CKIT.EXE> --from-rfork --emit-map strs_
 Deriving the map still needs a Mac fork once, on the developer side. It is the
 *player* who is freed from needing one.
 
+### Which `CKIT.EXE` these offsets are derived against
+
+An offset table is only valid for the exact build it was derived from, so the
+reference is recorded here:
+
+| | |
+|---|---|
+| Source | GOG *Forgotten Realms: The Archives – Collection Two*, `gameId` 1432650732 |
+| Size | 587,843 bytes |
+| SHA-256 | `467451a770e3275df409c524e6f7cfc714716bf88ef96f8fbeb2ca9afb146959` |
+| Version banner | `Version 1.2        June 28,1993` |
+
+**Open: is the Steam release byte-identical?** Not validated — only the GOG copy
+was available. Both re-releases are the same DOSBox repackaging from the same
+publisher, so identical is *likely*, but likely is not measured. Check with:
+
+```sh
+sha256sum <steam>/CKIT.EXE      # compare against the hash above
+```
+
+If it differs, the extractor needs a per-build table keyed by hash rather than a
+single one — which is why ADR-0017 requires install-time anchor verification
+that refuses loudly instead of extracting from unverified offsets. Any other
+provenance (floppy original, a fan repack, a different patch level) is subject
+to the same caveat.
+
 ## What this does and does not settle
 
 **Settles:** the string half of DOS-independence is viable. The risk that killed

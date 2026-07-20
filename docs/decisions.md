@@ -871,3 +871,105 @@ dungeon walk untouched) — an accepted trade for tear-free rendering. Reconcile
 a within-scene palette change takes the register-only `st_repalette` (both pages' planes stay
 valid, no both-pages c2p); only a genuine re-band pays it. Verified on the STE (menu + dungeon
 render correctly, gold roster intact).
+
+---
+
+## ADR-0017 — A player needs the DOS **or** the Mac release, never specifically the Mac: port-authored A5 world + user-supplied string pool
+
+**Status:** ratified 2026-07-20. Supersedes nothing; sets the target end-state
+for the Mac-dependency work (#67, #68). Amends ADR-0007's practical
+consequences (the flat resource archive stays; what must come *from* it
+shrinks).
+
+**Context.** The port's one hard dependency on the Macintosh release is
+`frua.rsc` (`docs/redistributable-binary.md`, `GAMEDATA.md:96`). The Mac
+release is long out of print; the DOS release is still sold (*Forgotten
+Realms: The Archives – Collection Two*). Design data is **already**
+byte-identical between releases and art **already** converts
+(`tools/art_convert.py`, ADR-0011/0013/0014/0015), so the gap is narrow but
+absolute. Three things were measured on 2026-07-20 rather than assumed:
+
+1. **The A5 world is load-bearing.** With `data_pool_replay()` skipped
+   (`-DFRUA_NO_REPLAY`, `src/main.c`), the Falcon build still renders the main
+   menu and Training Hall with full labels — but those are port-authored C
+   literals, so a rendering menu proves nothing. At party depth it breaks
+   against a baseline control: no selection highlight, no `* NAME` marker, **no
+   command bar at all**, Return inert, dungeon unreachable. Boot also turns
+   non-deterministic (baseline 10 s to `menu: modal up`; no-replay ~4 min on one
+   run, hung indefinitely on the next). The replay cannot simply be dropped.
+2. **The string pool CAN come from DOS.** 2068/2145 Mac `STRS` entries are
+   recoverable byte-exact as whole NUL-delimited strings from the GOG
+   `CKIT.EXE` (96.4%); the 37 absent are all Mac-platform-specific and **no
+   creative game text is missing** (`docs/dos-strings-probe.md`,
+   `tools/strs_dos_probe.py`).
+3. **A Mac 1.2 retarget does not help.** Mac 1.0 and Mac 1.2 score *identically*
+   against DOS 1.2 (96.4%, same 40 substring-only, same 37 absent) because the
+   gaps are platform differences, not version differences. "1.2" also is not the
+   same version on both platforms: DOS 1.2 (June 1993) *predates* Mac 1.2
+   (February 1994) by eight months.
+
+**Decision.**
+
+1. **Target end-state:** a player supplies the **DOS *or* the Mac** data files
+   and needs nothing else. The Mac release becomes a *build-time* input used
+   once, on the developer side, to derive tables — never a player requirement.
+   Mac-copy scarcity therefore stops mattering to anyone downstream.
+2. **Split the two halves by mechanism.** The **A5 world** becomes
+   port-authored C, compiled into the binary (our own code, redistributable).
+   The **string pool** stays *user-supplied*, extracted at install time. #67
+   does **not** replace the string pipeline — roughly 1,016 of the A5 globals
+   are pointers *into* the pool, and the pool is copyrighted text that cannot be
+   compiled in.
+3. **Keep the A4-relocation machinery** in `src/engine/data_pool_replay.c`. The
+   end-state has the same shape the engine already has — reconstruct globals,
+   then point them at a string pool — so only the *source* of the globals
+   changes. This is a materially smaller change than "replace the replay".
+4. **Extraction is an offset table**, `pool_offset -> (source_offset, length)`,
+   carrying **positions only, never text**. Beyond being distributable, this is
+   what makes a *native* installer viable: `CKIT.EXE` is 587 KB and unloadable
+   on a 1 MB ST, but the extractor only ever seeks and reads (~2,100 times), with
+   no EXE parsing and a few KB of buffer.
+5. **Offset tables are build-specific — verify, then refuse loudly.** A table is
+   derived against one `CKIT.EXE`; a repack or a different floppy/CD build
+   shifts every offset and would silently yield garbage. Install-time
+   verification of a handful of anchor strings is **designed in, not bolted
+   on**, consistent with `GAMEDATA.md`'s "refused loudly rather than mangled".
+6. **The ~35 Mac-only strings are port-authored**, as part of #67 rather than a
+   separate task. They are diagnostics and Mac platform concepts (`.ctl`
+   templates, `:DISK4:` paths, MacPaint/PICT import, the Mac memory-partition
+   warning, Toolbox StandardFile prompts, the Mac sound engine's messages) —
+   no copyright question.
+7. **No Mac 1.2 retarget.** 1.2 stays a per-function **oracle**: when chasing a
+   specific bug, diff that one function 1.0 vs 1.2 and port just the fix. A full
+   retarget (jump table 1208 -> 1207, reorganised from index 13, every `jtNNN`
+   re-derived, 22 of 23 CODE segments changed) would churn a working port for
+   benefits nobody has demonstrated.
+
+**Convergence and testing happen on the Falcon first.** It is the primary
+target, the furthest along, the fastest, and it does not hang. Every
+A5-reconstruction milestone is proven there before any bitplane machine sees
+it; ST/StE and Amiga follow once the Falcon boot is deterministic and the
+party/dungeon path is intact. The AGA build *feels* more responsive at the
+pointer, but that is a rendering difference, not lower input latency and not
+evidence of a faster machine: AGA drives the mouse from **hardware sprites 0+1**
+(`platform/amiga/display_aga.c:19,80`) so pointer motion costs nothing, whereas
+the Falcon runs a **VBL software cursor** that blits and re-erases from the
+chunky surface every frame (`platform/display_videl.c:73-90`) and ECS is
+explicitly software too (`platform/amiga/display_ecs.c:127`). It does not argue
+against Falcon-first.
+
+**Known-open risk.** The no-replay failure mode is **non-deterministic** — the
+same binary reached the menu once and hung indefinitely the next run, the
+signature of uninitialised state rather than a clean missing value. Until that
+boot is deterministic, an intermediate reconstruction cannot be told apart from
+noise, which undermines the "fill slots incrementally and watch it improve"
+workflow. **Making the no-replay boot deterministic is therefore the first
+sub-task of #67**, ahead of any slot-filling.
+
+**Why an ADR:** it fixes the end-state that a large grind (#67) will be measured
+against, and records *why* two tempting shortcuts are closed — dropping the
+replay (measured: breaks the interactive layer) and retargeting to Mac 1.2
+(measured: buys nothing for DOS, and the version numbers do not correspond
+across platforms). Both would otherwise be re-proposed on plausible-sounding
+reasoning. It also pins Falcon as the convergence target so cross-platform
+symptoms are not chased before the reference platform is correct.
