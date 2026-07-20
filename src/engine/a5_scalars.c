@@ -123,4 +123,71 @@ void a5_seed_authored_scalars(void)
 		};
 		memcpy(&g_a5_byte(-27980), dirs, sizeof dirs);
 	}
+
+	/* Formula-derivable residue: constant fills and arithmetic
+	 * ramps that are neither relocations nor DOS-locatable. Fills
+	 * and ramps are structural (a repeated default, an index
+	 * sequence) — functional, not creative content — so they are
+	 * stated as their formula here. Opaque residue (game/engine
+	 * tables whose bytes are not a formula) is deliberately NOT
+	 * copied: that would recreate the non-redistributable payload;
+	 * it comes from the user's own binary via the DOS map (#68). */
+	memset(&g_a5_byte(-30517), 0x06, 3);
+	memset(&g_a5_byte(-30485), 0x09, 2);
+	memset(&g_a5_byte(-30478), 0x09, 2);
+	memset(&g_a5_byte(-29516), 0x02, 2);
+	memset(&g_a5_byte(-29237), 0x02, 2);
+	memset(&g_a5_byte(-29228), 0x02, 2);
+	memset(&g_a5_byte(-29224), 0x02, 2);
+	memset(&g_a5_byte(-29215), 0x02, 2);
+	memset(&g_a5_byte(-29210), 0x02, 3);
+	memset(&g_a5_byte(-29206), 0x02, 2);
+	memset(&g_a5_byte(-29201), 0x02, 3);
+	memset(&g_a5_byte(-29197), 0x02, 2);
+	memset(&g_a5_byte(-29192), 0x02, 3);
+	memset(&g_a5_byte(-29188), 0x02, 2);
+	memset(&g_a5_byte(-29183), 0x02, 3);
+	memset(&g_a5_byte(-29179), 0x02, 2);
+	memset(&g_a5_byte(-29174), 0x02, 3);
+	memset(&g_a5_byte(-29170), 0x02, 2);
+	memset(&g_a5_byte(-29165), 0x02, 3);
+	memset(&g_a5_byte(-29161), 0x02, 2);
+	memset(&g_a5_byte(-29156), 0x02, 3);
+	memset(&g_a5_byte(-29152), 0x02, 2);
+	memset(&g_a5_byte(-29147), 0x02, 3);
+	memset(&g_a5_byte(-29143), 0x02, 2);
+	memset(&g_a5_byte(-29138), 0x02, 3);
+	memset(&g_a5_byte(-29134), 0x02, 2);
+	memset(&g_a5_byte(-29129), 0x02, 3);
+	memset(&g_a5_byte(-29125), 0x02, 2);
+	memset(&g_a5_byte(-29120), 0x02, 3);
+	memset(&g_a5_byte(-29116), 0x02, 2);
+	memset(&g_a5_byte(-29111), 0x02, 3);
+	memset(&g_a5_byte(-29107), 0x02, 2);
+	memset(&g_a5_byte(-29102), 0x02, 3);
+	memset(&g_a5_byte(-29098), 0x02, 2);
+	memset(&g_a5_byte(-28014), 0x28, 2);
+	memset(&g_a5_byte(-17489), 0x3f, 2);
+	memset(&g_a5_byte(-17485), 0x3f, 3);
+	memset(&g_a5_byte(-16442), 0x02, 2);
+	memset(&g_a5_byte(-16426), 0x02, 2);
+	memset(&g_a5_byte(-16410), 0x02, 2);
+	memset(&g_a5_byte(-16394), 0x02, 2);
+	memset(&g_a5_byte(-15871), 0x01, 4);
+	memset(&g_a5_byte(-15567), 0x01, 2);
+	memset(&g_a5_byte(-11686), 0xff, 2);
+	memset(&g_a5_byte(-11679), 0xff, 3);
+	memset(&g_a5_byte(-7892), 0x11, 2);
+	memset(&g_a5_byte(-7884), 0x20, 2);
+	memset(&g_a5_byte(-5933), 0x01, 2);
+	memset(&g_a5_byte(-5926), 0xff, 2);
+	memset(&g_a5_byte(-5916), 0xff, 2);
+	for (i = 0; i < 3; i++)
+		g_a5_byte(-30980 + i) = (unsigned char)(0x6c + i * 1);
+	for (i = 0; i < 3; i++)
+		g_a5_byte(-29498 + i) = (unsigned char)(0x03 + i * 255);
+	for (i = 0; i < 3; i++)
+		g_a5_byte(-15610 + i) = (unsigned char)(0x02 + i * 2);
+	for (i = 0; i < 3; i++)
+		g_a5_byte(-15562 + i) = (unsigned char)(0x02 + i * 2);
 }
