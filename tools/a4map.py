@@ -191,6 +191,46 @@ def filter_runs_to_refs(runs, refs, span=4):
     return keep
 
 
+def split_by_dos(runs, dos, min_run=4):
+    """(locatable, residue) — which scalar runs live in the DOS executable.
+
+    The big scalar runs are game-rule tables, and FRUA is the same game on both
+    platforms, so most of them are byte-identical in CKIT.EXE. Those can be
+    extracted from the user's own DOS binary exactly as the string pool is
+    (docs/dos-strings-probe.md), which keeps them out of our source entirely.
+
+    Runs shorter than `min_run` are treated as residue regardless: a 1-3 byte
+    sequence matches somewhere by chance, so a "hit" would not identify
+    anything. They are small (flags, counts, defaults) and are the natural
+    port-authoring set.
+
+    A run occurring at several DOS offsets is still fine — the bytes are
+    identical, so any occurrence serves.
+    """
+    locatable, residue = [], []
+    for slot, b in runs:
+        if len(b) < min_run:
+            residue.append((slot, b))
+            continue
+        i = dos.find(b)
+        (locatable.append((slot, b, i)) if i >= 0
+         else residue.append((slot, b)))
+    return locatable, residue
+
+
+def emit_c_dos_scalars(locatable, fh):
+    fh.write("\n/* Scalar runs recoverable from the user's DOS CKIT.EXE:\n"
+             " * \"the A5 global at `slot` is `len` bytes taken from DOS+`off`\".\n"
+             " * Shared game-rule tables, byte-identical between the releases.\n"
+             " * Positions only — no values here, so this ships.\n"
+             " */\n"
+             "const struct a4_run g_a5_dos_scalars[] = {\n")
+    for slot, b, off in locatable:
+        fh.write(f"\t{{ {slot:7d}, {len(b):4d}, {off:6d} }},\n")
+    fh.write("};\n\n"
+             f"const short g_a5_dos_scalar_count = {len(locatable)};\n")
+
+
 def emit_c_scalars(runs, fh):
     blob = b"".join(b for _, b in runs)
     fh.write("\n/* DIAGNOSTIC ONLY — raw initialised values from the Mac DATA\n"
@@ -222,6 +262,10 @@ def main(argv=None):
     ap.add_argument("--with-scalars", action="store_true",
                     help="DIAGNOSTIC: also emit the raw scalar blob "
                          "(copyrighted payload — never ship this)")
+    ap.add_argument("--dos", metavar="CKIT.EXE",
+                    help="split scalars into DOS-extractable vs residue")
+    ap.add_argument("--residue-report", metavar="FILE",
+                    help="write the hand-authoring worklist (with --dos)")
     ap.add_argument("--refs-from", metavar="SRC", action="append", default=[],
                     help="restrict scalars to slots this source names "
                          "(repeatable); a LOWER BOUND, verify parity")
@@ -265,6 +309,26 @@ def main(argv=None):
                     runs = filter_runs_to_refs(runs, refs)
                     print(f"  scalars filtered to {len(refs)} referenced "
                           f"offsets", file=sys.stderr)
+                if args.dos:
+                    dosb = open(args.dos, "rb").read()
+                    loc, res = split_by_dos(runs, dosb)
+                    emit_c_dos_scalars(loc, fh)
+                    lb = sum(len(b) for _, b, _ in loc)
+                    rb = sum(len(b) for _, b in res)
+                    print(f"  DOS-extractable: {len(loc)} runs / {lb} bytes; "
+                          f"residue to hand-author: {len(res)} runs / {rb} "
+                          f"bytes ({100*rb/(lb+rb):.1f}%)", file=sys.stderr)
+                    if args.residue_report:
+                        with open(args.residue_report, "w") as rf2:
+                            rf2.write("# A5 scalar residue — port-author these\n")
+                            rf2.write("# Not recoverable from the DOS binary "
+                                      "(absent, or too short to locate).\n")
+                            rf2.write(f"# {len(res)} runs, {rb} bytes\n\n")
+                            for slot, b in sorted(res, key=lambda x: -len(x[1])):
+                                rf2.write(f"A5{slot:<8} len {len(b):<4} "
+                                          f"{b.hex(' ')}\n")
+                        print(f"  residue worklist -> {args.residue_report}",
+                              file=sys.stderr)
                 emit_c_scalars(runs, fh)
                 print(f"  + {len(runs)} scalar runs "
                       f"({sum(len(b) for _, b in runs)} of {allb} bytes) "

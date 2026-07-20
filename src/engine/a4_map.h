@@ -37,6 +37,11 @@ struct a4_run {
 	short blob;    /* start index into the blob     */
 };
 
+/* Scalar runs recoverable from the user's DOS CKIT.EXE — positions only, so
+ * unlike g_a5_scalar_blob this is shippable. See ADR-0017 and task #71. */
+extern const struct a4_run g_a5_dos_scalars[];
+extern const short         g_a5_dos_scalar_count;
+
 extern const unsigned char g_a5_scalar_blob[];
 extern const struct a4_run g_a5_scalar_runs[];
 extern const short         g_a5_scalar_run_count;
