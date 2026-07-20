@@ -651,6 +651,40 @@ The infrastructure is sound and reusable; the composition model is the blocker.
 FRUA_AUTOPLAY did not advance past the party hall this session, so the dungeon HUD was not
 re-verified under FRUA_PLANAR (a harness issue, separate from the overlay).
 
+### DRAW-TIME REMAP-BOOTSTRAP WALL — measured 2026-07-19 (the third wall)
+
+Starting the draw-time conversion surfaced a hard prerequisite: draw-time writers convert
+`index -> remap[index]` at the MOMENT they draw, so the per-scene `remap` must be ready BEFORE
+the frame is drawn. Today it is computed AT PRESENT from the drawn `s_chunky` (the median-cut
+histograms which indices actually appear). So the first domino is remap-from-CLUT — derive the
+16-slot palette from the CLUT, which exists at set_palette time.
+
+**Tried it (FRUA_PLANAR, quantise a synthetic 1x256 frame of every CLUT index). MEASURED: a
+clear QUALITY REGRESSION** — the menu came up blue background / brown panels / cyan text.
+Cause: the scene CLUT holds ~32 meaningful menu entries plus ~224 STALE entries (leftover wall
+palettes in clut 32+); reducing over all 256 spends the 16 slots on colours that never appear,
+so the visible colours get poorly-matched slots. Deduping/limiting to a range needs knowledge
+the CLUT alone doesn't carry (which indices the frame uses) — exactly what the frame histogram
+provides and the CLUT does not. **The remap genuinely needs the drawn frame for quality.**
+
+**Consequence — the draw-time model cannot cleanly drop the scene-transition c2p.** A new
+scene's first frame needs a remap it can't have until it's drawn; the quality remap requires
+histogramming the drawn frame. So the transition still needs a "draw -> histogram -> convert"
+pass — i.e. the ~2.2s full c2p we wanted to remove stays (for the remap bootstrap). Draw-time
+could still remove the PER-FRAME changed-region c2p (HUD/walk updates become plane writes) —
+but that is already minimised by the row-diff + the B2.1 viewport composite. So the draw-time
+model's remaining #41 payoff is **small**, against a large, risky big-bang.
+
+**This is the THIRD wall this session** (chrome: base+overlay z-order; text: overlay draw-order
+lifecycle; draw-time: remap bootstrap). Together they say the incremental composite path is
+exhausted beyond self-contained rectangles AND the full draw-time rewrite's payoff is limited
+by the remap bootstrap. **#41's wins are largely BANKED** — flat-fill (-36%), stable-slot
+alignment + smart-skip (static chrome not re-transposed on rebands), and Phase-0 (within-scene
+palette change = register reload, no force-full). Recommendation: treat the native-writer
+pursuit as closed at Phase-0; if more #41 is wanted, attack the c2p THROUGHPUT directly (a
+tighter `st_c2p_span`/`c2p4st` inner loop, or the Atari BLiTTER for plane FILLS on transitions)
+rather than the writer-conversion grind.
+
 ### DRAW-TIME PRESENT MODEL — chosen 2026-07-19 (user picked option 1)
 
 Both incremental composite attempts (chrome, text) hit the SAME wall: to skip the transpose
