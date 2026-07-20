@@ -603,11 +603,53 @@ content>0 rebands and #14 (fires under an active viewport) correctly fall back t
 This is an unconditional improvement to the shippable ST build (correct + skips the
 force-full c2p on within-scene palette changes — a #41 win on fade/transition-heavy screens)
 AND it establishes the invariant Strategy B needs. NOT behind FRUA_PLANAR — it's safe in the
-current chunky model. **Next (B Phase-1): the first native-planar writer (CopyBits chrome or
-DrawChar text, the 75%), drawing plane bits at draw time against the now scene-stable remap.**
-Open item for later: partial-redraw rebands (#6/#13) still re-quant (correct in the chunky
-model); when `s_chunky` is dropped they'll need their un-redrawn rows handled (force a full
-redraw on those scenes, or retain indices only for reband recovery).
+current chunky model. Open item for later: partial-redraw rebands (#6/#13) still re-quant
+(correct in the chunky model); when `s_chunky` is dropped they'll need their un-redrawn rows
+handled (force a full redraw on those scenes, or retain indices only for reband recovery).
+
+### B PHASE-1 TEXT-OVERLAY ATTEMPT — mechanism proven, LIFECYCLE WALL (2026-07-19)
+
+Branch `b-text-overlay-wip` (commit 0763436, NOT merged; `planar-native` stays clean).
+Built the first native-planar TEXT writer as a composited overlay (the viewport pattern
+applied to glyphs), all FRUA_PLANAR-gated so default builds are byte-identical (verified):
+- HAL `dsp_text_scratch/commit/clear/clear_rect` + `planar_text_register` (planar.c) —
+  parallel to the viewport hooks.
+- Backend: a screen-sized chunky text scratch (key 0xFF) that the present converts to planes
+  and composites ON TOP of the c2p'd base (keyed, via the scene-stable per-band remap).
+- `DrawChar` (compat): on the on-screen port, glyphs render into the scratch instead of
+  `s_chunky`; commit the cell.
+- Region-scoped invalidation: `qd_pixmap_fill` (so PaintRect/EraseRect/`jt1161` panel boxes)
+  clears the overlay under a fill so text drawn AFTER survives; plus whole-scratch clears at
+  the full-screen wipes.
+
+**Mechanism PROVEN:** the main MENU renders pixel-perfect through the overlay — every label
+crisp, drawn as composited planes. **But the cross-screen / modal LIFECYCLE is a wall:**
+- whole-scratch clear (hooked at a chrome composer like `jt76`) either ghosts the previous
+  screen's text or blanks the dungeon HUD — the correct spot is order-dependent;
+- region-scoped clear kills the ghost, but a MODAL that re-fills its panels without redrawing
+  its (static) text then wipes that text — the party hall lost all but its last-drawn labels.
+
+**Decisive root cause:** generic text and the batch-c2p composite fight over **draw order**.
+A separate overlay cannot reconstruct the per-pixel draw-order composition the single-surface
+c2p gets for free (fills and glyphs interleave per screen/modal). This is the SAME
+shared-surface wall **chrome** hit — the B2.1 viewport works ONLY because it is a fully
+self-contained rectangle nothing else draws into. **Conclusion: incremental single-writer
+conversion in the batch-c2p model does not work for shared-surface writers (chrome OR text).**
+The infrastructure is sound and reusable; the composition model is the blocker.
+
+**Two ways forward (the real fork):**
+1. **Draw-time present model (Strategy B proper).** Every writer — fills, glyphs, chrome —
+   writes `s_screen` at draw time in draw order (converted → planes; not-yet-converted →
+   immediate small c2p bridge). Draw order is preserved by construction, so any writer
+   converts cleanly and the batch c2p is retired toward present=flip. This is the larger
+   rework but the ADR-0016 end state; the text-overlay HAL/composite code feeds into it.
+2. **Self-contained-region overlays only.** Keep the composite model but apply it ONLY to
+   rectangular regions nothing else draws into and with a controlled redraw lifecycle — the
+   viewport (done) and, plausibly, the dungeon HUD panel if its redraw is gated. Generic text
+   and chrome are out of scope for this path.
+
+FRUA_AUTOPLAY did not advance past the party hall this session, so the dungeon HUD was not
+re-verified under FRUA_PLANAR (a harness issue, separate from the overlay).
 
 Then Phase 4 (blitter) and Phase 5 (palette polish, folds in #40) as below.
 
