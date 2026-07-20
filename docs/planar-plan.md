@@ -579,6 +579,36 @@ incremental: writers convert one at a time against a scene-stable remap, redraw-
 rebands recolour via the hardware registers for free, and `s_chunky` can finally be dropped.
 Without it, B corrupts on the intro fades — so this guard is the true Phase-0 of B.
 
+### B4 PHASE-0 DONE — scene-stable remap / palette-register-only reband (2026-07-19)
+
+Implemented in `display_ste.c`. On a palette change whose surface CONTENT is byte-unchanged
+since the last present (`memcmp(s_chunky, s_shadow) == 0`, and no viewport pending), the
+present takes a new `st_repalette()` path instead of `st_reband()`: it keeps the fixed
+index→slot remap (so the on-screen planes stay valid) and rebuilds only the slot→RGB
+hardware palette (`st_band_stpal`) from the new CLUT. Mechanism: `st_reband` now captures
+`s_slot_rep[16]` — one representative CLUT index per slot (the used index nearest the slot's
+centroid) — and `st_repalette` re-derives each slot's colour by tracking that actual palette
+entry through the new CLUT (faithful for a fade). Shared `st_build_hw_palette()` does the
+band replicate + STE encode for both paths. Discriminator is conservative: requires a prior
+re-quant (`s_banded_valid`), an exact content match, and NO active viewport (the dungeon's
+wall-pin still re-quants) — so it only fires on unambiguous within-scene palette changes.
+
+VERIFIED on the STE (tos206, FRUA_AUTOPLAY, FRUA_STPROF path log): reband #8 (the intro
+fade, content=0, no viewport) took `-> repalette (registers only)` — replacing its ~2.2s
+force-full c2p with a register reload; the post-intro MENU renders pixel-correct (granite
+chrome, olive panels, all labels) and the DUNGEON renders identically to the reference (grey
+granite, torch/stone walls+floor, compass, GOLD roster "LADY ILLIS -4 84" + clock). All
+content>0 rebands and #14 (fires under an active viewport) correctly fall back to re-quant.
+
+This is an unconditional improvement to the shippable ST build (correct + skips the
+force-full c2p on within-scene palette changes — a #41 win on fade/transition-heavy screens)
+AND it establishes the invariant Strategy B needs. NOT behind FRUA_PLANAR — it's safe in the
+current chunky model. **Next (B Phase-1): the first native-planar writer (CopyBits chrome or
+DrawChar text, the 75%), drawing plane bits at draw time against the now scene-stable remap.**
+Open item for later: partial-redraw rebands (#6/#13) still re-quant (correct in the chunky
+model); when `s_chunky` is dropped they'll need their un-redrawn rows handled (force a full
+redraw on those scenes, or retain indices only for reband recovery).
+
 Then Phase 4 (blitter) and Phase 5 (palette polish, folds in #40) as below.
 
 **Phase 4 — blitter acceleration.**

@@ -97,6 +97,18 @@ static unsigned char           s_remap_old[256];
 static unsigned char           s_remap_dirty[256];
 static short                   s_remap_changed;
 static short                   s_have_prev_pal;
+/* ADR-0016 B4 Phase-0 (scene-stable remap): a representative CLUT index per
+ * slot, captured at each re-quant (the used index whose colour is nearest the
+ * slot's median-cut centroid). When a palette change arrives with the surface
+ * CONTENT unchanged (a within-scene fade / settle — de-risk #1 found these:
+ * rebands #8/#14), the index->slot remap is unchanged so the on-screen planes
+ * are already correct; only the slot->RGB hardware palette moved. st_repalette()
+ * rebuilds st_band_stpal from the NEW CLUT via these reps — a pure palette-
+ * register reload, no re-quant and no re-c2p. This is the invariant Strategy B
+ * needs (a within-scene palette change never invalidates planes) and, in the
+ * current chunky model, also skips the ~2.2s force-full those rebands used to
+ * pay. A genuine scene change (content differs) still re-quants (st_reband). */
+static unsigned char           s_slot_rep[ST_NCOL];
 short  st_band_stpal[ST_NBANDS + 1][ST_NCOL];   /* ST-format, +sentinel  */
 short *st_band_ptr;                             /* next band for Timer B */
 static short                   s_dirty;
@@ -361,6 +373,89 @@ static long st_coldist(const unsigned char *a, const unsigned char *b)
 	return dr * dr + dg * dg + db * db;
 }
 
+/* Replicate band 0's reduced palette to every band and encode the per-band
+ * ST-format hardware palettes (STE gun encoding: nibble = (v0 << 3) | (v >> 1)),
+ * plus the sentinel row (see st_band_stpal) and the CLUT snapshot the reband-skip
+ * guard compares against. The remap is NOT touched here — only st_reband rebuilds
+ * it; a palette-only refresh (st_repalette) reuses the fixed remap and just
+ * re-encodes the RGB. Shared by st_reband and st_repalette. */
+static void st_build_hw_palette(void)
+{
+	short b, i;
+
+	for (b = 1; b < ST_NBANDS; b++)
+		memcpy(s_band_pal + (long)b * ST_NCOL * 3, s_band_pal,
+		       (size_t)(ST_NCOL * 3));
+	for (b = 0; b < ST_NBANDS; b++) {
+		const unsigned char *bp = s_band_pal + (long)b * ST_NCOL * 3;
+
+		for (i = 0; i < ST_NCOL; i++) {
+			short vr = bp[i * 3 + 0] >> 4;
+			short vg = bp[i * 3 + 1] >> 4;
+			short vb = bp[i * 3 + 2] >> 4;
+			short rn = (short)(((vr & 1) << 3) | (vr >> 1));
+			short gn = (short)(((vg & 1) << 3) | (vg >> 1));
+			short bn = (short)(((vb & 1) << 3) | (vb >> 1));
+
+			st_band_stpal[b][i] = (short)((rn << 8) | (gn << 4) | bn);
+		}
+	}
+	for (i = 0; i < ST_NCOL; i++)
+		st_band_stpal[ST_NBANDS][i] = st_band_stpal[ST_NBANDS - 1][i];
+	memcpy(s_clut_banded, s_clut, sizeof s_clut);   /* B1: snapshot the CLUT */
+	s_banded_valid = 1;
+	s_dirty = 0;
+	s_have_pal = 1;
+}
+
+/* B4 Phase-0: after a re-quant, capture one representative CLUT index per slot —
+ * the index (band 0's remap) whose colour is nearest that slot's centroid. A
+ * within-scene palette change then re-derives the slot's RGB by tracking THIS
+ * actual palette entry through the new CLUT (faithful for a fade; a scan over
+ * all 256 naturally prefers a used index, whose colour sits near the centroid,
+ * over a luma-fallback one far from it). */
+static void st_compute_slot_reps(void)
+{
+	short s, i;
+
+	for (s = 0; s < ST_NCOL; s++) {
+		long  bestd = 0x7fffffffL;
+		short bi = 0;
+
+		for (i = 0; i < 256; i++) {
+			long d;
+			if (s_band_remap[i] != s)
+				continue;
+			d = st_coldist(s_clut + (long)i * 3, s_band_pal + (long)s * 3);
+			if (d < bestd) { bestd = d; bi = i; }
+		}
+		s_slot_rep[s] = (unsigned char)bi;
+	}
+}
+
+/* B4 Phase-0: a palette-only refresh for a within-scene palette change (surface
+ * content unchanged). Keep the fixed index->slot remap — so the on-screen planes
+ * stay valid — and rebuild only the slot->RGB hardware palette from the NEW CLUT
+ * via the captured representative indices. No re-quant, no re-c2p: st_blit_full's
+ * row-diff then finds nothing changed and the raster split loads the new colours.
+ * This is the "reband = palette-register-only" invariant Strategy B is built on. */
+static void st_repalette(void)
+{
+	short s;
+
+	for (s = 0; s < ST_NCOL; s++) {
+		unsigned char idx = s_slot_rep[s];
+
+		s_band_pal[(long)s * 3 + 0] = quant_snap(s_clut[idx * 3 + 0], ST_BITS);
+		s_band_pal[(long)s * 3 + 1] = quant_snap(s_clut[idx * 3 + 1], ST_BITS);
+		s_band_pal[(long)s * 3 + 2] = quant_snap(s_clut[idx * 3 + 2], ST_BITS);
+	}
+	memcpy(s_band_pal_prev, s_band_pal, sizeof s_band_pal_prev);
+	st_build_hw_palette();
+	s_force_full   = 0;      /* planes unchanged: nothing to re-convert */
+	s_remap_changed = 0;
+}
+
 /* Re-band: histogram + per-band reduce, then build the per-band ST-format
  * palettes (STE gun encoding: nibble = (v0 << 3) | (v >> 1)). The sentinel
  * row (see st_band_stpal) is a copy of the last band. */
@@ -448,31 +543,13 @@ static void st_reband(void)
 	memcpy(s_band_pal_prev, s_band_pal, sizeof s_band_pal_prev);
 	s_have_prev_pal = 1;
 
-	for (b = 1; b < ST_NBANDS; b++) {
-		memcpy(s_band_pal + (long)b * ST_NCOL * 3, s_band_pal,
-		       (size_t)(ST_NCOL * 3));
+	/* Replicate the fixed remap to every band (the pal replicate + hardware
+	 * encode happen in st_build_hw_palette). */
+	for (b = 1; b < ST_NBANDS; b++)
 		memcpy(s_band_remap + (long)b * 256, s_band_remap, 256);
-	}
-	for (b = 0; b < ST_NBANDS; b++) {
-		const unsigned char *bp = s_band_pal + (long)b * ST_NCOL * 3;
 
-		for (i = 0; i < ST_NCOL; i++) {
-			short vr = bp[i * 3 + 0] >> 4;
-			short vg = bp[i * 3 + 1] >> 4;
-			short vb = bp[i * 3 + 2] >> 4;
-			short rn = (short)(((vr & 1) << 3) | (vr >> 1));
-			short gn = (short)(((vg & 1) << 3) | (vg >> 1));
-			short bn = (short)(((vb & 1) << 3) | (vb >> 1));
-
-			st_band_stpal[b][i] = (short)((rn << 8) | (gn << 4) | bn);
-		}
-	}
-	for (i = 0; i < ST_NCOL; i++)
-		st_band_stpal[ST_NBANDS][i] = st_band_stpal[ST_NBANDS - 1][i];
-	memcpy(s_clut_banded, s_clut, sizeof s_clut);   /* B1: snapshot the CLUT */
-	s_banded_valid = 1;
-	s_dirty = 0;
-	s_have_pal = 1;
+	st_compute_slot_reps();          /* B4 Phase-0: reps for palette-only rebands */
+	st_build_hw_palette();
 
 	/* B3.2: the FIRST re-band has no aligned predecessor, and the viewport path
 	 * clobbers s_shadow (its temp), so both must convert everything. Otherwise the
@@ -730,16 +807,18 @@ static void st_present(void)
 			sp_reband_skip++;
 #endif
 		} else {
+			/* B4 Phase-0 (scene-stable remap): a palette change whose surface
+			 * content is UNCHANGED (a within-scene fade / settle — de-risk #1's
+			 * rebands #8/#14) keeps the index->slot remap fixed, so the on-screen
+			 * planes stay valid; only the slot->RGB hardware palette moved. Take
+			 * the palette-register-only path (no re-quant, no force-full re-c2p).
+			 * A genuine scene change (content differs, or a viewport is pending)
+			 * re-quantises. s_shadow == s_chunky after any completed present, so
+			 * an all-zero diff means nothing was drawn since. (st_reband borrows
+			 * s_shadow as a temp, so this MUST be sampled before the dispatch.) */
+			int content_same = s_banded_valid && !s_vp_active &&
+			    memcmp(s_chunky, s_shadow, (long)ST_W * ST_H) == 0;
 #ifdef FRUA_STPROF
-			/* B4 de-risk #1 (task #57): is this genuine palette change
-			 * ACCOMPANIED BY A REDRAW? Strategy B (draw-time direct-to-planar)
-			 * drops s_chunky, so a reband whose content the engine did NOT
-			 * redraw would leave stale planes under the new palette. s_shadow
-			 * still holds the PREVIOUS present's chunky here (st_reband borrows
-			 * it below, so sample first): count rows whose content changed since
-			 * the last present, and how many CLUT entries moved. A reband with a
-			 * materially different CLUT but ~0 changed content rows is a
-			 * redraw-less palette change — the case that would corrupt B. */
 			{
 				short yy, ci;
 				long  crows = 0, clut_moved = 0;
@@ -752,9 +831,14 @@ static void st_present(void)
 				dbg_log_num("b4audit: reband #        = ", sp_reband);
 				dbg_log_num("b4audit:   content rows  = ", crows);
 				dbg_log_num("b4audit:   clut bytes mvd= ", clut_moved);
+				dbg_log(content_same ? "b4audit:   -> repalette (registers only)"
+				                     : "b4audit:   -> reband (re-quant)");
 			}
 #endif
-			st_reband();
+			if (content_same)
+				st_repalette();
+			else
+				st_reband();
 		}
 	}
 	st_blit_full();
