@@ -132,3 +132,17 @@ def test_deferred_tables_are_not_authored(csrc):
     code = re.sub(r"/\*.*?\*/", "", csrc, flags=re.S)   # comments explain them
     assert "-8673" not in code, "the A5-8673 curve is not exactly derivable yet"
     assert "-804" not in code, "the A5-804 pitch table is not exactly derivable yet"
+
+
+def test_compass_direction_table(image, csrc):
+    """g_a5_27980: the 8x3 N/NE/E/SE/S/SW/W/NW compass rose labels.
+
+    Indexed off the base pointer, so the --refs-from scalar filter dropped all
+    but its first 4 bytes; port-authored in a5_scalars.c to restore the
+    replay-off compass needle (#73). Must match the Mac image exactly.
+    """
+    assert 'dirs' in csrc, "compass direction table not authored"
+    want = bytes([ord('N'),0,0, ord('N'),ord('E'),0, ord('E'),0,0,
+                  ord('S'),ord('E'),0, ord('S'),0,0, ord('S'),ord('W'),0,
+                  ord('W'),0,0, ord('N'),ord('W'),0])
+    assert a5_at(image, -27980, 24) == want

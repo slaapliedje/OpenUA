@@ -105,4 +105,22 @@ void a5_seed_authored_scalars(void)
 		for (i = 0; i < (short)(sizeof b / sizeof b[0]); i++)
 			g_a5_byte(b[i].slot) = b[i].val;
 	}
+
+	/* Compass direction labels (g_a5_27980): 8 facings x 3 bytes — the
+	 * N / NE / E / SE / S / SW / W / NW rose strings. The compass-face
+	 * selector (l67ca) reads [facing*3] to pick which FRAME face (pieces
+	 * 22-25) to draw; a wrong/zero letter falls through its switch and the
+	 * needle vanishes. This 24-byte table is functional lookup data, but the
+	 * --refs-from scalar filter dropped it — g_a5_27980 is named once and
+	 * indexed off that base, so only the first 4 bytes fell inside the
+	 * filter window and the East 'E' (offset 6) was lost. That is exactly
+	 * why the replay-off compass rendered as a bare dome (#73). Verified
+	 * byte-exact against the Mac image. */
+	{
+		static const unsigned char dirs[24] = {
+			'N',  0,  0,   'N', 'E',  0,   'E',  0,  0,   'S', 'E',  0,
+			'S',  0,  0,   'S', 'W',  0,   'W',  0,  0,   'N', 'W',  0,
+		};
+		memcpy(&g_a5_byte(-27980), dirs, sizeof dirs);
+	}
 }
