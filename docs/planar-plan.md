@@ -446,6 +446,94 @@ committed under `FRUA_STPROF` for exactly this before/after measurement.
 differs (copper palette, separate planes) — a parallel track once the ST path is
 proven.
 
+### B4 WRITER-CONVERSION SCOPING — 2026-07-19
+
+Full read of every screen writer (the 33 `qd_screen_pixels` grabs + the QuickDraw
+shim primitives). Result: **the writers are NOT 33 independent rewrites — they
+funnel through a small set of shared chokepoints.**
+
+**The two doors every ST pixel goes through:**
+
+*Door 1 — QuickDraw shim primitives* (`compat/quickdraw.c`, machine-agnostic;
+each writes `pm->baseAddr` = `s_chunky`):
+- `qd_pixmap_fill` (`:564`) — all `PaintRect`/`EraseRect`/pen fills; solid + pattern,
+  modes patCopy/Or/Xor/Bic.
+- `DrawChar` (`:2102`) — glyph store (fg/bk), Mac-font + 8x8 fallback paths.
+- `CopyBits` (`:1230`) — art/chrome rectangular blit (srcCopy).
+- `cursor_composite` (`:1886`) + `cursor_restore` — software cursor, save-under.
+
+*Door 2 — 30 real direct `qd_screen_pixels` sites* (grep shows 35 hits: 1 is the
+definition, 4 are comments). Of the 30: **5 are READ-ONLY** (jt81/cg_char_sheet/
+cg_body_repro grab only sw/sh for the clip rect; jt94 is FRUA_ROW24TRACE; qd_dbg_draw_mark
+is FRUA_CLICKMARK) — no conversion needed. **2 are dev/mono-only** (frua_spilltest;
+mono_span/mono_rows are FRUA_BWMODE, not the colour path). **1 is a pointer seeder**
+(jt1177 stores the `-3076` base for the jt1192/1194/1197/1202/1126 + jt119/122 family;
+already has an FRUA_BWMODE branch redirecting to a 1-bit page — the natural planar hook).
+The remaining ~22 funnel through a handful of engine primitives:
+- `l2d4e` (`:6185`) — the **GLIB piece blitter** (RLE/t7 decode → `px[dy*pitch+dx]`);
+  the general BASE+OVERLAY primitive most art/pieces route through.
+- `port_draw_play_frame` — the play-frame BASE (grey stone fill + granite chrome via
+  CopyBits). Drawn once per screen; the largest static region.
+- full-screen `memset` / `fill_backdrop` / `draw_plate` / `menu_button_bevel` — flat
+  fills (encounter_screen, port_show_intro ×2, menu_run, jt574, jt904, jt918, cg_train).
+- `ui_glib_blit` (`:25239`), `jt357`→`jt200` (`:69945`) — UI art / 3D-art pieces.
+- viewport (jt221/jt312 3D leg) — **already planar** (B2.1).
+
+**Value ranking (from B3.2 profiling — the transpose is the cost, flats are cheap):**
+1. **CopyBits granite chrome + DrawChar text glyphs** = ~75% of a menu present (the
+   non-flat transpose). *Highest value by far.*
+2. **Flat fills** (memset/fill_backdrop/draw_plate) = ~25%, and the flat-fill c2p
+   fast path (commit 1c9ccaf) already makes them cheap → **low value to convert.**
+3. GLIB/UI art pieces (l2d4e/ui_glib_blit) — medium; art-heavy, rarer.
+4. Cursor — small, but needs slot-space save-under (see below).
+
+**Three confirmed hard problems (independent of strategy):**
+1. **Slot-space semantics.** Planes encode a 4-bit *slot* (`remap[index]`), and the
+   256→16 remap is LOSSY (not invertible). The bitwise modes (`patXor` pen, `patOr`/
+   `patBic` patterns, cursor XOR-under) and every readback (`cursor_composite` save-under
+   `*sv=d[dx]`, `CopyBits` src read) must be reworked to operate in slot/plane space.
+   Per-plane XOR/OR/BIC are well-defined; the loss only bites where code reads a pixel
+   back expecting its index (cursor save-under → save 4 plane bits instead).
+2. **The reband→redraw contract (THE make-or-break risk).** Today a palette change marks
+   bands dirty and the present re-c2p's the retained `s_chunky` to reapply the new remap
+   *without the engine redrawing*. Drop `s_chunky` and any palette change NOT accompanied
+   by a full engine redraw leaves stale planes under a new palette. Mitigating evidence:
+   `port_draw_play_frame` commits palette AND redraws together; B1's CLUT-skip already
+   kills defensive same-palette re-installs. **De-risk task #1: audit every `qd_set_palette`
+   (via l6e58 SetEntries) for a change that is NOT followed by a full redraw.**
+3. **Base+overlay z-order** — the "big-bang" claim. TRUE for the batch-c2p present model
+   (planar base + chunky overlay on it = wrong z-order, since c2p is deferred to present
+   while planar writes are at draw time). See the two strategies below for the escape.
+
+**The strategic fork (which the incremental-vs-big-bang question reduces to):**
+
+- **STRATEGY A — Region-composite (extend B2.1), big-bang for the final c2p drop.**
+  Convert self-contained regions to composited planar overlays like the viewport; the
+  backend keeps c2p'ing the shrinking chunky remainder. Matches the committed viewport
+  and the mono precedent. Hits the base+overlay wall: the c2p can only be DELETED once
+  the LAST writer is planar (no clean partial end-state), so present=flip arrives only at
+  the very end. Lower per-step risk; the intermediate wins are just "this region stops
+  being re-c2p'd," which the row-diff + smart-skip already largely deliver for static
+  chrome → **modest marginal #41 gain until the whole thing lands.**
+- **STRATEGY B — Draw-time direct-to-planar (rework the present model), INCREMENTAL.**
+  Drop the batch c2p: every primitive writes `s_screen` at DRAW time. Converted primitives
+  emit `remap[val]` plane bits; not-yet-converted primitives do an immediate small c2p of
+  just their own output. Everything lands in draw order → z-order preserved → writers
+  convert ONE AT A TIME, and the c2p work shrinks continuously toward zero (present becomes
+  cursor-composite + vsync; single-buffered first, page-flip from b4-pageflip-wip layered
+  on later for anti-tear). This is the genuinely incremental path and reaches the ADR-0016
+  end state cleanly. Cost: upfront rework of the present model (batch→draw-time) and it
+  stands or falls on de-risk task #1 (the reband→redraw contract). The row-diff
+  optimization is retired, but a draw-time model only touches what's actually drawn, so an
+  idle modal pass converts NOTHING (strictly cheaper than today's re-c2p-on-idle).
+
+**Recommendation:** Strategy B, but gated on de-risk task #1 FIRST (cheap: instrument
+`qd_set_palette` for redraw-less palette changes; if any exist and can't be made to
+redraw, B is unsafe and A is the fallback). Then convert in value order: **CopyBits chrome
++ DrawChar text first** (the 75%), fills last (already cheap). Each step verified in the
+dungeon via FRUA_AUTOPLAY. Everything develops behind `FRUA_PLANAR`; single-buffer stays
+default until a phase is proven.
+
 Then Phase 4 (blitter) and Phase 5 (palette polish, folds in #40) as below.
 
 **Phase 4 — blitter acceleration.**
