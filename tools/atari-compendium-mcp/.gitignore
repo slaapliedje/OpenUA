@@ -1,0 +1,15 @@
+# Local venv for this MCP server — never commit.
+.venv/
+
+# Extracted / cached Compendium text is COPYRIGHTED (Scott Sanders' Atari
+# Compendium). Same policy as the repo's data/ — only the server CODE is
+# committed. The cache normally lives OUTSIDE the repo
+# (~/.cache/atari-compendium/), but guard against a stray local copy too.
+pages.json
+toc.json
+*.pdf
+cache/
+.cache/
+
+__pycache__/
+*.pyc
