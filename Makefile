@@ -80,6 +80,11 @@ ifeq ($(filter src/engine/data_pool.o,$(OBJ)),)
 OBJ  += src/engine/data_pool.o
 endif
 
+# a4_map.c is likewise generated (the A4/STRS slot table, ADR-0017).
+ifeq ($(filter src/engine/a4_map.o,$(OBJ)),)
+OBJ  += src/engine/a4_map.o
+endif
+
 # The DOS-art converter core (ADR-0014) lives outside SRCDIRS on purpose:
 # src/convert/ also holds the host-CLI and benchmark mains, which must
 # never link into the engine. Add just the core object.
@@ -183,6 +188,22 @@ DATAPOOL_H := src/engine/data_pool.h
 DATAPOOL_C := src/engine/data_pool.c
 DATAPOOL_FILES := $(DATAPOOL_H) $(DATAPOOL_C)
 
+# The A4/STRS slot table (ADR-0017, #67) — which A5 globals point at which
+# STRS string. Generated from the Mac DATA + DREL resources, and generated
+# rather than committed for the same reason data_pool.c is: it is derived from
+# the copyrighted application. Unlike data_pool.c it holds only integer
+# POSITIONS, never text, so a build that carries it is still redistributable.
+# Without the resource fork it stubs to an empty table and the seeding loop in
+# boot_a5_seed_defaults() becomes a no-op, exactly as before this existed.
+A4MAP_C := src/engine/a4_map.c
+
+$(A4MAP_C): tools/a4map.py tools/datapool.py tools/macrsrc.py
+	@if [ -f "$(RFORK)" ]; then \
+		python3 tools/a4map.py "$(RFORK)" --emit-c $(A4MAP_C); \
+	else \
+		python3 tools/a4map.py --stub --emit-c $(A4MAP_C); \
+	fi
+
 $(DATAPOOL_FILES) &: frua.rsc tools/dataemit.py tools/datapool.py
 	@if [ -z "$(NOEMBED)" ] && [ -f frua.rsc ]; then \
 		python3 tools/dataemit.py frua.rsc \
@@ -201,7 +222,7 @@ $(DATAPOOL_FILES) &: frua.rsc tools/dataemit.py tools/datapool.py
 # Make every .o depend on the data pool existing — but only as an
 # order-only prereq so changing data_pool.{c,h} doesn't trigger an
 # unrelated rebuild storm.
-$(OBJ): | $(DATAPOOL_FILES)
+$(OBJ): | $(DATAPOOL_FILES) $(A4MAP_C)
 
 # Keep the `data-pool-regen` alias for the explicit, no-arg invocation
 # the docs reference.
@@ -453,7 +474,7 @@ test-slow:
 # into the next build (seen live: a 68020 sys_amiga.o survived a falcon-mode
 # clean and linked into a -m68000 build).
 clean:
-	$(RM) $(OBJ) $(DEP) $(TARGET) $(DATAPOOL_FILES)
+	$(RM) $(OBJ) $(DEP) $(TARGET) $(DATAPOOL_FILES) $(A4MAP_C)
 	find src compat platform -name '*.o' -delete 2>/dev/null || true
 	find src compat platform -name '*.d' -delete 2>/dev/null || true
 	$(RM) frua frua.prg uainst.ttp uainst_amiga uainst.info

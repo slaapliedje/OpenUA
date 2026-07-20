@@ -21,6 +21,7 @@ build/
 # so the files stay untracked.
 /src/engine/data_pool.h
 /src/engine/data_pool.c
+/src/engine/a4_map.c
 
 # Decompilation scratch (Ghidra / IDA / Hopper)
 *.idb

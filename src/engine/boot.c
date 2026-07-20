@@ -42,6 +42,7 @@
 #include "macmemory.h"        /* BlockMove, Size */
 #include "data_pool_replay.h" /* g_a5_byte */
 #include "str.h"              /* ua_strcmp, ua_get_string */
+#include "a4_map.h"          /* g_a4_map — ADR-0017 A4/STRS slot table */
 #include "files.h"            /* FSOpen / FSRead (jt398 file-open chain) */
 #include "toolbox.h"          /* ExitToShell (jt415)                     */
 #include "quickdraw.h"        /* MoveTo, DrawString, GetPort (jt1089) */
@@ -10917,22 +10918,43 @@ void boot_a5_seed_defaults(void)
 	g_a5_9288 = (short)DLITEM_MAX;
 	g_a5_9248 = 1;
 
-	/* -13448: the default design-name string pointer, one of the 1016
-	 * A4-based (STRS) slots the DREL replay relocates. l31cc copies the
-	 * string it points at into g_str_22253, and the phase-5 boot check
-	 * compares that against string-table slot 3 ("Boots"); a zero slot
-	 * leaves g_str_22253 empty, the compare mismatches, and the faithful
-	 * copy-protection challenge (jt931) fires — which blocks forever
-	 * headless. STRS offset 1188 is the "Boots" tail of "Magical Boots"
-	 * (THINK C shares the suffix), resolved the same way every other
-	 * CREL-style STRS reference in the lift is (ua_strs_at, see str.h).
+	/* The A4 (STRS) pointer slots — ADR-0017's reconstruction of the half
+	 * of the A5 world that holds string addresses. The Mac's DATA image
+	 * stores a raw STRS offset in each of these 1016 slots and DREL says
+	 * "add the STRS base"; g_a4_map records the same (slot -> offset)
+	 * pairs, extracted mechanically by tools/a4map.py, so the port can
+	 * materialise them without the DATA resource.
 	 *
-	 * This is the first reconstructed A5 pointer slot under ADR-0017:
-	 * the OFFSET is port-authored knowledge, the TEXT comes from the
-	 * user's own STRS. Guarded so a build with the DATA replay still
-	 * wins — there the reloc has already supplied the real pointer. */
-	if (g_a5_long(-13448) == 0)
-		g_a5_long(-13448) = (long)(uintptr_t)ua_strs_at(1188);
+	 * Positions only — the text comes from the user's own string pool.
+	 *
+	 * Each slot is seeded only when still zero, so a build that DID run
+	 * the replay keeps the relocated pointers and this is a no-op. First
+	 * symptom this cured: slot -13448 (-> STRS+8954, "Boots") feeds
+	 * l31cc -> g_str_22253, whose emptiness sent the phase-5 check into
+	 * the faithful copy-protection challenge (jt931) and hung the
+	 * headless boot. */
+	{
+		short i;
+
+		for (i = 0; i < g_a4_map_count; i++) {
+			short slot = g_a4_map[i].slot;
+
+			if (g_a5_long(slot) == 0)
+				g_a5_long(slot) = (long)(uintptr_t)
+				        ua_strs_at(g_a4_map[i].strs_off);
+		}
+		/* The A5-internal half: slots pointing at other A5-world
+		 * locations. Only the below-A5 targets can be built — 7 of
+		 * FRUA's 10 point above A5, which the port has no region for
+		 * (see the generated a4_map.c comment). */
+		for (i = 0; i < g_a5int_map_count; i++) {
+			short slot = g_a5int_map[i].slot;
+
+			if (g_a5_long(slot) == 0)
+				g_a5_long(slot) = (long)(uintptr_t)
+				        &g_a5_byte(g_a5int_map[i].strs_off);
+		}
+	}
 
 	/* THINK C's DATA blit pre-loads g_a5_-1316 (idle-active flag)
 	 * with 0x05 and g_a5_-126 / g_a5_-130 with stale tick-like
