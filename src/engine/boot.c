@@ -14358,6 +14358,12 @@ static void port_draw_play_frame(unsigned char *px, short pitch, short sw, short
 	/* grey stone background (clut 21 ~ mid stone) under the chrome. */
 	for (r = 0; r < sh; r++)
 		memset(px + (long)r * pitch, 21, (size_t)sw);
+#ifdef FRUA_PLANAR
+	/* B Phase-1: the play/dungeon frame wipes the whole surface then redraws
+	 * chrome and (by the caller, afterward) the roster/clock/bar text — so drop
+	 * the planar text overlay here; this screen's HUD text draws fresh below. */
+	dsp_text_clear();
+#endif
 
 	/* FAITHFUL dungeon chrome: jt23 case 4 -> l67ca — jt76 (FRAME border
 	 * pieces 1-4 + the char-cell panel box) + l66e6 dividers (piece 7 x2) +
@@ -25670,6 +25676,11 @@ static void fill_backdrop(unsigned char *px, short pitch,
 	short x, y;
 	short T = (short)(g_bg_h - 2);       /* interior height (skip rows 0,1) */
 
+#ifdef FRUA_PLANAR
+	/* B Phase-1: a menu/char-gen backdrop wipe drops the planar text overlay so
+	 * the previous screen's labels don't ghost; this screen's labels draw fresh. */
+	dsp_text_clear();
+#endif
 	if (mono_ui()) {
 		/* The Mac B&W backdrop: a 50% stipple (the desktop-grey QD
 		 * pattern), in place of the stone texture. */

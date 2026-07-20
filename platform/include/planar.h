@@ -21,6 +21,13 @@
 #ifndef PLATFORM_PLANAR_H
 #define PLATFORM_PLANAR_H
 
+/* Register the active bitplane backend's text-overlay hooks (ADR-0016 B
+ * Phase-1). See dsp_text_scratch/commit/clear in display.h. NULL disables. */
+void planar_text_register(unsigned char *(*scratch)(short *pitch),
+                          void (*commit)(short, short, short, short),
+                          void (*clear)(void),
+                          void (*clear_rect)(short, short, short, short));
+
 /* Bytes per plane row for a piece `w` pixels wide, rounded up to a word. */
 #define PLANAR_STRIDE(w)   ((short)((((w) + 15) >> 4) << 1))
 

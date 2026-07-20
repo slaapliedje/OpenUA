@@ -583,6 +583,17 @@ static void qd_pixmap_fill(GrafPtr port, const Rect *clip,
 	g_qd_touched = 1;                        /* #152: about to write pixels */
 	w = (short)(clipped.right - clipped.left);
 
+#ifdef FRUA_PLANAR
+	/* B Phase-1: this fill overwrites the base under the on-screen port, so drop any
+	 * planar text overlay in the filled rect (region-scoped, order-independent). Text
+	 * drawn after the fill survives. */
+	if (cp == &g_screen_port) {
+		extern void dsp_text_clear_rect(short x, short y, short w, short h);
+		dsp_text_clear_rect(clipped.left, clipped.top, w,
+		                    (short)(clipped.bottom - clipped.top));
+	}
+#endif
+
 	if (pat == NULL) {
 		for (row = clipped.top; row < clipped.bottom; row++) {
 			unsigned char *p = (unsigned char *)pm->baseAddr
@@ -2134,6 +2145,32 @@ void DrawChar(short ch)
 	bk   = (unsigned char)cp->bkColor;
 	mode = (unsigned char)port->txMode;
 
+	/* Where the glyph pixels land. Normally the port's own pixmap. */
+	{
+	unsigned char *dbase = (pm != NULL) ? (unsigned char *)pm->baseAddr : (unsigned char *)0;
+	short          dpitch = (pm != NULL) ? pm->rowBytes : 0;
+	short          dbtop  = (pm != NULL) ? pm->bounds.top  : 0;
+	short          dbleft = (pm != NULL) ? pm->bounds.left : 0;
+#ifdef FRUA_PLANAR
+	/* ADR-0016 B Phase-1: on the ON-SCREEN port, a bitplane backend may take
+	 * glyphs as a composited planar overlay — DrawChar renders into the backend's
+	 * chunky text scratch (absolute screen coords) instead of the shared surface,
+	 * and the present composites it to planes ON TOP of the c2p'd background. The
+	 * scratch is (0,0)-based, ST_W pitch; offscreen ports (GWorlds) are never
+	 * redirected. Backends without the hook return NULL and nothing changes. */
+	extern unsigned char *dsp_text_scratch(short *pitch);
+	extern void           dsp_text_commit(short x, short y, short w, short h);
+	int   txt_redir = 0;
+	short txt_x0 = port->pnLoc.h;            /* pen x before this glyph advances */
+	if (draw && cp == &g_screen_port) {
+		short tp; unsigned char *ts = dsp_text_scratch(&tp);
+		if (ts != (unsigned char *)0) {
+			dbase = ts; dpitch = tp; dbtop = 0; dbleft = 0;
+			txt_redir = 1;
+		}
+	}
+#endif
+
 	if (g_mac_font_loaded) {
 		/* Real Mac bitmap font path — variable-width glyphs, per-row
 		 * bit lookup against the strike. */
@@ -2153,14 +2190,14 @@ void DrawChar(short ch)
 					if (x < clip.left || x >= clip.right)
 						continue;
 					if (mac_font_pixel(ch, col, row)) {
-						unsigned char *p = (unsigned char *)pm->baseAddr
-						                 + (y - pm->bounds.top) * pm->rowBytes
-						                 + (x - pm->bounds.left);
+						unsigned char *p = dbase
+						                 + (y - dbtop) * dpitch
+						                 + (x - dbleft);
 						*p = fg;
 					} else if (mode == srcCopy) {
-						unsigned char *p = (unsigned char *)pm->baseAddr
-						                 + (y - pm->bounds.top) * pm->rowBytes
-						                 + (x - pm->bounds.left);
+						unsigned char *p = dbase
+						                 + (y - dbtop) * dpitch
+						                 + (x - dbleft);
 						*p = bk;
 					}
 				}
@@ -2186,14 +2223,14 @@ void DrawChar(short ch)
 					if (x < clip.left || x >= clip.right)
 						continue;
 					if (bits & mask) {
-						unsigned char *p = (unsigned char *)pm->baseAddr
-						                 + (y - pm->bounds.top) * pm->rowBytes
-						                 + (x - pm->bounds.left);
+						unsigned char *p = dbase
+						                 + (y - dbtop) * dpitch
+						                 + (x - dbleft);
 						*p = fg;
 					} else if (mode == srcCopy) {
-						unsigned char *p = (unsigned char *)pm->baseAddr
-						                 + (y - pm->bounds.top) * pm->rowBytes
-						                 + (x - pm->bounds.left);
+						unsigned char *p = dbase
+						                 + (y - dbtop) * dpitch
+						                 + (x - dbleft);
 						*p = bk;
 					}
 				}
@@ -2202,6 +2239,18 @@ void DrawChar(short ch)
 	}
 
 	port->pnLoc.h = (short)(port->pnLoc.h + advance);
+#ifdef FRUA_PLANAR
+	/* Commit the glyph's cell (a generous vertical band around the baseline
+	 * covers both the mac strike and the 8x8 fallback) so the present composites
+	 * it. Over-committing a few pixels is harmless — the extra scratch pixels are
+	 * the transparent key and stamp nothing. */
+	if (txt_redir && port->pnLoc.h > txt_x0)
+		dsp_text_commit(txt_x0, (short)(port->pnLoc.v - 14),
+		                (short)(port->pnLoc.h - txt_x0), 18);
+	}   /* end glyph-target / text-redirect block */
+#else
+	}
+#endif
 }
 
 /*

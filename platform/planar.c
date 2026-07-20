@@ -39,6 +39,49 @@ void dsp_viewport_commit(short x, short y, short w, short h)
 		s_vp_commit_fn(x, y, w, h);
 }
 
+/* --- native-planar text overlay dispatch (ADR-0016 B Phase-1) -------------
+ * Same registration shape as the viewport: the active bitplane backend installs
+ * a scratch getter + commit/clear hooks at init; unregistered backends make the
+ * entry points inert (scratch NULL) so DrawChar keeps writing the shared surface. */
+static unsigned char *(*s_txt_scratch_fn)(short *pitch);
+static void           (*s_txt_commit_fn)(short x, short y, short w, short h);
+static void           (*s_txt_clear_fn)(void);
+static void           (*s_txt_clear_rect_fn)(short x, short y, short w, short h);
+
+void planar_text_register(unsigned char *(*scratch)(short *pitch),
+                          void (*commit)(short, short, short, short),
+                          void (*clear)(void),
+                          void (*clear_rect)(short, short, short, short))
+{
+	s_txt_scratch_fn    = scratch;
+	s_txt_commit_fn     = commit;
+	s_txt_clear_fn      = clear;
+	s_txt_clear_rect_fn = clear_rect;
+}
+
+unsigned char *dsp_text_scratch(short *pitch)
+{
+	return s_txt_scratch_fn ? s_txt_scratch_fn(pitch) : (unsigned char *)0;
+}
+
+void dsp_text_commit(short x, short y, short w, short h)
+{
+	if (s_txt_commit_fn)
+		s_txt_commit_fn(x, y, w, h);
+}
+
+void dsp_text_clear(void)
+{
+	if (s_txt_clear_fn)
+		s_txt_clear_fn();
+}
+
+void dsp_text_clear_rect(short x, short y, short w, short h)
+{
+	if (s_txt_clear_rect_fn)
+		s_txt_clear_rect_fn(x, y, w, h);
+}
+
 void chunky_to_planar_piece(const unsigned char *src, short src_pitch,
                             short w, short h,
                             const unsigned char *remap,

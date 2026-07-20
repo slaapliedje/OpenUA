@@ -148,6 +148,27 @@ static unsigned char *st_vp_scratch(short *pitch);
 static void           st_vp_commit(short x, short y, short w, short h);
 static void           st_vp_composite(void);
 
+#ifdef FRUA_PLANAR
+/* --- native-planar TEXT overlay (ADR-0016 B Phase-1) ---------------------
+ *
+ * A screen-sized chunky scratch (key TXT_KEY = transparent, absolute coords) the
+ * shim's DrawChar renders glyphs into instead of s_chunky. st_txt_composite()
+ * converts the live extent (chunky -> ST-Low planes through the scene-stable
+ * remap, keyed) and drops it onto s_screen AFTER the main c2p, so text lands on
+ * top of the c2p'd panel background. Because glyphs no longer touch s_chunky,
+ * the roster/HUD/menu rows stay static there and the row-diff stops re-c2p'ing
+ * them when text changes — only this small planar recomposite runs. */
+#define TXT_KEY  0xFF                            /* transparent scratch pixel */
+static unsigned char *s_txt_scratch;            /* ST_W*ST_H, key-filled     */
+static short          s_txt_x0, s_txt_y0, s_txt_x1, s_txt_y1;  /* live extent */
+static short          s_txt_active;             /* extent non-empty           */
+static unsigned char *st_txt_scratch(short *pitch);
+static void           st_txt_commit(short x, short y, short w, short h);
+static void           st_txt_clear(void);
+static void           st_txt_clear_rect(short x, short y, short w, short h);
+static void           st_txt_composite(void);
+#endif
+
 /* --- raster-split interrupt handlers -------------------------------------
  *
  * MFP Timer B registers (byte-wide, odd addresses):
@@ -613,6 +634,17 @@ static int st_init(short want_w, short want_h)
 	s_st_active = 1;
 	planar_viewport_register(st_vp_scratch, st_vp_commit);
 
+#ifdef FRUA_PLANAR
+	/* Take over glyph drawing as a composited planar overlay (B Phase-1). */
+	s_txt_scratch = (unsigned char *)Mxalloc((long)ST_W * ST_H, 0);
+	if (s_txt_scratch != NULL) {
+		memset(s_txt_scratch, TXT_KEY, (size_t)ST_W * ST_H);
+		s_txt_active = 0;
+		planar_text_register(st_txt_scratch, st_txt_commit, st_txt_clear,
+		                     st_txt_clear_rect);
+	}
+#endif
+
 #ifdef FRUA_STPROF
 	/* B3.0b scratch: a non-displayed ST-RAM page the c2p can target for timing. */
 	s_offpage = (unsigned char *)Mxalloc(SCREEN_BYTES, 0);
@@ -629,6 +661,12 @@ static void st_shutdown(void)
 	if (s_st_active) {
 		planar_viewport_register((unsigned char *(*)(short *))0,
 		                         (void (*)(short, short, short, short))0);
+#ifdef FRUA_PLANAR
+		planar_text_register((unsigned char *(*)(short *))0,
+		                     (void (*)(short, short, short, short))0,
+		                     (void (*)(void))0,
+		                     (void (*)(short, short, short, short))0);
+#endif
 		s_st_active = 0;
 		s_vp_active = 0;
 	}
@@ -644,6 +682,9 @@ static void st_shutdown(void)
 	if (s_screen_raw) { Mfree(s_screen_raw); s_screen_raw = NULL; s_screen = NULL; }
 	if (s_chunky)     { Mfree(s_chunky); s_chunky = NULL; }
 	if (s_shadow)     { Mfree(s_shadow); s_shadow = NULL; }
+#ifdef FRUA_PLANAR
+	if (s_txt_scratch) { Mfree(s_txt_scratch); s_txt_scratch = NULL; }
+#endif
 #ifdef FRUA_STPROF
 	if (s_offpage)    { Mfree(s_offpage); s_offpage = NULL; }
 #endif
@@ -734,6 +775,117 @@ static void st_vp_composite(void)
 	planar_blit_stlow(pp, VP_PLANE_STRIDE, s_vp_w, s_vp_h, ST_DEPTH,
 	                  s_screen, LINE_BYTES, ST_W, ST_H, s_vp_x, s_vp_y);
 }
+
+#ifdef FRUA_PLANAR
+/* --- text-overlay hooks (registered via planar_text_register) ------------- */
+
+static unsigned char *st_txt_scratch(short *pitch)
+{
+	if (pitch)
+		*pitch = ST_W;
+	return s_txt_scratch;                    /* absolute-coord chunky scratch */
+}
+
+/* Union a just-drawn glyph cell into the live extent (clamped to the screen). */
+static void st_txt_commit(short x, short y, short w, short h)
+{
+	short x1 = (short)(x + w), y1 = (short)(y + h);
+
+	if (w <= 0 || h <= 0)
+		return;
+	if (x < 0)   x  = 0;
+	if (y < 0)   y  = 0;
+	if (x1 > ST_W) x1 = ST_W;
+	if (y1 > ST_H) y1 = ST_H;
+	if (x >= x1 || y >= y1)
+		return;
+	if (!s_txt_active) {
+		s_txt_x0 = x; s_txt_y0 = y; s_txt_x1 = x1; s_txt_y1 = y1;
+		s_txt_active = 1;
+	} else {
+		if (x  < s_txt_x0) s_txt_x0 = x;
+		if (y  < s_txt_y0) s_txt_y0 = y;
+		if (x1 > s_txt_x1) s_txt_x1 = x1;
+		if (y1 > s_txt_y1) s_txt_y1 = y1;
+	}
+}
+
+/* Drop the whole overlay: a full-screen wipe redrew the base under it, so the
+ * scratch's stale glyphs must not linger (re-keyed to transparent). */
+static void st_txt_clear(void)
+{
+	if (s_txt_scratch)
+		memset(s_txt_scratch, TXT_KEY, (size_t)ST_W * ST_H);
+	s_txt_active = 0;
+	s_txt_x0 = s_txt_y0 = s_txt_x1 = s_txt_y1 = 0;
+}
+
+/* Region-scoped invalidation: a base write (fill/blit) landed at this rect, so any
+ * overlay glyphs UNDER it are stale — re-key just those scratch pixels. Text drawn
+ * AFTER the fill (the normal box-then-text order) is untouched and still composites.
+ * Order-independent, so it fixes screens the whole-scratch clear can't (a panel that
+ * fills then draws its labels). The extent bbox may still span the rect, but the
+ * re-keyed pixels stamp nothing. */
+static void st_txt_clear_rect(short x, short y, short w, short h)
+{
+	short yy, x1 = (short)(x + w);
+
+	if (s_txt_scratch == NULL || !s_txt_active || w <= 0 || h <= 0)
+		return;
+	if (x < 0)   x  = 0;
+	if (x1 > ST_W) x1 = ST_W;
+	if (x >= x1)
+		return;
+	for (yy = y; yy < (short)(y + h); yy++) {
+		if (yy < 0 || yy >= ST_H)
+			continue;
+		memset(s_txt_scratch + (long)yy * ST_W + x, TXT_KEY, (size_t)(x1 - x));
+	}
+}
+
+/* Composite the live text extent onto s_screen AFTER the main c2p: each non-key
+ * scratch pixel writes its slot's four plane bits in place (keyed — key pixels
+ * leave the c2p'd background alone), so glyphs land ON TOP of the panel. Uses the
+ * scene-stable per-band remap the c2p uses, so text shares the fixed palette. */
+static void st_txt_composite(void)
+{
+	short y, x;
+
+	if (!s_txt_active || !s_have_pal || s_txt_scratch == NULL)
+		return;
+
+	for (y = s_txt_y0; y < s_txt_y1; y++) {
+		short band = (short)((long)y * ST_NBANDS / ST_H);
+		const unsigned char *lut  = s_band_remap + (long)band * 256;
+		const unsigned char *srow = s_txt_scratch + (long)y * ST_W;
+		long  drow = (long)y * LINE_BYTES;
+
+		for (x = s_txt_x0; x < s_txt_x1; x++) {
+			unsigned char v = srow[x];
+			unsigned char slot, mask;
+			short g, bit, byte, p;
+			unsigned char *grp;
+
+			if (v == TXT_KEY)
+				continue;
+			slot = lut[v];
+			g    = (short)(x >> 4);          /* 16-pixel group  */
+			bit  = (short)(x & 15);          /* 0 = leftmost    */
+			byte = (short)(bit >> 3);        /* byte 0/1 of word */
+			mask = (unsigned char)(0x80u >> (bit & 7));
+			grp  = s_screen + drow + (long)g * ST_DEPTH * 2;
+
+			for (p = 0; p < ST_DEPTH; p++) {
+				unsigned char *d = grp + (long)p * 2 + byte;
+				if ((slot >> p) & 1)
+					*d |= mask;
+				else
+					*d &= (unsigned char)~mask;
+			}
+		}
+	}
+}
+#endif /* FRUA_PLANAR */
 
 #ifdef FRUA_STPROF
 /* Coarse present-path profile: every 128 full presents, log wall ticks vs
@@ -843,6 +995,9 @@ static void st_present(void)
 	}
 	st_blit_full();
 	st_vp_composite();                       /* overlay the planar viewport */
+#ifdef FRUA_PLANAR
+	st_txt_composite();                      /* overlay the planar text (B1) */
+#endif
 #ifdef FRUA_STPROF
 	{
 		/* B3.0a: log EACH present that actually converted rows, tagged by which
@@ -918,6 +1073,9 @@ static void st_present_rect(short x, short y, short w, short h)
 	x  = (short)(x & ~15);
 	st_blit_rows(x, (short)(x1 - x), y, h);
 	st_vp_composite();                       /* overlay the planar viewport */
+#ifdef FRUA_PLANAR
+	st_txt_composite();                      /* re-stamp text over the rect (B1) */
+#endif
 #ifdef FRUA_STPROF
 	/* B3.0a: keep the full-present row accounting caller-agnostic — attribute
 	 * rect-converted rows here so they don't inflate the next st_present's count. */

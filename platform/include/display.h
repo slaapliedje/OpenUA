@@ -94,6 +94,32 @@ const unsigned char *dsp_planar_remap(short *nbands, short *screen_h);
 unsigned char *dsp_viewport_scratch(short *pitch);
 void           dsp_viewport_commit(short x, short y, short w, short h);
 
+/* Native-planar TEXT overlay (ADR-0016 B Phase-1). Same idea as the viewport but
+ * for glyphs: a bitplane backend exposes a chunky text scratch (transparency key
+ * 0xFF, ABSOLUTE screen coords) that the shim's DrawChar renders into instead of
+ * the shared 8bpp surface; the backend converts it to planes and composites ON
+ * TOP after the main c2p. Text then stops dirtying the shared surface's rows, so a
+ * text update (clock tick, combat stat, roster) recomposites a small planar region
+ * instead of re-c2p'ing those scanlines. Returns NULL on backends that keep the
+ * chunky path (Falcon/TT, Amiga) or when the planar text path is not built —
+ * DrawChar then writes the shared surface exactly as before.
+ *
+ *   dsp_text_scratch(&pitch) — the scratch (or NULL); *pitch set.
+ *   dsp_text_commit(x,y,w,h) — union a just-drawn glyph cell into the live extent.
+ *   dsp_text_clear()         — drop the whole overlay (a full-screen wipe redrew
+ *                              the base; stale glyphs must not linger).
+ *   dsp_text_clear_rect(x,y,w,h) — drop the overlay only where a base write (a
+ *                              fill/blit) just landed, so stale glyphs under it go
+ *                              but text drawn AFTERWARD survives. This region-scoped
+ *                              invalidation is order-independent — the correct model
+ *                              regardless of whether a screen draws chrome-then-text
+ *                              or text-then-chrome. Hooked into the base writers.
+ * Entry points live in the shared planar module so both build trees link. */
+unsigned char *dsp_text_scratch(short *pitch);
+void           dsp_text_commit(short x, short y, short w, short h);
+void           dsp_text_clear(void);
+void           dsp_text_clear_rect(short x, short y, short w, short h);
+
 /* Atari builds: the _VDO cookie value (video hardware id in the high word:
  * 0 ST, 1 STE, 2 TT, 3 VIDEL; 0 when no jar). Cached after the first call.
  * Other machines' backends do not define it. */
