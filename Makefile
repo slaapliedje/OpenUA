@@ -197,11 +197,24 @@ DATAPOOL_FILES := $(DATAPOOL_H) $(DATAPOOL_C)
 # boot_a5_seed_defaults() becomes a no-op, exactly as before this existed.
 A4MAP_C := src/engine/a4_map.c
 
-$(A4MAP_C): tools/a4map.py tools/datapool.py tools/macrsrc.py
+# -DFRUA_SCALAR_SEED (task #70) additionally seeds the scalar half straight
+# from the DATA image, to bisect which slots a symptom needs. That requires the
+# blob in the generated file, so detect the flag and pass --with-scalars —
+# otherwise the build would fail to link against a table generated without it.
+# The scalars are copyrighted payload: DIAGNOSTIC BUILDS ONLY, never a release.
+ifneq ($(findstring FRUA_SCALAR_SEED,$(EXTRA_CFLAGS)),)
+A4MAP_ARGS := --with-scalars --refs-from src/engine/boot.c \
+              --refs-from src/engine/master.c
+endif
+
+# The generated table depends on the flag, not just the inputs; the .machine
+# buildstamp already folds EXTRA_CFLAGS in and purges objects on a change, so
+# regenerate here whenever the stamp moved.
+$(A4MAP_C): tools/a4map.py tools/datapool.py tools/macrsrc.py .machine
 	@if [ -f "$(RFORK)" ]; then \
-		python3 tools/a4map.py "$(RFORK)" --emit-c $(A4MAP_C); \
+		python3 tools/a4map.py "$(RFORK)" $(A4MAP_ARGS) --emit-c $(A4MAP_C); \
 	else \
-		python3 tools/a4map.py --stub --emit-c $(A4MAP_C); \
+		python3 tools/a4map.py --stub $(A4MAP_ARGS) --emit-c $(A4MAP_C); \
 	fi
 
 $(DATAPOOL_FILES) &: frua.rsc tools/dataemit.py tools/datapool.py

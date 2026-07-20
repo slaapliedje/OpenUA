@@ -130,6 +130,88 @@ def emit_c_internal(below, above, fh):
              f"const short g_a5int_map_count = {len(below)};\n")
 
 
+def scalar_runs(img, drel):
+    """[(a5_slot, bytes)] — non-zero DATA bytes NOT covered by a relocation.
+
+    DIAGNOSTIC ONLY. These are raw initialised values copied out of the Mac
+    application, i.e. the same copyrighted payload data_pool.c carries; unlike
+    the position tables they must NOT ship in a redistributable build. They
+    exist so the scalar half can be bisected — seed them, confirm parity, then
+    narrow to the slots a symptom actually needs and port-author those.
+    """
+    a5_base = len(img)
+    covered = bytearray(a5_base)
+    below, above = parse_a5_internal(img, drel)
+    for slot, _ in parse_a4_map(img, drel) + below + above:
+        p = a5_base + slot
+        for k in range(4):
+            if 0 <= p + k < a5_base:
+                covered[p + k] = 1
+
+    runs, start = [], None
+    for i in range(a5_base + 1):
+        hot = i < a5_base and img[i] != 0 and not covered[i]
+        if hot and start is None:
+            start = i
+        elif not hot and start is not None:
+            runs.append((start - a5_base, bytes(img[start:i])))
+            start = None
+    return runs
+
+
+def referenced_offsets(paths):
+    """A5 offsets the lifted C actually names, via the g_a5_* accessors.
+
+    Catches `g_a5_long(-1234)` / `g_a5_byte(-1234)` / ... and the bare
+    `g_a5_1234` macro spelling. It cannot see indirect access — code that
+    takes the address of a slot and walks past it, or memcpys a struct — so a
+    scalar set filtered by this is a LOWER BOUND on what is needed. Verify
+    parity after filtering rather than assuming it holds.
+    """
+    import re
+    pat_call = re.compile(r"g_a5_(?:byte|word|long|ptr|buf|chars|shorts|longs)"
+                          r"\(\s*-(\d+)")
+    pat_macro = re.compile(r"\bg_a5_(\d+)\b")
+    out = set()
+    for p in paths:
+        with open(p) as fh:
+            src = fh.read()
+        out |= {int(m) for m in pat_call.findall(src)}
+        out |= {int(m) for m in pat_macro.findall(src)}
+    return out
+
+
+def filter_runs_to_refs(runs, refs, span=4):
+    """Keep only runs overlapping a referenced slot (slot..slot+span)."""
+    keep = []
+    for slot, b in runs:
+        lo, hi = slot, slot + len(b)
+        if any(lo < (-off) + span and (-off) < hi for off in refs):
+            keep.append((slot, b))
+    return keep
+
+
+def emit_c_scalars(runs, fh):
+    blob = b"".join(b for _, b in runs)
+    fh.write("\n/* DIAGNOSTIC ONLY — raw initialised values from the Mac DATA\n"
+             " * image that no relocation covers. This is copyrighted payload,\n"
+             " * the same kind data_pool.c carries: it must NOT ship in a\n"
+             " * redistributable build. Present so the scalar half of the A5\n"
+             " * world can be bisected (seed, confirm parity, then narrow to\n"
+             " * what a symptom needs and port-author those slots properly).\n"
+             " */\n"
+             "const unsigned char g_a5_scalar_blob[] = {\n")
+    for i in range(0, len(blob), 16):
+        fh.write("\t" + "".join(f"0x{c:02x}," for c in blob[i:i + 16]) + "\n")
+    fh.write("};\n\nconst struct a4_run g_a5_scalar_runs[] = {\n")
+    pos = 0
+    for slot, b in runs:
+        fh.write(f"\t{{ {slot:7d}, {len(b):4d}, {pos:6d} }},\n")
+        pos += len(b)
+    fh.write("};\n\n"
+             f"const short g_a5_scalar_run_count = {len(runs)};\n")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("rfork", nargs="?", help="Mac application resource fork")
@@ -137,6 +219,12 @@ def main(argv=None):
     ap.add_argument("--list", action="store_true", help="print slot -> string")
     ap.add_argument("--stub", action="store_true",
                     help="emit empty tables (no resource fork available)")
+    ap.add_argument("--with-scalars", action="store_true",
+                    help="DIAGNOSTIC: also emit the raw scalar blob "
+                         "(copyrighted payload — never ship this)")
+    ap.add_argument("--refs-from", metavar="SRC", action="append", default=[],
+                    help="restrict scalars to slots this source names "
+                         "(repeatable); a LOWER BOUND, verify parity")
     args = ap.parse_args(argv)
 
     if args.stub:
@@ -145,6 +233,8 @@ def main(argv=None):
         with open(args.emit_c, "w") as fh:
             emit_c([], b"", fh)
             emit_c_internal([], [], fh)
+            if args.with_scalars:
+                emit_c_scalars([], fh)
         print(f"a4_map: STUBBED (no resource fork) -> {args.emit_c}",
               file=sys.stderr)
         return 0
@@ -167,6 +257,18 @@ def main(argv=None):
         with open(args.emit_c, "w") as fh:
             emit_c(pairs, strs, fh)
             emit_c_internal(below, above, fh)
+            if args.with_scalars:
+                runs = scalar_runs(img, drel)
+                allb = sum(len(b) for _, b in runs)
+                if args.refs_from:
+                    refs = referenced_offsets(args.refs_from)
+                    runs = filter_runs_to_refs(runs, refs)
+                    print(f"  scalars filtered to {len(refs)} referenced "
+                          f"offsets", file=sys.stderr)
+                emit_c_scalars(runs, fh)
+                print(f"  + {len(runs)} scalar runs "
+                      f"({sum(len(b) for _, b in runs)} of {allb} bytes) "
+                      f"[DIAGNOSTIC]", file=sys.stderr)
         print(f"wrote {len(pairs)} A4 + {len(below)} A5-internal entries "
               f"-> {args.emit_c}", file=sys.stderr)
     return 0

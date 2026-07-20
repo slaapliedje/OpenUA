@@ -10936,6 +10936,20 @@ void boot_a5_seed_defaults(void)
 	{
 		short i;
 
+#ifdef FRUA_SCALAR_SEED
+		/* DIAGNOSTIC (task #70): replay the scalar half straight from
+		 * the Mac DATA image, to confirm that relocations + scalars
+		 * account for the whole A5 world and to bisect which slots a
+		 * symptom actually needs. This is copyrighted payload and must
+		 * never ship — see the note in the generated a4_map.c. */
+		for (i = 0; i < g_a5_scalar_run_count; i++) {
+			const struct a4_run *r = &g_a5_scalar_runs[i];
+
+			memcpy(&g_a5_byte(r->slot),
+			       &g_a5_scalar_blob[r->blob], (size_t)r->len);
+		}
+		dbg_log("nr: DIAGNOSTIC scalar blob seeded");
+#endif
 		for (i = 0; i < g_a4_map_count; i++) {
 			short slot = g_a4_map[i].slot;
 
