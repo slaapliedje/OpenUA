@@ -62,7 +62,13 @@ INCLUDE := -Isrc -Icompat/include -Iplatform/include
 # `make CPU68K=68000` after a plain 020 `make` used to rebuild only changed
 # files as 68000 and silently link the rest as 68020 — an illegal-instruction
 # death on a real 68000 that looks like an engine bug (bitten 2026-07-15).
-BUILDSTAMP := $(MACHINE)-$(or $(CPU68K),default)-$(or $(FPU),nofpu)-$(words $(EXTRA_CFLAGS))$(firstword $(EXTRA_CFLAGS))
+# NOEMBED is folded in too: it changes what the data-pool rule GENERATES, and
+# without it in the stamp a `make NOEMBED=1` after a normal build silently
+# kept the embedded 31336-byte copyrighted pool — a binary you would believe
+# was redistributable but was not. `make release` cleans first so it was
+# safe, but the ad-hoc command documented in docs/redistributable-binary.md
+# was not. Found by audit 2026-07-20.
+BUILDSTAMP := $(MACHINE)-$(or $(CPU68K),default)-$(or $(FPU),nofpu)-$(or $(NOEMBED),embed)-$(words $(EXTRA_CFLAGS))$(firstword $(EXTRA_CFLAGS))
 ifneq ($(shell cat .machine 2>/dev/null),$(BUILDSTAMP))
 $(shell find src compat platform -name '*.o' -delete 2>/dev/null; \
         find src compat platform -name '*.d' -delete 2>/dev/null; \
@@ -225,7 +231,7 @@ $(A4MAP_C): tools/a4map.py tools/datapool.py tools/macrsrc.py .machine
 		python3 tools/a4map.py --stub $(A4MAP_ARGS) --emit-c $(A4MAP_C); \
 	fi
 
-$(DATAPOOL_FILES) &: frua.rsc tools/dataemit.py tools/datapool.py
+$(DATAPOOL_FILES) &: frua.rsc tools/dataemit.py tools/datapool.py .machine
 	@if [ -z "$(NOEMBED)" ] && [ -f frua.rsc ]; then \
 		python3 tools/dataemit.py frua.rsc \
 			--out-h $(DATAPOOL_H) --out-c $(DATAPOOL_C); \
