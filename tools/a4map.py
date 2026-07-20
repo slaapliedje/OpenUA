@@ -181,13 +181,37 @@ def referenced_offsets(paths):
     return out
 
 
-def filter_runs_to_refs(runs, refs, span=4):
-    """Keep only runs overlapping a referenced slot (slot..slot+span)."""
-    keep = []
+def filter_runs_to_refs(runs, refs, gap=4):
+    """Keep WHOLE runs belonging to a referenced structure.
+
+    The old version kept only runs overlapping a referenced offset within a
+    4-byte window. That silently dropped indexed tables: a base like
+    g_a5_27980 is named once and read as g_a5_27980[i], so only its first 4
+    bytes fell in the window and the rest was lost — the compass direction
+    table (#73) was exactly this. A "lower bound" that hides needed data.
+
+    Instead, group runs into clusters (consecutive runs separated by <= `gap`
+    zero bytes — the interior padding of a table) and keep every run of any
+    cluster that contains a referenced offset. So one reference to a table's
+    base pulls in the whole table.
+    """
+    runs = sorted(runs)
+    refset = set(-o for o in refs)          # refs are positive; slots negative
+    clusters, cur = [], []
     for slot, b in runs:
-        lo, hi = slot, slot + len(b)
-        if any(lo < (-off) + span and (-off) < hi for off in refs):
-            keep.append((slot, b))
+        if cur and slot - (cur[-1][0] + len(cur[-1][1])) > gap:
+            clusters.append(cur)
+            cur = []
+        cur.append((slot, b))
+    if cur:
+        clusters.append(cur)
+
+    keep = []
+    for cl in clusters:
+        lo = cl[0][0]
+        hi = cl[-1][0] + len(cl[-1][1])
+        if any(lo <= rs < hi for rs in refset):
+            keep.extend(cl)
     return keep
 
 
@@ -310,42 +334,56 @@ def main(argv=None):
             emit_c(pairs, strs, fh)
             emit_c_internal(below, above, fh)
 
-            # The DOS scalar map is SHIPPABLE (positions + checksum, no
-            # values), so it is emitted unconditionally — empty when no DOS
-            # executable was given — otherwise the engine would not link.
+            # The FULL run set drives everything shippable. The --refs-from
+            # filter is NOT applied to shipped output any more: it was a lower
+            # bound that hid indirectly-indexed tables (#73). It survives only
+            # to annotate the residue report with the reference-reachable set.
             runs = scalar_runs(img, drel)
             allb = sum(len(b) for _, b in runs)
-            if args.refs_from:
-                refs = referenced_offsets(args.refs_from)
-                runs = filter_runs_to_refs(runs, refs)
-                print(f"  scalars filtered to {len(refs)} referenced offsets",
-                      file=sys.stderr)
+
+            # DOS scalar map — positions + checksum only, no values, so it
+            # SHIPS. Because positions are free, emit EVERY DOS-extractable
+            # run, unfiltered: this auto-closes indexed-table gaps (the table
+            # lives in the user's own binary) with no per-table authoring.
             loc, res = [], runs
             if args.dos:
                 loc, res = split_by_dos(runs, open(args.dos, "rb").read())
                 lb = sum(len(b) for _, b, _ in loc)
                 rb = sum(len(b) for _, b in res)
-                print(f"  DOS-extractable: {len(loc)} runs / {lb} bytes; "
-                      f"residue: {len(res)} runs / {rb} bytes "
-                      f"({100*rb/(lb+rb):.1f}%)", file=sys.stderr)
+                print(f"  DOS-extractable (ALL, shipped): {len(loc)} runs / "
+                      f"{lb} bytes; residue to author: {len(res)} runs / "
+                      f"{rb} bytes ({100*rb/(lb+rb):.1f}%)", file=sys.stderr)
                 if args.residue_report:
+                    reached = set()
+                    if args.refs_from:
+                        refs = referenced_offsets(args.refs_from)
+                        reached = {s for s, _ in
+                                   filter_runs_to_refs(res, refs)}
                     with open(args.residue_report, "w") as rf2:
                         rf2.write("# A5 scalar residue — port-author these\n")
                         rf2.write("# Not recoverable from the DOS binary "
                                   "(absent, or too short to locate).\n")
+                        rf2.write("# [R] = reference-reachable (a named offset "
+                                  "lands in its cluster); the rest are\n")
+                        rf2.write("# indirectly-indexed and just as needed — "
+                                  "the compass table (#73) was one.\n")
                         rf2.write(f"# {len(res)} runs, {rb} bytes\n\n")
                         for slot, b in sorted(res, key=lambda x: -len(x[1])):
-                            rf2.write(f"A5{slot:<8} len {len(b):<4} "
+                            tag = "R" if slot in reached else " "
+                            rf2.write(f"[{tag}] A5{slot:<8} len {len(b):<4} "
                                       f"{b.hex(' ')}\n")
                     print(f"  residue worklist -> {args.residue_report}",
                           file=sys.stderr)
             emit_c_dos_scalars(loc, fh)
 
+            # Diagnostic blob (FRUA_SCALAR_SEED) — the FULL set, so it can
+            # reproduce the whole A5 world for parity testing. Copyrighted;
+            # never in a release.
             if args.with_scalars:
                 emit_c_scalars(runs, fh)
                 print(f"  + {len(runs)} scalar runs "
-                      f"({sum(len(b) for _, b in runs)} of {allb} bytes) "
-                      f"[DIAGNOSTIC]", file=sys.stderr)
+                      f"({sum(len(b) for _, b in runs)} bytes) [DIAGNOSTIC]",
+                      file=sys.stderr)
         print(f"wrote {len(pairs)} A4 + {len(below)} A5-internal entries "
               f"-> {args.emit_c}", file=sys.stderr)
     return 0
