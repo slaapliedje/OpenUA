@@ -119,19 +119,35 @@ reference is recorded here:
 | SHA-256 | `467451a770e3275df409c524e6f7cfc714716bf88ef96f8fbeb2ca9afb146959` |
 | Version banner | `Version 1.2        June 28,1993` |
 
-**Open: is the Steam release byte-identical?** Not validated — only the GOG copy
-was available. Both re-releases are the same DOSBox repackaging from the same
-publisher, so identical is *likely*, but likely is not measured. Check with:
+**Steam is byte-identical to GOG** — verified 2026-07-20, same SHA-256, same
+size, same banner. One offset table covers both storefronts. Steam installs it
+at `.../Forgotten Realms The Archives - Collection Two/games/Unlimited
+Adventures -ENG/GAME/UA/CKIT.EXE`.
 
-```sh
-sha256sum <steam>/CKIT.EXE      # compare against the hash above
-```
+A full recursive compare of the two game directories found the payload
+identical as well — `ART/`, `DISK1/`, `DISK2/`, `DISK3/`, `INSTALL.EXE`,
+`SOUND.EXE`, `START.BAT`, `README.BAT`, `UAHELP.TXT` all match. The single
+exception is `DISK1/FOO.CFG`, present only in GOG: a 74-byte stray config
+holding the install path `C:\UA`, a leftover from the packaging run, not game
+content.
 
-If it differs, the extractor needs a per-build table keyed by hash rather than a
-single one — which is why ADR-0017 requires install-time anchor verification
-that refuses loudly instead of extracting from unverified offsets. Any other
-provenance (floppy original, a fan repack, a different patch level) is subject
-to the same caveat.
+What *does* differ is the **wrapper layout**, which is what an installer has to
+cope with:
+
+| | GOG | Steam |
+|---|---|---|
+| Game root | top level | `GAME/UA/` |
+| Designs | `HEIRS.DSN`, `TUTORIAL.DSN` beside the game | `DESIGNS/UA/` (plus `AAAAAAAA.DSN`) |
+| Wrapper cruft | `goggame-*.{info,script,hashdb,ico}`, `DOSBOX/` | `*.conf`, `run-*.bat`, `Documentation/`, `DOSBOX/` |
+
+So an installer should **locate the UA root** (the directory containing
+`CKIT.EXE` + `DISK1..3`) rather than assume a storefront layout, and should
+search for designs separately. Provenance beyond that does not matter.
+
+Other provenance (floppy originals, fan repacks, other patch levels) remains
+unverified and is subject to the original caveat — which is why ADR-0017
+requires install-time anchor verification that refuses loudly instead of
+extracting from unverified offsets.
 
 ## What this does and does not settle
 
