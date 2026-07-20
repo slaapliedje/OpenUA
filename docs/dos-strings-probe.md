@@ -113,6 +113,63 @@ Deriving the map still needs a Mac fork once, on the developer side. It is the
 the plan outright is gone.
 
 **Does not settle:** the A5 world (#67) — still the substantial grind, and
-unaffected by this result. Nor does it change the Mac 1.0 vs 1.2 question:
-these offsets are derived against the 1.0 fork, and a 1.2 retarget would
-require re-deriving them.
+unaffected by this result.
+
+## Does retargeting the lift to Mac 1.2 help? No.
+
+The appealing argument: GOG/Steam ship DOS **1.2**, Mac 1.0 is as rare as any
+other Mac copy, so surely the lift should retarget to Mac 1.2 to line the two
+up. Measured, it does not hold — for three independent reasons.
+
+### 1. "1.2" is not the same version on the two platforms
+
+    Mac 1.0    April 27, 1993
+    DOS 1.2    June 28, 1993      <- the GOG/Steam release
+    Mac 1.2    February 28, 1994
+
+DOS 1.2 *predates* Mac 1.2 by eight months and postdates Mac 1.0 by two. These
+are independent version lines that reuse a numeral; the matching digits are a
+labelling coincidence, not a shared code state. Retargeting Mac 1.0 -> Mac 1.2
+moves the lift eight months *away* from the DOS release, not toward it.
+
+### 2. Coverage against DOS 1.2 is a dead heat
+
+Same probe, same `CKIT.EXE`:
+
+| Mac source | Entries | Recovered | Substring | Absent |
+|---|---:|---:|---:|---:|
+| Mac 1.0 | 2145 | 2068 (**96.4%**) | 40 | 37 |
+| Mac 1.2 | 2147 | 2070 (**96.4%**) | 40 | 37 |
+
+Identical, because the gaps are **platform** differences (Toolbox StandardFile,
+`.ctl` vs `.TLB`, the Mac memory model), not **version** differences. No Mac
+build will ever carry DOS's spelling of those. A retarget buys exactly nothing
+for DOS string sourcing.
+
+### 3. Mac-copy rarity is irrelevant
+
+The Mac fork is a **build-time** input, used once, on the developer side, to
+derive the offset table. No player needs a Mac copy of any version — that is
+the entire point of shipping positions rather than text. Scarcity of Mac 1.0
+does not reach anyone downstream.
+
+### What 1.2 *is* worth
+
+Wanting 1.2 for its bug fixes is reasonable; it just has nothing to do with
+DOS. The complete user-visible text delta between Mac 1.0 and 1.2 is:
+
+    + "There is no way to go in that direction."
+    + "Transfer module ends testing!"
+    + "Version 1.2    February 28,1994"
+    - "Version 1.0       April 27,1993"
+
+Two new messages — 1.2 is a pure bug-fix release, no new features or UI.
+**Caveat: a small string delta does not imply a small code delta.** 22 of 23
+CODE segments changed, and behaviour fixes need not add text; what 1.2 actually
+fixes is still unknown.
+
+The recommendation is therefore to keep 1.2 as an **oracle** — when chasing a
+specific bug, diff that one function 1.0 vs 1.2 and port just the fix — rather
+than paying for a full retarget (jump table 1208 -> 1207, reorganised from
+index 13, every `jtNNN` re-derived) to churn a working port for benefits nobody
+has yet demonstrated.
