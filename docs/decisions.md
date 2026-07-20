@@ -1015,6 +1015,34 @@ re-measured per screen as deeper paths are exercised (combat, chargen, shops,
 the editor remain untested), and "unmodellable" gaps must be tested, not
 assumed. Tracked in #71 (residue) and #72 (deep-path parity).
 
+**Follow-up (2026-07-20) — the static A5 world is FULLY reconstructable, and
+the above-A5 gap is NOT a data dependency.** Two findings retire most of the
+alarm from the note above:
+
+- **Zero missing static bytes.** Computed offline: every non-zero byte of the
+  31336-byte `g_a5_below` image is covered by exactly one of the relocation
+  slots or the scalar runs — 0 uncovered. So relocations + scalars reproduce
+  the entire *static* A5 world byte-for-byte; there is no hidden fourth source.
+  The 2659-byte residue of #71 is real work but it is a *known, bounded, and
+  complete* set, not the tip of something larger.
+
+- **Above-A5 is not load-bearing as data.** A clean single-variable test (with
+  `jt442` now correctly wired, commit `db99a50c`) shows seeding the 7 above-A5
+  slots does NOT restore the compass tick/letter — the earlier "above-A5 ==
+  compass" parity was an artifact of the *dead* `jt442` stub leaving those slots
+  holding the replay's out-of-bounds pointers. With `jt442` live it overwrites
+  them identically in replay-on and replay-off builds, `g_a5_below` is provably
+  identical between the two, yet the compass still differs. So the remaining
+  difference is a **runtime / link-layout-sensitive effect** (the prime suspect
+  is out-of-bounds access through those above-A5 pointers landing in whatever
+  BSS follows `g_a5_below`, which differs by build config), NOT a missing datum
+  the reconstruction can supply. Re-scoped to #73 as a memory-model question,
+  not a data-reconstruction one.
+
+Net: the DOS-only reconstruction of the *static* A5 world is complete and
+proven. What is left is (a) port-authoring the #71 residue, (b) the #73 runtime
+compass effect, and (c) exercising the untested deep paths.
+
 **Why an ADR:** it fixes the end-state that a large grind (#67) will be measured
 against, and records *why* two tempting shortcuts are closed — dropping the
 replay (measured: breaks the interactive layer) and retargeting to Mac 1.2
