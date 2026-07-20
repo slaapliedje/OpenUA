@@ -2453,11 +2453,25 @@ int ua_main(short arg1, long arg2)
 	 * so -806 stayed 0 and EVERY sound path bailed at its JT[1154] gate.  It
 	 * must run before L4d98, whose L59d6 loads and converts the sample bank. */
 	l0eda((short)0, 0L);
+	/* #67: the no-replay boot (A5 world zeroed) stalls somewhere in this
+	 * init run. Mark each phase so the DBG.LOG shows which one swallows it;
+	 * only compiled in for that experiment, so normal boots stay quiet. */
+#ifdef FRUA_NO_REPLAY
+#define NR_MARK(s) dbg_log("nr: " s)
+#else
+#define NR_MARK(s) ((void)0)
+#endif
+	NR_MARK("l4cc0 enter");
 	l4cc0();        /* design buffers — the Mac's jt12 runs L4cc0 before
 	                 * L4d98 (ITEMS.DAT/item.dat read into its allocs) */
+	NR_MARK("l4d98 enter");
 	l4d98();
+	NR_MARK("l0444 enter");
 	l0444();
+	NR_MARK("jt361 enter");
 	jt361(1);
+	NR_MARK("jt361 done");
+#undef NR_MARK
 #ifdef FRUA_CHARGEN
 	/* Char-gen harness entry. Runs AFTER the full design-load + session init
 	 * (l4cc0/l4d98/jt361): there is no l4d98 "hang" — the earlier symptom was a
@@ -2640,17 +2654,29 @@ int ua_main(short arg1, long arg2)
 	jt1009(8096, 0);
 
 	/* Phase 5 — string-table checks and the second UI handler. */
+#ifdef FRUA_NO_REPLAY
+	dbg_log(ua_strcmp(ua_get_string(2), "Heart") != 0
+	        ? "nr: slot2 MISMATCH -> jt919 (credits roll, waits for keys)"
+	        : "nr: slot2 ok -> skip jt919");
+#endif
 	if (ua_strcmp(ua_get_string(2), "Heart") != 0)
 		jt919();
-	jt85(0);
-	jt977();
-	jt120((void *)0);
-	jt989((void (*)(void))jt11, 1, "Pod", 83);
-	jt1130();
+#ifdef FRUA_NO_REPLAY
+#define NR_MARK(s) dbg_log("nr: " s)
+#else
+#define NR_MARK(s) ((void)0)
+#endif
+	NR_MARK("jt85");   jt85(0);
+	NR_MARK("jt977");  jt977();
+	NR_MARK("jt120");  jt120((void *)0);
+	NR_MARK("jt989");  jt989((void (*)(void))jt11, 1, "Pod", 83);
+	NR_MARK("jt1130"); jt1130();
 	g_24138 = 0;
 	g_24134 = 1;
-	jt52(255);                              /* stop all voices */
+	NR_MARK("jt52");   jt52(255);           /* stop all voices */
+	NR_MARK("slot3 check");
 	if (ua_strcmp(ua_get_string(3), g_str_22253) != 0) {
+		NR_MARK("slot3 MISMATCH -> jt931 copy-protection prompt");
 		if (jt931() == 0)
 			jt69();
 		for (g_22307 = 1; g_22307 < 4; g_22307++) {
@@ -2658,6 +2684,7 @@ int ua_main(short arg1, long arg2)
 				jt69();
 		}
 	}
+	NR_MARK("entering phase-6 loop");
 
 	/*
 	 * Phase 6 — the segment-cycling play loop. Stripped of its _LoadSeg
@@ -10889,6 +10916,23 @@ void boot_a5_seed_defaults(void)
 	 * values, so the writes are idempotent either way. */
 	g_a5_9288 = (short)DLITEM_MAX;
 	g_a5_9248 = 1;
+
+	/* -13448: the default design-name string pointer, one of the 1016
+	 * A4-based (STRS) slots the DREL replay relocates. l31cc copies the
+	 * string it points at into g_str_22253, and the phase-5 boot check
+	 * compares that against string-table slot 3 ("Boots"); a zero slot
+	 * leaves g_str_22253 empty, the compare mismatches, and the faithful
+	 * copy-protection challenge (jt931) fires — which blocks forever
+	 * headless. STRS offset 1188 is the "Boots" tail of "Magical Boots"
+	 * (THINK C shares the suffix), resolved the same way every other
+	 * CREL-style STRS reference in the lift is (ua_strs_at, see str.h).
+	 *
+	 * This is the first reconstructed A5 pointer slot under ADR-0017:
+	 * the OFFSET is port-authored knowledge, the TEXT comes from the
+	 * user's own STRS. Guarded so a build with the DATA replay still
+	 * wins — there the reloc has already supplied the real pointer. */
+	if (g_a5_long(-13448) == 0)
+		g_a5_long(-13448) = (long)(uintptr_t)ua_strs_at(1188);
 
 	/* THINK C's DATA blit pre-loads g_a5_-1316 (idle-active flag)
 	 * with 0x05 and g_a5_-126 / g_a5_-130 with stale tick-like
