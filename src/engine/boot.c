@@ -43,6 +43,7 @@
 #include "data_pool_replay.h" /* g_a5_byte */
 #include "str.h"              /* ua_strcmp, ua_get_string */
 #include "a4_map.h"          /* g_a4_map — ADR-0017 A4/STRS slot table */
+#include "a5_scalars.h"      /* a5_seed_authored_scalars — #71 */
 #include "files.h"            /* FSOpen / FSRead (jt398 file-open chain) */
 #include "toolbox.h"          /* ExitToShell (jt415)                     */
 #include "quickdraw.h"        /* MoveTo, DrawString, GetPort (jt1089) */
@@ -10950,6 +10951,14 @@ void boot_a5_seed_defaults(void)
 		}
 		dbg_log("nr: DIAGNOSTIC scalar blob seeded");
 #endif
+		/* Port-authored scalar residue (#71): the functional constants —
+		 * mask ladders, dither patterns, fills, index ladders and the
+		 * individual flag/count/default bytes — stated as our own code
+		 * rather than copied from the Mac DATA image. Runs before the
+		 * pointer tables; the values are verified byte-exact against
+		 * that image. */
+		a5_seed_authored_scalars();
+
 		for (i = 0; i < g_a4_map_count; i++) {
 			short slot = g_a4_map[i].slot;
 
