@@ -9504,6 +9504,26 @@ static void    jt444(short item, short a, short b, short c)
 	method = *(void (**)(unsigned char *, short, short, short))slot;
 	if (method == NULL)
 		return;
+	/* PORT SAFETY (#73): the 7 DLItem shape-method slots (g_a5_9282[0..6])
+	 * are seeded by the DATA replay / above-A5 relocations with pointers
+	 * ABOVE A5 — past the end of g_a5_below, a region the port does not
+	 * model. jt442 overwrites them with the real jt376..jt382 handlers at
+	 * startup, but if a record's method were copied from the table before
+	 * that (or with jt442 disabled), `method` is an out-of-bounds address
+	 * and calling it executes whatever bytes follow the buffer. No real
+	 * handler lives in — or just above — the A5 data buffer, so reject that
+	 * range rather than jump into it. */
+	{
+		const unsigned char *m  = (const unsigned char *)method;
+		const unsigned char *lo = g_a5_below;
+		const unsigned char *hi =
+		        (const unsigned char *)g_a5_below_base() + 0x2000;
+
+		if (m >= lo && m < hi) {
+			PROBE("jt444: rejected above-A5 method pointer");
+			return;
+		}
+	}
 	method(slot, a, b, c);
 }
 /* JT[447] (CODE 3 + 0x298a) — DLItem manager state reset.
