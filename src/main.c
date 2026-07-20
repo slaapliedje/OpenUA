@@ -465,7 +465,16 @@ int main(void)
 
 
 	load_frua_rsrc();
+#ifdef FRUA_NO_REPLAY
+	/* Experiment (#67): boot the A5 world from boot_a5_seed_defaults()
+	 * ALONE — no DATA/ZERO/DREL. Measures how much of the Mac binary's
+	 * initialised globals the port already reconstructs itself. Zero the
+	 * buffer exactly as the replay's first step would. */
+	memset(g_a5_below, 0, A5_BELOW_SIZE);
+	dbg_log("data_pool: REPLAY DISABLED (FRUA_NO_REPLAY) — seeder only");
+#else
 	data_pool_replay();
+#endif
 	boot_a5_seed_defaults();
 	load_frua_palette();
 	load_frua_cursors();                      /* optional DOS colour pointer */
