@@ -4776,10 +4776,23 @@ static void jt948(void)
 						 * Search as no-ops here, so LOOK did nothing at
 						 * all in a dungeon and the clock never moved.
 						 *
-						 * ★ WALKING STILL DOES NOT ADVANCE TIME, and that
-						 * is FAITHFUL — jt176 (Move) never touches the
-						 * date/time bytes and CODE 7 never calls JT[914].
-						 * Don't "fix" the walk. */
+						 * ★ WALKING DOES NOT ADVANCE TIME, and that is
+						 * FAITHFUL TO THE MAC. Evidence (re-verified
+						 * 2026-07-20 against the disassembly): JT[914] is
+						 * called from only 8 sites, all in CODE 13/20/21
+						 * (pass-time events, rest jt915, combat rounds, and
+						 * this Look) — NEVER from the move path (jt297 =
+						 * CODE 22+0x1c3e -> l1908) and never from CODE 7.
+						 * CORRECTION: an earlier note credited "jt176
+						 * (Move)"; jt176 is actually the scroll/clear paint-
+						 * boundary helper (jt1173/jt1001/jt1193/l2062), so
+						 * the claim rests on the JT[914] call sites, not on
+						 * jt176.
+						 * NOTE: DOS FRUA (1.2) DOES advance the clock while
+						 * walking — users comparing against DOS will see the
+						 * Mac clock "stuck". That is a Mac-vs-DOS design
+						 * difference, NOT a port bug. Don't "fix" the walk
+						 * without re-checking the asm. */
 						if (pr != NULL)
 							pr[25] = (unsigned char)
 							         (pr[25] | 2);
