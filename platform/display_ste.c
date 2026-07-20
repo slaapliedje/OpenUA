@@ -730,6 +730,30 @@ static void st_present(void)
 			sp_reband_skip++;
 #endif
 		} else {
+#ifdef FRUA_STPROF
+			/* B4 de-risk #1 (task #57): is this genuine palette change
+			 * ACCOMPANIED BY A REDRAW? Strategy B (draw-time direct-to-planar)
+			 * drops s_chunky, so a reband whose content the engine did NOT
+			 * redraw would leave stale planes under the new palette. s_shadow
+			 * still holds the PREVIOUS present's chunky here (st_reband borrows
+			 * it below, so sample first): count rows whose content changed since
+			 * the last present, and how many CLUT entries moved. A reband with a
+			 * materially different CLUT but ~0 changed content rows is a
+			 * redraw-less palette change — the case that would corrupt B. */
+			{
+				short yy, ci;
+				long  crows = 0, clut_moved = 0;
+				for (yy = 0; yy < ST_H; yy++)
+					if (memcmp(s_chunky + (long)yy * ST_W,
+					           s_shadow + (long)yy * ST_W, ST_W) != 0)
+						crows++;
+				for (ci = 0; ci < 256 * 3; ci++)
+					if (s_clut[ci] != s_clut_banded[ci]) clut_moved++;
+				dbg_log_num("b4audit: reband #        = ", sp_reband);
+				dbg_log_num("b4audit:   content rows  = ", crows);
+				dbg_log_num("b4audit:   clut bytes mvd= ", clut_moved);
+			}
+#endif
 			st_reband();
 		}
 	}

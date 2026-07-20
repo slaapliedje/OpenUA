@@ -534,6 +534,51 @@ redraw, B is unsafe and A is the fallback). Then convert in value order: **CopyB
 dungeon via FRUA_AUTOPLAY. Everything develops behind `FRUA_PLANAR`; single-buffer stays
 default until a phase is proven.
 
+### DE-RISK #1 RESULT — RAN 2026-07-19 (task #57): redraw-less/partial rebands EXIST
+
+Instrumented `st_present` (FRUA_STPROF `b4audit`): per genuine reband, log rows of
+`s_chunky` content changed since the last present (= the redraw signal, sampled before
+`st_reband` borrows `s_shadow`) + CLUT bytes moved. STE, tos206, `--machine ste`,
+FRUA_AUTOPLAY through intro → menu → dungeon entry. 14 rebands:
+
+| reband | content rows | CLUT moved | class |
+|---|---|---|---|
+| #1 | 0 | 593 | boot init (nothing drawn) — benign |
+| #2,3,4,5,7,9 | 200 | 3–713 | full redraw — SAFE |
+| #6 | 176 | 657 | **partial** (24 rows not redrawn) |
+| #8 | 0 | 667 | **redraw-less** (palette swap in place) |
+| #13 | 23 | 581 | **partial** (177 rows not redrawn) |
+| #14 | 0 | 88 | **redraw-less** (palette swap in place) |
+(#10–12 were reband-SKIPS — CLUT byte-identical, B1 guard — inherently safe.)
+
+**Verdict: naive Strategy B ("drop `s_chunky`, writers re-emit") is UNSAFE.** Rebands
+#6/#8/#13/#14 change the palette while leaving 24–200 rows un-redrawn. In the chunky
+model the post-reband force-full re-derives those rows' planes from the retained
+`s_chunky` under the new remap; drop `s_chunky` and there is no source to re-derive them —
+they'd display old planes under a new palette (wrong colours). These are intrinsic (intro
+cross-fades + within-scene palette settles), not removable.
+
+**BUT the fix is clean and is an extension of B1, not a chunky-retention hack.** For a
+content-UNCHANGED region the index→slot remap is a pure function of the pixel *indices*
+(unchanged) — so the planes are ALREADY correct; only the slot→RGB hardware palette
+(`st_band_stpal`, loaded by the raster split) changed. So a within-scene palette change
+needs only a **hardware-palette-register reload, no plane rewrite** — PROVIDED the backend
+keeps the index→slot `remap` FIXED across the scene (never re-quantises mid-scene and
+shuffles slots; the partial-redraw rows then stay valid too, since their indices→slots are
+unchanged and only the RGB moved). That is exactly B1's "fixed per-scene palette" taken one
+step further: pin the remap for the whole scene, make every within-scene reband a pure
+palette-register reload, and planes are NEVER invalidated.
+
+**Consequence for the B plan: the FIRST implementation step is NOT writer conversion — it
+is "within-scene reband = palette-register-only (fixed remap)".** Concretely: distinguish a
+NEW-SCENE reband (re-quantise; comes with a full redraw — the content=200 cases) from a
+WITHIN-SCENE palette change (content ≈ 0 or partial: keep the remap, rebuild only
+`st_band_stpal` from the new CLUT). A "surface touched since last present" signal already
+exists at the shim (`g_qd_touched`, quickdraw.c). With that guard, Strategy B is clean and
+incremental: writers convert one at a time against a scene-stable remap, redraw-less
+rebands recolour via the hardware registers for free, and `s_chunky` can finally be dropped.
+Without it, B corrupts on the intro fades — so this guard is the true Phase-0 of B.
+
 Then Phase 4 (blitter) and Phase 5 (palette polish, folds in #40) as below.
 
 **Phase 4 — blitter acceleration.**
