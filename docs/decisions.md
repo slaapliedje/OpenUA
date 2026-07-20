@@ -958,13 +958,32 @@ chunky surface every frame (`platform/display_videl.c:73-90`) and ECS is
 explicitly software too (`platform/amiga/display_ecs.c:127`). It does not argue
 against Falcon-first.
 
-**Known-open risk.** The no-replay failure mode is **non-deterministic** — the
-same binary reached the menu once and hung indefinitely the next run, the
-signature of uninitialised state rather than a clean missing value. Until that
-boot is deterministic, an intermediate reconstruction cannot be told apart from
-noise, which undermines the "fill slots incrementally and watch it improve"
-workflow. **Making the no-replay boot deterministic is therefore the first
-sub-task of #67**, ahead of any slot-filling.
+**Known-open risk — RESOLVED 2026-07-20, and the diagnosis above was wrong.**
+The no-replay boot was *not* non-deterministic and showed no uninitialised-state
+wandering. `g_a5_long(-13448)` — one of the 1016 A4/STRS pointer slots — stayed
+0, so `l31cc`'s PORT-SAFETY guard skipped its copy, `g_str_22253` stayed empty,
+the phase-5 check `ua_get_string(3) ("Boots") != g_str_22253 ("")` mismatched,
+and the engine correctly ran the faithful **copy-protection challenge**
+(`jt931`) — a modal that waits for input that never arrives headless. The
+apparent run-to-run variance was the *test harness*: the run that reached the
+menu did so because `beginplay`'s keystrokes fed the prompt; the run that "hung"
+received none. Same binary, different stimulus.
+
+Seeding that one slot from the user's own `STRS` (offset 1188, via `ua_strs_at`)
+took the no-replay boot from ~4 min / indefinite to **10s, 10s, 11s over three
+runs** — matching the replay build's 11s, whose party-screen frame stayed
+byte-identical. Commit `a406adc`.
+
+**The lesson worth keeping:** a zeroed A5 slot does not produce garbage
+behaviour, it produces a *plausible, correctly-executed* wrong path. The engine
+was working exactly as written. Reconstruction failures will therefore tend to
+look like features, not crashes — so the grind needs behavioural checks against
+a replay-on control, not just "does it boot".
+
+**Still open under #67:** the interactive layer. With the replay off the party
+screen still has no selection highlight, no `* NAME` marker and no command bar —
+a *separate* root cause from the boot path. The ADR's core claim (the A5 world
+is load-bearing) stands; only its account of the boot symptom was mistaken.
 
 **Why an ADR:** it fixes the end-state that a large grind (#67) will be measured
 against, and records *why* two tempting shortcuts are closed — dropping the
