@@ -48,15 +48,29 @@
 #define ST_RPB      (ST_H / ST_NBANDS)
 #define LINE_BYTES  (ST_W * ST_DEPTH / 8)   /* 160 bytes/line, interleaved */
 #define SCREEN_BYTES ((long)LINE_BYTES * ST_H)
+#define NPAGES      2                        /* B4: double-buffered page flip.
+                                              * SCREEN_BYTES (32000) is a multiple
+                                              * of 256, so both pages stay 256-byte
+                                              * aligned = a valid ST video base. */
 
 /* ST colour hardware: 16 word registers at 0xFF8240. */
 #define ST_COLORREGS ((volatile short *)0xFFFF8240UL)
 
-static unsigned char *s_screen_raw;
-static unsigned char *s_screen;
+static unsigned char *s_screen_raw;     /* the 2-page display allocation    */
+static unsigned char *s_page[NPAGES];   /* the two 256-aligned display pages */
+static unsigned char *s_screen;         /* = s_page[s_back]: this present's target */
 static unsigned char *s_chunky;
-static unsigned char *s_shadow;         /* chunky as of the last convert   */
-static short          s_force_full;     /* LUTs changed: diffing is void   */
+static unsigned char *s_shadow_raw;     /* the 2-shadow allocation          */
+static unsigned char *s_shadow_pg[NPAGES]; /* per-page "chunky as of last convert" */
+static unsigned char *s_shadow;         /* = s_shadow_pg[s_back]            */
+static short          s_back;           /* hidden page = the full-present draw target */
+static short          s_shown;          /* page currently displayed        */
+static void          *s_flip_target;    /* video base to latch at the next VBL */
+/* B4: after a re-band BOTH pages' planes are stale (old palette / renumbered
+ * slots), so the force-full and smart-skip must repeat for NPAGES presents, not
+ * one. These are now COUNTS of pages still owing the treatment (set to NPAGES on
+ * init/re-band, decremented as each present consumes one). */
+static short          s_force_full;     /* pages still owing a full convert */
 static dsp_surface_t  s_surface;
 static short          s_save_rez = -1;
 static void          *s_save_phys, *s_save_log;
@@ -331,12 +345,30 @@ static void st_blit_full(void)
 {
 	short y;
 
-	if (s_force_full) {
+	/* B4: s_force_full / s_remap_changed are per-page COUNTS — a re-band leaves BOTH
+	 * pages' planes stale, so the treatment repeats until every page is serviced. The
+	 * row-diff / smart-skip run against THIS page's shadow (s_shadow = s_shadow_pg
+	 * [s_back]), so each page independently tracks to the current chunky frame. */
+	if (s_force_full > 0) {
+		short pg;
 #ifdef FRUA_STPROF
 		sp_forced_flag = 1;
 #endif
-		st_blit_rows(0, ST_W, 0, ST_H);
-		s_force_full = 0;
+		/* B4: convert BOTH pages in THIS present. A re-band re-quantizes the whole
+		 * palette, so a page force-fulled on an earlier re-band holds planes from an
+		 * older CLUT; if the flip later shows it, the roster/HUD renders under the
+		 * wrong palette — the "grey-on-grey" roster (clut 23/1 == the panel grey in
+		 * that stale CLUT). Doing both pages here keeps them on the SAME (latest)
+		 * palette, so whichever is shown is consistent. st_blit_rows writes s_screen/
+		 * s_shadow, so repoint per page, then restore the back page for the composite. */
+		for (pg = 0; pg < NPAGES; pg++) {
+			s_screen = s_page[pg];
+			s_shadow = s_shadow_pg[pg];
+			st_blit_rows(0, ST_W, 0, ST_H);
+		}
+		s_screen = s_page[s_back];
+		s_shadow = s_shadow_pg[s_back];
+		s_force_full   = 0;
 		s_remap_changed = 0;
 		return;
 	}
@@ -352,7 +384,7 @@ static void st_blit_full(void)
 		 * alignment keeps most colours put, so this scan (only on a re-band pass,
 		 * early-exit on the first moved value) leaves the static chrome/HUD alone
 		 * instead of the old blanket force-full. */
-		if (!conv && s_remap_changed) {
+		if (!conv && s_remap_changed > 0) {
 			short x;
 			for (x = 0; x < ST_W; x++)
 				if (s_remap_dirty[crow[x]]) { conv = 1; break; }
@@ -360,7 +392,8 @@ static void st_blit_full(void)
 		if (conv)
 			st_blit_rows(0, ST_W, y, 1);
 	}
-	s_remap_changed = 0;
+	if (s_remap_changed > 0)
+		s_remap_changed--;
 }
 
 /* Squared RGB distance between two packed 3-byte colours (for slot alignment). */
@@ -557,13 +590,18 @@ static void st_reband(void)
 	 * re-c2p's only rows whose content changed OR that hold a value that moved slot.
 	 * The static granite chrome (slots preserved) is then left alone across the
 	 * re-band instead of the old blanket full convert. */
-	if (first || s_vp_active) {
-		s_force_full   = 1;
-		s_remap_changed = 0;
-	} else {
-		s_force_full   = 0;
-		s_remap_changed = 1;
-	}
+	/* B4: FORCE-FULL on every re-band (not the smart-skip). The smart-skip's
+	 * s_remap_dirty is computed ONCE per re-band (old remap vs new), but the two
+	 * pages were last drawn with DIFFERENT remaps (they alternate), so that single
+	 * dirty map is wrong for the other page (the "brown chrome"). st_blit_full's
+	 * force-full path now converts BOTH pages in one present against the current
+	 * palette, so a single flag suffices — and both pages stay on the SAME palette,
+	 * fixing the grey-on-grey roster (a page force-fulled on an older CLUT never
+	 * gets shown). Costs 2 c2p's on a re-band only; re-bands are rare and the
+	 * flat-fill already tamed the c2p. */
+	(void)first;
+	s_force_full   = 1;
+	s_remap_changed = 0;
 }
 
 /* --- backend entry points ------------------------------------------------ */
@@ -572,27 +610,38 @@ static int st_init(short want_w, short want_h)
 {
 	(void)want_w; (void)want_h;
 
-	s_screen_raw = (unsigned char *)Mxalloc(SCREEN_BYTES + 256, 0);   /* ST-RAM */
+	s_screen_raw = (unsigned char *)Mxalloc(NPAGES * SCREEN_BYTES + 256, 0); /* ST-RAM */
 	s_chunky     = (unsigned char *)Mxalloc((long)ST_W * ST_H, 0);
-	s_shadow     = (unsigned char *)Mxalloc((long)ST_W * ST_H, 0);
-	if (s_screen_raw == NULL || s_chunky == NULL || s_shadow == NULL) {
+	s_shadow_raw = (unsigned char *)Mxalloc((long)NPAGES * ST_W * ST_H, 0);
+	if (s_screen_raw == NULL || s_chunky == NULL || s_shadow_raw == NULL) {
 		dbg_log("ste: Mxalloc FAILED");
 		if (s_screen_raw) { Mfree(s_screen_raw); s_screen_raw = NULL; }
 		if (s_chunky)     { Mfree(s_chunky); s_chunky = NULL; }
-		if (s_shadow)     { Mfree(s_shadow); s_shadow = NULL; }
+		if (s_shadow_raw) { Mfree(s_shadow_raw); s_shadow_raw = NULL; }
 		return 1;
 	}
-	s_screen = (unsigned char *)
-	    (((uintptr_t)s_screen_raw + 255) & ~(uintptr_t)255);
-	memset(s_screen, 0, SCREEN_BYTES);
+	{
+		short p;
+		unsigned char *base = (unsigned char *)
+		    (((uintptr_t)s_screen_raw + 255) & ~(uintptr_t)255);
+		for (p = 0; p < NPAGES; p++) {
+			s_page[p]      = base + (long)p * SCREEN_BYTES;
+			s_shadow_pg[p] = s_shadow_raw + (long)p * ST_W * ST_H;
+			memset(s_page[p], 0, SCREEN_BYTES);
+			memset(s_shadow_pg[p], 0, (size_t)ST_W * ST_H);
+		}
+	}
 	memset(s_chunky, 0, (size_t)ST_W * ST_H);
-	memset(s_shadow, 0, (size_t)ST_W * ST_H);
-	s_force_full = 1;                        /* first present converts all */
+	s_back       = NPAGES - 1;               /* draw the back page; show page 0 */
+	s_shown      = 0;
+	s_screen     = s_page[s_back];
+	s_shadow     = s_shadow_pg[s_back];
+	s_force_full = 1;                         /* first present converts both pages */
 
 	s_save_rez  = Getrez();
 	s_save_phys = Physbase();
 	s_save_log  = Logbase();
-	Setscreen(s_save_log, s_screen, 0);      /* ST Low; console keeps old log */
+	Setscreen(s_save_log, s_page[0], 0);     /* ST Low; show page 0; console keeps log */
 
 	s_surface.width  = ST_W;
 	s_surface.height = ST_H;
@@ -643,7 +692,7 @@ static void st_shutdown(void)
 	}
 	if (s_screen_raw) { Mfree(s_screen_raw); s_screen_raw = NULL; s_screen = NULL; }
 	if (s_chunky)     { Mfree(s_chunky); s_chunky = NULL; }
-	if (s_shadow)     { Mfree(s_shadow); s_shadow = NULL; }
+	if (s_shadow_raw) { Mfree(s_shadow_raw); s_shadow_raw = NULL; s_shadow = NULL; }
 #ifdef FRUA_STPROF
 	if (s_offpage)    { Mfree(s_offpage); s_offpage = NULL; }
 #endif
@@ -731,8 +780,17 @@ static void st_vp_composite(void)
 		}
 	}
 
-	planar_blit_stlow(pp, VP_PLANE_STRIDE, s_vp_w, s_vp_h, ST_DEPTH,
-	                  s_screen, LINE_BYTES, ST_W, ST_H, s_vp_x, s_vp_y);
+	/* B4: drop the converted viewport into BOTH pages' holes, not just the one being
+	 * drawn. The commit is one-shot (a full present that flips to the other page would
+	 * otherwise show that page's stale/black viewport hole), and the viewport is tiny
+	 * (88x88) so blitting it twice is cheap. */
+	{
+		short pg;
+		for (pg = 0; pg < NPAGES; pg++)
+			planar_blit_stlow(pp, VP_PLANE_STRIDE, s_vp_w, s_vp_h, ST_DEPTH,
+			                  s_page[pg], LINE_BYTES, ST_W, ST_H,
+			                  s_vp_x, s_vp_y);
+	}
 }
 
 #ifdef FRUA_STPROF
@@ -787,6 +845,36 @@ static void st_prof_b30b(void)
 }
 #endif
 
+/* Latch a new video base (supervisor: the base registers are protected). The
+ * shifter reloads the base at the next VBL, so this is a NON-BLOCKING flip — the
+ * freshly-drawn back page appears atomically at vblank, no mid-c2p tearing. Only
+ * the hi/mid base bytes are written: pages are 256-aligned so the STE low byte
+ * ($820D) is always 0, which is its power-on value — leaving it out keeps this
+ * correct on a plain ST too (no $820D there). */
+static long st_flip_super(void)
+{
+	unsigned long a = (unsigned long)(uintptr_t)s_flip_target;
+
+	*(volatile unsigned char *)0xFFFF8201UL = (unsigned char)(a >> 16);
+	*(volatile unsigned char *)0xFFFF8203UL = (unsigned char)(a >> 8);
+	*(volatile unsigned char *)0xFFFF820DUL = (unsigned char)(a);   /* STE low byte */
+	return 0;
+}
+
+/* Show the just-drawn back page and make the old front the next draw target. A
+ * FULL present does this: the engine presents a full recompose NPAGES times (the
+ * `pages` contract), so both pages end up carrying the frame. present_rect does
+ * NOT flip — it draws the SHOWN page in place (see st_present_rect), so the walk's
+ * small viewport update never desyncs the pages (an earlier flip-on-present_rect
+ * showed the back page's stale/blank HUD). */
+static void st_flip_full(void)
+{
+	s_flip_target = s_page[s_back];
+	Supexec(st_flip_super);
+	s_shown = s_back;
+	s_back ^= 1;                             /* the old front is the next target */
+}
+
 static void st_present(void)
 {
 #ifdef FRUA_STPROF
@@ -797,6 +885,9 @@ static void st_present(void)
 	if (s_dirty)
 		sp_reband++;
 #endif
+	/* B4: a full present targets the HIDDEN page, then flips to it. */
+	s_screen = s_page[s_back];
+	s_shadow = s_shadow_pg[s_back];
 	if (s_dirty) {
 		/* B1: only re-band when the CLUT actually moved since the last one;
 		 * a matching CLUT would reproduce the same band palettes. */
@@ -880,11 +971,20 @@ static void st_present(void)
 		st_prof_b30b();                  /* B3.0b: compute-vs-contention sample */
 	}
 #endif
+	st_flip_full();                          /* B4: show this page, advance */
 }
 
 static void st_present_rect(short x, short y, short w, short h)
 {
 	short x1;
+
+	/* B4: a partial update draws the SHOWN page IN PLACE and does not flip — the
+	 * back page keeps whatever it had and catches up on the next full present. This
+	 * is what keeps the two pages coherent (only full recomposes, presented NPAGES
+	 * times, seed both). The in-place write tears only within this small rect (the
+	 * dungeon viewport), not the whole screen. */
+	s_screen = s_page[s_shown];
+	s_shadow = s_shadow_pg[s_shown];
 
 	/* NEVER re-band here. A dirty palette means a scene change is mid-draw
 	 * (the intro blits its screens piece by piece); re-banding against a
@@ -966,7 +1066,11 @@ static const dsp_backend_t ste_backend = {
 	st_present,
 	st_present_rect,
 	st_set_palette,
-	1,                      /* single-buffered: present writes the live screen */
+	1,                      /* B4: present ONCE per recompose. The backend
+	                         * double-buffers INTERNALLY (present draws the hidden
+	                         * page then flips), so the shown page is always freshly
+	                         * drawn — no need to seed both pages (that would double
+	                         * the c2p). present_rect draws the shown page in place. */
 };
 
 const dsp_backend_t *dsp_backend_ste(void)
