@@ -22,6 +22,7 @@
 #include <stddef.h>            /* NULL */
 
 #include "core.h"
+#include "boot.h"             /* jt442 — real DLInit, was a local stub */
 #include "alloc.h"             /* ua_alloc, ua_alloc_long */
 #include "error.h"             /* ua_error */
 
@@ -95,7 +96,6 @@ void *ua_arena_alloc(short n)
  * Stubbed as no-ops so core_init() reads in its true shape; each is replaced
  * when its segment is lifted (the fc_dump no-op-stub pattern).
  */
-static void jt442(short n) { (void)n; }   /* TODO: lift CODE 3 + 0x28d0 */
 static void jt231(void)    { }            /* TODO: lift CODE 7 + 0x0004 */
 static void jt211(void)    { }            /* TODO: lift CODE 7 + 0x57bc */
 static void jt981(short n) { (void)n; }   /* TODO: lift CODE 5 + 0x113e */

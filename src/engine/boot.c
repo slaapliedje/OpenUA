@@ -10821,8 +10821,8 @@ extern unsigned char g_dlitem_pool[DLITEM_MAX * DLITEM_BYTES];
  *
  * The port skips NewPtr — g_dlitem_pool is a heap-equivalent
  * static buffer. Aside from that, the lift is faithful. */
-static void jt442(short max_items) __attribute__((unused));
-static void jt442(short max_items)
+void jt442(short max_items);
+void jt442(short max_items)
 {
 	long *table;
 

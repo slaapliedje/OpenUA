@@ -25,6 +25,17 @@ int ua_main(short arg1, long arg2);
 void boot_a5_seed_defaults(void);
 
 /*
+ * JT[442] / DLInit (CODE 3 + 0x28d0). core_init() calls it once at startup to
+ * populate the 7-entry DLItem shape-method table (g_a5_9282[0..6] = the jt376..
+ * jt382 handler pointers) that the item dispatch (JT[452] etc.) parks per
+ * record. It lives in boot.c with the rest of the DLItem cluster; core.c
+ * called a leftover no-op STUB instead, so the table was populated only by the
+ * DATA replay's above-A5 relocations — the reason the no-replay build lost the
+ * compass tick/letter DLItems (#72, above-A5 gap).
+ */
+void jt442(short max_items);
+
+/*
  * Stand up the GLIB FAR pool (the lifted JT[463] / _LBOpen). The Mac
  * calls it from jt1079/master_init, sizing the pool from free memory
  * between kb_min and kb_max KB (214/450 on the normal path); master.c
