@@ -816,3 +816,50 @@ present." It is a large, multi-phase effort (see `docs/planar-plan.md`), done on
 a branch so `main` stays shippable while it lands phase by phase. The **Falcon/TT
 chunky path is explicitly retained**, not deprecated; those two get faster c2p
 later if ever needed, but they are not blocked on this work.
+
+### ADR-0016 status update (2026-07-19) — ST/StE perf (#41) closed at Phase-0
+
+The ST/StE performance goal that motivated this ADR (#41) is **closed with its
+wins banked at "Phase-0"**; the full native-writer conversion is **not** pursued
+further. What landed on `planar-native` and is verified on the STE:
+
+- **Fixed per-scene palette + banded quantiser** (B1) — one global reduce; also
+  fixed the #40 banding.
+- **Viewport composited as a self-contained planar region** (B2.1) — the walk step
+  is a free plane blit, no re-c2p of the HUD scanlines.
+- **Flat-fill c2p fast path** — a flat span converts to constant plane words,
+  −36% on menu presents.
+- **Stable-slot alignment + smart-skip** — a re-band permutes slots to keep
+  persistent colours put, so the static granite chrome/HUD is not re-transposed
+  across scene changes.
+- **Scene-stable remap / register-only re-band (Phase-0)** — a *within-scene*
+  palette change (fade/settle) reloads only the hardware palette registers via a
+  captured per-slot representative, skipping the ~2.2s force-full c2p. Unconditional
+  ST-build improvement.
+
+**Why the native-writer end-state (drop the chunky surface + c2p, present = flip)
+was NOT reached.** Converting the remaining writers to draw plane bits directly
+hit three *measured* walls, each rooted in the same fact — the batch c2p works
+precisely because `s_chunky` is the single, draw-order-correct composite:
+1. **Chrome (a base layer):** its pixels can't be excluded from the c2p while
+   overlays (roster/text) share its scanlines — base+overlay z-order.
+2. **Text (an overlay):** a separate overlay buffer can't reconstruct per-pixel
+   draw order; whole-clear ghosts/blanks, region-clear breaks modals that re-fill
+   without redrawing static text. (Mechanism proved on the menu; parked on
+   `b-text-overlay-wip`.)
+3. **Draw-time model:** draw-time writers need the palette remap *before* drawing,
+   but a quality remap needs the drawn-frame histogram — remap-from-CLUT was tried
+   and **measured a clear quality regression**. So draw-time can't cleanly drop the
+   scene-transition c2p (it's where the remap is bootstrapped).
+
+Only a **fully self-contained rectangle** (the B2.1 viewport) fits the incremental
+composite model. The remaining payoff (dropping the transition c2p) is small
+against a large, risky big-bang, so the pursuit is closed here. **The ADR-0016
+decision stands** — the bitplane fork is real and shipped (viewport + fixed
+palette + the c2p optimisations above); it simply lands at a pragmatic Phase-0
+rather than the full chunky-surface removal. If ST/StE perf is reopened, the lever
+is **c2p throughput** (a tighter `st_c2p_span`/`c2p4st` inner loop, or the Atari
+BLiTTER for plane fills on transitions), not writer conversion. The page-flip
+substrate is complete and parked on `b4-pageflip-wip`. Full findings:
+`docs/planar-plan.md`. **Amiga/ECS** shares the c2p tax and never received B2.1 —
+a parallel track if that target's perf is prioritised later.
