@@ -276,6 +276,18 @@ run-mono:
 	$(HATARI) --machine st --memsize 4 --monitor mono --tos $(ST_TOS) \
 	          --zoom 2 --conout 2 -d $(GAMEDATA_DIR) --auto 'C:\$(TARGET)'
 
+# Amiga AGA: build + boot in amiberry. Unlike the Atari `run*` targets (a
+# one-line Hatari invocation), amiberry needs a .uae machine config, a Kickstart
+# ROM, the gamedata staged into a virtual-disk mount, and a display — so this
+# just DELEGATES to the run-amiga-port skill driver, which owns that
+# orchestration. `build` stages the mount (make MACHINE=amiga + copy in); `start`
+# boots amiberry and leaves it running for interactive play. Screenshot/drive it
+# with `.claude/skills/run-amiga-port/driver.sh shot|key|click|stop`.
+AMIGA_DRIVER := .claude/skills/run-amiga-port/driver.sh
+run-amiga:
+	$(AMIGA_DRIVER) build
+	$(AMIGA_DRIVER) start
+
 # Staged game-data folder for module-load testing. The engine opens
 # .DAT/.GLB/.CTL files by bare filename from the GEMDOS mount, but the
 # unpacked Mac release nests them under data/frua-mac/joined/. This
@@ -587,4 +599,4 @@ release-all:
 
 -include $(DEP)
 
-.PHONY: installer installer-amiga all run run-ste run-mono run-game gamedata probe fc-audit cg-audit test test-slow clean distclean data-pool-regen release release-ste release-amiga release-amiga-ecs release-all strip-target
+.PHONY: installer installer-amiga all run run-ste run-mono run-amiga run-game gamedata probe fc-audit cg-audit test test-slow clean distclean data-pool-regen release release-ste release-amiga release-amiga-ecs release-all strip-target
