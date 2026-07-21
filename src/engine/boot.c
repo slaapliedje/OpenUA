@@ -4593,8 +4593,9 @@ static void  jt904(unsigned char *out_done);                        /* View-char
  * Outer loop L4a1a reloads the level on a stair transition; the inner loop
  * L4be8 re-dispatches JT[953] until the player leaves the area. Result codes
  * from JT[953]: 4 = exit the adventure (L473e), 6 = area/stairs swap (reload),
- * else keep exploring. -27982 is the "active adventure" gate (set by jt918's
- * Begin-Adventuring path); -5221 forces an immediate area-leave. */
+ * else keep exploring. -27982 is the LEAVE-REQUESTED flag (clear = keep
+ * playing; set by camp Exit-Game / in-game Load / last-member removal, and
+ * cleared again on the way out); -5221 forces an immediate area-leave. */
 static void jt914(short count, short idx);   /* CODE 19+0x35c — advance game time */
 static short g_event_modal_shown;            /* l63c0's post-event relayout flag */
 static unsigned char *g_sticky_text_ev;      /* DOS parity: the last l4d26 TEXT event on
@@ -4753,6 +4754,18 @@ static void jt948(void)
 			l709e((short)h[49]);
 		}
 
+		/* PORT (overland): draw the initial party marker before the first
+		 * command. On the Mac the marker only ever appears through L3a28
+		 * (JT[928] restore-under + JT[927] draw), so the FIRST move's
+		 * restore blits the never-primed -18288 save buffer — a stale (or,
+		 * on our clean boot, zeroed = black) 4x4 cell at the entry square
+		 * that then poisons every later save/restore of that cell. Drawing
+		 * the marker here runs JT[119]'s save against the real just-painted
+		 * terrain, so the chain starts clean — and matches DOS FRUA, where
+		 * the party icon is visible at entry before any move. */
+		if ((short)g_a5_18878 <= 4 && g_a5_27990 == 3)
+			l2cf4();
+
 		for (;;) {                              /* L4be8 — the play loop */
 			g_a5_byte(-24140) = want;
 			if ((short)g_a5_18878 >= 5) {
@@ -4871,6 +4884,9 @@ static void jt948(void)
 				}
 			} else {
 				res = (signed char)jt953(); /* overland command dispatch */
+#ifdef FRUA_CELLSCAN
+				dbg_file_num("OV jt953 res", (long)res);
+#endif
 			}
 			want = (signed char)g_a5_byte(-24140);
 			g_a5_long(-5218) = g_a5_long(-27932);
@@ -4927,7 +4943,15 @@ static void jt948(void)
 				g_a5_byte(-5221) = 0;
 			}
 
-			if (g_a5_byte(-27982) != 0)     /* still adventuring -> keep playing */
+			/* L4cda head: `tstb -27982; beq L4be8` — the flag is
+			 * LEAVE-REQUESTED, not active-adventure: CLEAR keeps the
+			 * walk going, SET falls through to the exit below (which
+			 * clears it). The port had this inverted; the dungeon leg
+			 * never noticed (its dispatch continues inside the switch
+			 * and res==4/6 break earlier — only the overland leg
+			 * reaches this test), so overland play exited to the menu
+			 * after exactly one command. */
+			if (g_a5_byte(-27982) == 0)     /* no leave requested -> keep playing */
 				continue;
 			break;
 		}
@@ -47531,7 +47555,12 @@ static void l45f0_menu(short variant)
 	unsigned char n = 0;
 	short         pick;
 
-	PROBE(variant ? "L46d2" : "L45f0");
+	/* PROBE needs a string literal (the probe macros paste "stub: " name);
+	 * split by variant. */
+	if (variant)
+		PROBE("L46d2");
+	else
+		PROBE("L45f0");
 	if (g_a5_byte(-22726) != 0)
 		jt155((short)0, &n);
 	if (g_a5_byte(-22725) != 0 && l4942((short)6) != 0)
@@ -47796,6 +47825,15 @@ static void jt955(void)
 		l709e((short)(unsigned char)g_a5_byte(-18483));
 		if (g_a5_byte(-27982) == 0)
 			jt938();
+#ifdef FRUA_CELLSCAN
+		/* Overland navigation aid (the coordinate box is hidden on the
+		 * wilderness screen): the cell landed on + facing + whether the
+		 * step was blocked (rec[3]==255 = the blocked latch). */
+		dbg_file_num("OVSTEP y*100+x",
+		    (long)rec[38] * 100L + (long)rec[37]);
+		dbg_file_num("   ov-facing", (long)(unsigned char)g_a5_byte(-12286));
+		dbg_file_num("   ov-special", (long)(unsigned char)g_a5_byte(-18483));
+#endif
 		break;
 	}
 	case 4:                                 /* L456c — DUNGEON */
