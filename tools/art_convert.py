@@ -444,6 +444,68 @@ def m23_encode(px, mask, w, rows, planar):
                 k += run
             out.append(0)                        # end of row
     return bytes(out)
+def c3_decode(payload, w, rows):
+    """Decode a Mac-only method-3 (0xc3) COMPOSITE stream to (px, mask).
+
+    The codec is the engine's jt1185 scanline blitter (CODE 4+0x94e; the
+    l2d4e mode-3 arm feeds it via the l289a header):
+
+        header  u16 ctl_len, u16 pix_stride   (big-endian)
+        ctl     ctl_len control bytes, rows separated by 0
+        pix     the pixel stream (pix_stride bytes per plane; the
+                colour Mac runs one plane)
+
+    Control byte c (n = c & 0x3f):
+        0x00        end of row
+        0xC0|n      copy n pixels from pix
+        0x80|n      read ONE pix byte, repeat n times
+        0x40|n      per-BIT merge: n mask bytes follow IN THE CTL STREAM,
+                    each paired with a pix byte (dest = dest&~m | pix&m);
+                    the base game's 121 entries never use it
+        else        skip n destination pixels (stay transparent)
+
+    Returns (px, mask) with mask = the merge mask per pixel (0xff for
+    full writes, 0 transparent). DOS never ships this method; SSI's Mac
+    pipeline re-encoded 121 nested PIC*/SPRIT/TITLE animation frames
+    into it. PROVEN CONTENT-IDENTICAL to the DOS m23 twins (2026-07-21,
+    tests/test_art_c3.py): the two codecs' grids anchor ONE COLUMN apart
+    (c3 x == the m23 planar decode's x+1; the m23 sweep law's p+1 is part
+    of the m23 FORMAT, pinned separately by FRAME 22-24 byte-identity).
+    Under that shift every shared pixel matches on all 121 entries and
+    108 masks are fully equivalent (the rest differ at <=20 boundary or
+    redundant pixels with no value conflicts). Our m23 output is the
+    DOS-faithful conversion and the engine decodes both codecs.
+    """
+    ctl_len, _stride = struct.unpack(">HH", payload[0:4])
+    ctl = payload[4:4 + ctl_len]
+    pix = payload[4 + ctl_len:]
+    px, mask = bytearray(w * rows), bytearray(w * rows)
+    ci = pi = 0
+    for y in range(rows):
+        x = 0
+        while ci < len(ctl):
+            c = ctl[ci]; ci += 1
+            if c == 0:
+                break
+            n = c & 0x3f
+            if (c & 0xc0) == 0xc0:
+                for _ in range(n):
+                    px[y * w + x] = pix[pi]; mask[y * w + x] = 0xff
+                    pi += 1; x += 1
+            elif (c & 0xc0) == 0x80:
+                v = pix[pi]; pi += 1
+                for _ in range(n):
+                    px[y * w + x] = v; mask[y * w + x] = 0xff; x += 1
+            elif (c & 0xc0) == 0x40:
+                for _ in range(n):
+                    m = ctl[ci]; ci += 1
+                    px[y * w + x] = pix[pi]; mask[y * w + x] = m
+                    pi += 1; x += 1
+            else:
+                x += n
+    return bytes(px), bytes(mask)
+
+
 def _is_colour_table(method):
     """A colour-table (palette) block, per the ENGINE's own rule.
 
