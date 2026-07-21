@@ -4568,6 +4568,8 @@ static short g_walk_cmd = -1;
 static short g_areatest_cmd = -1;   /* FRUA_AREATEST: 'a' in the walk latches the Area cmd */
 #endif
 #ifdef FRUA_CBTSND
+static short g_cbtauto_done;        /* FRUA_CBTAUTO: shared one-shot — the l63c0 and
+                                     * l731e fire sites must not BOTH start a combat */
 static short g_cbtsnd_fire;         /* FRUA_CBTSND: 'k' in the walk latches "start the fight"
                                      * (was nested under FRUA_AREATEST — CBTSND now stands alone) */
 #endif
@@ -16340,8 +16342,10 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 		{
 			static short s_cbtauto_polls;
 
-			if (s_cbtauto_polls >= 0 && ++s_cbtauto_polls > 24) {
+			if (!g_cbtauto_done && s_cbtauto_polls >= 0
+			    && ++s_cbtauto_polls > 24) {
 				s_cbtauto_polls = -1;   /* once */
+				g_cbtauto_done = 1;
 				g_cbtsnd_fire = 1;
 				dbg_log("cbtauto: walk stable - auto-firing");
 			}
@@ -19297,15 +19301,19 @@ void frua_areatest_entry(void)
 	 *   - The walk RELOADS its own level, so jt198 must run at FIRE time.
 	 *
 	 * `make EXTRA_CFLAGS="-DFRUA_AREATEST -DFRUA_CBTSND -DFRUA_SKIP_ENTRY_EVENTS"`,
-	 * then press 'k' and Return a few times. -DFRUA_CBTAUTO adds auto-fire
-	 * attempts in l63c0's loop and l2d3e — but #74's instrumentation shows
-	 * NEITHER ever executes in the current play flow (the l63c0 ENTER marker
-	 * and an unconditional l2d3e heartbeat both stay silent from menu through
-	 * walk, while input still works), so this whole harness — 'k' latch
-	 * included — is stranded on a dead path. Until the port's LIVE input loop
-	 * is identified and the fire relocated there, combat is not reachable
-	 * headless. Camp exits with Escape; the CURRENT DESIGN must start in a
-	 * dungeon (TUTORIAL.DSN, not HEIRS — repoint start.dat). The player turn is then driven by
+	 * then press 'k' and Return a few times. -DFRUA_CBTAUTO fires the fight
+	 * automatically (no keys needed) from two sites sharing one one-shot
+	 * (g_cbtauto_done): l63c0's poll — live when the walk IS the jt240
+	 * dungeon driver — and l731e, the pump every screen spins (jt1133 ->
+	 * jt1118 -> l731e -> GetNextEvent), as the fallback. WORKING HEADLESS
+	 * RECIPE (#74, verified to the interactive tactical map): HEIRS.DSN
+	 * current, its GAME001.DAT byte 48 (start area) patched 5 -> 7 in the
+	 * STAGED copy so play begins inside GEO007 (a real dungeon level with
+	 * the type-1 chance-0 combat at 1-based event 37); beginplay; Escape
+	 * out of camp; the fire trips itself and the fight BLOCKS on the
+	 * player's move. Do NOT fire under TUTORIAL: it has no GEO007 and no
+	 * combat events at all, so the fight ends instantly on a zero monster
+	 * side (jt511's -25297 check) — the "silent auto-resolve". The player turn is then driven by
 	 * the ARROW KEYS (move into a monster to attack; "CAN'T GO THERE" is l1162
 	 * rejecting an illegal step) — QUICK ('q') is a convenience, not a
 	 * requirement. Arrow-driven play produces MORE sound than QUICK does: the
@@ -20019,8 +20027,10 @@ static void l731e(short arg)
 	{
 		static short s_cbtauto;
 
-		if (s_cbtauto >= 0 && g_a5_27990 == 4 && ++s_cbtauto > 2000) {
+		if (!g_cbtauto_done && s_cbtauto >= 0 && g_a5_27990 == 4
+		    && ++s_cbtauto > 2000) {
 			s_cbtauto = -1;
+			g_cbtauto_done = 1;
 			dbg_log("cbtauto: mode-4 pump stable - firing GEO007 ev37");
 			jt198((short)7);
 			l709e((short)37);
