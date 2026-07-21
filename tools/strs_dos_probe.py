@@ -77,12 +77,19 @@ def probe(strs, exe):
     return recovered, substring_only, absent
 
 
-def build_map(recovered):
+def build_map(recovered, substring_only=(), exe=b""):
     """The distributable extraction table: pool offset -> (dos offset, len).
 
     Contains no text — only positions — so it carries no copyrighted bytes.
+    Substring-only entries extract by position exactly like strict ones (the
+    bytes are there, just embedded in a longer DOS string), so they are
+    included; only the truly absent entries are left to port authoring
+    (tools/rsrc_from_dos.py).
     """
-    return {str(off): [hits[0], length] for off, length, hits in recovered}
+    table = {str(off): [hits[0], length] for off, length, hits in recovered}
+    for off, s in substring_only:
+        table[str(off)] = [exe.find(s), len(s)]
+    return table
 
 
 def main(argv=None):
@@ -131,10 +138,19 @@ def main(argv=None):
             print(f"  @{off:6d}  {s[:56]!r}")
 
     if args.emit_map:
-        table = build_map(recovered)
+        import hashlib
+        doc = {
+            # Offsets are build-specific (ADR-0017): tie the table to the
+            # exact executable it was derived against so the extractor can
+            # refuse a repacked/different DOS build loudly.
+            "ckit_sha256": hashlib.sha256(exe).hexdigest(),
+            "ckit_size": len(exe),
+            "pool_size": len(strs),
+            "entries": build_map(recovered, substring_only, exe),
+        }
         with open(args.emit_map, "w") as fh:
-            json.dump(table, fh, indent=1, sort_keys=True)
-        print(f"\nwrote {len(table)} entries -> {args.emit_map}")
+            json.dump(doc, fh, indent=1, sort_keys=True)
+        print(f"\nwrote {len(doc['entries'])} entries -> {args.emit_map}")
     return 0
 
 

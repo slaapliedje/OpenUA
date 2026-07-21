@@ -430,6 +430,64 @@ gamedata: $(TARGET) frua.rsc
 	fi
 	@echo "  gamedata: staged $$(ls "$(GAMEDATA_DIR)" | grep -ivc frua) files + $(DSN) into $(GAMEDATA_DIR)"
 
+# --- gamedata-dos: the same staging from the DOS release (ADR-0017) ----------
+#
+# A player who owns only the DOS release (GOG/Steam "Forgotten Realms: The
+# Archives - Collection Two") needs no Mac files at all:
+#   - game data + designs are the DOS install's own files (byte-identical
+#     between the releases);
+#   - every HLIB *.TLB gains its GLIB *.ctl twin at stage time — the same
+#     byte-exact conversion uainst applies to fan modules (ADR-0013;
+#     --no-mono keeps the HLIB originals since mono is install-time work
+#     on the shelved mono path);
+#   - frua.rsc is BUILT from the user's own CKIT.EXE (tools/rsrc_from_dos.py):
+#     just the byte-exact STRS pool. No DATA/ZERO/DREL — their absence routes
+#     boot onto the reconstructed-A5 path (authored scalars + relocation
+#     tables + DOS scalar runs, ADR-0017);
+#   - CKIT.EXE itself is staged so dos_scalars_load() can read the shared
+#     game-rule tables at boot;
+#   - the colour mouse cursors come from the DOS ALWAYS.TLB.
+# Pair with a NOEMBED binary for the fully Mac-free, redistributable stack:
+#   make NOEMBED=1 && make gamedata-dos [DOS_DIR=... DSN=HEIRS.DSN]
+DOS_DIR ?= data/dos-frua
+gamedata-dos: $(TARGET)
+	@if [ ! -f "$(DOS_DIR)/CKIT.EXE" ]; then \
+		echo "  gamedata-dos: $(DOS_DIR)/CKIT.EXE not found — point DOS_DIR at the DOS FRUA install"; \
+		exit 1; \
+	fi
+	@mkdir -p "$(GAMEDATA_DIR)"
+	@find "$(GAMEDATA_DIR)" -mindepth 1 -maxdepth 1 ! -name 'CHAR*.CHR' \
+		-exec rm -rf {} +
+	@for d in DISK1 DISK2 DISK3; do \
+		for f in "$(DOS_DIR)/$$d"/*; do \
+			[ -f "$$f" ] && cp "$$f" "$(GAMEDATA_DIR)/"; \
+		done; \
+	done
+	@for dsn in "$(DOS_DIR)"/*.DSN "$(DESIGNS_DIR)"/*.DSN "$(DESIGNS_DIR)"/*.dsn; do \
+		[ -d "$$dsn" ] || continue; \
+		base=$$(basename "$$dsn"); \
+		mkdir -p "$(GAMEDATA_DIR)/$$base"; \
+		for f in "$$dsn"/*; do \
+			[ -f "$$f" ] && cp "$$f" "$(GAMEDATA_DIR)/$$base/"; \
+		done; \
+		if [ -d "$$dsn/SAVE" ]; then \
+			cp "$$dsn/SAVE"/* "$(GAMEDATA_DIR)/$$base/" 2>/dev/null || true; \
+		fi; \
+	done
+	@echo "  gamedata-dos: converting DOS art (.TLB -> .ctl twins)"
+	@python3 tools/art_convert.py --no-mono "$(GAMEDATA_DIR)"/*.TLB "$(GAMEDATA_DIR)"/*.DSN/*.TLB >/dev/null 2>&1 || true
+	@cp "$(DOS_DIR)/CKIT.EXE" "$(GAMEDATA_DIR)/"
+	@python3 tools/rsrc_from_dos.py "$(DOS_DIR)/CKIT.EXE" -o "$(GAMEDATA_DIR)/frua.rsc"
+	@printf '%s' "$(DSN)" | head -c 34 > "$(GAMEDATA_DIR)/start.dat"
+	@truncate -s 34 "$(GAMEDATA_DIR)/start.dat"
+	@printf '\001' >> "$(GAMEDATA_DIR)/start.dat"
+	@ln -sf "$(abspath $(TARGET))" "$(GAMEDATA_DIR)/$(TARGET)"
+	@if [ -f "$(GAMEDATA_DIR)/ALWAYS.TLB" ]; then \
+		python3 tools/hlib_extract.py "$(GAMEDATA_DIR)/ALWAYS.TLB" --emit "$(GAMEDATA_DIR)/frua.cur" >/dev/null \
+			&& echo "  gamedata-dos: staged colour cursors from the DOS ALWAYS.TLB"; \
+	fi
+	@echo "  gamedata-dos: staged from $(DOS_DIR) + $(DSN) — no Mac files used"
+
 run-game: gamedata
 	$(HATARI) --machine falcon --memsize $(HATARI_MEM) $(HATARI_FPU) $(HATARI_FASTBOOT) --dsp emu --tos $(FALCON_TOS) \
 	          --conout 2 -d "$(GAMEDATA_DIR)" --auto 'C:\$(TARGET)'
@@ -656,4 +714,4 @@ release-all:
 
 -include $(DEP)
 
-.PHONY: installer installer-amiga all run run-ste run-mono run-amiga run-amiga-ecs run-game gamedata probe fc-audit cg-audit test test-slow clean distclean data-pool-regen release release-ste release-amiga release-amiga-ecs release-all strip-target
+.PHONY: gamedata-dos installer installer-amiga all run run-ste run-mono run-amiga run-amiga-ecs run-game gamedata probe fc-audit cg-audit test test-slow clean distclean data-pool-regen release release-ste release-amiga release-amiga-ecs release-all strip-target

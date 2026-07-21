@@ -90918,6 +90918,12 @@ static void jt974(long tick)
 	g_a5_byte(-4682)++;                             /* 0x1570 — release */
 }
 
+/* Set when jt986 finds no .slb bank on disk (a DOS-sourced install —
+ * the sound banks are Mac-release files). l59d6 reads it to take the
+ * engine's own no-sound-driver path instead of loading sfx from a bank
+ * that was never opened. */
+static short g_sndbank_missing;
+
 /* JT[986] (CODE 5+0x10f0) — open the "<name>.slb" sound bank: build
  * the filename (jt384 + jt419 "slb"), load it through the GLIB loader
  * with jt975 as the per-file callback, then install the jt974 mixer
@@ -90929,6 +90935,23 @@ static void jt986(short kind, const char *name)
 	PROBE("jt986");
 	jt384(buf, name);
 	jt419(buf, ua_strs_at(0x6d5e) /* "slb" */, (short)1);
+	/* PORT-SAFETY (ADR-0017 / gamedata-dos): the .slb sound banks are
+	 * Mac-release files — a DOS-sourced install has none (DOS plays XMI
+	 * through its own drivers). The faithful path hands the name straight
+	 * to jt987, whose cold-disk retry loop then prompts "Please Insert
+	 * Disk" forever on a hard-disk install. Probe for the file first and
+	 * degrade to silence: no bank, no mixer pump, everything else runs. */
+	{
+		short ref = jt398(buf, (short)0);
+
+		if (ref < 0) {
+			dbg_log("jt986: sound bank missing - music/sfx off");
+			g_sndbank_missing = 1;
+			return;
+		}
+		jt411(ref);
+	}
+	g_sndbank_missing = 0;
 	jt987((short)(signed char)kind, buf, (short)0,
 	      (void *)(uintptr_t)jt975);
 	g_a5_long(-4774) = (long)(uintptr_t)jt974;
@@ -90994,6 +91017,16 @@ static void l59d6(void)
 
 	PROBE("L59d6");
 	jt986((short)49, ua_strs_at(0x75c) /* "music" */);
+	/* PORT-SAFETY (gamedata-dos): no MUSIC.SLB on disk means no bank was
+	 * opened — the sfx group load below would read a container that never
+	 * loaded. Take the engine's own no-sound-driver state (-17444 = 0,
+	 * the same flag the faithful low-memory path sets) minus the apology
+	 * screen, and play on silent. */
+	if (g_sndbank_missing) {
+		g_a5_byte(-17444) = 0;
+		g_a5_byte(-17443) = 1;
+		return;
+	}
 	avail = jt459((short)-1);
 	/* PORT-SAFETY: jt459 measures the GLIB FAR pool, which the port
 	 * hasn't wired up yet (the live l37aa loader allocates its own

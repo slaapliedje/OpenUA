@@ -541,6 +541,17 @@ def _convert_entry(ent, to_mac):
         #
         # A GROUND-TRUTH TEST ONLY COVERS WHAT THE GROUND TRUTH CONTAINS.
         new_w4, new_method, body = w4, _swap_flag_byte(method, to_mac), payload
+    elif method == 0x00 and len(ent) % 2 == 0:
+        # WORD-TABLE entry: an index/directory of u16s, not an image at all —
+        # the TYPE-128 table's cousin. The base game's CPIC library opens
+        # with one (entry 0: the portrait directory, 509 words). GROUND
+        # TRUTH: the Mac release's own CPIC.CTL carries the identical values
+        # big-endian — the WHOLE entry ("header" words included) converts by
+        # swapping every u16, verified byte-exact against the DOS/Mac pair
+        # (2026-07-21, gamedata-dos).
+        sw = bytearray(ent)
+        sw[0::2], sw[1::2] = ent[1::2], ent[0::2]
+        return bytes(sw)
     else:
         raise UnsupportedPiece(
             "entry is neither a known drawing method nor a colour table "
