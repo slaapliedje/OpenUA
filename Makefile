@@ -537,6 +537,12 @@ gamedata-dos: $(TARGET)
 	@# 4-tone sequencer's pattern format) so DOS-only installs get music.
 	@python3 tools/xmi2slb.py "$(DOS_DIR)" "$(GAMEDATA_DIR)/MUSIC.SLB" \
 		| sed 's/^/  gamedata-dos: /' || true
+	@# The staged SOUNDS.GLB is the DOS HLIB/DIG4 bank the engine can't
+	@# play; rebuild it as a Mac-format GLIB/DIG8 from the SAME recordings
+	@# in SFXDQ.VOC (tools/voc2glb.py: Creative 4-bit ADPCM decode) so
+	@# sampled sfx work too.
+	@python3 tools/voc2glb.py "$(DOS_DIR)" "$(GAMEDATA_DIR)/SOUNDS.GLB" \
+		| sed 's/^/  gamedata-dos: /' || true
 	@echo "  gamedata-dos: staged from $(DOS_DIR) + $(DSN) — no Mac files used"
 
 run-game: gamedata
