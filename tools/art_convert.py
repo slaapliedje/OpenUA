@@ -182,6 +182,51 @@ def rle_decode(data, total):
     return bytes(out)
 
 
+def packbits_row(row):
+    """SSI's own row packer, replicated byte-exactly.
+
+    Derived by re-encoding the Mac release's shipped .CTL twins and holding
+    the streams to identity (FRAME/GEN et al., 2026-07-21): runs of 3+ break
+    a literal; a run of exactly 2 is taken as a run ONLY when the literal
+    accumulator is empty (classic greedy PackBits); literals cap at 128; the
+    trailing even-pad byte is the caller's business (SSI pads with stack
+    garbage, so identity holds for every byte the decoder consumes).
+    """
+    out = bytearray()
+    i, n, litstart = 0, len(row), None
+
+    def flush(k):
+        nonlocal litstart
+        if litstart is not None:
+            j = litstart
+            while k - j > 128:
+                out.append(127)
+                out.extend(row[j:j + 128])
+                j += 128
+            if k > j:
+                out.append(k - j - 1)
+                out.extend(row[j:k])
+            litstart = None
+
+    while i < n:
+        run = 1
+        while i + run < n and row[i + run] == row[i] and run < 128:
+            run += 1
+        if run >= 3 or (run == 2 and litstart is None):
+            flush(i)
+            out.append(257 - run)
+            out.append(row[i])
+            i += run
+        else:
+            if litstart is None:
+                litstart = i
+            i += 1
+            if i - litstart == 128:
+                flush(i)
+    flush(n)
+    return bytes(out)
+
+
 def rle_encode(buf):
     """Encode with the same codec.  Runs of 3+ become repeats (a 2-run costs the
     same as a literal), literals accumulate, and runs flow across row boundaries.
@@ -465,7 +510,18 @@ def _convert_entry(ent, to_mac):
                 "compressed payload decoded to %d bytes, expected %dx%d"
                 % (len(raw), w, height))
         lin = _rows_deinterleave(raw, w, height) if to_mac else raw
-        body = rle_encode(lin if to_mac else _rows_interleave(lin, w, height))
+        # ROW-ALIGNED encoding is load-bearing, not a size preference: the
+        # Mac engine decodes this method with _UnpackBits ONE ROW PER CALL
+        # (l2d4e mode-2: jt1171(s, rowbuf, pix_w) each row), so every row
+        # must be an independently terminated stream. A run flowing across
+        # the row boundary has its surplus DISCARDED by the row decoder and
+        # every following row starts shifted — the base game's FRAME/BIGPIC
+        # rendered as a progressive smear (2026-07-21, gamedata-dos).
+        out_lin = lin if to_mac else _rows_interleave(lin, w, height)
+        body = b"".join(packbits_row(out_lin[y * w:(y + 1) * w])
+                        for y in range(height))
+        if len(body) % 2:
+            body += b"\x00"     # even-pad; SSI pads with garbage, we with 0
         return (struct.pack(dst + "Hhh", height, voff, hoff)
                 + bytes([w // (8 if to_mac else 4),
                          _swap_flag_byte(method, to_mac)]) + body)
@@ -590,7 +646,13 @@ def convert(data, to=None):
         entries = [convert(x, to) if x[:4] in (HLIB, GLIB) else _swap_u16_array(x)
                    for x in c["entries"]]
     else:
-        entries = [_convert_entry(x, to_mac) for x in c["entries"]]
+        # Entries can nest even under an image tag: the PIC*/BIGPIC event
+        # pictures are each a complete sub-container (image + palette) inside
+        # a "TILE"-tagged outer library. Only the entry's own magic says so —
+        # treating one as a flat image scrambled every event picture
+        # (2026-07-21, gamedata-dos).
+        entries = [convert(x, to) if x[:4] in (HLIB, GLIB)
+                   else _convert_entry(x, to_mac) for x in c["entries"]]
 
     # Rebuild the offset table.  Entry sizes are preserved by every transform we
     # support, so offsets carry over -- but recompute rather than assume.
