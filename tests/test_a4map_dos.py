@@ -72,6 +72,26 @@ def test_terrain_table_is_one_run(world):
             f"terrain table byte A5{a5} not covered by the DOS map"
 
 
+def test_partial_split_recovers_welded_tables(world):
+    """Partial-run splitting regressions: a maximal non-zero Mac run can weld
+    unrelated tables together, and DOS lays the parts elsewhere — whole-run
+    matching missed these. The stat-limits table (A5-30890, 26B, welded to
+    the race/class matrix) and the A5-8673 curve (97B, the un-derivable half
+    of the deferred pair) must be fully DOS-covered; the A5-804 pitch table
+    is in NO file of the DOS install and must stay residue (it still comes
+    from the Mac DATA replay)."""
+    _, _, loc, res_runs = world
+
+    def coverage(slot, n):
+        return sum(1 for s in range(slot, slot + n)
+                   if any(rs <= s < rs + len(b) for rs, b, _ in loc))
+
+    assert coverage(-30890, 26) == 26, "stat min/max table not recovered"
+    assert coverage(-8673, 97) == 97, "A5-8673 curve not recovered"
+    assert coverage(-804, 24) == 0, \
+        "pitch table suddenly DOS-covered — a different DOS build?"
+
+
 def test_runs_fit_runtime_buffer(world):
     """No run may exceed dos_scalars.c's DOS_RUN_MAX (1024): the loader
     refuses the whole file on an oversized run."""

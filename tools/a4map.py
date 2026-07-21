@@ -274,7 +274,33 @@ def coalesce_runs_by_dos(runs, dos, max_gap=32, min_merge=8, max_len=1024):
     return out
 
 
-def split_by_dos(runs, dos, min_run=4):
+def _longest_dos_match(b, dos, floor):
+    """(start, length) of the longest substring of `b` found in `dos`,
+    or None when even a `floor`-byte substring matches nowhere.
+
+    Binary search on the length: if some length-L substring occurs, a shorter
+    one does too (any prefix of the match), so "has a match of length L" is
+    monotone in L.
+    """
+    def probe(L):
+        for i in range(len(b) - L + 1):
+            if dos.find(b[i:i + L]) >= 0:
+                return i
+        return None
+
+    if probe(floor) is None:
+        return None
+    lo, hi = floor, len(b)           # invariant: lo matches, hi+1 untested
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if probe(mid) is None:
+            hi = mid - 1
+        else:
+            lo = mid
+    return probe(lo), lo
+
+
+def split_by_dos(runs, dos, min_run=4, min_part=8):
     """(locatable, residue) — which scalar runs live in the DOS executable.
 
     The big scalar runs are game-rule tables, and FRUA is the same game on both
@@ -287,17 +313,41 @@ def split_by_dos(runs, dos, min_run=4):
     anything. They are small (flags, counts, defaults) and are the natural
     port-authoring set.
 
+    A run that is NOT in the DOS image whole is split at its longest DOS-
+    matching substring (>= min_part, long enough that a chance match is
+    negligible) and the flanks retry recursively. A Mac run is one maximal
+    non-zero span, which happily glues UNRELATED neighbours together — the
+    A5-30890 run welds a 26-byte stat-limits table to the race/class matrix,
+    and A5-8673 welds an 89-byte curve to an 8-byte tail; DOS lays each part
+    elsewhere, so whole-run matching missed both.
+
     A run occurring at several DOS offsets is still fine — the bytes are
     identical, so any occurrence serves.
     """
     locatable, residue = [], []
-    for slot, b in runs:
+
+    def place(slot, b):
         if len(b) < min_run:
             residue.append((slot, b))
-            continue
+            return
         i = dos.find(b)
-        (locatable.append((slot, b, i)) if i >= 0
-         else residue.append((slot, b)))
+        if i >= 0:
+            locatable.append((slot, b, i))
+            return
+        m = _longest_dos_match(b, dos, min_part) if len(b) >= min_part else None
+        if m is None:
+            residue.append((slot, b))
+            return
+        start, length = m
+        if start:
+            place(slot, b[:start])
+        locatable.append((slot + start, b[start:start + length],
+                          dos.find(b[start:start + length])))
+        if start + length < len(b):
+            place(slot + start + length, b[start + length:])
+
+    for slot, b in runs:
+        place(slot, b)
     return locatable, residue
 
 

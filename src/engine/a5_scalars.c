@@ -16,8 +16,10 @@
  * A5-804, a 24-byte equal-temperament pitch table. Both look formulaic but no
  * derivation reproduces them byte-exactly — the pitch table mixes rounding
  * modes, the curve fits a quadratic only to +/-3 — so re-expressing them
- * would change behaviour rather than preserve it. They still come from the
- * DATA replay until that is settled.
+ * would change behaviour rather than preserve it. The curve is in CKIT.EXE
+ * verbatim and ships via the DOS scalar map (split_by_dos partial-run
+ * matching); the pitch table is in no DOS file at all and still comes from
+ * the DATA replay on Mac-sourced installs.
  */
 #include <string.h>
 
