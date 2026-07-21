@@ -4813,26 +4813,16 @@ static void jt948(void)
 						 * Search as no-ops here, so LOOK did nothing at
 						 * all in a dungeon and the clock never moved.
 						 *
-						 * ★ WALKING DOES NOT ADVANCE TIME, and that is
-						 * FAITHFUL TO THE MAC. Evidence (re-verified
-						 * 2026-07-20 against the disassembly): JT[914] is
-						 * called from only 8 sites, all in CODE 13/20/21
-						 * (pass-time events, rest jt915, combat rounds, and
-						 * this Look) — NEVER from the move path (jt297 =
-						 * CODE 22+0x1c3e -> l1908) and never from CODE 7.
-						 * CORRECTION: an earlier note credited "jt176
-						 * (Move)"; jt176 is actually the scroll/clear paint-
-						 * boundary helper (jt1173/jt1001/jt1193/l2062), so
-						 * the claim rests on the JT[914] call sites, not on
-						 * jt176.
-						 * NOTE: DOS FRUA (1.2) DOES advance the clock while
-						 * walking — users comparing against DOS will see the
-						 * Mac clock "stuck". That is a Mac-vs-DOS design
-						 * difference, NOT a port bug. RESOLVED 2026-07-21:
-						 * the port now adds a deliberate DOS-parity advance
-						 * per step in jt297's GAP-1 (landed-on-a-new-cell)
-						 * block — see the comment there. The Mac asm claim
-						 * above still stands. */
+						 * ★ CORRECTED 2026-07-21: the Mac DOES advance time
+						 * on every play step — JT[954] = L38f4 (CODE 21+
+						 * 0x38f4), the play step-commit, ends in jt914(1,
+						 * search?2:1) right after the step sound jt52(11).
+						 * The earlier audit ("JT[914] never called from the
+						 * move path") missed that site because the play
+						 * mover jt955/jt954 lives in CODE 21, not on the
+						 * editor walk path (jt297 = CODE 22+0x1c3e -> l1908)
+						 * the port reuses. jt297's GAP-1 block now carries
+						 * the same step-commit tail — see there. */
 						if (pr != NULL)
 							pr[25] = (unsigned char)
 							         (pr[25] | 2);
@@ -15351,6 +15341,41 @@ static void l1908(void *rec_v, short row, short col, short facing, short redraw)
 		jt312((unsigned char *)rec_v);
 }
 
+/* play_can_pass — the passability core of JT[955] (CODE 21+0x453c), the Mac
+ * PLAY forward-move handler's dungeon arm: the JT[3] switch at 0x45ac on the
+ * wall-ART code of the edge ahead (JT[210] high nibble):
+ *   0  -> open, pass;
+ *   1  -> secret door: pass (the Mac announces "A secret door!" via L4526);
+ *   6..13 -> pass iff game-record byte 63+code — the 8 event-togglable wall
+ *            flags (the SET-FLAG event l66cc writes rec[69..76], same bytes);
+ *   14 -> solid wall, blocked;
+ *   2/3/4/5/15 -> the "Blocked:" force/knock/pick menus (L45f0 / L46d2, with
+ *            the L326e force-door dice roll) — those arms are deferred and
+ *            such edges simply refuse passage here for now.
+ * The low nibble (JT[202] movement type) plays no part in dungeon
+ * passability — jt955 only caches it to -12285.
+ *
+ * The port's play walk reuses the DESIGN EDITOR's driver (l63c0/jt297), whose
+ * 3D preview (rec[4]==1) deliberately skips wall checks — fly-through is
+ * correct for the editor but let the play party walk through walls and
+ * toroidally wrap across the map (the "flips me around / loses the
+ * coordinates" bug). jt297 gates its play steps through this instead. */
+static int play_can_pass(short row, short col, short dir)
+{
+	const unsigned char *rec = (const unsigned char *)g_a5_28006;
+	short t = jt210(row, col, dir);
+
+	switch (t) {
+	case 0: case 1:
+		return 1;
+	case 6: case 7: case 8: case 9:
+	case 10: case 11: case 12: case 13:
+		return rec != NULL && rec[63 + t] != 0;
+	default:
+		return 0;
+	}
+}
+
 /* JT[297] (CODE 22 + 0x1c3e) — the keyboard movement handler l63c0 dispatches
  * arrow keys (257..264) to. Routes per jt1160(): TOP-DOWN -> jt311 (the
  * overland absolute mover, gated on map size); FIRST-PERSON -> facing-relative
@@ -15399,6 +15424,9 @@ static void jt297(void *rec_v, short key, long cb)
 			if ((short)lvl[2] > 20) jt311(rec_v, key, cb); else jt1080();
 		} else if (fp4 && l05ca(cell, facing) > 1) {
 			jt1080();
+		} else if (snapped && g_a5_18485 != 5 &&
+		           !play_can_pass(JT297_COL, JT297_ROW, facing)) {
+			jt1080();       /* play: jt955's wall rule (blocked) */
 		} else {
 			l1908(rec_v, JT297_FWD_ROW, JT297_FWD_COL, facing, 1);
 		}
@@ -15424,6 +15452,10 @@ static void jt297(void *rec_v, short key, long cb)
 			l1908(rec_v, JT297_ROW, JT297_COL, (short)(facing + t), 0);
 			if (fp4 && l05ca(cell, (short)g_a5_byte(-12286)) > 1)
 				jt1080();
+			else if (snapped && g_a5_18485 != 5 &&
+			         !play_can_pass(JT297_COL, JT297_ROW,
+			                        (short)g_a5_byte(-12286)))
+				jt1080();
 			else
 				l1908(rec_v, JT297_FWD_ROW, JT297_FWD_COL,
 				      (short)g_a5_byte(-12286), 0);
@@ -15438,6 +15470,10 @@ static void jt297(void *rec_v, short key, long cb)
 		} else {
 			l1908(rec_v, JT297_ROW, JT297_COL, (short)(facing + 4), 0);
 			if (fp4 && l05ca(cell, (short)g_a5_byte(-12286)) > 1)
+				jt1080();
+			else if (snapped && g_a5_18485 != 5 &&
+			         !play_can_pass(JT297_COL, JT297_ROW,
+			                        (short)g_a5_byte(-12286)))
 				jt1080();
 			else
 				l1908(rec_v, JT297_FWD_ROW, JT297_FWD_COL,
@@ -15471,20 +15507,22 @@ static void jt297(void *rec_v, short key, long cb)
 	             || g_a5_byte(-12287) != pre_col)) {
 		short special;
 
-		/* DOS-parity (2026-07-21): advance the game clock on every step
-		 * that lands on a new cell — +1 minute, or +10 (the minutes-tens
-		 * digit, same as Look) when Search mode is on (game record byte
-		 * 25 bit 0). The Mac NEVER advances time from the move path (the
-		 * JT[914] call-site audit in the Look arm above) — DOS 1.2 does,
-		 * and DOS is the reference players compare against (ADR-0017), so
-		 * the stuck-at-12:00 clock read as a bug. Deliberate deviation;
-		 * editor walks (g_a5_18485 == 5) keep the Mac behaviour. jt938
-		 * repaints the clock box — the per-step jt312 re-render only
-		 * touches the 3D view, so without it the new time would only show
-		 * on the next full HUD recomposition. */
+		/* The play STEP-COMMIT tail, from JT[954] = L38f4 (CODE 21+
+		 * 0x38f4) — the Mac play step-commit the port's editor-driver
+		 * walk never ran: step sound jt52(11), then advance the game
+		 * clock +1 minute — or +10 (the minutes-tens digit) when Search
+		 * mode is on (game record byte 25 bit 0), exactly its
+		 * L3a08/L3a18 tail. (An earlier JT[914] call-site audit missed
+		 * this site and concluded the Mac never ticks on movement — it
+		 * does, right here, fused with the step sound.) The move itself
+		 * (delta + toroidal wrap) is already done by jt218 above, which
+		 * matches L38f4's own wrap. Editor walks (g_a5_18485 == 5) keep
+		 * editor behaviour. jt938 repaints the clock box — the per-step
+		 * jt312 re-render only touches the 3D view. */
 		if (g_a5_18485 != 5) {
 			unsigned char *gr = (unsigned char *)g_a5_28006;
 
+			jt52((short)11);
 			jt914((short)1,
 			      (short)((gr != NULL && (gr[25] & 1)) ? 2 : 1));
 			jt938();
