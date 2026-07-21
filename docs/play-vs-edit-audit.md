@@ -49,7 +49,7 @@ in jt297's GAP-1 block.
 | flag | owner | meaning | use for |
 |---|---|---|---|
 | `g_geo_editor_active` | PORT | 1 across the whole `l0096` editor mode loop (and the editor render scope in `jt56`'s art path) | **the** play-vs-editor test for every port-added gate |
-| `g_a5_-18485` | Mac | multi-state mode/pending byte. Observed writes: 0 (default; port play scaffold), 1/2 (CODE 11+0x3348, the walk-loop mode-dispatcher case 7 = editor walk-test entry, +1 if `jt318()`), 5 (CODE 9+0x30d4 — full design editor). Faithful reads: `==0` fresh-vs-resume (l0bbc, L07dc), `!=0` "design arm" (CODE 20+0x57ac reload gate, CODE 21+0x3ba6/0x3c16 spell-list, l143e family), `==5` design-allows-everything (CODE 16 l4e2c — the ONLY `cmpib #5` in the binary) | faithful lifts only. **Never** use it in port-added play/editor gates: the port currently writes only 0, so `==5`/`!=0` port gates are dead. When the editor UI wiring lands, its entry lifts must write 5 (CODE 9 L30d4) / 1..2 (CODE 11 case 7) so the faithful arms light up |
+| `g_a5_-18485` | Mac | multi-state mode/pending byte. Observed writes: 0 (default; port play scaffold), 1/2 (CODE 11+0x3348, the walk-loop mode-dispatcher case 7 = editor walk-test entry, +1 if `jt318()`), 5 (CODE 9+0x30d4 — full design editor). Faithful reads: `==0` fresh-vs-resume (l0bbc, L07dc), `!=0` "design arm" (CODE 20+0x57ac reload gate, CODE 21+0x3ba6/0x3c16 spell-list, l143e family), `==5` design-allows-everything (CODE 16 l4e2c — the ONLY `cmpib #5` in the binary) | faithful lifts only. **Never** use it in port-added play/editor gates. All its faithful writers are lifted and live: l30d4 sets/restores 5, jt243 posts (case 7) and consumes+clears (case 1) the 1/2 values |
 | `g_a5_-27990` | Mac | play-screen state (3 = overland render, 4 = dungeon view, 0 = none; jt955 switches its move arms on it) | faithful |
 | `g_a5_-18878` | Mac | current level number; <= 4 overland/city legs, >= 5 dungeon (the play loop's leg split) | faithful |
 | `rec[4]` (walk record) | Mac | **area kind**: 0 = wilderness, 1 = dungeon (NOT an editor flag). `rec[5]` cell kind, `rec[9]` = `(jt318()==0)` | faithful; play builds `play_rec[4]=1` |
@@ -80,11 +80,9 @@ in jt297's GAP-1 block.
 
 1. Port-added play-vs-editor gates use `g_geo_editor_active`, nothing else.
 2. `g_a5_-18485` is Mac state: lift it faithfully, write it where the Mac
-   writes it, and never borrow it for port gating. Interim: `l0004_22` sets
-   it to 5 around the editor session (save/restore) so the faithful design
-   arms (l4e2c allow-all scribing, the CODE 21 spell-list all-64 arm, the
-   CODE 20 reload gate) behave — the real write site is the unlifted
-   CODE 9+0x30d4 editor-entry arm; move it there when that lifts.
+   writes it, and never borrow it for port gating. Its faithful writers are
+   all lifted and live (see the CODE 9 census below) — no port writes are
+   needed anywhere.
 3. Anything grafted onto the shared l63c0 driver for play must be gated
    `!g_geo_editor_active`; anything editor-only must be gated
    `g_geo_editor_active`.
