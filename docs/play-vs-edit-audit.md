@@ -125,7 +125,22 @@ it would have leaked design-mode spell rules into l0096's play-test mode 14).
   costs; overland steps also advance no clock yet (JT[954] tail is
   first-person-only via GAP-1).
 - jt955's "Blocked:" menus (art 2/3/4/5/15) + "A secret door!" (L4526).
-- jt955 (CODE 21+0x453c) full lift — the overland/dungeon forward-move
-  handler; its dungeon core lives on as play_can_pass, the menus and the
-  overland arm (L4816) are the missing pieces. jt954 (the step-commit) is
-  already fully lifted at its l2e42 site.
+- jt955: LIFTED IN FULL (see the cluster after jt954 in boot.c) — dungeon
+  arm with the "Blocked:" menus (Bash/Pick/Knock/Exit from the -13640 verb
+  list, a4_map-reconstructed), the AD&D open-doors Strength table (L326e),
+  pick-locks (L35de), Knock-item consumption (L378c), "A secret door!"
+  (L4526), the overland arm (L4816: zone strings via HDR@272, any-art
+  blocks, L3a28 commit clamped to the 38x15 overland map, +12h per step),
+  and the per-step zone-rule pass L3eec (the random-encounter machinery:
+  8 HDR rules @78+4i, step counters at game-rec[509+2i]). jt297's play
+  forward routes through the same decision (play_forward_allowed) so
+  first-person play gets menus + secret doors; jt955 proper is wired on
+  the play loop's overland leg. Emulator-verified: secret-door announce +
+  pass, Blocked: menu (BASH EXIT), bash-fail consumption, per-step
+  re-arm, art-15 refusal, screen rebuild after the modal.
+- The play-frame corner "yellow mark" is NOT editor bleed and NOT a
+  cursor: it is a FRAME.CTL corner piece in port_draw_play_frame's chrome
+  reconstruction whose pixels sit outside the stable frame palette band —
+  black on a bare design, yellow under HEIRS art. Cosmetic; fix with the
+  frame-chrome palette follow-up (instrumented jt213/l5752/jt216 draw
+  nothing on that frame).

@@ -3918,8 +3918,7 @@ static void jt936(long member, short highlight)
 
 	g_a5_long(-27940) = 0;                          /* L02d4 */
 }
-static void  jt955(void) __attribute__((unused));
-static void  jt955(void)              { PROBE("jt955"); }   /* CODE 21+0x453c — used by a deferred jt948 arm */
+static void  jt955(void);             /* CODE 21+0x453c — the play forward-move handler (full lift below) */
 static void  l0006_20(void);          /* CODE 20+0x6 — play-entry combat/event init (lifted below) */
 static int   g_clut_clobbered;        /* tentative decl — dungeon CLUT dirtied by another screen (defined below) */
 /* ---- l709e event-handler arms (CODE 20 locals) — level-1 stubs, the deferred
@@ -4902,6 +4901,26 @@ static void jt948(void)
 					h[25] = g_a5_byte(-22284);
 				break;
 			}
+			/* L4cae..L4cd4 — the faithful post-command refresh + THE
+			 * MOVE: jt955 consumes the pending step (jt953's direction
+			 * picks set the facing; rec[3]==255 suppresses one pass),
+			 * then jt935/l47f2 repaint. Mac runs this for BOTH modes;
+			 * the port wires it on the OVERLAND leg only — the dungeon
+			 * leg's l63c0/jt297 walk already carries jt955's dungeon
+			 * duties (play_forward_allowed + the GAP-1 JT[954] tail),
+			 * and a second jt955 there would double-step. The res==4/6
+			 * arms above continue/break before this point, matching
+			 * the Mac's fp@(-9) skip flag. */
+			if (g_a5_18878 <= 4) {
+				if ((unsigned char)g_a5_byte(-27990) == 4)
+					jt20();
+				jt955();
+				jt935();
+				l47f2();
+				g_a5_byte(-22281) = 0;
+				g_a5_byte(-5221) = 0;
+			}
+
 			if (g_a5_byte(-27982) != 0)     /* still adventuring -> keep playing */
 				continue;
 			break;
@@ -15379,6 +15398,12 @@ static int play_can_pass(short row, short col, short dir)
 	}
 }
 
+/* The FULL jt955 decision (menus, secret doors) for jt297's play
+ * forward step — defined with the jt955 cluster below. play_can_pass
+ * above stays the menu-less rule for jt311 (the Mac never runs the
+ * Blocked: menus from the map view) and the strafe/backstep arms. */
+static int play_forward_allowed(void);
+
 /* JT[297] (CODE 22 + 0x1c3e) — the keyboard movement handler l63c0 dispatches
  * arrow keys (257..264) to. Routes per jt1160(): TOP-DOWN -> jt311 (the
  * overland absolute mover, gated on map size); FIRST-PERSON -> facing-relative
@@ -15428,7 +15453,7 @@ static void jt297(void *rec_v, short key, long cb)
 		} else if (fp4 && l05ca(cell, facing) > 1) {
 			jt1080();
 		} else if (snapped && !g_geo_editor_active &&
-		           !play_can_pass(JT297_COL, JT297_ROW, facing)) {
+		           !play_forward_allowed()) {
 			jt1080();       /* play: jt955's wall rule (blocked) */
 		} else {
 			l1908(rec_v, JT297_FWD_ROW, JT297_FWD_COL, facing, 1);
@@ -15534,6 +15559,11 @@ static void jt297(void *rec_v, short key, long cb)
 			unsigned char *gr = (unsigned char *)g_a5_28006;
 
 			jt52((short)11);
+			/* jt954's per-step scratch: re-arm the Blocked:-menu
+			 * attempt flags (-22727..-22724 = 1 — Bash/Pick retry at
+			 * each NEW door) and clear the rumor scratch (-4930). */
+			jt399(&g_a5_byte(-22727), (short)4, (short)1);
+			jt399(&g_a5_byte(-4930), (short)12, (short)0);
 			jt914((short)1,
 			      (short)((gr != NULL && (gr[25] & 1)) ? 2 : 1));
 			jt938();
@@ -47221,6 +47251,551 @@ static void jt954(void)
 		else
 			jt914((short)1, (short)1);
 	}
+}
+
+/* ====================================================================
+ * JT[955] (CODE 21 + 0x453c) — the Mac PLAY FORWARD-MOVE handler, full
+ * lift with its CODE 21 helper cluster (asm 0x326e..0x4990). The single
+ * Mac caller is the play loop's post-command refresh (CODE 20+0x4cc0);
+ * the port wires that on the overland leg (the dungeon leg's l63c0/
+ * jt297 walk reuses the case-4 decision core via jt955_dungeon_decide).
+ * docs/play-vs-edit-audit.md has the map.
+ * ==================================================================== */
+
+static void jt928(void);                /* CODE 12+0x2da6 — defined below */
+
+/* L36f0 (CODE 21+0x36f0) — find the slot of the first item of type
+ * `type` in `member`'s inventory type array (rec[198 + i], i 0..140).
+ * Returns the slot or -1. */
+static short l36f0(short type, long member)
+{
+	unsigned char *m = (unsigned char *)(uintptr_t)member;
+	unsigned char  i;
+
+	PROBE("L36f0");
+	for (i = 0; (short)i <= 140; i++)
+		if (m[198 + i] == (unsigned char)type)
+			break;
+	return ((short)i <= 140) ? (short)i : (short)-1;
+}
+
+/* L3748 (CODE 21+0x3748) — first party member (the -27928 list) carrying
+ * an item of type `type` (L36f0), or 0. */
+static long l3748(short type)
+{
+	long m;
+
+	PROBE("L3748");
+	for (m = g_a5_long(-27928); m != 0; m = *(long *)(uintptr_t)m)
+		if ((l36f0(type, m) & 0xff) != 255)
+			break;
+	return m;
+}
+
+/* L378c (CODE 21+0x378c) — "Blocked:" menu action 2: USE A KEY. Marks
+ * the first carried type-31 item used (bit 7 of its type byte), then
+ * passes unless the wall art ahead is 15 (key-proof). */
+static short l378c(void)
+{
+	long  m;
+	short slot;
+
+	PROBE("L378c");
+	m = l3748((short)31);
+	if (m == 0)
+		return 0;
+	slot = (short)(l36f0((short)31, m) & 0xff);
+	((unsigned char *)(uintptr_t)m)[198 + slot] |= 0x80;
+	if (jt210((short)(signed char)g_a5_byte(-12288),
+	          (short)(signed char)g_a5_byte(-12287),
+	          (short)(unsigned char)g_a5_byte(-12286)) == 15)
+		return 0;
+	return 1;
+}
+
+/* L4942 (CODE 21+0x4942) — does any party member have levels in class
+ * `cls`? Current levels rec[cls+157], or pre-dual levels rec[cls+164]
+ * when JT[29] says the old class is usable again. */
+static short l4942(short cls)
+{
+	long m;
+
+	PROBE("L4942");
+	for (m = g_a5_long(-27928); m != 0; m = *(long *)(uintptr_t)m) {
+		unsigned char *p = (unsigned char *)(uintptr_t)m;
+
+		if (p[cls + 157] != 0)
+			return 1;
+		if (p[cls + 164] != 0 && jt29(p) != 0)
+			return 1;
+	}
+	return 0;
+}
+
+/* L4932 / L493a (CODE 21) — compiled-out no-ops in the shipping build
+ * (linkw/unlk/rts). L493a is the door-open writer the pick-lock success
+ * path calls for both sides of the edge; it does nothing on the Mac. */
+static void l4932(void)
+{
+	PROBE("L4932");
+}
+static void l493a(short a, short b, short c)
+{
+	PROBE("L493a");
+	(void)a; (void)b; (void)c;
+}
+
+/* L4526 (CODE 21+0x4526) — announce "A secret door!" in the message box. */
+static void l4526(void)
+{
+	PROBE("L4526");
+	jt20();
+	l0b20((void *)(uintptr_t)ua_strs_at(0x6cec) /* "A secret door!" */);
+	jt92();
+}
+
+/* L326e (CODE 21+0x326e) — "Blocked:" menu action 0: FORCE. Walks the
+ * party rolling the AD&D open-doors check per member: rec[113] is
+ * Strength, rec[124] the 18/xx percentile. Wall arts 5/6 (doors) use
+ * the door column; anything else the stuck/secret column. Art 15 can
+ * never be forced; a party-wide failure consumes the FORCE option
+ * (-22726) until the next step re-arms it (jt954's -22727 fill). */
+static short l326e(void)
+{
+	unsigned char ok = 0;
+	long          m;
+	short         t;
+
+	PROBE("L326e");
+	for (m = g_a5_long(-27928); m != 0 && ok == 0;
+	     m = *(long *)(uintptr_t)m) {
+		unsigned char *p = (unsigned char *)(uintptr_t)m;
+
+		t = jt210((short)(signed char)g_a5_byte(-12288),
+		          (short)(signed char)g_a5_byte(-12287),
+		          (short)(unsigned char)g_a5_byte(-12286));
+		if (t == 5 || t == 6) {
+			switch (p[113]) {       /* JT[3] @0x32e0 — DOOR column */
+			case 18:
+				switch (p[124]) {       /* JT[3] @0x3304 */
+				case 91: case 92: case 93: case 94: case 95:
+				case 96: case 97: case 98: case 99:
+					if (jt870(1, 6) == 1) ok = 1;
+					break;
+				case 100:
+					if (jt870(1, 6) <= 2) ok = 1;
+					break;
+				default:
+					break;
+				}
+				break;
+			case 19: case 20:
+				if (jt870(1, 6) <= 3) ok = 1;
+				break;
+			case 21: case 22:
+				if (jt870(1, 6) <= 4) ok = 1;
+				break;
+			case 23:
+				if (jt870(1, 6) <= 5) ok = 1;
+				break;
+			case 24:
+				if (jt870(1, 8) <= 7) ok = 1;
+				break;
+			case 25:
+				ok = 1;
+				break;
+			default:
+				break;
+			}
+		} else {
+			switch (p[113]) {       /* JT[3] @0x33f6 — STUCK column */
+			case 3: case 4: case 5: case 6: case 7:
+				if (jt870(1, 6) == 1) ok = 1;
+				break;
+			case 8: case 9: case 10: case 11: case 12:
+			case 13: case 14: case 15:
+				if (jt870(1, 6) <= 2) ok = 1;
+				break;
+			case 16: case 17:
+				if (jt870(1, 6) <= 3) ok = 1;
+				break;
+			case 18:
+				if (p[124] < 51) {
+					if (jt870(1, 6) <= 3) ok = 1;
+				} else if (p[124] < 99) {
+					if (jt870(1, 6) <= 4) ok = 1;
+				} else {
+					if (jt870(1, 6) <= 5) ok = 1;
+				}
+				break;
+			case 19: case 20:
+				if (jt870(1, 8) <= 7) ok = 1;
+				break;
+			case 21:
+				if (jt870(1, 10) <= 9) ok = 1;
+				break;
+			case 22: case 23:
+				if (jt870(1, 12) <= 11) ok = 1;
+				break;
+			case 24:
+				if (jt870(1, 20) <= 19) ok = 1;
+				break;
+			case 25:
+				ok = 1;
+				break;
+			default:
+				break;
+			}
+		}
+	}
+	t = jt210((short)(signed char)g_a5_byte(-12288),
+	          (short)(signed char)g_a5_byte(-12287),
+	          (short)(unsigned char)g_a5_byte(-12286));
+	if (t == 15)
+		ok = 0;
+	if (ok == 0)
+		g_a5_byte(-22726) = 0;
+	return ok;
+}
+
+/* L35de (CODE 21+0x35de) — "Blocked:" menu action 1 (variant 1): PICK
+ * THE LOCK. d100 under rec[140] (the pick-locks skill) by a conscious
+ * member (rec[94]==0). Always consumes the attempt (-22725); art 15 is
+ * pick-proof; success "opens" both sides via the compiled-out L493a. */
+static short l35de(void)
+{
+	unsigned char ok = 0;
+	long          m;
+	short         t, f;
+
+	PROBE("L35de");
+	for (m = g_a5_long(-27928); m != 0 && ok == 0;
+	     m = *(long *)(uintptr_t)m) {
+		unsigned char *p = (unsigned char *)(uintptr_t)m;
+
+		if ((unsigned short)jt870(1, 100) <= p[140] && p[94] == 0)
+			ok = 1;
+	}
+	g_a5_byte(-22725) = 0;
+	if (jt210((short)(signed char)g_a5_byte(-12288),
+	          (short)(signed char)g_a5_byte(-12287),
+	          (short)(unsigned char)g_a5_byte(-12286)) == 15)
+		return 0;
+	if (ok != 0) {
+		f = (short)(unsigned char)g_a5_byte(-12286);
+		l493a((short)(signed char)g_a5_byte(-12288),
+		      (short)(signed char)g_a5_byte(-12287), f);
+		t = (short)((f + 4) & 7);
+		l493a((short)((signed char)g_a5_byte(-12288)
+		              + (signed char)g_a5_byte(-27862 + f)),
+		      (short)((signed char)g_a5_byte(-12287)
+		              + (signed char)g_a5_byte(-27853 + f)), t);
+	}
+	return ok;
+}
+
+/* L45f0 / L46d2 (CODE 21) — the "Blocked:" option menus. Build the
+ * option list (jt155 slots): 0 = FORCE when -22726 is armed, 1 when
+ * -22725 is armed AND a thief (class 6) is aboard, 2 when a type-31
+ * key is carried, 3 (leave) always. Then prompt (jt182) and run the
+ * pick. Variant 0 (wall arts 2/3/15, prompt @0x6cfc): action 1 picks
+ * the lock (L35de). Variant 1 (arts 4/5, prompt @0x6d06): action 1
+ * just disarms -22725 and refuses. Result lands in -22308. */
+static void l45f0_menu(short variant)
+{
+	unsigned char n = 0;
+	short         pick;
+
+	PROBE(variant ? "L46d2" : "L45f0");
+	if (g_a5_byte(-22726) != 0)
+		jt155((short)0, &n);
+	if (g_a5_byte(-22725) != 0 && l4942((short)6) != 0)
+		jt155((short)1, &n);
+	if (l3748((short)31) != 0)
+		jt155((short)2, &n);
+	jt155((short)3, &n);
+	if (n == 0) {           /* unreachable (slot 3 always lands); kept
+	                         * for the faithful CFG — L4932 is a no-op */
+		l4932();
+		return;
+	}
+	pick = (short)(jt182((const char *)(uintptr_t)
+	                     ua_strs_at(variant ? 0x6d06 : 0x6cfc)
+	                     /* "Blocked:" */,
+	                     g_a5_long(-13640), (short)0, (short)0) & 0xff);
+	switch (pick) {         /* JT[3] @0x469e / @0x4780 */
+	case 0:
+		g_a5_byte(-22308) = (unsigned char)l326e();
+		break;
+	case 1:
+		if (variant) {
+			g_a5_byte(-22725) = 0;
+			g_a5_byte(-22308) = 0;
+		} else {
+			g_a5_byte(-22308) = (unsigned char)l35de();
+		}
+		break;
+	case 2:
+		g_a5_byte(-22308) = (unsigned char)l378c();
+		break;
+	default:
+		break;
+	}
+}
+
+/* jt955's case-4 decision core (asm 0x457e..0x47c2): the JT[3] switch
+ * @0x45b0 on the wall-ART code ahead. Sets -22308 (step allowed). The
+ * port's l63c0/jt297 dungeon walk calls this directly (via
+ * play_forward_allowed) so play gets the menus + secret doors; jt955
+ * proper runs it for the faithful overland-loop routing. */
+static void jt955_dungeon_decide(void)
+{
+	unsigned char *rec = (unsigned char *)g_a5_28006;
+	short          t;
+
+	g_a5_byte(-23188) = 1;
+	t = jt210((short)(signed char)g_a5_byte(-12288),
+	          (short)(signed char)g_a5_byte(-12287),
+	          (short)(unsigned char)g_a5_byte(-12286));
+	switch (t) {            /* JT[3] @0x45b0, min 0 max 15 */
+	case 1:                 /* secret door: announce, then open */
+		l4526();
+		/* FALLTHROUGH */
+	case 0:
+		g_a5_byte(-22308) = 1;
+		break;
+	case 3:                 /* secret + menu variant 0 */
+		l4526();
+		/* FALLTHROUGH */
+	case 2: case 15:
+		l45f0_menu((short)0);
+		break;
+	case 5:                 /* secret + menu variant 1 */
+		l4526();
+		/* FALLTHROUGH */
+	case 4:
+		l45f0_menu((short)1);
+		break;
+	case 6: case 7: case 8: case 9:
+	case 10: case 11: case 12: case 13:
+		/* the 8 event-togglable wall flags (l66cc writes rec[69..76]) */
+		if (rec != NULL)
+			g_a5_byte(-22308) = rec[63 + t];
+		break;
+	case 14:
+		g_a5_byte(-22308) = 0;
+		break;
+	default:
+		break;
+	}
+}
+
+/* PORT: jt297's play forward gate — run the faithful decision (menus
+ * included) and report it. A menu is a modal over the play screen, so
+ * arm the l63c0 rebuild the same way GAP-1 events do. */
+static int play_forward_allowed(void)
+{
+	short t = jt210((short)(signed char)g_a5_byte(-12288),
+	                (short)(signed char)g_a5_byte(-12287),
+	                (short)(unsigned char)g_a5_byte(-12286));
+
+	g_a5_byte(-22308) = 0;
+	jt955_dungeon_decide();
+	if (t == 2 || t == 3 || t == 4 || t == 5 || t == 15)
+		g_event_modal_shown = 1;        /* a Blocked: menu ran */
+	return g_a5_byte(-22308) != 0;
+}
+
+/* L3af2 (CODE 21+0x3af2) — compute the overland target cell into
+ * -4904/-4903 (rec[37]/rec[38] + the facing deltas); an off-map target
+ * ([0,37] x [0,14] is the fixed overland map) resolves back to the
+ * current cell. */
+static void l3af2(void)
+{
+	unsigned char *rec = (unsigned char *)g_a5_28006;
+	short          f   = (short)(unsigned char)g_a5_byte(-12286);
+	short          x, y;
+
+	PROBE("L3af2");
+	if (rec == NULL)
+		return;
+	x = (short)(rec[37] + (signed char)g_a5_byte(-27862 + f));
+	y = (short)(rec[38] + (signed char)g_a5_byte(-27853 + f));
+	g_a5_byte(-4904) = (unsigned char)x;
+	g_a5_byte(-4903) = (unsigned char)y;
+	if ((signed char)g_a5_byte(-4904) < 0
+	    || (short)(signed char)g_a5_byte(-4904) > 37
+	    || (signed char)g_a5_byte(-4903) < 0
+	    || (short)(signed char)g_a5_byte(-4903) > 14) {
+		g_a5_byte(-4904) = rec[37];
+		g_a5_byte(-4903) = rec[38];
+	}
+}
+
+/* L3a28 (CODE 21+0x3a28) — the OVERLAND step commit: jt928 refresh,
+ * remember the pre-move cell (rec[23]/[24]), advance rec[37]/[38] by
+ * the facing deltas CLAMPED to the fixed 38x15 overland map (no wrap),
+ * redraw the cursor (jt927 = l2cf4) and advance the calendar 12 hours
+ * (jt914(12,3)) — overland travel is half a day per square. */
+static void l3a28(void)
+{
+	unsigned char *rec = (unsigned char *)g_a5_28006;
+	short          f   = (short)(unsigned char)g_a5_byte(-12286);
+	short          x, y;
+
+	PROBE("L3a28");
+	jt928();
+	if (rec == NULL)
+		return;
+	rec[23] = rec[37];
+	rec[24] = rec[38];
+	x = (short)((signed char)(unsigned char)(rec[37]
+	        + (signed char)g_a5_byte(-27862 + f)));
+	y = (short)((signed char)(unsigned char)(rec[38]
+	        + (signed char)g_a5_byte(-27853 + f)));
+	if (x < 0) x = 0;
+	if (x > 37) x = 37;
+	if (y < 0) y = 0;
+	if (y > 14) y = 14;
+	rec[37] = (unsigned char)x;
+	rec[38] = (unsigned char)y;
+	l2cf4();                                /* JT[927] */
+	jt914((short)12, (short)3);
+}
+
+/* L3d4a (CODE 21+0x3d4a) — does zone rule `rule` fire in `zone`? The
+ * rule table lives in the GEO HDR at ds[78 + rule*4]: threshold word,
+ * event byte (+2), zone-mask byte (+3, SET bit = zone excluded). No
+ * event -> never. */
+static short l3d4a(short zone, short rule)
+{
+	const unsigned char *ds =
+	    (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+
+	PROBE("L3d4a");
+	if (ds == NULL || ds[rule * 4 + 80] == 0)
+		return 0;
+	if (zone < 0 || zone > 7)               /* JT[3] @0x3d7c default */
+		return 0;
+	return (ds[rule * 4 + 81] & (1 << zone)) ? 0 : 1;
+}
+
+/* L3eec (CODE 21+0x3eec) — the per-step ZONE-RULE pass (the random /
+ * scheduled encounter machinery). Compute the party's zone (JT[197] on
+ * the live cell in dungeon mode, rec[37]/[38] overland), then for each
+ * of the 8 rules that match (L3d4a): bump its step counter (the LE
+ * words at rec[509 + rule*2], jt944/jt946), and when it reaches the
+ * rule's threshold (byte-swapped word ds[78+rule*4], jt1180), reset
+ * the counter and fire the rule's event (ds[80+rule*4], JT[947]). */
+static void l3eec(void)
+{
+	unsigned char *rec = (unsigned char *)g_a5_28006;
+	const unsigned char *ds =
+	    (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+	short zone, i, cnt, limit;
+
+	PROBE("L3eec");
+	if (rec == NULL || ds == NULL)
+		return;
+	if ((unsigned char)g_a5_byte(-27990) == 4)
+		zone = jt197((short)(signed char)g_a5_byte(-12288),
+		             (short)(signed char)g_a5_byte(-12287));
+	else
+		zone = jt197((short)rec[37], (short)rec[38]);
+	for (i = 0; i <= 7; i++) {
+		if (l3d4a(zone, i) == 0)
+			continue;
+		cnt = jt946(rec + 509 + i * 2);
+		jt944((short)(cnt + 1), rec + 509 + i * 2);
+		limit = jt1180(*(const short *)(const void *)(ds + i * 4 + 78));
+		cnt = jt946(rec + 509 + i * 2);
+		if ((unsigned short)cnt < (unsigned short)limit)
+			continue;
+		jt944((short)0, rec + 509 + i * 2);
+		l709e((short)ds[i * 4 + 80]);   /* JT[947] */
+	}
+}
+
+/* JT[955] (CODE 21+0x453c) — the play forward-move handler proper.
+ * Runs after every play-loop command (the Mac's CODE 20+0x4cc0 tail):
+ * remembers the pre-move cell, then per -27990 either the DUNGEON arm
+ * (rec[3]==255 suppresses one attempt; else decide via the wall-art
+ * switch and, if allowed, commit through JT[954] + the zone pass +
+ * the landing-cell event) or the OVERLAND arm (zone-name string via
+ * the HDR's swapped shorts @272, any wall art blocks, L3a28 commit).
+ * JT[45] closes both arms. */
+static void jt955(void)
+{
+	unsigned char *rec = (unsigned char *)g_a5_28006;
+	short          t, special;
+
+	PROBE("jt955");
+	if (rec == NULL)
+		return;                         /* PORT-SAFETY */
+	rec[23] = g_a5_byte(-12288);
+	rec[24] = g_a5_byte(-12287);
+	g_a5_byte(-22308) = 0;
+	switch ((unsigned char)g_a5_byte(-27990)) {     /* JT[3] @0x4562 */
+	case 3: {                               /* L4816 — OVERLAND */
+		unsigned char has_str;
+		const unsigned char *ds =
+		    (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+		short zone, sid;
+
+		l3af2();
+		zone = jt197((short)(signed char)g_a5_byte(-4904),
+		             (short)(signed char)g_a5_byte(-4903));
+		sid = jt1180(*(const short *)(const void *)
+		             (ds + (long)zone * 2 + 272));
+		jt232((void *)(uintptr_t)g_a5_long(-13034), sid,
+		      (char *)&g_a5_byte(-5213));
+		has_str = (unsigned char)(g_a5_byte(-5213) != 0);
+		t = jt210((short)rec[37], (short)rec[38],
+		          (short)(unsigned char)g_a5_byte(-12286));
+		if ((t & 0xff) != 0) {          /* L4902 — blocked */
+			if (has_str) {
+				jt20();
+				l0b20((void *)&g_a5_byte(-5213));
+			}
+			rec[3] = 255;
+			break;
+		}
+		l3a28();
+		special = jt201((short)rec[37], (short)rec[38]);
+		g_a5_byte(-18483) = (unsigned char)special;
+		if (has_str && g_a5_byte(-18483) == 0) {
+			jt20();
+			l0b20((void *)&g_a5_byte(-5213));
+		}
+		l3eec();
+		l709e((short)(unsigned char)g_a5_byte(-18483));
+		if (g_a5_byte(-27982) == 0)
+			jt938();
+		break;
+	}
+	case 4:                                 /* L456c — DUNGEON */
+		if (rec[3] >= 255) {            /* L480a — suppressed */
+			rec[3] = 0;
+			break;
+		}
+		jt955_dungeon_decide();
+		/* L47c4 — the commit tail */
+		if (g_a5_byte(-22308) != 0) {
+			jt954();                /* L38f4: sound+move+wrap+clock */
+			l3eec();
+			special = jt201((short)(signed char)g_a5_byte(-12288),
+			                (short)(signed char)g_a5_byte(-12287));
+			g_a5_byte(-18483) = (unsigned char)special;
+			l709e((short)(unsigned char)g_a5_byte(-18483));
+		}
+		if (g_a5_byte(-27982) == 0)     /* L47fa */
+			jt938();
+		break;
+	default:                                /* L4922 */
+		rec[3] = 0;
+		break;
+	}
+	jt45();                                 /* L492a */
 }
 
 static void l2e42(void *ev_v)
