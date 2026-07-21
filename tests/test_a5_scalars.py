@@ -148,6 +148,36 @@ def test_compass_direction_table(image, csrc):
     assert a5_at(image, -27980, 24) == want
 
 
+def test_threshold_word_ladder(image, csrc):
+    """g_a5_-17516: nine ascending big-endian value words, 100..5000."""
+    import struct
+    m = re.search(r"thr\[9\] = \{(.*?)\};", csrc, re.S)
+    assert m, "threshold ladder not authored"
+    vals = [int(x) for x in re.findall(r"\d+", m.group(1))]
+    assert vals == [100, 250, 500, 1000, 1500, 2000, 3000, 4000, 5000]
+    blob = b"".join(struct.pack(">h", v) for v in vals)
+    assert blob == a5_at(image, -17516, 18)
+
+
+def test_index_permutation(image, csrc):
+    """g_a5_-3072: the 15-entry index remap — a bijection over 1..15."""
+    m = re.search(r"perm\[15\] = \{(.*?)\};", csrc, re.S)
+    assert m, "index permutation not authored"
+    vals = [int(x) for x in re.findall(r"\d+", m.group(1))]
+    assert sorted(vals) == list(range(1, 16)), "not a permutation of 1..15"
+    assert bytes(vals) == a5_at(image, -3072, 15)
+
+
+def test_diagnostic_strings(image, csrc):
+    """The three Mac diagnostic strings, byte-exact incl. the length byte."""
+    s = b"Color art requires 256 colors -- using Black & White art."
+    assert s.decode() in csrc
+    assert a5_at(image, -72, 58) == bytes([57]) + s[:57]
+    assert "Visible screen %d" in csrc
+    assert a5_at(image, -2610, 18) == b"Visible screen %d\x00"
+    assert a5_at(image, -122, 8) == b"Moebius\x00"
+
+
 def test_class_alignment_rules_matrix(image, csrc):
     """g_a5_-30450: the 17x12 class/alignment legality matrix (#68 target 1).
 

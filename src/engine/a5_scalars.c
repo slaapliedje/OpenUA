@@ -92,7 +92,7 @@ void a5_seed_authored_scalars(void)
 			{ -28046, 0x07 }, { -27980, 0x4e }, { -27956, 0x07 }, { -27846, 0xff },
 			{ -23227, 0x0a }, { -23225, 0x0a }, { -23219, 0x1e }, { -23217, 0x0c },
 			{ -23215, 0x64 }, { -18877, 0x05 }, { -18484, 0x01 }, { -18396, 0x31 },
-			{ -17517, 0x0a }, { -17515, 0x64 }, { -14681, 0x7f }, { -14440, 0x01 },
+			{ -17517, 0x0a }, { -14681, 0x7f }, { -14440, 0x01 },
 			{ -14434, 0x01 }, { -14432, 0x01 }, { -14429, 0x01 }, { -13017, 0x02 },
 			{ -12912, 0x01 }, { -12649, 0x01 }, { -12289, 0xff }, { -12239, 0x05 },
 			{ -12237, 0x04 }, { -12235, 0x06 }, { -12233, 0x04 }, { -12231, 0x02 },
@@ -251,4 +251,40 @@ void a5_seed_authored_scalars(void)
 		};
 		memcpy(&g_a5_byte(-30864), rc, sizeof rc);
 	}
+
+	/* Nine ascending value thresholds (g_a5_-17516), big-endian words:
+	 * 100, 250, 500, 1000, 1500, 2000, 3000, 4000, 5000. Money-shaped
+	 * round-number steps; the consumer is not lifted yet, so the semantic
+	 * label is open — stated here as the designed ladder it plainly is.
+	 * (Subsumes the former single byte at -17515: 0x64 is the low byte of
+	 * the first word.) */
+	{
+		static const short thr[9] = { 100, 250, 500, 1000, 1500,
+		                              2000, 3000, 4000, 5000 };
+		for (i = 0; i < 9; i++)
+			g_a5_word(-17516 + i * 2) = thr[i];
+	}
+
+	/* 15-entry index permutation (g_a5_-3072): 1 13 10 9 4 5 6 7 8 3 2 11
+	 * 12 15 14 — a bijection over 1..15 with 0 fixed, i.e. a 4-bit index
+	 * remap. It lives in the QuickDraw-shim neighbourhood right beside the
+	 * -3040 dither ramp and the -3015 glyph block, which makes a colour-
+	 * index remap the likely reading; the consumer is not lifted yet. */
+	{
+		static const unsigned char perm[15] = { 1, 13, 10, 9, 4, 5, 6, 7,
+		                                        8, 3, 2, 11, 12, 15, 14 };
+		memcpy(&g_a5_byte(-3072), perm, sizeof perm);
+	}
+
+	/* The Mac port's own diagnostic strings — error/trace text of the
+	 * ported application itself, restated as this port's text. "Moebius"
+	 * is a bare name sitting between the two messages (an internal
+	 * library/module tag; its consumer is not lifted). -72 is a Pascal
+	 * string (length byte 57); the other two are C strings whose NUL
+	 * terminators are already zero. */
+	g_a5_byte(-72) = 57;
+	memcpy(&g_a5_byte(-71),
+	       "Color art requires 256 colors -- using Black & White art.", 57);
+	memcpy(&g_a5_byte(-2610), "Visible screen %d", 17);
+	memcpy(&g_a5_byte(-122), "Moebius", 7);
 }
