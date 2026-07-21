@@ -89,12 +89,34 @@ in jt297's GAP-1 block.
    `!g_geo_editor_active`; anything editor-only must be gated
    `g_geo_editor_active`.
 
+## CODE 9 census (2026-07-21)
+
+All five JT exports are lifted and live: jt322/jt323/jt324 (record-editor
+family), jt325 + jt325_tail (the record editor), jt326 = l0004 (the menu-bar
+dispatcher). The l30d4 spell-memorization sub-editor is a full lift INCLUDING
+the faithful -18485 = 5 write with save/restore, and jt243's fill/walk arms
+post (case 7 @0x3348) and consume+clear (case 1 @0x12fc) the 1/2 values. So
+-18485 is FULLY faithful in the lift; no port writes are needed anywhere (an
+interim session-wide 5 in l0004_22 was added and then removed the same day —
+it would have leaked design-mode spell rules into l0096's play-test mode 14).
+
 ## Verified after the fixes (2026-07-21, Hatari)
 
 - Play (Save B): wall east of 6,17 blocks, clock ticks on landed steps only.
-- Editor (Edit Modules → canvas): movement is free, fires no events / sound /
-  clock (no CELLSCAN entries), and the l2cf4 yellow cursor mark draws again
-  (it had never drawn — its gate was dead).
+- Play (generated 24x24 WALLTST module): forward into an art-14 N-edge wall
+  refuses (no STEP log, no time); turn W + forward passes (STEP, +1 min) —
+  play_can_pass holds on arbitrary design data, not just HEIRS.
+- Play entry: the stray yellow box at the 3D frame's top-left is gone — it
+  was jt304's editor marked-cell icon (jt213 on rec[46..48]) drawn once by
+  l63c0's entry compose with unconfigured map anchors; now editor-gated.
+- Editor (Edit Modules): picker + canvas healthy, cursor mark draws, arrows
+  fire no events/clock (zero CELLSCAN entries).
+- Dungeon AREA view keeps FIRST-PERSON movement (live-verified: Up stepped
+  forward, Right turned) — jt1160 stays false there, so the jt311 play gate
+  is currently exercised only by the editor map mode and the future overland
+  walk; overland play movement itself still routes jt953 -> jt955, and jt955
+  is a PROBE stub (its lift inherits the faithful rule; the jt311 gate stays
+  as defence-in-depth).
 
 ## Known follow-ups
 
@@ -105,5 +127,7 @@ in jt297's GAP-1 block.
   costs; overland steps also advance no clock yet (JT[954] tail is
   first-person-only via GAP-1).
 - jt955's "Blocked:" menus (art 2/3/4/5/15) + "A secret door!" (L4526).
-- CODE 9+0x30d4 editor entry (writes -18485=5, swaps the editor character
-  list) — lifting it retires the l0004_22 interim write.
+- jt955 (CODE 21+0x453c) full lift — the overland/dungeon forward-move
+  handler; its dungeon core lives on as play_can_pass, the menus and the
+  overland arm (L4816) are the missing pieces. jt954 (the step-commit) is
+  already fully lifted at its l2e42 site.

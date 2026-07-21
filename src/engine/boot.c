@@ -17034,7 +17034,14 @@ static void jt304(void *rec_v, short batch)
 		      (short)(signed char)g_a5_byte(-11707),
 		      (short)rec[5], (short)(rec[4] == 0 ? 1 : 0), batch);
 
-	if (rec[4] == 1)
+	/* The marked-cell icon is EDITOR chrome (the MARK command's cell,
+	 * rec[46..48]). The Mac play never runs this composer; the port's deep
+	 * play walk runs it once at l63c0 entry for the l3fd8 backdrop, and in
+	 * first-person the map-view anchors (-12278/-12276, -12282/-12280) are
+	 * unconfigured — the icon landed as a stray yellow box at the frame's
+	 * top-left corner on every play entry (user report 2026-07-21;
+	 * docs/play-vs-edit-audit.md). */
+	if (rec[4] == 1 && g_geo_editor_active)
 		jt213((short)(signed char)rec[47], (short)(signed char)rec[46],
 		      (short)(signed char)rec[48]);
 	jt1088();
@@ -18783,22 +18790,15 @@ static short l0004_22(short arg)
 
 	/* L0070: fold JT[358]'s byte into the flags' high word, then run. */
 	*(long *)(ctx + 8) |= ((long)(jt358() & 0xff)) << 16;
-	if (ctx[0] == 0) {
-		/* Design-mode byte for the editor session. The Mac writes
-		 * g_a5_-18485 = 5 on its editor entry (CODE 9+0x30d4, an
-		 * unlifted arm that also swaps in the editor's character list);
-		 * the faithful design arms depend on it — l4e2c (design mode
-		 * scribes any spell, the binary's one ==5 compare), the CODE 21
-		 * spell-list all-64 arm, the CODE 20+0x57ac reload gate. Port
-		 * behaviour gates use g_geo_editor_active, NOT this byte
-		 * (docs/play-vs-edit-audit.md). Restored around the run since
-		 * the byte is also the walk-loop's transient exit signal. */
-		unsigned char prev_mode = g_a5_18485;
-
-		g_a5_18485 = 5;
+	if (ctx[0] == 0)
 		(void)l0096(ctx);
-		g_a5_18485 = prev_mode;
-	}
+	/* g_a5_-18485 needs NO write here — its faithful writers are all
+	 * lifted and live: l30d4 (CODE 9+0x30d4, the spell-memorization
+	 * sub-editor) sets 5 with save/restore, and jt243's fill/walk arms
+	 * (CODE 11) post 1/2 (case 7 @0x3348) and consume+clear (case 1
+	 * @0x12fc). An earlier interim wrote 5 for the whole session; that
+	 * was unfaithful (l0096 can reach the play-test mode 14, which must
+	 * not run under design-mode spell rules). docs/play-vs-edit-audit.md. */
 	/* Editor done: group 24 reverts to the resident MENU (jt325 may have
 	 * left SCRIPT.GLB parked in the FAR pool). */
 	g_group24_script_active = 0;
