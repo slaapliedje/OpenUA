@@ -138,9 +138,23 @@ it would have leaked design-mode spell rules into l0096's play-test mode 14).
   the play loop's overland leg. Emulator-verified: secret-door announce +
   pass, Blocked: menu (BASH EXIT), bash-fail consumption, per-step
   re-arm, art-15 refusal, screen rebuild after the modal.
-- The play-frame corner "yellow mark" is NOT editor bleed and NOT a
-  cursor: it is a FRAME.CTL corner piece in port_draw_play_frame's chrome
-  reconstruction whose pixels sit outside the stable frame palette band —
-  black on a bare design, yellow under HEIRS art. Cosmetic; fix with the
-  frame-chrome palette follow-up (instrumented jt213/l5752/jt216 draw
-  nothing on that frame).
+- RESOLVED — the play-frame corner mark: probe-verified to be l63c0's
+  ENTRY cb1 (jt238 -> jt304) running with depth 0 (jt273 uninitialised in
+  play), taking the L3806 FLAT-AUTOMAP branch and painting one automap
+  door tile over the chrome (gold under HEIRS art, black on a bare
+  design). The Mac deep walk never composes the flat automap over the
+  play screen; the entry now skips cb1 for the deep leg exactly like the
+  per-step path always did. (Two earlier theories — editor cursor, then
+  FRAME.CTL palette — were wrong; the marker painters and the frame
+  pieces were all probed/decoded clean.)
+- RESOLVED — the editor cursor "trail": an artifact of driving the canvas
+  with NO map loaded (the smoke test skipped the picker). With a module
+  opened (picker -> Open) the map paints, the cursor is a single mark,
+  and every move repaints — no trail. Nothing to fix.
+- FIXED — event-square text now persists like DOS: l4d26 remembers its
+  event (g_sticky_text_ev) and play_sticky_text_replay re-draws the final
+  page inside jt312's full-recompose HUD block (within the present hold),
+  so the post-event relayout no longer eats it; leaving the square clears
+  the sticky and the box (jt20) — emulator-verified both ways on a
+  generated message-event module. (The Save B "rejoices" square was a dud
+  test: its once-only bit is set in the save, so the event never fires.)

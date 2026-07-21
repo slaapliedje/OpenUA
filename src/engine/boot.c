@@ -4597,6 +4597,12 @@ static void  jt904(unsigned char *out_done);                        /* View-char
  * Begin-Adventuring path); -5221 forces an immediate area-leave. */
 static void jt914(short count, short idx);   /* CODE 19+0x35c — advance game time */
 static short g_event_modal_shown;            /* l63c0's post-event relayout flag */
+static unsigned char *g_sticky_text_ev;      /* DOS parity: the last l4d26 TEXT event on
+                                              * this square — its final page is replayed
+                                              * after every full play-screen recompose so
+                                              * event text persists until the party leaves
+                                              * the square (defined near l4d26) */
+static void play_sticky_text_replay(void);
 static void jt948(void)
 {
 	unsigned char *h;
@@ -14819,6 +14825,10 @@ static void jt312(unsigned char *page)
 		{ extern long g_mpf_h2; g_mpf_h2 = TickCount(); }
 #endif
 		jt937(g_a5_long(-27932));
+		play_sticky_text_replay();      /* DOS parity: event text persists
+		                                 * on the square across recomposes
+		                                 * (drawn inside the hold so the
+		                                 * full present carries it) */
 #ifdef FRUA_MONOPROF
 		{ extern long g_mpf_f2; g_mpf_f2 = TickCount(); }
 #endif
@@ -15539,6 +15549,13 @@ static void jt297(void *rec_v, short key, long cb)
 		 * walk-test must not fire design events or tick the calendar
 		 * (docs/play-vs-edit-audit.md, "GAP-1" flag). */
 		short special;
+
+		if (g_sticky_text_ev != NULL) {
+			/* left a text square: the DOS box empties. The per-step
+			 * re-render only touches the 3D view, so clear it here. */
+			g_sticky_text_ev = NULL;
+			jt20();
+		}
 
 		/* The play STEP-COMMIT tail, from JT[954] = L38f4 (CODE 21+
 		 * 0x38f4) — the Mac play step-commit the port's editor-driver
@@ -16374,8 +16391,16 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 	 * the same view region — the "flash then black" on the FIRST AREA frame (the
 	 * per-step re-render goes jt297 -> jt312 and never hits jt304, which is why
 	 * the map reappeared only after a move). The map is self-contained (its own
-	 * party marker via l5752), so skip the 3D composer while it is showing. */
-	if (g_a5_12290 == 0)
+	 * party marker via l5752), so skip the 3D composer while it is showing.
+	 *
+	 * ALSO skip it for the DEEP walk entry (same rule the per-step tail
+	 * applies): the depth global jt273 reads is 0 here, so jt304 takes the
+	 * L3806 FLAT-AUTOMAP branch and paints map tiles over the play chrome
+	 * jt312 just drew — the stray gold "door tile" box at the frame's
+	 * top-left on every play entry (probe-verified: jt304 depth=0 on the
+	 * saved-game path). The Mac deep walk never composes the flat automap
+	 * over the play screen. */
+	if (g_a5_12290 == 0 && !(unsigned char)a_deep)
 		((void (*)(unsigned char *))(uintptr_t)cb1)(rec);
 
 	/* #17: the deferred HUD repaint — AFTER cb1 (jt238 -> jt304), whose gen
@@ -48166,6 +48191,49 @@ static void  l4d26(void *ev_v)
 	rec[57] = 0;
 	if (ev[4] & 0x20)
 		g_a5_byte(-4946) = 1;
+	/* DOS keeps the (final page of) event text in the box until the party
+	 * leaves the square; the port's post-event relayout wipes the whole
+	 * screen, so remember the event for play_sticky_text_replay. The ev
+	 * pointer targets the area's resident ENCR buffer; the sticky is
+	 * cleared on every landed step and on walk-loop (re)entry, so it can
+	 * never outlive the area. */
+	g_sticky_text_ev = ev;
+}
+
+/* Replay the sticky text event's box content — l4d26's draw loop minus
+ * the sound, the picture, and the l1806 page confirms: paged lines are
+ * drawn and immediately superseded (cursor reset + jt20), so the box
+ * ends holding exactly the final page, like the live pass did. */
+static void play_sticky_text_replay(void)
+{
+	unsigned char *ev = g_sticky_text_ev;
+	short          i, flag = 1;
+
+	if (ev == NULL)
+		return;
+	g_a5_byte(-27911) = 17;
+	g_a5_byte(-27912) = 1;
+	for (i = 0; i <= 4; i++) {
+		unsigned char *entry = ev + i * 2;
+
+		if (*(short *)(entry + 8) != 0) {
+			short d = jt1180(*(short *)(entry + 8));
+			short style = (ev[7] & (flag << 2)) ? 3 : 7;
+
+			jt232((void *)(uintptr_t)g_a5_long(-13034), d,
+			      (char *)&g_a5_byte(-5213));
+			g_a5_byte(-27981) = 1;
+			jt96(1, 17, 38, 22, style, 0, 0,
+			     (long)(uintptr_t)&g_a5_byte(-5213), 17);
+			g_a5_byte(-27981) = 0;
+			if (ev[4] & flag) {     /* page break: clear, continue */
+				g_a5_byte(-27911) = 17;
+				g_a5_byte(-27912) = 1;
+				jt20();
+			}
+		}
+		flag = (short)(flag << 1);
+	}
 }
 
 /* New PROBE-stub helpers L206e calls. */
