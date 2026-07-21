@@ -91844,10 +91844,36 @@ static void l59d6(void)
 		jt1089((short)8096, (short)8000, (short)10,
 		       ua_strs_at(0x7c8) /* "Loading...Please Wait" */);
 	} else {
-		g_a5_byte(-17444) = 1;
-		jt1014((short)49, ua_strs_at(0x7de) /* "sounds" */,
-		       (short)18);
-		jt964((short)18);
+		/* PORT-SAFETY (gamedata-dos): the staged SOUNDS.GLB may be the
+		 * DOS release's own copy — an HLIB (little-endian) bank of DIG4
+		 * 4-bit samples the GLIB loader can't walk (jt1014 would alert
+		 * "LBLoad: Bad Lib" and jt964's sign-flip would shred nibble
+		 * data). Probe the magic first: only a real Mac 'GLIB' bank is
+		 * loaded; otherwise stay on the no-driver beep path (-17444=0,
+		 * the same state the low-memory arm sets) while MUSIC — which
+		 * needs only the (possibly synthesized) MUSIC.SLB — still plays.
+		 * The DIG4 -> DIG8 sample conversion is the queued follow-up. */
+		char  sbuf[16];
+		short sref;
+		long  smagic = 0;
+
+		jt384(sbuf, ua_strs_at(0x7de) /* "sounds" */);
+		jt419(sbuf, "GLB", 0);
+		sref = jt398(sbuf, (short)0);
+		if (sref >= 0) {
+			if (jt401(sref, &smagic, (short)4) != 4)
+				smagic = 0;
+			jt411(sref);
+		}
+		if (smagic == 0x474C4942L) {            /* 'GLIB' */
+			g_a5_byte(-17444) = 1;
+			jt1014((short)49, ua_strs_at(0x7de) /* "sounds" */,
+			       (short)18);
+			jt964((short)18);
+		} else {
+			dbg_log("l59d6: SOUNDS.GLB not a GLIB bank - sfx on beep path");
+			g_a5_byte(-17444) = 0;
+		}
 	}
 	g_a5_byte(-17443) = 1;
 }

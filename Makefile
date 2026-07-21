@@ -532,6 +532,11 @@ gamedata-dos: $(TARGET)
 		python3 tools/hlib_extract.py "$(GAMEDATA_DIR)/ALWAYS.TLB" --emit "$(GAMEDATA_DIR)/frua.cur" >/dev/null \
 			&& echo "  gamedata-dos: staged colour cursors from the DOS ALWAYS.TLB"; \
 	fi
+	@# MUSIC.SLB is a Mac-release file; synthesize it from the DOS XMI
+	@# soundtrack (tools/xmi2slb.py: Tandy 3-voice arrangement -> the Mac
+	@# 4-tone sequencer's pattern format) so DOS-only installs get music.
+	@python3 tools/xmi2slb.py "$(DOS_DIR)" "$(GAMEDATA_DIR)/MUSIC.SLB" \
+		| sed 's/^/  gamedata-dos: /' || true
 	@echo "  gamedata-dos: staged from $(DOS_DIR) + $(DSN) — no Mac files used"
 
 run-game: gamedata
