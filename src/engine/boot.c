@@ -3799,9 +3799,10 @@ static void jt935(void)
 		/* L2cf4 strokes the GEO-editor's selection box + cursor (the yellow
 		 * mark) at the design header's cell. That belongs to the design editor,
 		 * not Begin-Adventuring play; the port shares jt935 for both, so gate it
-		 * to design mode (g_a5_-18485 == 5) — the editor keeps its cursor, play
-		 * no longer shows a stray mark in the 3D view. */
-		if (g_a5_18485 == 5)
+		 * to the editor context (g_geo_editor_active — the l0096 mode-loop flag;
+		 * the old g_a5_-18485 == 5 test never fired, the port writes no 5) —
+		 * the editor keeps its cursor, play shows no stray mark. */
+		if (g_geo_editor_active)
 			l2cf4();
 		g_a5_byte(-23188) = 0;                  /* L007c */
 		return;
@@ -15333,7 +15334,7 @@ static void l1908(void *rec_v, short row, short col, short facing, short redraw)
 	 * (It is NOT enough to compare the first frame after a single step — that
 	 * one is pixel-identical either way, because jt312 below overpaints the
 	 * view region. The corruption only surfaces a few moves in.) */
-	if (moved && g_a5_18485 == 5)
+	if (moved && g_geo_editor_active)
 		jt299((long)(uintptr_t)rec_v, 0);
 	/* else: JT[213] blocked-step recentre redraw — deferred. */
 
@@ -15355,11 +15356,13 @@ static void l1908(void *rec_v, short row, short col, short facing, short redraw)
  * The low nibble (JT[202] movement type) plays no part in dungeon
  * passability — jt955 only caches it to -12285.
  *
- * The port's play walk reuses the DESIGN EDITOR's driver (l63c0/jt297), whose
- * 3D preview (rec[4]==1) deliberately skips wall checks — fly-through is
- * correct for the editor but let the play party walk through walls and
- * toroidally wrap across the map (the "flips me around / loses the
- * coordinates" bug). jt297 gates its play steps through this instead. */
+ * The port's play walk reuses the DESIGN EDITOR's driver (l63c0/jt297). Its
+ * only forward check is the fp4 (rec[4]==0 wilderness && rec[9]) l05ca test;
+ * dungeon-kind records (rec[4]==1) have NO check there — fly-through, fine
+ * for the editor's walk-test but in play it let the party walk through walls
+ * and toroidally wrap across the map (the "flips me around / loses the
+ * coordinates" bug). jt297 gates its play steps through this instead;
+ * editor walks (g_geo_editor_active) keep fly-through. */
 static int play_can_pass(short row, short col, short dir)
 {
 	const unsigned char *rec = (const unsigned char *)g_a5_28006;
@@ -15424,7 +15427,7 @@ static void jt297(void *rec_v, short key, long cb)
 			if ((short)lvl[2] > 20) jt311(rec_v, key, cb); else jt1080();
 		} else if (fp4 && l05ca(cell, facing) > 1) {
 			jt1080();
-		} else if (snapped && g_a5_18485 != 5 &&
+		} else if (snapped && !g_geo_editor_active &&
 		           !play_can_pass(JT297_COL, JT297_ROW, facing)) {
 			jt1080();       /* play: jt955's wall rule (blocked) */
 		} else {
@@ -15452,7 +15455,7 @@ static void jt297(void *rec_v, short key, long cb)
 			l1908(rec_v, JT297_ROW, JT297_COL, (short)(facing + t), 0);
 			if (fp4 && l05ca(cell, (short)g_a5_byte(-12286)) > 1)
 				jt1080();
-			else if (snapped && g_a5_18485 != 5 &&
+			else if (snapped && !g_geo_editor_active &&
 			         !play_can_pass(JT297_COL, JT297_ROW,
 			                        (short)g_a5_byte(-12286)))
 				jt1080();
@@ -15471,7 +15474,7 @@ static void jt297(void *rec_v, short key, long cb)
 			l1908(rec_v, JT297_ROW, JT297_COL, (short)(facing + 4), 0);
 			if (fp4 && l05ca(cell, (short)g_a5_byte(-12286)) > 1)
 				jt1080();
-			else if (snapped && g_a5_18485 != 5 &&
+			else if (snapped && !g_geo_editor_active &&
 			         !play_can_pass(JT297_COL, JT297_ROW,
 			                        (short)g_a5_byte(-12286)))
 				jt1080();
@@ -15516,10 +15519,13 @@ static void jt297(void *rec_v, short key, long cb)
 		 * this site and concluded the Mac never ticks on movement — it
 		 * does, right here, fused with the step sound.) The move itself
 		 * (delta + toroidal wrap) is already done by jt218 above, which
-		 * matches L38f4's own wrap. Editor walks (g_a5_18485 == 5) keep
-		 * editor behaviour. jt938 repaints the clock box — the per-step
-		 * jt312 re-render only touches the 3D view. */
-		if (g_a5_18485 != 5) {
+		 * matches L38f4's own wrap. Editor walks (g_geo_editor_active,
+		 * held across the whole l0096 editor mode loop) keep editor
+		 * behaviour — NOT g_a5_-18485, which is the Mac's transient
+		 * pending-mode byte (0/1/2/5), not a play-vs-editor flag; see
+		 * docs/play-vs-edit-audit.md. jt938 repaints the clock box — the
+		 * per-step jt312 re-render only touches the 3D view. */
+		if (!g_geo_editor_active) {
 			unsigned char *gr = (unsigned char *)g_a5_28006;
 
 			jt52((short)11);
@@ -16247,7 +16253,7 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 	 * owns that panel, so gate jt303 to design mode only — same treatment as the
 	 * L5126 / l2cf4 editor-chrome gates. Wilderness/deep play headers are jt280 /
 	 * the 3D chrome, drawn below. */
-	if (g_a5_18485 == 5)
+	if (g_geo_editor_active)
 		jt303(rec);                     /* status line (design editor only) */
 
 	/* initial first-person view (deep) or top-down (wilderness) */
@@ -18159,8 +18165,8 @@ static short jt240(short cmd, long *flagsp, unsigned char *rec)
 	 * editor's design-walk driver that the port reuses for play; the Mac play
 	 * walk (jt953/jt948) never runs jt240, so this editor panel must not paint in
 	 * play — the play HUD (jt937 roster + jt938 clock/position) already covers the
-	 * header. Draw it only in design mode (g_a5_-18485 == 5). */
-	if (g_a5_18485 == 5)
+	 * header. Draw it only in the editor context (g_geo_editor_active). */
+	if (g_geo_editor_active)
 		l5126(rec);                             /* deep status header panel */
 	jt112(0);
 	jt117();
