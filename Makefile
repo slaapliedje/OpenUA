@@ -382,8 +382,21 @@ gamedata: $(TARGET) frua.rsc
 	@# (save_roster). A plain `rm -rf` here would delete every character you
 	@# created last session, so a created character never survived a re-run.
 	@mkdir -p "$(GAMEDATA_DIR)"
+	@# Stash per-design SAVE GAMES (SavGam*.csv + Vault*.dat) before the
+	@# wipe, exactly as CHAR*.CHR is preserved: a restage used to eat every
+	@# in-game save (bitten 2026-07-21 — a user save proving a map bug was
+	@# lost to a routine restage).
+	@rm -rf "$(GAMEDATA_DIR)/.save-stash"
+	@for d in "$(GAMEDATA_DIR)"/*.DSN; do \
+		[ -d "$$d" ] || continue; b=$$(basename "$$d"); \
+		for f in "$$d"/[Ss][Aa][Vv][Gg][Aa][Mm]*.* "$$d"/[Vv][Aa][Uu][Ll][Tt]*.*; do \
+			[ -f "$$f" ] || continue; \
+			mkdir -p "$(GAMEDATA_DIR)/.save-stash/$$b"; \
+			cp "$$f" "$(GAMEDATA_DIR)/.save-stash/$$b/"; \
+		done; \
+	done
 	@find "$(GAMEDATA_DIR)" -mindepth 1 -maxdepth 1 ! -name 'CHAR*.CHR' \
-		-exec rm -rf {} +
+		! -name '.save-stash' -exec rm -rf {} +
 	@for d in Disk1 Disk2 Disk3 Disk4; do \
 		for f in "$(MAC_JOINED)/$$d"/*; do \
 			[ -f "$$f" ] && cp "$$f" "$(GAMEDATA_DIR)/"; \
@@ -415,6 +428,16 @@ gamedata: $(TARGET) frua.rsc
 	@# The faithful boot design marker "start.dat" (l0444 reads it at
 	@# boot; jt128 rewrites it when a design is picked in-game): a
 	@# 34-byte NUL-padded design name + the 1-byte resume flag.
+	@# Restore the stashed save games into the freshly staged .DSN dirs.
+	@if [ -d "$(GAMEDATA_DIR)/.save-stash" ]; then \
+		for d in "$(GAMEDATA_DIR)/.save-stash"/*; do \
+			[ -d "$$d" ] || continue; b=$$(basename "$$d"); \
+			mkdir -p "$(GAMEDATA_DIR)/$$b"; \
+			cp "$$d"/* "$(GAMEDATA_DIR)/$$b/"; \
+		done; \
+		rm -rf "$(GAMEDATA_DIR)/.save-stash"; \
+		echo "  gamedata: save games preserved across the restage"; \
+	fi
 	@printf '%s' "$(DSN)" | head -c 34 > "$(GAMEDATA_DIR)/start.dat"
 	@truncate -s 34 "$(GAMEDATA_DIR)/start.dat"
 	@printf '\001' >> "$(GAMEDATA_DIR)/start.dat"
@@ -456,8 +479,21 @@ gamedata-dos: $(TARGET)
 		exit 1; \
 	fi
 	@mkdir -p "$(GAMEDATA_DIR)"
+	@# Stash per-design SAVE GAMES (SavGam*.csv + Vault*.dat) before the
+	@# wipe, exactly as CHAR*.CHR is preserved: a restage used to eat every
+	@# in-game save (bitten 2026-07-21 — a user save proving a map bug was
+	@# lost to a routine restage).
+	@rm -rf "$(GAMEDATA_DIR)/.save-stash"
+	@for d in "$(GAMEDATA_DIR)"/*.DSN; do \
+		[ -d "$$d" ] || continue; b=$$(basename "$$d"); \
+		for f in "$$d"/[Ss][Aa][Vv][Gg][Aa][Mm]*.* "$$d"/[Vv][Aa][Uu][Ll][Tt]*.*; do \
+			[ -f "$$f" ] || continue; \
+			mkdir -p "$(GAMEDATA_DIR)/.save-stash/$$b"; \
+			cp "$$f" "$(GAMEDATA_DIR)/.save-stash/$$b/"; \
+		done; \
+	done
 	@find "$(GAMEDATA_DIR)" -mindepth 1 -maxdepth 1 ! -name 'CHAR*.CHR' \
-		-exec rm -rf {} +
+		! -name '.save-stash' -exec rm -rf {} +
 	@for d in DISK1 DISK2 DISK3; do \
 		for f in "$(DOS_DIR)/$$d"/*; do \
 			[ -f "$$f" ] && cp "$$f" "$(GAMEDATA_DIR)/"; \
@@ -478,6 +514,16 @@ gamedata-dos: $(TARGET)
 	@python3 tools/art_convert.py --no-mono "$(GAMEDATA_DIR)"/*.TLB "$(GAMEDATA_DIR)"/*.DSN/*.TLB >/dev/null 2>&1 || true
 	@cp "$(DOS_DIR)/CKIT.EXE" "$(GAMEDATA_DIR)/"
 	@python3 tools/rsrc_from_dos.py "$(DOS_DIR)/CKIT.EXE" -o "$(GAMEDATA_DIR)/frua.rsc"
+	@# Restore the stashed save games into the freshly staged .DSN dirs.
+	@if [ -d "$(GAMEDATA_DIR)/.save-stash" ]; then \
+		for d in "$(GAMEDATA_DIR)/.save-stash"/*; do \
+			[ -d "$$d" ] || continue; b=$$(basename "$$d"); \
+			mkdir -p "$(GAMEDATA_DIR)/$$b"; \
+			cp "$$d"/* "$(GAMEDATA_DIR)/$$b/"; \
+		done; \
+		rm -rf "$(GAMEDATA_DIR)/.save-stash"; \
+		echo "  gamedata: save games preserved across the restage"; \
+	fi
 	@printf '%s' "$(DSN)" | head -c 34 > "$(GAMEDATA_DIR)/start.dat"
 	@truncate -s 34 "$(GAMEDATA_DIR)/start.dat"
 	@printf '\001' >> "$(GAMEDATA_DIR)/start.dat"
