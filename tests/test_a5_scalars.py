@@ -146,3 +146,32 @@ def test_compass_direction_table(image, csrc):
                   ord('S'),ord('E'),0, ord('S'),0,0, ord('S'),ord('W'),0,
                   ord('W'),0,0, ord('N'),ord('W'),0])
     assert a5_at(image, -27980, 24) == want
+
+
+def test_class_alignment_rules_matrix(image, csrc):
+    """g_a5_-30450: the 17x12 class/alignment legality matrix (#68 target 1).
+
+    Parsed back out of the C literal and compared byte-for-byte against the
+    Mac image, so a mis-stated rule fails here instead of as a wrong chargen
+    default. Row semantics: count, then legal alignment indices (0=LG..8=CE).
+    """
+    m = re.search(r"aln\[17\]\[12\] = \{(.*?)\};", csrc, re.S)
+    assert m, "class-alignment matrix not authored"
+    rows = re.findall(r"\{([^}]*)\}", m.group(1))
+    assert len(rows) == 17
+    blob = b""
+    for r in rows:
+        blob += bytes(int(x) for x in r.replace(" ", "").split(",") if x)
+    assert blob == a5_at(image, -30450, 204)
+
+
+def test_race_class_rules_matrix(image, csrc):
+    """g_a5_-30864: the 6x14 race/class legality matrix (chargen class default)."""
+    m = re.search(r"rc\[6\]\[14\] = \{(.*?)\};", csrc, re.S)
+    assert m, "race/class matrix not authored"
+    rows = re.findall(r"\{([^}]*)\}", m.group(1))
+    assert len(rows) == 6
+    blob = b""
+    for r in rows:
+        blob += bytes(int(x) for x in r.replace(" ", "").split(",") if x)
+    assert blob == a5_at(image, -30864, 84)

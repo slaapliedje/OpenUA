@@ -190,4 +190,63 @@ void a5_seed_authored_scalars(void)
 		g_a5_byte(-15610 + i) = (unsigned char)(0x02 + i * 2);
 	for (i = 0; i < 3; i++)
 		g_a5_byte(-15562 + i) = (unsigned char)(0x02 + i * 2);
+
+	/* Class/alignment legality matrix (g_a5_-30450): 17 classes x 12 bytes,
+	 * each row `count, legal-alignment values..., zero pad`. Alignment index
+	 * = (law_axis-1)*3 + (good_axis-1): 0=LG 1=LN 2=LE 3=NG 4=NN 5=NE 6=CG
+	 * 7=CN 8=CE. l2f8e validates the chargen radios against this; with it
+	 * zeroed the good/evil axis has no legal default and never lights (#68
+	 * target 1, found by the replay-off chargen diff).
+	 *
+	 * This is the AD&D 2nd-edition class-alignment RULES MATRIX stated as
+	 * data — the paladin's lawful-good-only, the ranger's any-good, the
+	 * druid's neutrals — i.e. functional game rules, authored here per the
+	 * ADR-0017 option-(c) call extended to rules matrices. Verified
+	 * byte-exact against the Mac image (tests/test_a5_scalars.py).
+	 *   row 2 = Fighter (any), row 3 = Paladin (LG), row 4 = Ranger
+	 *   (good), row 1 = Druid (the five neutral-touching); several
+	 *   multiclass rows repeat "any" or "any non-good". */
+	{
+		static const unsigned char aln[17][12] = {
+		 { 9, 0,1,2,3,4,5,6,7,8, 0,0 },        /* 0: any            */
+		 { 5, 1,3,4,5,7, 0,0,0,0,0,0 },        /* 1: Druid-neutrals */
+		 { 9, 0,1,2,3,4,5,6,7,8, 0,0 },        /* 2: Fighter — any  */
+		 { 1, 0, 0,0,0,0,0,0,0,0,0,0 },        /* 3: Paladin — LG   */
+		 { 3, 0,3,6, 0,0,0,0,0,0,0,0 },        /* 4: Ranger — good  */
+		 { 9, 0,1,2,3,4,5,6,7,8, 0,0 },        /* 5: any            */
+		 { 7, 1,2,3,4,5,7,8, 0,0,0,0 },        /* 6: non-good       */
+		 { 9, 0,1,2,3,4,5,6,7,8, 0,0 },        /* 7: any            */
+		 { 9, 0,1,2,3,4,5,6,7,8, 0,0 },        /* 8: any            */
+		 { 9, 0,1,2,3,4,5,6,7,8, 0,0 },        /* 9: any            */
+		 { 3, 0,3,6, 0,0,0,0,0,0,0,0 },        /* 10: good          */
+		 { 9, 0,1,2,3,4,5,6,7,8, 0,0 },        /* 11: any           */
+		 { 9, 0,1,2,3,4,5,6,7,8, 0,0 },        /* 12: any           */
+		 { 9, 0,1,2,3,4,5,6,7,8, 0,0 },        /* 13: any           */
+		 { 7, 1,2,3,4,5,7,8, 0,0,0,0 },        /* 14: non-good      */
+		 { 7, 1,2,3,4,5,7,8, 0,0,0,0 },        /* 15: non-good      */
+		 { 7, 1,2,3,4,5,7,8, 0,0,0,0 },        /* 16: non-good      */
+		};
+		memcpy(&g_a5_byte(-30450), aln, sizeof aln);
+	}
+
+	/* Race/class legality matrix (g_a5_-30864): 6 races x 14 bytes, each
+	 * `count, legal internal class indices..., zero pad`, indexed rec[88]*14
+	 * (races: 0 Elf, 1 Half-Elf, 2 Dwarf, 3 Gnome, 4 Halfling, 5 Human).
+	 * The chargen class pick validates against it (readers at 27626/30654);
+	 * zeroed, no class default can validate and the class radio never
+	 * lights. The same AD&D 2e RULES MATRIX category as the alignment
+	 * table above: demihuman class restrictions (dwarf/gnome/halfling =
+	 * fighter/thief/fighter-thief; elf and half-elf their multiclass
+	 * lists; human the six single classes). Verified byte-exact. */
+	{
+		static const unsigned char rc[6][14] = {
+		 {  7, 2,5,6,13,14,15,16, 0,0,0,0,0,0 },          /* Elf      */
+		 { 13, 0,2,5,6,4,8,10,9,11,13,14,15,16 },         /* Half-Elf */
+		 {  3, 2,6,14, 0,0,0,0,0,0,0,0,0,0 },             /* Dwarf    */
+		 {  3, 2,6,14, 0,0,0,0,0,0,0,0,0,0 },             /* Gnome    */
+		 {  3, 2,6,14, 0,0,0,0,0,0,0,0,0,0 },             /* Halfling */
+		 {  6, 0,2,5,6,3,4, 0,0,0,0,0,0,0 },              /* Human    */
+		};
+		memcpy(&g_a5_byte(-30864), rc, sizeof rc);
+	}
 }
