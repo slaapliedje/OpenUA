@@ -78,20 +78,26 @@ int dos_scalars_load(void)
 		}
 	}
 
-	/* Pass 2 — apply. Only slots the replay has not already supplied; every
-	 * byte of a run is non-zero by construction (runs break at zeros), so a
-	 * zero first byte means "not yet filled". */
+	/* Pass 2 — apply, PER BYTE, only into slots still zero. Runs are no
+	 * longer zero-free: the map generator re-fuses zero-split tables into
+	 * whole regions (coalesce_runs_by_dos, #75), so a run may contain
+	 * interior zeros and may overlap bytes the replay or the authored
+	 * scalars already supplied — those existing bytes always win. */
 	for (i = 0; i < g_a5_dos_scalar_count; i++) {
 		const struct a4_dos_run *r = &g_a5_dos_scalars[i];
-		long count = r->len;
+		long  count = r->len;
+		short k, wrote = 0;
 
-		if (g_a5_byte(r->slot) != 0)
-			continue;
 		if (SetFPos(refnum, fsFromStart, r->off) != noErr ||
 		    FSRead(refnum, &count, buf) != noErr || count != r->len)
 			continue;           /* verified above; be defensive anyway */
-		memcpy(&g_a5_byte(r->slot), buf, (size_t)r->len);
-		applied++;
+		for (k = 0; k < r->len; k++) {
+			if (g_a5_byte(r->slot + k) == 0 && buf[k] != 0) {
+				g_a5_byte(r->slot + k) = buf[k];
+				wrote = 1;
+			}
+		}
+		applied += wrote;
 	}
 
 	(void)FSClose(refnum);

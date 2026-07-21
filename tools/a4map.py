@@ -215,6 +215,65 @@ def filter_runs_to_refs(runs, refs, gap=4):
     return keep
 
 
+def coalesce_runs_by_dos(runs, dos, max_gap=32, min_merge=8, max_len=1024):
+    """Merge zero-split fragments back into whole tables the DOS binary holds.
+
+    scalar_runs() breaks at every zero byte, so a table with interior zeros
+    shreds into fragments — most shorter than split_by_dos's min_run, so they
+    landed in the hand-authoring residue even though the WHOLE table sits
+    verbatim in CKIT.EXE. The -27848 terrain descriptor table was the proof:
+    70 four-byte entries, 40 of them zero-damaged in a no-replay build (#75,
+    the combat-map wall chunks), yet the full 280-byte region is contiguous in
+    the DOS executable.
+
+    So: cluster neighbouring runs (interior gaps <= max_gap zero bytes),
+    and where the ENTIRE region — zeros included — occurs verbatim in the DOS
+    image, emit it as ONE run. A region that doesn't match (or exceeds
+    max_len, the runtime's DOS_RUN_MAX) splits at its widest interior gap and
+    each half retries. Single leftover runs pass through untouched for
+    split_by_dos's usual handling. min_merge keeps chance matches out: a
+    merged region must be at least that long to count.
+
+    Interior zeros are copied by the runtime as zeros (a no-op on a zeroed
+    world), and dos_scalars_load applies per-byte only where the A5 world is
+    still zero, so a merged region can safely overlap authored scalars.
+    """
+    runs = sorted(runs)
+    out = []
+
+    def region(cl):
+        slot = cl[0][0]
+        end = cl[-1][0] + len(cl[-1][1])
+        b = bytearray(end - slot)
+        for s, rb in cl:
+            b[s - slot:s - slot + len(rb)] = rb
+        return slot, bytes(b)
+
+    def emit(cl):
+        if len(cl) == 1:
+            out.append(cl[0])
+            return
+        slot, b = region(cl)
+        if min_merge <= len(b) <= max_len and dos.find(b) >= 0:
+            out.append((slot, b))
+            return
+        gaps = [(cl[i + 1][0] - (cl[i][0] + len(cl[i][1])), i)
+                for i in range(len(cl) - 1)]
+        _, i = max(gaps)
+        emit(cl[:i + 1])
+        emit(cl[i + 1:])
+
+    cur = []
+    for slot, b in runs:
+        if cur and slot - (cur[-1][0] + len(cur[-1][1])) > max_gap:
+            emit(cur)
+            cur = []
+        cur.append((slot, b))
+    if cur:
+        emit(cur)
+    return out
+
+
 def split_by_dos(runs, dos, min_run=4):
     """(locatable, residue) — which scalar runs live in the DOS executable.
 
@@ -347,7 +406,11 @@ def main(argv=None):
             # lives in the user's own binary) with no per-table authoring.
             loc, res = [], runs
             if args.dos:
-                loc, res = split_by_dos(runs, open(args.dos, "rb").read())
+                dosimg = open(args.dos, "rb").read()
+                # Re-fuse zero-split tables first (#75): fragments whose whole
+                # region matches the DOS image become one run each.
+                loc, res = split_by_dos(
+                    coalesce_runs_by_dos(runs, dosimg), dosimg)
                 lb = sum(len(b) for _, b, _ in loc)
                 rb = sum(len(b) for _, b in res)
                 print(f"  DOS-extractable (ALL, shipped): {len(loc)} runs / "
