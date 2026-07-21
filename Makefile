@@ -543,6 +543,12 @@ gamedata-dos: $(TARGET)
 	@# sampled sfx work too.
 	@python3 tools/voc2glb.py "$(DOS_DIR)" "$(GAMEDATA_DIR)/SOUNDS.GLB" \
 		| sed 's/^/  gamedata-dos: /' || true
+	@# The root data banks (GAME/GEO/MONST/SCRIPT/STRG.GLB) are HLIB in
+	@# the DOS release; the engine walks them natively as GLIB (jt1011/
+	@# jt1013) — an unconverted MONST.glb was the (3,17) combat "Disk
+	@# read error". Container+directory swap, entries stay raw.
+	@python3 tools/glb2glib.py "$(GAMEDATA_DIR)"/*.GLB \
+		| sed 's/^/  gamedata-dos: /' || true
 	@echo "  gamedata-dos: staged from $(DOS_DIR) + $(DSN) — no Mac files used"
 
 run-game: gamedata
