@@ -18,6 +18,9 @@
  */
 
 #include <stddef.h>             /* NULL */
+#ifdef FRUA_PUMPTRACE
+#include "dbglog.h"          /* pump-trace heartbeats (#74) */
+#endif
 
 #include "events.h"
 #include "windows.h"            /* WindowPeek, FrontWindow, updateRgn */
@@ -298,6 +301,10 @@ void GetMouse(Point *mouseLoc)
 
 Boolean GetNextEvent(short eventMask, EventRecord *theEvent)
 {
+#ifdef FRUA_PUMPTRACE
+	{ static long n; if ((n++ % 2000) == 0) dbg_log("pump: GetNextEvent"); }
+#endif
+
 	EventRecord tmp;
 
 	if (theEvent == NULL)

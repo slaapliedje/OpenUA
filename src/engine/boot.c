@@ -4950,6 +4950,10 @@ static int           jt943(void)
 
 static void l07dc(void)
 {
+#ifdef FRUA_PUMPTRACE
+	{ static long n; if ((n++ % 2000) == 0) dbg_log("pump: l07dc"); }
+#endif
+
 	/* TEST SCAFFOLD — forward decl; defined alongside
 	 * boot_a5_seed_defaults further down. Remove when
 	 * JT[557]/JT[585] land. */
@@ -20000,6 +20004,31 @@ static void l66e8(EventRecord *ev)
  * a real front-window check land. */
 static void l731e(short arg)
 {
+#ifdef FRUA_PUMPTRACE
+	{ static long n; if ((n++ % 2000) == 0) dbg_log("pump: l731e"); }
+#endif
+#if defined(FRUA_CBTSND) && defined(FRUA_CBTAUTO)
+	/* Auto-fire (#74). l731e is the port's LIVE pump — the pump-trace run
+	 * showed every screen (menu/camp/walk) blocks in jt1133's key wait,
+	 * which spins jt1118 -> l731e -> GetNextEvent, while the harness's
+	 * original homes (l63c0's loop, l2d3e) never execute at all. So the
+	 * fire lives here: once the dungeon play mode is up (-27990 == 4) and
+	 * ~2000 pump calls have settled it, run the GEO007 type-1 combat
+	 * exactly as the 'k' latch would have. State -1 is set BEFORE the
+	 * fire so combat's own pumping cannot re-trigger it. */
+	{
+		static short s_cbtauto;
+
+		if (s_cbtauto >= 0 && g_a5_27990 == 4 && ++s_cbtauto > 2000) {
+			s_cbtauto = -1;
+			dbg_log("cbtauto: mode-4 pump stable - firing GEO007 ev37");
+			jt198((short)7);
+			l709e((short)37);
+			dbg_log("cbtauto: combat returned");
+		}
+	}
+#endif
+
 	EventRecord ev;
 	short       mask = (short)-1;
 
@@ -24434,31 +24463,6 @@ static short l2d3e(void)
 	dlitem_method_t method;
 
 	PROBE("L2d3e");
-#if defined(FRUA_CBTSND) && defined(FRUA_CBTAUTO)
-	/* Auto-fire (#74), placed HERE because l2d3e is the one poll every
-	 * screen funnels through: the 'k' latch and its l63c0 consumer sit on
-	 * a walk driver the current play flow never enters (instrumented —
-	 * l63c0's loop marker never fires), so a latch there is dead code.
-	 * Instead: once the DUNGEON play mode is up (-27990 == 4, set by
-	 * jt948's entry arms) and ~60 polls have settled it, fire the GEO007
-	 * type-1 combat exactly as 'k' would have. State -1 marks done BEFORE
-	 * the fire so combat's own nested l2d3e polls cannot re-trigger. */
-	{
-		static short s_cbtauto;
-		static long  s_cbtauto_seen;
-
-		if ((s_cbtauto_seen++ % 500) == 0)      /* poll + mode heartbeat */
-			dbg_log_num("cbtauto: l2d3e poll, mode = ",
-			            (long)g_a5_27990);
-		if (s_cbtauto >= 0 && g_a5_27990 == 4 && ++s_cbtauto > 60) {
-			s_cbtauto = -1;
-			dbg_log("cbtauto: dungeon mode 4 stable - firing GEO007 ev37");
-			jt198((short)7);
-			l709e((short)37);
-			dbg_log("cbtauto: combat returned");
-		}
-	}
-#endif
 #ifdef FRUA_KBTRACE
 	{ extern long g_kbt_l2d3e; g_kbt_l2d3e++; }
 #endif
@@ -24854,7 +24858,13 @@ static short jt453(jt453_filter_t filterProc)
 	short hit;
 
 	PROBE("jt453");
+#ifdef FRUA_PUMPTRACE
+	{ static long n; if ((n++ % 500) == 0) dbg_log("pump: jt453 entry"); }
+#endif
 	if (g_a5_9248 == 0) {
+#ifdef FRUA_PUMPTRACE
+		{ static long n; if ((n++ % 500) == 0) dbg_log("pump: jt453 BAIL 9248==0"); }
+#endif
 		PROBE("jt453: not in dialog");
 		return (short)-1;
 	}
@@ -26717,6 +26727,10 @@ static void l0848(short key)
 
 static int l0aae(void)
 {
+#ifdef FRUA_PUMPTRACE
+	{ static long n; if ((n++ % 50) == 0) dbg_log("pump: l0aae"); }
+#endif
+
 	short i;
 	int   selection;
 
