@@ -4570,6 +4570,11 @@ static short g_areatest_cmd = -1;   /* FRUA_AREATEST: 'a' in the walk latches th
 #ifdef FRUA_CBTSND
 static short g_cbtauto_done;        /* FRUA_CBTAUTO: shared one-shot — the l63c0 and
                                      * l731e fire sites must not BOTH start a combat */
+#ifndef FRUA_CBTAUTO_EV
+#define FRUA_CBTAUTO_EV 37          /* 1-based event to fire (GEO007: 37 = the
+                                     * chance-0 type-1 combat; 21/22/25 = the
+                                     * type-8 shop/merchant events) */
+#endif
 static short g_cbtsnd_fire;         /* FRUA_CBTSND: 'k' in the walk latches "start the fight"
                                      * (was nested under FRUA_AREATEST — CBTSND now stands alone) */
 #endif
@@ -16357,8 +16362,9 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 			 * after the harness entry runs, so a jt198 up there is
 			 * overwritten before 'k' is ever pressed. */
 			jt198((short)7);
-			dbg_log("cbtsnd: firing GEO007 event 37 (type 1 = COMBAT)");
-			l709e((short)37);
+			dbg_log_num("cbtsnd: firing GEO007 event ",
+			            (long)FRUA_CBTAUTO_EV);
+			l709e((short)FRUA_CBTAUTO_EV);
 			dbg_log("cbtsnd: combat returned");
 		}
 #endif
@@ -20031,9 +20037,10 @@ static void l731e(short arg)
 		    && ++s_cbtauto > 2000) {
 			s_cbtauto = -1;
 			g_cbtauto_done = 1;
-			dbg_log("cbtauto: mode-4 pump stable - firing GEO007 ev37");
+			dbg_log_num("cbtauto: mode-4 pump stable - firing GEO007 ev ",
+			            (long)FRUA_CBTAUTO_EV);
 			jt198((short)7);
-			l709e((short)37);
+			l709e((short)FRUA_CBTAUTO_EV);
 			dbg_log("cbtauto: combat returned");
 		}
 	}
