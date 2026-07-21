@@ -4828,8 +4828,11 @@ static void jt948(void)
 						 * NOTE: DOS FRUA (1.2) DOES advance the clock while
 						 * walking — users comparing against DOS will see the
 						 * Mac clock "stuck". That is a Mac-vs-DOS design
-						 * difference, NOT a port bug. Don't "fix" the walk
-						 * without re-checking the asm. */
+						 * difference, NOT a port bug. RESOLVED 2026-07-21:
+						 * the port now adds a deliberate DOS-parity advance
+						 * per step in jt297's GAP-1 (landed-on-a-new-cell)
+						 * block — see the comment there. The Mac asm claim
+						 * above still stands. */
 						if (pr != NULL)
 							pr[25] = (unsigned char)
 							         (pr[25] | 2);
@@ -15466,8 +15469,29 @@ static void jt297(void *rec_v, short key, long cb)
 #ifndef FRUA_SKIP_ENTRY_EVENTS
 	if (snapped && (g_a5_byte(-12288) != pre_row
 	             || g_a5_byte(-12287) != pre_col)) {
-		short special = jt201((short)(signed char)g_a5_byte(-12288),
-		                      (short)(signed char)g_a5_byte(-12287));
+		short special;
+
+		/* DOS-parity (2026-07-21): advance the game clock on every step
+		 * that lands on a new cell — +1 minute, or +10 (the minutes-tens
+		 * digit, same as Look) when Search mode is on (game record byte
+		 * 25 bit 0). The Mac NEVER advances time from the move path (the
+		 * JT[914] call-site audit in the Look arm above) — DOS 1.2 does,
+		 * and DOS is the reference players compare against (ADR-0017), so
+		 * the stuck-at-12:00 clock read as a bug. Deliberate deviation;
+		 * editor walks (g_a5_18485 == 5) keep the Mac behaviour. jt938
+		 * repaints the clock box — the per-step jt312 re-render only
+		 * touches the 3D view, so without it the new time would only show
+		 * on the next full HUD recomposition. */
+		if (g_a5_18485 != 5) {
+			unsigned char *gr = (unsigned char *)g_a5_28006;
+
+			jt914((short)1,
+			      (short)((gr != NULL && (gr[25] & 1)) ? 2 : 1));
+			jt938();
+		}
+
+		special = jt201((short)(signed char)g_a5_byte(-12288),
+		                (short)(signed char)g_a5_byte(-12287));
 		g_a5_byte(-18483) = (unsigned char)special;
 #ifdef FRUA_CELLSCAN
 		/* Navigation aid: a design may hide the coordinate box (a faithful
