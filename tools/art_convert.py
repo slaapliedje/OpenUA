@@ -541,17 +541,28 @@ def _convert_entry(ent, to_mac):
             raise UnsupportedPiece("method 23 stream consumed %d of %d bytes"
                                    % (used, len(payload)))
         body = m23_encode(px, mask, w, height, planar=not to_mac)
+        if to_mac and len(body) % 2:
+            # SSI's Mac converter even-pads odd method-23 streams with one
+            # 0x00 (base FRAME.CTL 22-24, PICA.CTL nested 16) — beyond the
+            # decoder's consumption, like the method-18 pad.
+            body += b"\x00"
         return (struct.pack(dst + "Hhh", height, voff, hoff)
                 + bytes([w // (8 if to_mac else 4),
                          _swap_flag_byte(method, to_mac)]) + body)
 
     if dos_method == DRAW_ID_LIST:
-        # Animation frame-sequence table. Measured on the POR pair
-        # (PICA1003 items 6/7): the payload is BYTE-IDENTICAL across
-        # releases — only the header re-encodes.
+        # Frame-sequence / border-piece table: 6-byte records of
+        # (byte, byte, u16, u16) — the two u16s are stored in the host
+        # byte order and swap across releases (proven on the base game's
+        # FRAME 17-20; POR's PICA1003 items 6/7 have all-zero words, which
+        # is why an earlier measurement read the payload as byte-identical).
+        body = bytearray(payload)
+        for o in range(0, len(body) - 5, 6):
+            body[o + 2], body[o + 3] = body[o + 3], body[o + 2]
+            body[o + 4], body[o + 5] = body[o + 5], body[o + 4]
         return (struct.pack(dst + "Hhh", height, voff, hoff)
                 + bytes([w // (8 if to_mac else 4),
-                         _swap_flag_byte(method, to_mac)]) + payload)
+                         _swap_flag_byte(method, to_mac)]) + bytes(body))
 
     if dos_method in DRAW_UNCOMPRESSED:
         if w and height and 2 * w * height == len(payload):
@@ -786,7 +797,7 @@ def _synth_item(ent, pal, num, den, mode):
         px = rle_decode(payload, w * rows)
     elif lo == 7:                                  # method 23 (linear, in .ctl)
         px, m23mask, used = m23_decode(payload, w, rows, planar=False)
-        if used != len(payload):
+        if used < len(payload) - 1:    # tolerate the 1-byte even-pad
             raise UnsupportedPiece("mono synth: method 23 stream mismatch")
     elif w * rows == len(payload):                 # plain linear 8bpp
         px = payload

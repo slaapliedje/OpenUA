@@ -215,6 +215,75 @@ static long rle_encode(const unsigned char *buf, long n,
 	return o;
 }
 
+/* SSI's own row packer (the Python's packbits_row; law derived 2026-07-21
+ * by re-encoding the Mac release's shipped .CTLs to identity): runs of 3+
+ * break a literal, a run of EXACTLY 2 is taken as a run only when the
+ * literal accumulator is empty, literals cap at 128. The Mac engine
+ * decodes method 18 one row per _UnpackBits call, so each row must be an
+ * independently terminated stream; the caller emits per row and handles
+ * the trailing even-pad. */
+static long pb_flush(const unsigned char *row, long j, long k,
+		     unsigned char *out, long o, long cap)
+{
+	while (k - j > 128) {
+		if (o + 129 > cap)
+			return ARTCONV_ERR_SPACE;
+		out[o++] = 127;
+		memcpy(out + o, row + j, 128);
+		o += 128;
+		j += 128;
+	}
+	if (k > j) {
+		if (o + 1 + (k - j) > cap)
+			return ARTCONV_ERR_SPACE;
+		out[o++] = (unsigned char)(k - j - 1);
+		memcpy(out + o, row + j, k - j);
+		o += k - j;
+	}
+	return o;
+}
+
+static long packbits_row(const unsigned char *row, long n,
+			 unsigned char *out, long cap)
+{
+	long o = 0, i = 0, lit = -1;	/* lit < 0: accumulator empty */
+
+	while (i < n) {
+		long run = 1;
+		while (i + run < n && row[i + run] == row[i] && run < 128)
+			run++;
+		if (run >= 3 || (run == 2 && lit < 0)) {
+			if (lit >= 0) {
+				o = pb_flush(row, lit, i, out, o, cap);
+				if (o < 0)
+					return o;
+				lit = -1;
+			}
+			if (o + 2 > cap)
+				return ARTCONV_ERR_SPACE;
+			out[o++] = (unsigned char)(257 - run);
+			out[o++] = row[i];
+			i += run;
+		} else {
+			if (lit < 0)
+				lit = i;
+			i++;
+			if (i - lit == 128) {
+				o = pb_flush(row, lit, i, out, o, cap);
+				if (o < 0)
+					return o;
+				lit = -1;
+			}
+		}
+	}
+	if (lit >= 0) {
+		o = pb_flush(row, lit, n, out, o, cap);
+		if (o < 0)
+			return o;
+	}
+	return o;
+}
+
 /* Method-23 skip/literal stream -> (px, mask). px/mask must be zeroed
  * w*rows buffers. Returns the number of payload bytes consumed. */
 static long m23_decode(const unsigned char *payload, long plen,
@@ -435,7 +504,22 @@ static long conv_entry(const unsigned char *e, long elen,
 			rows_deinterleave(raw, shuf, w, height);
 		else
 			rows_interleave(raw, shuf, w, height);
-		body = rle_encode(shuf, total, out + 8, cap - 8);
+		{
+			long y, o = 0, r;
+			for (y = 0; y < height; y++) {
+				r = packbits_row(shuf + y * w, w,
+						 out + 8 + o, cap - 8 - o);
+				if (r < 0)
+					return r;
+				o += r;
+			}
+			if (o % 2) {	/* even-pad (SSI pads garbage, we 0) */
+				if (8 + o + 1 > cap)
+					return ARTCONV_ERR_SPACE;
+				out[8 + o++] = 0;
+			}
+			body = o;
+		}
 	} else if (dos_method == 23) {		/* compressed transparent */
 		unsigned char *px, *mask;
 		long used;
@@ -454,8 +538,26 @@ static long conv_entry(const unsigned char *e, long elen,
 		if (used < plen - 1)	/* POR's FRAME.TLB carries 1 pad byte */
 			return ARTCONV_ERR_UNSUPPORTED;
 		body = m23_encode(px, mask, w, height, !to_mac, out + 8, cap - 8);
-	} else if (dos_method == 25) {		/* frame table: payload verbatim */
+		if (body >= 0 && to_mac && (body % 2)) {
+			/* SSI even-pads odd method-23 streams (FRAME 22-24) */
+			if (8 + body + 1 > cap)
+				return ARTCONV_ERR_SPACE;
+			out[8 + body++] = 0;
+		}
+	} else if (dos_method == 25) {
+		/* frame/border table: 6-byte records (byte, byte, u16, u16);
+		 * the two u16s swap (base FRAME 17-20; POR's are all-zero) */
+		long r6;
 		memcpy(out + 8, payload, plen);
+		for (r6 = 0; r6 + 5 < plen; r6 += 6) {
+			unsigned char t;
+			t = out[8 + r6 + 2];
+			out[8 + r6 + 2] = out[8 + r6 + 3];
+			out[8 + r6 + 3] = t;
+			t = out[8 + r6 + 4];
+			out[8 + r6 + 4] = out[8 + r6 + 5];
+			out[8 + r6 + 5] = t;
+		}
 		body = plen;
 	} else if (dos_method == 16 || dos_method == 17 || dos_method == 21) {
 		if (w && height && 2 * w * height == plen) {
@@ -490,6 +592,12 @@ static long conv_entry(const unsigned char *e, long elen,
 		out[6] = (unsigned char)w4;
 		out[7] = (unsigned char)nf;
 		return 8 + plen;
+	} else if (method == 0x00 && (elen % 2) == 0) {
+		/* WORD-TABLE entry (CPIC entry 0, the portrait directory):
+		 * a u16 index, not an image — the whole entry, header words
+		 * included, converts by swapping every u16. */
+		swap_u16_array(e, out, elen);
+		return elen;
 	} else {
 		return ARTCONV_ERR_UNSUPPORTED;
 	}
@@ -559,6 +667,12 @@ static long conv_container(const unsigned char *src, long n,
 				swap_u16_array(e, dst + pos, elen);
 				r = elen;
 			}
+		} else if (elen >= 4 && (!memcmp(e, MAGIC_HLIB, 4)
+					 || !memcmp(e, MAGIC_GLIB, 4))) {
+			/* PIC*/ /* BIGPIC event pictures: a complete sub-library
+			 * inside an image-tagged outer container — only the
+			 * entry's own magic says so */
+			r = conv_container(e, elen, dst + pos, cap - pos, A, to);
 		} else {
 			r = conv_entry(e, elen, dst + pos, cap - pos, A, to_mac);
 		}
@@ -753,7 +867,7 @@ static long synth_item(const unsigned char *e, long elen,
 			return ARTCONV_ERR_SPACE;
 		memset(dpx, 0, w * rows);
 		memset(dmask, 0, w * rows);
-		if (m23_decode(payload, plen, w, rows, 0, dpx, dmask) != plen)
+		if (m23_decode(payload, plen, w, rows, 0, dpx, dmask) < plen - 1)
 			return ARTCONV_ERR_UNSUPPORTED;
 		px = dpx;
 		m23mask = dmask;
