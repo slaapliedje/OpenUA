@@ -15506,8 +15506,13 @@ static void jt297(void *rec_v, short key, long cb)
 	 * change the cell, so they don't fire. l709e is a no-op when there's no
 	 * event table or special==0. (docs/play-loop-wall.md) */
 #ifndef FRUA_SKIP_ENTRY_EVENTS
-	if (snapped && (g_a5_byte(-12288) != pre_row
-	             || g_a5_byte(-12287) != pre_col)) {
+	if (snapped && !g_geo_editor_active
+	    && (g_a5_byte(-12288) != pre_row
+	     || g_a5_byte(-12287) != pre_col)) {
+		/* !g_geo_editor_active: the whole landed-on-a-new-cell block is
+		 * PLAY machinery (events, step sound, clock) — the editor's
+		 * walk-test must not fire design events or tick the calendar
+		 * (docs/play-vs-edit-audit.md, "GAP-1" flag). */
 		short special;
 
 		/* The play STEP-COMMIT tail, from JT[954] = L38f4 (CODE 21+
@@ -15690,6 +15695,31 @@ static void jt311(void *rec_v, short dir, long cb)
 	signed char edge_r, edge_c;
 
 	PROBE("jt311");
+
+	/* PLAY passability. jt311 is the EDITOR's absolute mover (map mode /
+	 * automap) and has no wall rule of its own — the same editor-into-play
+	 * bleed the first-person walk had (docs/play-vs-edit-audit.md). The
+	 * move keys 257..264 are engine directions 1..8 (NE,E,SE,S,SW,W,NW,N;
+	 * dir = key - 256, diagonals odd — JT[210] steps the neighbour for
+	 * those). Overland play (-27990 == 3): any wall art on the edge blocks
+	 * — the core of JT[955]'s case-3 arm (CODE 21 L4816: JT[210] != 0 ->
+	 * no step). Dungeon automap view (-27990 == 4): the same jt955 dungeon
+	 * rule as first-person (play_can_pass). Editor keeps free movement. */
+	if (!g_geo_editor_active && dir >= 257 && dir <= 264) {
+		short d = (short)(dir - 256);
+		short x = (short)(signed char)g_a5_byte(-12288);
+		short y = (short)(signed char)g_a5_byte(-12287);
+		int   ok;
+
+		if (g_a5_27990 == 4)
+			ok = play_can_pass(x, y, d);
+		else
+			ok = (jt210(x, y, d) == 0);
+		if (!ok) {
+			jt1080();
+			return;
+		}
+	}
 
 	off_y = jt397(0, (short)((signed char)g_a5_byte(-12287) - g_a5_word(-11706)));
 	off_x = jt397(0, (short)((signed char)g_a5_byte(-12288) - g_a5_word(-11704)));
@@ -18753,8 +18783,22 @@ static short l0004_22(short arg)
 
 	/* L0070: fold JT[358]'s byte into the flags' high word, then run. */
 	*(long *)(ctx + 8) |= ((long)(jt358() & 0xff)) << 16;
-	if (ctx[0] == 0)
+	if (ctx[0] == 0) {
+		/* Design-mode byte for the editor session. The Mac writes
+		 * g_a5_-18485 = 5 on its editor entry (CODE 9+0x30d4, an
+		 * unlifted arm that also swaps in the editor's character list);
+		 * the faithful design arms depend on it — l4e2c (design mode
+		 * scribes any spell, the binary's one ==5 compare), the CODE 21
+		 * spell-list all-64 arm, the CODE 20+0x57ac reload gate. Port
+		 * behaviour gates use g_geo_editor_active, NOT this byte
+		 * (docs/play-vs-edit-audit.md). Restored around the run since
+		 * the byte is also the walk-loop's transient exit signal. */
+		unsigned char prev_mode = g_a5_18485;
+
+		g_a5_18485 = 5;
 		(void)l0096(ctx);
+		g_a5_18485 = prev_mode;
+	}
 	/* Editor done: group 24 reverts to the resident MENU (jt325 may have
 	 * left SCRIPT.GLB parked in the FAR pool). */
 	g_group24_script_active = 0;

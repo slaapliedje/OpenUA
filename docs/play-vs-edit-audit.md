@@ -62,7 +62,7 @@ in jt297's GAP-1 block.
 |---|---|---|---|
 | `jt240` / `l63c0` | editor loop, reused as play walk | play grafts: command bar, HUD, g_walk_cmd | OK (by design) |
 | `jt297` | movement dispatch | play steps gate through `play_can_pass` via `snapped && !g_geo_editor_active`; editor keeps fly-through | FIXED (was `g_a5_18485 != 5`, dead-true) |
-| `jt297` GAP-1 | per-step events + JT[954] tail | tail gated `!g_geo_editor_active`; **event dispatch (`l709e`) is ungated** — the editor walk-test would fire play events when the editor goes live | FLAGGED (decide at editor wiring; the Mac walk-test does not run jt953's event path) |
+| `jt297` GAP-1 | per-step events + JT[954] tail | whole landed-on-a-new-cell block gated `!g_geo_editor_active` (events, sound, clock are play machinery) | FIXED — editor walks fire nothing (verified: no STEP/CELLSCAN entries from editor movement) |
 | `l1908` | the step body | `jt299` map recompose gated `moved && g_geo_editor_active` | FIXED (was `== 5`, dead-false: editor map leg never recomposed) |
 | `jt299`→`jt303` (editor status header) | leaks over play HUD | `g_geo_editor_active` in the l63c0 initial paint | FIXED (was `== 5`) |
 | `l5126` (deep status header) | same | `g_geo_editor_active` | FIXED (was `== 5`) |
@@ -70,7 +70,7 @@ in jt297's GAP-1 block.
 | `jt312` + HUD block (l2c60/jt937/jt938) | editor 3D preview reuses jt312 | `!g_geo_editor_active` skips the whole play-HUD block | OK (already correct) |
 | `l05ca` | wall-art nibble reader | check itself is mode-free; the `fp4` caller is the wilderness rule | OK |
 | `play_can_pass` | play passability (JT[955] core) | play only via callers | OK — menus (art 2/3/4/5/15) and "A secret door!" deferred |
-| `jt311` | overland/top-down mover (play Area + wilderness) | **no passability at all** — JT[955]'s overland arm (L4816: JT[210] + zone rules + rec[37]/[38]) is unlifted | FLAGGED — same class of bug as the dungeon one, on the overland leg |
+| `jt311` | overland/top-down mover (play Area + wilderness) | play gate added: keys 257..264 are dirs 1..8 (`dir = key - 256`); overland (`-27990==3`) blocks on any wall art (JT[955] case-3 L4816 core), dungeon automap (`==4`) uses `play_can_pass`; editor keeps free movement | FIXED (core) — L4816's zone announcements / terrain-time tail still deferred |
 | `l40f8_area_cmd` | play Area toggle | play-only caller | OK |
 | Search/Look/Cast/View/Inv arms | jt953 grafts in the play loop | operate on the play game record | OK |
 | `party_step`/`party_passable` | boot demo only | — | deletion candidates; wrong rule, do not reuse |
@@ -80,9 +80,30 @@ in jt297's GAP-1 block.
 
 1. Port-added play-vs-editor gates use `g_geo_editor_active`, nothing else.
 2. `g_a5_-18485` is Mac state: lift it faithfully, write it where the Mac
-   writes it, and never borrow it for port gating.
+   writes it, and never borrow it for port gating. Interim: `l0004_22` sets
+   it to 5 around the editor session (save/restore) so the faithful design
+   arms (l4e2c allow-all scribing, the CODE 21 spell-list all-64 arm, the
+   CODE 20 reload gate) behave — the real write site is the unlifted
+   CODE 9+0x30d4 editor-entry arm; move it there when that lifts.
 3. Anything grafted onto the shared l63c0 driver for play must be gated
    `!g_geo_editor_active`; anything editor-only must be gated
    `g_geo_editor_active`.
-4. When the editor mode loop goes live, revisit the two FLAGGED rows above
-   (GAP-1 events in the walk-test; overland passability).
+
+## Verified after the fixes (2026-07-21, Hatari)
+
+- Play (Save B): wall east of 6,17 blocks, clock ticks on landed steps only.
+- Editor (Edit Modules → canvas): movement is free, fires no events / sound /
+  clock (no CELLSCAN entries), and the l2cf4 yellow cursor mark draws again
+  (it had never drawn — its gate was dead).
+
+## Known follow-ups
+
+- Editor cursor leaves a mark TRAIL: the map view doesn't repaint between
+  cursor moves, so revived l2cf4 marks accumulate. Cosmetic; needs the
+  editor's per-move repaint (jt299 path) wired for the PLACE-mode cursor.
+- JT[955] overland arm (L4816): zone-crossing announcements + terrain time
+  costs; overland steps also advance no clock yet (JT[954] tail is
+  first-person-only via GAP-1).
+- jt955's "Blocked:" menus (art 2/3/4/5/15) + "A secret door!" (L4526).
+- CODE 9+0x30d4 editor entry (writes -18485=5, swaps the editor character
+  list) — lifting it retires the l0004_22 interim write.
