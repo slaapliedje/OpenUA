@@ -730,6 +730,50 @@ static void st_dt_selfcheck(void)
 		s_dt_checks++;
 	}
 }
+
+/* B4 step 3b: source the OWNED pixels of the displayed page from the draw-time
+ * plane stamps (s_dt), leaving the c2p as the bridge for everything else. Runs
+ * after st_blit_full, so the page already holds a full c2p; this overwrites each
+ * pixel a converted writer still owns with s_dt's slot. Owned == c2p (proven 3a),
+ * so the frame is visually identical — but the text + fills on screen now come
+ * from the native-planar path, the milestone before the c2p can be dropped. Both
+ * pages, like st_vp_composite (a flip must not show the other page's un-driven
+ * copy). FRUA_PLANAR-only; the full c2p still runs (perf win awaits every writer
+ * converted). */
+static void st_dt_composite(void)
+{
+	long  x, y;
+	short pg;
+
+	if (s_dt == NULL || s_dt_cov == NULL || s_dt_idx == NULL || !s_have_pal)
+		return;
+#ifdef FRUA_PLANAR_DIAG
+	/* Falsification: wipe every owned pixel's c2p value to slot 0 first, so the
+	 * composite below is the SOLE source of those pixels. A correct screenshot
+	 * then proves s_dt (not the underlying c2p) drives the owned display. */
+	for (y = 0; y < ST_H; y++)
+		for (x = 0; x < ST_W; x++) {
+			long c = (long)y * ST_W + x;
+			if (!s_dt_cov[c] || s_dt_idx[c] != s_chunky[c])
+				continue;
+			for (pg = 0; pg < NPAGES; pg++)
+				planar_put_stlow(s_page[pg], LINE_BYTES, ST_DEPTH,
+				                 (short)x, (short)y, 0);
+		}
+#endif
+	for (y = 0; y < ST_H; y++)
+		for (x = 0; x < ST_W; x++) {
+			long c = (long)y * ST_W + x;
+			unsigned char slot;
+
+			if (!s_dt_cov[c] || s_dt_idx[c] != s_chunky[c])
+				continue;                /* not owned / overwritten -> bridge */
+			slot = st_slot_at(s_dt, (short)x, (short)y);
+			for (pg = 0; pg < NPAGES; pg++)
+				planar_put_stlow(s_page[pg], LINE_BYTES, ST_DEPTH,
+				                 (short)x, (short)y, slot);
+		}
+}
 #endif /* FRUA_PLANAR */
 
 /* --- backend entry points ------------------------------------------------ */
@@ -1081,10 +1125,11 @@ static void st_present(void)
 		}
 	}
 	st_blit_full();
-	st_vp_composite();                       /* overlay the planar viewport */
 #ifdef FRUA_PLANAR
-	st_dt_selfcheck();                       /* 3a: prove s_dt covered == c2p */
+	st_dt_selfcheck();                       /* 3a: prove s_dt owned == c2p */
+	st_dt_composite();                       /* 3b: owned pixels driven from s_dt */
 #endif
+	st_vp_composite();                       /* overlay the planar viewport */
 #ifdef FRUA_STPROF
 	{
 		/* B3.0a: log EACH present that actually converted rows, tagged by which
