@@ -491,18 +491,23 @@ static unsigned char *s_dt_idx;         /* ST_W*ST_H: the index it laid there  *
  * any plane bits a converted writer stamped under the PREVIOUS remap are stale.
  * Clear coverage so only pixels drawn under the current remap are trusted (the
  * rest fall to the c2p bridge). Called from st_reband / st_repalette. */
+#ifdef FRUA_PLANAR_DIAG
 static long s_dt_checks;                /* selfcheck budget (see st_dt_selfcheck) */
 static long s_dt_epoch;                 /* epoch serial, for log correlation      */
+#endif
 
 static void st_dt_epoch_reset(void)
 {
 	if (s_dt_cov)
 		memset(s_dt_cov, 0, (size_t)ST_W * ST_H);
+#ifdef FRUA_PLANAR_DIAG
 	/* Re-arm the selfcheck: each epoch (scene/palette change) gets audited,
-	 * so the DUNGEON frames are checked too — the menu consumed the whole
-	 * budget before (the flip's dungeon breakage shipped unaudited). */
+	 * so the DUNGEON frames are checked too — the flip's original "dungeon
+	 * breakage" verdict shipped unaudited because the menu consumed a global
+	 * budget. */
 	s_dt_checks = 0;
 	s_dt_epoch++;
+#endif
 }
 #endif
 
@@ -710,6 +715,7 @@ static int st_dt_target(struct dsp_planar_dt *dt)
 	return 1;
 }
 
+#ifdef FRUA_PLANAR_DIAG
 /* Decode pixel (x,y)'s slot out of an ST-Low interleaved plane buffer — the
  * inverse of planar_put_stlow (plane p's word for 16-px group g at
  * y*LINE_BYTES + g*ST_DEPTH*2 + p*2, MSB = leftmost). */
@@ -787,10 +793,10 @@ static void st_dt_selfcheck(void)
 		s_dt_checks++;
 	}
 }
+#endif /* FRUA_PLANAR_DIAG */
 
-/* B4 step 4 (the flip, re-landed for debugging): build one scanline of the
- * native-planar frame in s_dt. Owned pixels trusted; the rest bridged from
- * chunky. See the reverted 006b571 for the design rationale. */
+/* B4 step 4 (the flip): build one scanline of the native-planar frame in s_dt.
+ * Owned pixels trusted; the rest bridged from chunky. */
 /* NEW-INK detector (the roster-text fix). The quantizer maps colours ABSENT
  * from its source frame through a nearest-LUMA fallback — so a chromatic ink
  * drawn AFTER the re-band (the gold roster text: its luma ~= the panel grey's)
@@ -856,6 +862,7 @@ static void st_dt_present_full(void)
 		s_remap_changed--;
 }
 
+#ifdef FRUA_PLANAR_DIAG
 /* Debug probe: after the present + composite, decode the SHOWN-to-be page at two
  * pixels — a viewport wall pixel and a roster text pixel — and log page slot vs
  * s_dt slot vs lut[chunky] + ownership. One short log per full present; the
@@ -939,6 +946,7 @@ static void st_dt_probe_span(void)
 		    + s_band_pal[(long)lut[23] * 3 + 2]);
 	}
 }
+#endif /* FRUA_PLANAR_DIAG */
 #endif /* FRUA_PLANAR */
 
 /* --- backend entry points ------------------------------------------------ */
@@ -1294,7 +1302,9 @@ static void st_present(void)
 		}
 	}
 #ifdef FRUA_PLANAR
+#ifdef FRUA_PLANAR_DIAG
 	st_dt_selfcheck();                       /* diag: owned == c2p (before build) */
+#endif
 	if (s_have_pal)
 		st_dt_present_full();            /* step 4: flip-copy s_dt, NO full c2p */
 	else
@@ -1304,6 +1314,7 @@ static void st_present(void)
 #endif
 	st_vp_composite();                       /* overlay the planar viewport */
 #ifdef FRUA_PLANAR
+#ifdef FRUA_PLANAR_DIAG
 	/* Probes AFTER the composite, on the page about to be shown: viewport wall
 	 * pixel (60,60) and roster text row pixel (180,30). Fields c_PP_SS_WW =
 	 * cov, page slot, s_dt slot, remap[chunky]. */
@@ -1312,6 +1323,7 @@ static void st_present(void)
 		st_dt_probe("b4probe hud(180,30)= ", 180, 30);
 		st_dt_probe_span();
 	}
+#endif
 	/* NEW-INK re-quant trigger (see st_dt_build_row): enough converted pixels
 	 * carried indices the last quant never saw (post-re-band inks riding the
 	 * luma fallback -> invisible text). Schedule a re-quant: s_dirty alone is
@@ -1319,7 +1331,9 @@ static void st_present(void)
 	 * CONTENT did), so invalidate the banded snapshot too. The re-quant's own
 	 * s_used_idx refresh then covers the ink, so this cannot loop. */
 	if (s_have_pal && s_banded_valid && s_dt_new_ink >= 4) {
+#ifdef FRUA_PLANAR_DIAG
 		dbg_log_num("b4ink: new-ink px -> requant, n = ", s_dt_new_ink);
+#endif
 		s_dirty        = 1;
 		s_banded_valid = 0;
 	}
@@ -1342,7 +1356,16 @@ static void st_present(void)
 				dbg_log_num("b30a diffed rows      = ", rows_now);
 		}
 	}
-	sp_in += TickCount() - t0;
+	{
+		/* Per-present cost, first 48 presents — the flip-vs-c2p comparison
+		 * number (b30a's row counts don't cover the flip path, which never
+		 * calls st_blit_rows). Same boot sequence, both builds, diff these. */
+		long in_ticks = TickCount() - t0;
+
+		sp_in += in_ticks;
+		if (sp_n < 48)
+			dbg_log_num("b4perf present ticks = ", in_ticks);
+	}
 	sp_rows = g_stprof_rows;
 	/* B3.0b fires on the first few FULL presents once a palette exists — full
 	 * presents are rare (scene/menu recomposes; dungeon walk uses rect presents),
