@@ -814,15 +814,18 @@ static void st_dt_build_row(short y)
 	const unsigned char *crow = s_chunky + (long)y * ST_W;
 	short x;
 
-	for (x = 0; x < ST_W; x++) {
-		long c = (long)y * ST_W + x;
-
+	/* NEW-INK scan (cheap byte test per pixel; see the detector comment). */
+	for (x = 0; x < ST_W; x++)
 		if (!s_used_idx[crow[x]])
-			s_dt_new_ink++;          /* ink the palette never saw */
-		if (s_dt_cov[c] && s_dt_idx[c] == crow[x])
-			continue;                        /* owned: trust the draw-time stamp */
-		planar_put_stlow(s_dt, LINE_BYTES, ST_DEPTH, x, y, lut[crow[x]]);
-	}
+			s_dt_new_ink++;
+	/* Rebuild the whole row through the OPTIMIZED span converter (nibble
+	 * transpose + flat fast path). Byte-identical to trusting the draw-time
+	 * stamps: ownership (cov && idx==chunky, same epoch) implies the stamp
+	 * equals lut[chunky] — the 3a audits pinned this at 0 mismatches — so
+	 * skipping owned pixels buys nothing while the per-pixel bridge the
+	 * first cut used cost ~2x the c2p on transitions (b4perf-measured).
+	 * Per-ROW ownership skip tracking is the future refinement. */
+	st_c2p_span(crow, s_dt + (long)y * LINE_BYTES, ST_W, lut);
 }
 
 /* B4 step 4: present from s_dt (row-diffed copy), replacing the full c2p.
