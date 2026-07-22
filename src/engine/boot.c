@@ -50761,9 +50761,12 @@ static void jt532(short a, short b, short c)
  * flag alone gates it — nothing drives outside a player combat turn.
  * =================================================================== */
 #define CBTPLAY_CAP 24
+#define CBTPLAY_VISITED 6               /* anti-oscillation ring, per member turn */
 #define ABS_INT(x) ((x) < 0 ? -(x) : (x))
 static unsigned char g_cbtplay_dir;     /* l0d16 -> l1162 forced direction key */
 static short         g_cbtplay_turns;   /* per-member decision counter */
+static short         g_cbtplay_vn;      /* visited-cell count this member turn */
+static unsigned short g_cbtplay_visited[CBTPLAY_VISITED];  /* packed (u<<8)|v */
 
 static void          jt515(long entity, short featIdx,
                            unsigned char *outA, unsigned char *outB,
@@ -50775,8 +50778,50 @@ static unsigned char cbtplay_dirkey(int d)
 	return (unsigned char)(d == 0 ? 136 : 128 + d);
 }
 
+/* Has this member already stood on (u,v) this turn? Prevents the routing
+ * step (below) from pacing A->B->A around a wall it cannot get past. */
+static int cbtplay_seen(signed char u, signed char v)
+{
+	unsigned short key = (unsigned short)(((unsigned char)u << 8)
+	                                      | (unsigned char)v);
+	short i;
+	for (i = 0; i < g_cbtplay_vn; i++)
+		if (g_cbtplay_visited[i] == key)
+			return 1;
+	return 0;
+}
+static void cbtplay_mark(signed char u, signed char v)
+{
+	unsigned short key = (unsigned short)(((unsigned char)u << 8)
+	                                      | (unsigned char)v);
+	short i;
+	for (i = 0; i < g_cbtplay_vn; i++)
+		if (g_cbtplay_visited[i] == key)
+			return;
+	if (g_cbtplay_vn < CBTPLAY_VISITED)
+		g_cbtplay_visited[g_cbtplay_vn++] = key;
+	else {                                  /* ring: drop the oldest */
+		for (i = 1; i < CBTPLAY_VISITED; i++)
+			g_cbtplay_visited[i - 1] = g_cbtplay_visited[i];
+		g_cbtplay_visited[CBTPLAY_VISITED - 1] = key;
+	}
+}
+
 /* Decide one action for `member`. Returns the l08b4 command (0 =
- * Move/Attack via *dir_out, 11 = auto-resolve / end turn). */
+ * Move/Attack via *dir_out, 11 = auto-resolve / end turn).
+ *
+ * Tactics (a better PLAYER, not a different combat engine — every action
+ * still routes through the real l1162 branches):
+ *   1. FINISH KILLS — of the enemies in an adjacent cell, hit the one with
+ *      the LOWEST current HP (rec[395]); a dead monster takes no further
+ *      turns, so this shrinks the enemy action economy fastest.
+ *   2. APPROACH THE RIGHT TARGET — otherwise close on the nearest enemy,
+ *      breaking ties toward the weaker one.
+ *   3. ROUTE, DON'T STALL — step to the passable, affordable cell that most
+ *      reduces the distance; if a wall blocks every closing step, take the
+ *      best NON-increasing (lateral) step to go around it, skipping cells
+ *      already visited this turn. Only pass (auto-resolve) when truly boxed.
+ */
 static int cbtplay_decide(long member, unsigned char *dir_out)
 {
 	unsigned char *actor = (unsigned char *)(uintptr_t)member;
@@ -50785,17 +50830,56 @@ static int cbtplay_decide(long member, unsigned char *dir_out)
 	signed char    av = (signed char)jt531(member);
 	unsigned char  aside = actor[95];
 	long           n, best = 0;
-	int            bestdist = 0x7fff, bd = -1, bdd;
+	int            bestdist = 0x7fff, besthp = 0x7fff;
+	int            atkdir = -1, atkhp = 0x7fff;
+	int            bd = -1, bdd, lat = -1, latd;
 	signed char    eu = 0, ev = 0;
 	int            d;
 
 	*dir_out = 8;
+	cbtplay_mark(au, av);           /* record where we are this turn */
 
-	/* nearest living enemy (different side) */
+#ifdef FRUA_CBTPLAY_DIAG
+	{                               /* the equipped weapon's range (jt539 law) */
+		long wpn = *(long *)(void *)(actor + 12);
+		int rng = 1;
+		if (wpn != 0) {
+			unsigned char *it = (unsigned char *)(uintptr_t)wpn;
+			rng = ((const unsigned char *)(uintptr_t)
+			       (g_a5_long(-27944) + (long)it[40] * 16))[12];
+		}
+		dbg_file_num("cbtplay: weapon-range", (long)rng);
+	}
+#endif
+
+	/* 1) adjacent enemies -> attack the WEAKEST (finish it off) */
+	for (d = 0; d < 8; d++) {
+		unsigned char occ = 0, feat = 0, oc = 0;
+		jt515(member, (short)d, &occ, &feat, &oc);
+		if (occ > 0) {
+			unsigned char *r =
+			    (unsigned char *)(uintptr_t)g_a5_25676[occ];
+			if (r != NULL && r[95] != aside && r[382] != 0
+			    && (int)r[395] < atkhp) {
+				atkhp = r[395];
+				atkdir = d;
+			}
+		}
+	}
+	if (atkdir >= 0) {
+#ifdef FRUA_CBTPLAY_DIAG
+		dbg_file_num("cbtplay:   attack dir", (long)atkdir);
+		dbg_file_num("cbtplay:   target hp", (long)atkhp);
+#endif
+		*dir_out = cbtplay_dirkey(atkdir);
+		return 0;
+	}
+
+	/* 2) nearest living enemy (tie-break toward the weaker one) */
 	for (n = g_a5_long(-27928); n; n = *(long *)(uintptr_t)n) {
 		unsigned char *node = (unsigned char *)(uintptr_t)n;
 		signed char nu, nv;
-		int dist;
+		int dist, hp;
 		if (n == member || node[382] == 0 || node[95] == aside)
 			continue;
 		nu = (signed char)jt525(n);
@@ -50803,8 +50887,9 @@ static int cbtplay_decide(long member, unsigned char *dir_out)
 		dist = ABS_INT(nu - au);
 		if (ABS_INT(nv - av) > dist)
 			dist = ABS_INT(nv - av);
-		if (dist < bestdist) {
-			bestdist = dist; best = n; eu = nu; ev = nv;
+		hp = node[395];
+		if (dist < bestdist || (dist == bestdist && hp < besthp)) {
+			bestdist = dist; besthp = hp; best = n; eu = nu; ev = nv;
 		}
 	}
 	if (best == 0)
@@ -50816,34 +50901,13 @@ static int cbtplay_decide(long member, unsigned char *dir_out)
 	dbg_file_num("cbtplay:   eu", (long)eu);
 	dbg_file_num("cbtplay:   ev", (long)ev);
 	dbg_file_num("cbtplay:   bestdist", (long)bestdist);
-	dbg_file_num("cbtplay:   aside", (long)aside);
 #endif
-	/* 1) an adjacent enemy -> attack it */
-	for (d = 0; d < 8; d++) {
-		unsigned char occ = 0, feat = 0, oc = 0;
-		jt515(member, (short)d, &occ, &feat, &oc);
-#ifdef FRUA_CBTPLAY_DIAG
-		if (occ > 0) {
-			unsigned char *r = (unsigned char *)(uintptr_t)g_a5_25676[occ];
-			dbg_file_num("cbtplay:   probe d", (long)d);
-			dbg_file_num("cbtplay:     occ", (long)occ);
-			dbg_file_num("cbtplay:     occ.side", r ? (long)r[95] : -1L);
-			dbg_file_num("cbtplay:     occ.alive", r ? (long)r[382] : -1L);
-		}
-#endif
-		if (occ > 0) {
-			long rec = g_a5_25676[occ];
-			unsigned char *r = (unsigned char *)(uintptr_t)rec;
-			if (r != NULL && r[95] != aside && r[382] != 0) {
-				*dir_out = cbtplay_dirkey(d);
-				return 0;
-			}
-		}
-	}
 
-	/* 2) step toward the nearest enemy along the best passable dir */
+	/* 3) move toward the target: strictly-closing step preferred, else the
+	 * best non-increasing (routing) step to a cell not yet visited. */
 	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
-	bdd = bestdist;
+	bdd  = bestdist;                        /* best strictly-closing distance */
+	latd = bestdist;                        /* best non-increasing distance    */
 	for (d = 0; d < 8; d++) {
 		unsigned char occ = 0, feat = 0, oc = 0;
 		unsigned char cost, step;
@@ -50863,11 +50927,20 @@ static int cbtplay_decide(long member, unsigned char *dir_out)
 		nd = ABS_INT(nu - eu);
 		if (ABS_INT(nv - ev) > nd)
 			nd = ABS_INT(nv - ev);
-		if (nd < bdd) {
+		if (nd < bdd) {                 /* strictly closes -> best choice */
 			bdd = nd; bd = d;
+		} else if (bd < 0 && nd <= bestdist && !cbtplay_seen(nu, nv)) {
+			if (nd < latd) {        /* routing candidate (go around a wall) */
+				latd = nd; lat = d;
+			}
 		}
 	}
+	if (bd < 0)
+		bd = lat;                       /* no closing step -> route around */
 	if (bd >= 0) {
+#ifdef FRUA_CBTPLAY_DIAG
+		dbg_file_num("cbtplay:   move dir", (long)bd);
+#endif
 		*dir_out = cbtplay_dirkey(bd);
 		return 0;
 	}
@@ -51863,6 +51936,7 @@ static void l08b4(long member)
 #ifdef FRUA_CBTPLAY
 	g_cbtplay_turns = 0;                            /* fresh decision budget */
 	g_cbtplay_dir   = 0;
+	g_cbtplay_vn    = 0;                            /* fresh visited-cell ring */
 #endif
 
 	if (actor[382] == 0) {                          /* not controllable -> auto */
