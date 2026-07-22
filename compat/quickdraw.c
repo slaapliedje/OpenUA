@@ -19,6 +19,7 @@
  */
 
 #include <stddef.h>             /* offsetof, NULL */
+#include <string.h>             /* memset — B4 coverage mask */
 
 #include "quickdraw.h"
 #include "printing.h"           /* pr_port_capture — printing-port text route */
@@ -544,24 +545,40 @@ static Boolean qd_effective_clip(GrafPtr port, Rect *out)
 
 #ifdef FRUA_PLANAR
 /*
- * ADR-0016 B4: fill [x,x+w) x [y,y+h) into the backend's draw-time plane buffer,
- * paralleling the chunky patCopy solid fill (the menu background + panels). The
- * fill can cross band boundaries, so each scanline picks its own band's slot for
- * the chunky index — the SAME per-band map the c2p uses, so the bytes match.
- * planar_fill_stlow clips to the screen. (Bitwise pat-modes read the destination
- * index, which the plane buffer does not retain, so only patCopy is converted;
- * the rest stay chunky-only for now — the menu uses none of them.)
+ * ADR-0016 B4: fill one chunky row-span [prow, prow+w) into the draw-time plane
+ * buffer, paralleling the chunky patCopy solid fill (the menu background + panels).
+ * `prow` is the chunky write address of the span's first pixel; it maps to screen
+ * (sx, sy) exactly like dc_plane_px, so an offscreen pixmap's fill is skipped and
+ * the band (hence slot) comes from the real screen row — the SAME per-band map the
+ * c2p uses, so the bytes match. (Bitwise pat-modes read the destination index,
+ * which the plane buffer does not retain, so only patCopy is converted; the menu
+ * uses none of the others.)
  */
-static void dc_plane_fill(const dsp_planar_dt_t *dt, short x, short y,
-                          short w, short h, unsigned char idx)
+static void dc_plane_fill(const dsp_planar_dt_t *dt, const unsigned char *prow,
+                          short w, unsigned char idx)
 {
-	short yy, y1 = (short)(y + h);
+	long  off = prow - dt->chunky;
+	short sx, sy, band, x1;
+	unsigned char slot;
 
-	for (yy = y; yy < y1; yy++) {
-		short band = (short)((long)yy * dt->nbands / dt->h);
-		unsigned char slot = dt->remap[(long)band * 256 + idx];
-		planar_fill_stlow(dt->planes, dt->line_bytes, dt->nplanes,
-		                  dt->w, dt->h, x, yy, w, 1, slot);
+	if (off < 0 || off >= (long)dt->chunky_pitch * dt->h)
+		return;                          /* offscreen pixmap: not our screen */
+	sy   = (short)(off / dt->chunky_pitch);
+	sx   = (short)(off % dt->chunky_pitch);
+	band = (short)((long)sy * dt->nbands / dt->h);
+	slot = dt->remap[(long)band * 256 + idx];
+	planar_fill_stlow(dt->planes, dt->line_bytes, dt->nplanes,
+	                  dt->w, dt->h, sx, sy, w, 1, slot);
+	if (dt->cov) {
+		x1 = (short)(sx + w);
+		if (x1 > dt->w) x1 = dt->w;
+		if (x1 > sx) {
+			memset(dt->cov + (long)sy * dt->w + sx, 1,
+			       (size_t)(x1 - sx));
+			if (dt->idx)
+				memset(dt->idx + (long)sy * dt->w + sx, idx,
+				       (size_t)(x1 - sx));
+		}
 	}
 }
 #endif
@@ -641,15 +658,15 @@ static void qd_pixmap_fill(GrafPtr port, const Rect *clip,
 					p[col] = fg;
 				break;
 			}
-		}
 #ifdef FRUA_PLANAR
-		/* Parallel plane store for the solid patCopy fill (the menu's
-		 * backgrounds/panels). Bitwise modes read the dest index and are
-		 * left chunky-only — see dc_plane_fill. */
-		if (dt_on && mode == patCopy)
-			dc_plane_fill(&dt, clipped.left, clipped.top, w,
-			              (short)(clipped.bottom - clipped.top), fg);
+			/* Parallel plane store for the solid patCopy fill (the menu's
+			 * backgrounds/panels); `p` is this row's chunky write address, so
+			 * an offscreen pixmap is skipped. Bitwise modes read the dest index
+			 * and are left chunky-only — see dc_plane_fill. */
+			if (dt_on && mode == patCopy)
+				dc_plane_fill(&dt, p, w, fg);
 #endif
+		}
 		return;
 	}
 
@@ -2142,12 +2159,24 @@ void TextSize(short size) { GrafPtr p; GetPort(&p); if (p) p->txSize = size; }
  * (planar_glyph_stlow is the clip-free batch form of this store, for callers
  * with a packed single-band glyph.)
  */
-static void dc_plane_px(const dsp_planar_dt_t *dt, short x, short y,
+static void dc_plane_px(const dsp_planar_dt_t *dt, const unsigned char *p,
                         unsigned char idx)
 {
-	short band = (short)((long)y * dt->nbands / dt->h);
-	planar_put_stlow(dt->planes, dt->line_bytes, dt->nplanes, x, y,
+	long  off = p - dt->chunky;
+	short sx, sy, band;
+
+	if (off < 0 || off >= (long)dt->chunky_pitch * dt->h)
+		return;                          /* offscreen pixmap: not our screen */
+	sy   = (short)(off / dt->chunky_pitch);
+	sx   = (short)(off % dt->chunky_pitch);
+	band = (short)((long)sy * dt->nbands / dt->h);
+	planar_put_stlow(dt->planes, dt->line_bytes, dt->nplanes, sx, sy,
 	                 dt->remap[(long)band * 256 + idx]);
+	if (dt->cov) {
+		long c = (long)sy * dt->w + sx;
+		dt->cov[c] = 1;
+		if (dt->idx) dt->idx[c] = idx;
+	}
 }
 #endif
 
@@ -2229,7 +2258,7 @@ void DrawChar(short ch)
 						                 + (x - pm->bounds.left);
 						*p = fg;
 #ifdef FRUA_PLANAR
-						if (dt_on) dc_plane_px(&dt, x, y, fg);
+						if (dt_on) dc_plane_px(&dt, p, fg);
 #endif
 					} else if (mode == srcCopy) {
 						unsigned char *p = (unsigned char *)pm->baseAddr
@@ -2237,7 +2266,7 @@ void DrawChar(short ch)
 						                 + (x - pm->bounds.left);
 						*p = bk;
 #ifdef FRUA_PLANAR
-						if (dt_on) dc_plane_px(&dt, x, y, bk);
+						if (dt_on) dc_plane_px(&dt, p, bk);
 #endif
 					}
 				}
@@ -2268,7 +2297,7 @@ void DrawChar(short ch)
 						                 + (x - pm->bounds.left);
 						*p = fg;
 #ifdef FRUA_PLANAR
-						if (dt_on) dc_plane_px(&dt, x, y, fg);
+						if (dt_on) dc_plane_px(&dt, p, fg);
 #endif
 					} else if (mode == srcCopy) {
 						unsigned char *p = (unsigned char *)pm->baseAddr
@@ -2276,7 +2305,7 @@ void DrawChar(short ch)
 						                 + (x - pm->bounds.left);
 						*p = bk;
 #ifdef FRUA_PLANAR
-						if (dt_on) dc_plane_px(&dt, x, y, bk);
+						if (dt_on) dc_plane_px(&dt, p, bk);
 #endif
 					}
 				}

@@ -472,10 +472,39 @@ static void st_compute_slot_reps(void)
  * via the captured representative indices. No re-quant, no re-c2p: st_blit_full's
  * row-diff then finds nothing changed and the raster split loads the new colours.
  * This is the "reband = palette-register-only" invariant Strategy B is built on. */
+#ifdef FRUA_PLANAR
+/* --- draw-time plane target buffers (ADR-0016 B4) ------------------------
+ *
+ * The writer-by-writer transition off the chunky+c2p path. Converted Toolbox/
+ * engine writers stamp their pixels straight into s_dt (through the same per-band
+ * remap the c2p uses) in parallel with their existing chunky store. s_dt_cov marks
+ * which screen pixels a converted writer owns and s_dt_idx the index it laid, so
+ * the present can bridge the rest from the c2p and detect unconverted overwrites.
+ * Compiled out of the shipping build. (Definitions of st_dt_target / the self-
+ * check live just above st_init; these are up here so the reband path can reset
+ * the epoch.) */
+static unsigned char *s_dt;             /* draw-time plane accumulation buffer */
+static unsigned char *s_dt_cov;         /* ST_W*ST_H: 1 where a writer drew   */
+static unsigned char *s_dt_idx;         /* ST_W*ST_H: the index it laid there  */
+
+/* Reset the draw-time coverage epoch: a re-band renumbers the palette slots, so
+ * any plane bits a converted writer stamped under the PREVIOUS remap are stale.
+ * Clear coverage so only pixels drawn under the current remap are trusted (the
+ * rest fall to the c2p bridge). Called from st_reband / st_repalette. */
+static void st_dt_epoch_reset(void)
+{
+	if (s_dt_cov)
+		memset(s_dt_cov, 0, (size_t)ST_W * ST_H);
+}
+#endif
+
 static void st_repalette(void)
 {
 	short s;
 
+#ifdef FRUA_PLANAR
+	st_dt_epoch_reset();                     /* slots renumber: draw-time epoch */
+#endif
 	for (s = 0; s < ST_NCOL; s++) {
 		unsigned char idx = s_slot_rep[s];
 
@@ -497,6 +526,10 @@ static void st_reband(void)
 	short b, i;
 	const unsigned char *qsrc = s_chunky;
 	short first = !s_have_prev_pal;
+
+#ifdef FRUA_PLANAR
+	st_dt_epoch_reset();                     /* slots renumber: draw-time epoch */
+#endif
 
 	/* Snapshot the remap we're about to replace, so the smart-skip can tell which
 	 * values actually move slot this re-band (B3.2). Band 0 is representative —
@@ -605,28 +638,97 @@ static void st_reband(void)
 }
 
 #ifdef FRUA_PLANAR
-/* --- draw-time plane target (ADR-0016 B4) --------------------------------
- *
- * The writer-by-writer transition off the chunky+c2p path. Converted Toolbox/
- * engine writers stamp their pixels straight into this plane buffer (through the
- * same per-band remap the c2p uses) in parallel with their existing chunky store.
- * s_dt accumulates the converted writers' output; once EVERY writer for a screen
- * is converted it is a complete plane image and the present can flip it instead
- * of c2p'ing s_chunky (a later step). Compiled out of the shipping build. */
-static unsigned char *s_dt;             /* draw-time plane accumulation buffer */
-
 static int st_dt_target(struct dsp_planar_dt *dt)
 {
 	if (!s_have_pal || s_dt == NULL)
 		return 0;                        /* no palette / no remap yet */
-	dt->planes     = s_dt;
-	dt->remap      = s_band_remap;
-	dt->line_bytes = LINE_BYTES;
-	dt->w          = ST_W;
-	dt->h          = ST_H;
-	dt->nplanes    = ST_DEPTH;
-	dt->nbands     = ST_NBANDS;
+	dt->planes       = s_dt;
+	dt->remap        = s_band_remap;
+	dt->cov          = s_dt_cov;
+	dt->idx          = s_dt_idx;
+	dt->chunky       = s_chunky;
+	dt->chunky_pitch = ST_W;
+	dt->line_bytes   = LINE_BYTES;
+	dt->w            = ST_W;
+	dt->h            = ST_H;
+	dt->nplanes      = ST_DEPTH;
+	dt->nbands       = ST_NBANDS;
 	return 1;
+}
+
+/* Decode pixel (x,y)'s slot out of an ST-Low interleaved plane buffer — the
+ * inverse of planar_put_stlow (plane p's word for 16-px group g at
+ * y*LINE_BYTES + g*ST_DEPTH*2 + p*2, MSB = leftmost). */
+static unsigned char st_slot_at(const unsigned char *buf, short x, short y)
+{
+	short g = (short)(x >> 4), bit = (short)(x & 15);
+	short byte = (short)(bit >> 3), p;
+	unsigned char mask = (unsigned char)(0x80u >> (bit & 7)), s = 0;
+	const unsigned char *grp =
+	    buf + (long)y * LINE_BYTES + (long)g * ST_DEPTH * 2;
+
+	for (p = 0; p < ST_DEPTH; p++)
+		if (grp[(long)p * 2 + byte] & mask)
+			s = (unsigned char)(s | (1 << p));
+	return s;
+}
+
+/* B4 step 3a self-check: on the LIVE menu, prove the converted DrawChar / fill
+ * writers stamp s_dt with the SAME slot the c2p would. The oracle is recomputed
+ * per pixel as remap[band][chunky] (immune to s_screen's row-diff staleness).
+ * Only pixels the writer still OWNS are tested: skip any an unconverted writer
+ * later overwrote (s_dt_idx != chunky), and the epoch reset on re-band drops
+ * stale-slot pixels. Logs owned / mismatches / overwritten for the first few
+ * frames; changes NOTHING on screen (display stays on the chunky c2p path). A
+ * zero mismatch count over a large owned set is the in-situ proof; the
+ * overwritten count is the chrome the bridge (or a converted chrome writer)
+ * must still supply. */
+static long s_dt_checks;
+static void st_dt_selfcheck(void)
+{
+	long owned = 0, bad = 0, overwritten = 0, x, y, shown = 0;
+
+	if (s_dt == NULL || s_dt_cov == NULL || s_dt_idx == NULL || s_dt_checks >= 4)
+		return;
+	for (y = 0; y < ST_H; y++) {
+		short band = (short)((long)y * ST_NBANDS / ST_H);
+		const unsigned char *lut = s_band_remap + (long)band * 256;
+		for (x = 0; x < ST_W; x++) {
+			long c = (long)y * ST_W + x;
+			unsigned char chk;
+			if (!s_dt_cov[c])
+				continue;
+			chk = s_chunky[c];
+			/* An unconverted writer (chrome blit, pattern/bitwise fill) that
+			 * overwrote this pixel AFTER our converted writer left chunky !=
+			 * the index we laid: it's no longer ours — the bridge owns it. */
+			if (s_dt_idx[c] != chk) {
+				overwritten++;
+				continue;
+			}
+			/* Where our converted writer IS the last writer and the epoch is
+			 * current, s_dt must equal the c2p's slot for this pixel. */
+			owned++;
+			if (st_slot_at(s_dt, (short)x, (short)y) != lut[chk]) {
+				bad++;
+				if (shown < 6) {
+					dbg_log_num("b4dt  miss x= ", x);
+					dbg_log_num("b4dt  miss y= ", y);
+					dbg_log_num("b4dt   chunky= ", chk);
+					dbg_log_num("b4dt   want  = ", lut[chk]);
+					dbg_log_num("b4dt   got   = ",
+					            st_slot_at(s_dt, (short)x, (short)y));
+					shown++;
+				}
+			}
+		}
+	}
+	if (owned + overwritten > 0) {
+		dbg_log_num("b4dt: owned px    = ", owned);
+		dbg_log_num("b4dt: mismatches  = ", bad);
+		dbg_log_num("b4dt: overwritten = ", overwritten);
+		s_dt_checks++;
+	}
 }
 #endif /* FRUA_PLANAR */
 
@@ -690,9 +792,15 @@ static int st_init(short want_w, short want_h)
 
 #ifdef FRUA_PLANAR
 	/* Draw-time plane accumulation buffer + hook (ADR-0016 B4). */
-	s_dt = (unsigned char *)Mxalloc(SCREEN_BYTES, 0);
+	s_dt     = (unsigned char *)Mxalloc(SCREEN_BYTES, 0);
+	s_dt_cov = (unsigned char *)Mxalloc((long)ST_W * ST_H, 0);
+	s_dt_idx = (unsigned char *)Mxalloc((long)ST_W * ST_H, 0);
 	if (s_dt != NULL)
 		memset(s_dt, 0, SCREEN_BYTES);
+	if (s_dt_cov != NULL)
+		memset(s_dt_cov, 0, (size_t)ST_W * ST_H);
+	if (s_dt_idx != NULL)
+		memset(s_dt_idx, 0, (size_t)ST_W * ST_H);
 	planar_draw_target_register(st_dt_target);
 #endif
 
@@ -714,7 +822,9 @@ static void st_shutdown(void)
 		                         (void (*)(short, short, short, short))0);
 #ifdef FRUA_PLANAR
 		planar_draw_target_register((int (*)(struct dsp_planar_dt *))0);
-		if (s_dt) { Mfree(s_dt); s_dt = NULL; }
+		if (s_dt)     { Mfree(s_dt); s_dt = NULL; }
+		if (s_dt_cov) { Mfree(s_dt_cov); s_dt_cov = NULL; }
+		if (s_dt_idx) { Mfree(s_dt_idx); s_dt_idx = NULL; }
 #endif
 		s_st_active = 0;
 		s_vp_active = 0;
@@ -972,6 +1082,9 @@ static void st_present(void)
 	}
 	st_blit_full();
 	st_vp_composite();                       /* overlay the planar viewport */
+#ifdef FRUA_PLANAR
+	st_dt_selfcheck();                       /* 3a: prove s_dt covered == c2p */
+#endif
 #ifdef FRUA_STPROF
 	{
 		/* B3.0a: log EACH present that actually converted rows, tagged by which

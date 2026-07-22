@@ -83,12 +83,23 @@ const unsigned char *dsp_planar_remap(short *nbands, short *screen_h);
  * into `planes` through the per-band remap, IN PARALLEL with their existing chunky
  * store while the writers are converted one at a time. `remap` is `nbands` rows of
  * 256 bytes; screen line y uses row remap + (y*nbands/h)*256 — the SAME map the c2p
- * uses, so a converted writer produces byte-identical planes (see docs/planar-plan.md). */
+ * uses, so a converted writer produces byte-identical planes (see docs/planar-plan.md).
+ *
+ * A converted writer maps its store to screen coords through the CHUNKY WRITE ADDRESS,
+ * not port coords: screen offset = p - `chunky`, giving (off%chunky_pitch, off/chunky_pitch).
+ * That is coordinate-correct for any pixmap aliasing the screen (window or direct) AND
+ * naturally excludes OFFSCREEN pixmaps (whose bytes lie outside [chunky, chunky+pitch*h)),
+ * which must not touch the plane buffer. `cov` marks which screen pixels a writer owns,
+ * so the present can bridge the rest from the c2p (the immediate-c2p bridge). */
 struct dsp_planar_dt {
-	unsigned char       *planes;      /* live interleaved plane buffer      */
-	const unsigned char *remap;       /* nbands * 256 index -> palette slot  */
-	short                line_bytes;  /* bytes per scanline (all planes)     */
-	short                w, h;        /* screen dims, for clipping           */
+	unsigned char       *planes;      /* live interleaved plane buffer       */
+	const unsigned char *remap;       /* nbands * 256 index -> palette slot   */
+	unsigned char       *cov;         /* w*h coverage: 1 where a writer wrote */
+	unsigned char       *idx;         /* w*h: the chunky index each writer laid */
+	const unsigned char *chunky;      /* the on-screen 8bpp surface base      */
+	short                chunky_pitch;/* its bytes/row (== w on ST)           */
+	short                line_bytes;  /* bytes per scanline (all planes)      */
+	short                w, h;        /* screen dims                          */
 	short                nplanes;
 	short                nbands;
 };
