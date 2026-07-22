@@ -150,4 +150,44 @@ static inline void planar_fill_stlow(unsigned char *dst, short line_bytes,
 			planar_put_stlow(dst, line_bytes, nplanes, xx, yy, slot);
 }
 
+/*
+ * Blit a 1bpp glyph at (x, y) straight into ST-Low interleaved planes — the
+ * plane-store analogue of DrawChar (compat/quickdraw.c). `glyph` is `h` rows of
+ * `glyph_stride` bytes each, MSB-first (bit 7 of byte 0 = column 0), so glyph
+ * column c lives in glyph[row*glyph_stride + (c>>3)] & (0x80 >> (c&7)) — the same
+ * packing as the embedded 8x8 font and a mac_font strike row. A set bit lays down
+ * `fg`; a clear bit lays down `bg` when `opaque` (srcCopy), else leaves the pixel
+ * (srcOr / transparent text — the engine's default txMode). `fg`/`bg` are already
+ * remapped 0..2^nplanes-1 slots. Clipped per pixel to (dst_w x dst_h); a negative
+ * x/y is fine. Correctness-first per-pixel form (calls planar_put_stlow); a
+ * word-oriented glyph fast path can drop in under the same interface later.
+ */
+static inline void planar_glyph_stlow(unsigned char *dst, short line_bytes,
+                                      short nplanes, short dst_w, short dst_h,
+                                      const unsigned char *glyph, short glyph_stride,
+                                      short x, short y, short w, short h,
+                                      unsigned char fg, unsigned char bg,
+                                      short opaque)
+{
+	short row, col;
+
+	for (row = 0; row < h; row++) {
+		short yy = (short)(y + row);
+		const unsigned char *grow = glyph + (long)row * glyph_stride;
+		if (yy < 0 || yy >= dst_h)
+			continue;
+		for (col = 0; col < w; col++) {
+			short xx = (short)(x + col);
+			unsigned char bit;
+			if (xx < 0 || xx >= dst_w)
+				continue;
+			bit = (unsigned char)(grow[col >> 3] & (0x80u >> (col & 7)));
+			if (bit)
+				planar_put_stlow(dst, line_bytes, nplanes, xx, yy, fg);
+			else if (opaque)
+				planar_put_stlow(dst, line_bytes, nplanes, xx, yy, bg);
+		}
+	}
+}
+
 #endif /* PLATFORM_PLANAR_H */

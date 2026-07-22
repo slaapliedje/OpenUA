@@ -1,8 +1,9 @@
-"""planar_put_stlow / planar_fill_stlow — the draw-time plane-store primitives
-(ADR-0016 draw-time present model) must set exactly the addressed pixels' slot
-bits in ST-Low interleaved planes and leave every other pixel untouched, for
-random pixels, random rects, and clipped rects. Host-compiled like the other
-c2p/planar tests; verified against an independent bit decoder."""
+"""planar_put_stlow / planar_fill_stlow / planar_glyph_stlow — the draw-time
+plane-store primitives (ADR-0016 draw-time present model) must set exactly the
+addressed pixels' slot bits in ST-Low interleaved planes and leave every other
+pixel untouched, for random pixels, random rects, clipped rects, and 1bpp glyphs
+in both opaque (srcCopy) and transparent (srcOr) modes. Host-compiled like the
+other c2p/planar tests; verified against an independent bit decoder."""
 import os
 import shutil
 import subprocess
@@ -76,6 +77,42 @@ int main(void)
 			if (slot_at(scr, x, y) != exp) {
 				printf("FILL MISMATCH t=%d rect(%d,%d,%d,%d) at(%d,%d) got %d exp %d\n",
 				       trial, rx, ry, rw, rh, x, y, slot_at(scr, x, y), exp);
+				return 1;
+			}
+		}
+	}
+	/* planar_glyph_stlow: a 1bpp glyph over a bg fill. Set bits -> fg; clear
+	 * bits -> bg when opaque, else the bg fill shows through. Clipping (negative
+	 * origin, oversize glyph) must never touch a pixel outside the screen. */
+	for (trial = 0; trial < 4000; trial++) {
+		unsigned char bg  = (unsigned char)(rnd() & 15);
+		unsigned char fg  = (unsigned char)(rnd() & 15);
+		unsigned char sfil = (unsigned char)(rnd() & 15);   /* prior surface fill */
+		int opaque = rnd() & 1;
+		int gw = 1 + rnd() % 20, gh = 1 + rnd() % 12;       /* glyph up to 20x12 */
+		int gstride = (gw + 7) / 8;
+		int gx = (int)(signed char)rnd() % W;               /* may be negative   */
+		int gy = (int)(signed char)rnd() % H;
+		unsigned char gbits[3 * 12];                        /* gstride<=3, gh<=12 */
+		int r, c;
+		for (r = 0; r < gstride * gh; r++)
+			gbits[r] = rnd();
+		memset(scr, 0, sizeof scr);
+		planar_fill_stlow(scr, LB, NP, W, H, 0, 0, W, H, sfil);
+		planar_glyph_stlow(scr, LB, NP, W, H, gbits, (short)gstride,
+		                   (short)gx, (short)gy, (short)gw, (short)gh,
+		                   fg, bg, (short)opaque);
+		for (y = 0; y < H; y++) for (x = 0; x < W; x++) {
+			unsigned char exp = sfil;
+			r = y - gy; c = x - gx;
+			if (r >= 0 && r < gh && c >= 0 && c < gw) {
+				int bit = gbits[r * gstride + (c >> 3)] & (0x80 >> (c & 7));
+				if (bit)          exp = fg;
+				else if (opaque)  exp = bg;
+			}
+			if (slot_at(scr, x, y) != exp) {
+				printf("GLYPH MISMATCH t=%d g(%d,%d,%d,%d) op=%d at(%d,%d) got %d exp %d\n",
+				       trial, gx, gy, gw, gh, opaque, x, y, slot_at(scr, x, y), exp);
 				return 1;
 			}
 		}
