@@ -533,6 +533,13 @@ void CopyBits(const BitMap *srcBits, const BitMap *dstBits,
               const Rect *srcRect, const Rect *dstRect,
               short mode, RgnHandle maskRgn);
 
+#ifdef FRUA_PLANAR
+/* ADR-0016 B4 immediate-c2p bridge: stamp a just-blitted SCREEN chunky rect into
+ * the draw-time plane buffer through the per-band remap, marking it owned. Called
+ * by the engine after l2d4e (via l309c) paints the chrome. Compiled out otherwise. */
+void qd_planar_bridge_rect(short x0, short y0, short x1, short y1);
+#endif
+
 /* --- classic (indexed) colour constants, for ForeColor / BackColor --- */
 #define blackColor    33
 #define whiteColor    30

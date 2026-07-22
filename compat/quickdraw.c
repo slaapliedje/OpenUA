@@ -581,6 +581,46 @@ static void dc_plane_fill(const dsp_planar_dt_t *dt, const unsigned char *prow,
 		}
 	}
 }
+
+/*
+ * ADR-0016 B4 immediate-c2p bridge (the plan's option b for the engine-direct
+ * blitters). After a complex RLE/transparency blitter — l2d4e via l309c, the
+ * granite chrome + buttons — has written a rect to the SCREEN chunky, stamp that
+ * rect into the draw-time plane buffer straight from chunky through the per-band
+ * remap. This converts the blitter WITHOUT touching its decode: the stamped slot
+ * is exactly remap[band][chunky] = what the c2p produces, so it is byte-identical
+ * by construction, and it marks those chrome pixels OWNED (they stop being the
+ * "overwritten" pixels the bridge/c2p had to supply). Rect (the l309c landed
+ * rect) is clamped to the screen. Non-static: called from the engine (boot.c).
+ */
+void qd_planar_bridge_rect(short x0, short y0, short x1, short y1)
+{
+	dsp_planar_dt_t dt;
+	short x, y;
+
+	if (!dsp_planar_draw_target(&dt))
+		return;
+	if (x0 < 0) x0 = 0;
+	if (y0 < 0) y0 = 0;
+	if (x1 > dt.w) x1 = dt.w;
+	if (y1 > dt.h) y1 = dt.h;
+	for (y = y0; y < y1; y++) {
+		short band = (short)((long)y * dt.nbands / dt.h);
+		const unsigned char *lut  = dt.remap + (long)band * 256;
+		const unsigned char *crow = dt.chunky + (long)y * dt.chunky_pitch;
+
+		for (x = x0; x < x1; x++) {
+			unsigned char idx = crow[x];
+			planar_put_stlow(dt.planes, dt.line_bytes, dt.nplanes,
+			                 x, y, lut[idx]);
+			if (dt.cov) {
+				long c = (long)y * dt.w + x;
+				dt.cov[c] = 1;
+				if (dt.idx) dt.idx[c] = idx;
+			}
+		}
+	}
+}
 #endif
 
 /*

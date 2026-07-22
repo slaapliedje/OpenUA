@@ -6717,6 +6717,15 @@ static void l309c(short a, short b, long handle, short size)
 	g_lc_w  = (short)(bpp_w * 8); g_lc_h = height;
 	l2d4e((const unsigned char *)(uintptr_t)info, bpp_w, height,
 	      sy, sx, mode);
+#ifdef FRUA_PLANAR
+	/* B4 immediate-c2p bridge: l2d4e just wrote the chrome/glyph rect to the
+	 * screen chunky — stamp it into the draw-time plane buffer so those pixels
+	 * are native-planar owned (l2d4e always targets the screen via
+	 * qd_screen_pixels, so the landed rect maps 1:1 to screen coords). */
+	qd_planar_bridge_rect(g_lc_x0, g_lc_y0,
+	                      (short)(g_lc_x0 + g_lc_w),
+	                      (short)(g_lc_y0 + g_lc_h));
+#endif
 }
 
 /* JT[1001] (CODE 5 + 0x31ac) — select GLIB resource group `c`, blit its
