@@ -50765,8 +50765,10 @@ static void jt532(short a, short b, short c)
 #define ABS_INT(x) ((x) < 0 ? -(x) : (x))
 static unsigned char g_cbtplay_dir;     /* l0d16 -> l1162 forced direction key */
 static unsigned char g_cbtplay_aim;     /* l0d16 -> l2e30: auto-commit this jt539 */
+static unsigned char g_cbtplay_castact; /* cast in progress -> l2e30 auto-targets */
 static unsigned char g_cbtplay_acted;   /* did the ranged/spell action fire? */
 static long          g_cbtplay_target;  /* decide's chosen enemy, for l2e30 inject */
+static short         g_cbtplay_castspell;/* decide -> l08b4: the spell id to cast */
 static short         g_cbtplay_turns;   /* per-member decision counter */
 static short         g_cbtplay_vn;      /* visited-cell count this member turn */
 static unsigned short g_cbtplay_visited[CBTPLAY_VISITED];  /* packed (u<<8)|v */
@@ -50794,6 +50796,43 @@ static int cbtplay_wrange(unsigned char *actor)
 	     (g_a5_long(-27944) + (long)((unsigned char *)(uintptr_t)wpn)[40]
 	      * 16))[12];
 	return (r == 0 || r == 255) ? 1 : r;
+}
+
+static unsigned char jt600(short code);          /* fwd — spell range (above) */
+
+/* Pick an offensive spell for `actor` to cast this turn, or 0 if none.
+ * Gate matches l0d16's cmd-3 offer: a caster (mc[1]), conscious (rec[94]),
+ * not silenced (game-record [2]). Then the first MEMORIZED (rec[198..338],
+ * &0x7f = spell id) spell that is INSTANT (spec[12]/3 == 0) and SINGLE-
+ * TARGET (targeting mode spec[6]&15 in 1..4/6/7 — not self 0, pick-many 5,
+ * or area 8..15) — the shape of Magic Missile and other direct-damage
+ * darts, as opposed to buffs (self) and blasts (area). */
+static short cbtplay_pick_spell(unsigned char *actor)
+{
+	unsigned char *mc = (unsigned char *)(uintptr_t)
+	                    (*(long *)(uintptr_t)(actor + 64));
+	unsigned char *gr = (unsigned char *)g_a5_28006;
+	short i;
+
+	if (mc[1] == 0 || actor[94] != 0)       /* not a caster / not conscious */
+		return 0;
+	if (gr != NULL && gr[2] != 0)           /* silenced */
+		return 0;
+	for (i = 0; i <= 140; i++) {
+		short id = (short)(actor[198 + i] & 0x7f);
+		const unsigned char *spec;
+		int mode;
+		if (id <= 0)
+			continue;
+		spec = g_a5_buf(-16906) + (long)id * 16;
+		if (spec[12] / 3 != 0)          /* not instant (has a cast time) */
+			continue;
+		mode = spec[6] & 15;
+		if (mode == 0 || mode == 5 || mode >= 8)
+			continue;               /* self / pick-many / area */
+		return id;
+	}
+	return 0;
 }
 
 /* Has this member already stood on (u,v) this turn? Prevents the routing
@@ -50870,30 +50909,8 @@ static int cbtplay_decide(long member, unsigned char *dir_out)
 	}
 #endif
 
-	/* 1) adjacent enemies -> attack the WEAKEST (finish it off) */
-	for (d = 0; d < 8; d++) {
-		unsigned char occ = 0, feat = 0, oc = 0;
-		jt515(member, (short)d, &occ, &feat, &oc);
-		if (occ > 0) {
-			unsigned char *r =
-			    (unsigned char *)(uintptr_t)g_a5_25676[occ];
-			if (r != NULL && r[95] != aside && r[382] != 0
-			    && (int)r[395] < atkhp) {
-				atkhp = r[395];
-				atkdir = d;
-			}
-		}
-	}
-	if (atkdir >= 0) {
-#ifdef FRUA_CBTPLAY_DIAG
-		dbg_file_num("cbtplay:   attack dir", (long)atkdir);
-		dbg_file_num("cbtplay:   target hp", (long)atkhp);
-#endif
-		*dir_out = cbtplay_dirkey(atkdir);
-		return 0;
-	}
-
-	/* 2) nearest living enemy (tie-break toward the weaker one) */
+	/* 1) nearest living enemy (tie-break toward the weaker one) — computed
+	 * first so the cast/ranged range checks below can use the distance. */
 	for (n = g_a5_long(-27928); n; n = *(long *)(uintptr_t)n) {
 		unsigned char *node = (unsigned char *)(uintptr_t)n;
 		signed char nu, nv;
@@ -50916,12 +50933,51 @@ static int cbtplay_decide(long member, unsigned char *dir_out)
 #ifdef FRUA_CBTPLAY_DIAG
 	dbg_file_num("cbtplay:   au", (long)au);
 	dbg_file_num("cbtplay:   av", (long)av);
-	dbg_file_num("cbtplay:   eu", (long)eu);
-	dbg_file_num("cbtplay:   ev", (long)ev);
 	dbg_file_num("cbtplay:   bestdist", (long)bestdist);
 #endif
 
-	/* 2b) RANGED: no adjacent enemy, but a bow/sling/thrown weapon can reach
+	/* 2) CAST: a caster with an offensive instant spell (Magic Missile & kin)
+	 * and an enemy within the spell's range fires it — even from melee, since
+	 * a dart spell beats a wizard's dagger. Routes through the real Cast
+	 * command (cmd 3 -> jt547 with the chosen spell), and the l2e30 intercept
+	 * targets the nearest enemy. Once per turn (g_cbtplay_acted). */
+	if (!g_cbtplay_acted) {
+		short sp = cbtplay_pick_spell(actor);
+		if (sp > 0 && bestdist <= (int)jt600(sp)) {
+#ifdef FRUA_CBTPLAY_DIAG
+			dbg_file_num("cbtplay:   CAST spell", (long)sp);
+			dbg_file_num("cbtplay:     range", (long)jt600(sp));
+#endif
+			g_cbtplay_castspell = sp;
+			g_cbtplay_target    = best;
+			return 3;               /* Cast (jt547) */
+		}
+	}
+
+	/* 3) adjacent enemies -> attack the WEAKEST (finish it off) */
+	for (d = 0; d < 8; d++) {
+		unsigned char occ = 0, feat = 0, oc = 0;
+		jt515(member, (short)d, &occ, &feat, &oc);
+		if (occ > 0) {
+			unsigned char *r =
+			    (unsigned char *)(uintptr_t)g_a5_25676[occ];
+			if (r != NULL && r[95] != aside && r[382] != 0
+			    && (int)r[395] < atkhp) {
+				atkhp = r[395];
+				atkdir = d;
+			}
+		}
+	}
+	if (atkdir >= 0) {
+#ifdef FRUA_CBTPLAY_DIAG
+		dbg_file_num("cbtplay:   attack dir", (long)atkdir);
+		dbg_file_num("cbtplay:   target hp", (long)atkhp);
+#endif
+		*dir_out = cbtplay_dirkey(atkdir);
+		return 0;
+	}
+
+	/* 4) RANGED: no adjacent enemy, but a bow/sling/thrown weapon can reach
 	 * the nearest one from here (Chebyshev <= weapon range). Fire the real AIM
 	 * command (cmd 1 -> jt539); the l2e30 intercept commits on jt539's own
 	 * jt554-validated target. Bounded to one ranged action per member turn
@@ -50937,7 +50993,7 @@ static int cbtplay_decide(long member, unsigned char *dir_out)
 		return 1;                       /* AIM / ranged attack */
 	}
 
-	/* 3) move toward the target: strictly-closing step preferred, else the
+	/* 5) move toward the target: strictly-closing step preferred, else the
 	 * best non-increasing (routing) step to a cell not yet visited. */
 	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
 	bdd  = bestdist;                        /* best strictly-closing distance */
@@ -51968,11 +52024,13 @@ static void l08b4(long member)
 		return;
 
 #ifdef FRUA_CBTPLAY
-	g_cbtplay_turns = 0;                            /* fresh decision budget */
-	g_cbtplay_dir   = 0;
-	g_cbtplay_aim   = 0;
-	g_cbtplay_acted = 0;                            /* ranged/spell not yet used */
-	g_cbtplay_vn    = 0;                            /* fresh visited-cell ring */
+	g_cbtplay_turns     = 0;                        /* fresh decision budget */
+	g_cbtplay_dir       = 0;
+	g_cbtplay_aim       = 0;
+	g_cbtplay_castact   = 0;
+	g_cbtplay_castspell = 0;
+	g_cbtplay_acted     = 0;                        /* ranged/spell not yet used */
+	g_cbtplay_vn        = 0;                        /* fresh visited-cell ring */
 #endif
 
 	if (actor[382] == 0) {                          /* not controllable -> auto */
@@ -52059,7 +52117,15 @@ static void l08b4(long member)
 				l276c();
 			break;
 		case 3:                                         /* magic sub (jt547) */
+#ifdef FRUA_CBTPLAY
+			/* Pass the spell cbtplay chose straight to jt547, skipping
+			 * the jt595 selection picker (which would block headlessly).
+			 * g_cbtplay_castact stays set through the cast so the l2e30
+			 * targeting intercept fires. */
+			jt547((short)g_cbtplay_castspell, 0, &done);
+#else
 			jt547(0, 0, &done);
+#endif
 			break;
 		case 4:                                         /* Turn Undead */
 			if ((jt40(actor, 0) & 0xff) == 0
@@ -52211,8 +52277,9 @@ static void l0d16(long actor_l, unsigned char *cmd_out)
 		unsigned char dirkey = 8;
 		int c = (++g_cbtplay_turns > CBTPLAY_CAP)
 		        ? 11 : cbtplay_decide(actor_l, &dirkey);
-		g_cbtplay_dir = 0;
-		g_cbtplay_aim = 0;
+		g_cbtplay_dir     = 0;
+		g_cbtplay_aim     = 0;
+		g_cbtplay_castact = 0;
 		if (c == 0) {
 			*cmd_out = dirkey;              /* 129..136 movement key */
 			g_a5_byte(-24139) = 1;          /* input / roster-nav mode */
@@ -52222,6 +52289,11 @@ static void l0d16(long actor_l, unsigned char *cmd_out)
 			g_a5_byte(-24139) = 0;
 			g_cbtplay_aim   = 1;            /* mark: auto-commit l2e30 */
 			g_cbtplay_acted = 1;            /* one ranged action / turn */
+		} else if (c == 3) {
+			*cmd_out = 3;                   /* Cast (jt547) */
+			g_a5_byte(-24139) = 0;
+			g_cbtplay_castact = 1;          /* l2e30 auto-targets the cast */
+			g_cbtplay_acted   = 1;          /* one spell / turn */
 		} else {
 			*cmd_out = 11;                  /* auto-resolve / end turn */
 			g_a5_byte(-24139) = 0;
@@ -60389,27 +60461,36 @@ static short l2e30(long m, long b, short r, short mode, short f4, short f5,
 	 * has already placed a jt554-validated target in b (== g_a5_-7254). If it
 	 * is a living enemy, return option 3 (commit -> l302c strike); otherwise
 	 * cancel (5). One decision either way — g_cbtplay_aim is one-shot. */
-	if (g_cbtplay_aim) {
-		unsigned char *r = (unsigned char *)(uintptr_t)b;
+	if (g_cbtplay_aim || g_cbtplay_castact) {
+		unsigned char *r     = (unsigned char *)(uintptr_t)b;
 		unsigned char  aside = ((unsigned char *)(uintptr_t)m)[95];
-		g_cbtplay_aim = 0;
+		unsigned char  cast  = g_cbtplay_castact;
+		g_cbtplay_aim = 0;              /* one-shot for AIM; cast stays armed
+		                                * (l1efa may pick more than once) */
 		if (r != NULL && b != m && r[95] != aside && r[382] != 0) {
-			dbg_file_num("cbtplay: AIM commit tgt-hp", (long)r[395]);
-			return 3;               /* commit the strike on jt539's target */
+			dbg_file_num("cbtplay: aim/cast commit tgt-hp", (long)r[395]);
+			return 3;               /* commit on jt539's own target */
 		}
 		/* jt539's ring had no valid target (jt554 rejected). Inject decide's
-		 * chosen enemy into -7254 and let l302c/jt533 be the final arbiter —
-		 * if it also rejects (e.g. no line of sight), l302c clears the flag
-		 * and no strike fires (faithful). */
+		 * chosen enemy into -7254 and commit — faithful, this is the Mac's
+		 * manual cursor walk (l315e, not ring-gated) reaching the same
+		 * l302c/jt533/jt555 (AIM) or jt599 effect (cast) path. */
 		if (g_cbtplay_target != 0) {
 			unsigned char *t =
 			    (unsigned char *)(uintptr_t)g_cbtplay_target;
 			if (t[382] != 0 && t[95] != aside) {
 				g_a5_long(-7254) = g_cbtplay_target;
-				dbg_file_num("cbtplay: AIM inject tgt-hp",
+				dbg_file_num("cbtplay: aim/cast inject tgt-hp",
 				             (long)t[395]);
 				return 3;       /* commit on the injected target */
 			}
+		}
+		/* No valid target. For a CAST this must not cancel — jt599 pops an
+		 * "Abort?" jt159 confirm on a null pick, which hangs headlessly; a
+		 * self-commit (b defaults to the caster) resolves harmlessly. */
+		if (cast) {
+			dbg_log("cbtplay: cast no target - self-commit");
+			return 3;
 		}
 		dbg_log("cbtplay: AIM no valid target - cancel");
 		return 5;                       /* nothing valid -> cancel */
