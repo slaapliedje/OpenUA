@@ -50764,6 +50764,9 @@ static void jt532(short a, short b, short c)
 #define CBTPLAY_VISITED 6               /* anti-oscillation ring, per member turn */
 #define ABS_INT(x) ((x) < 0 ? -(x) : (x))
 static unsigned char g_cbtplay_dir;     /* l0d16 -> l1162 forced direction key */
+static unsigned char g_cbtplay_aim;     /* l0d16 -> l2e30: auto-commit this jt539 */
+static unsigned char g_cbtplay_acted;   /* did the ranged/spell action fire? */
+static long          g_cbtplay_target;  /* decide's chosen enemy, for l2e30 inject */
 static short         g_cbtplay_turns;   /* per-member decision counter */
 static short         g_cbtplay_vn;      /* visited-cell count this member turn */
 static unsigned short g_cbtplay_visited[CBTPLAY_VISITED];  /* packed (u<<8)|v */
@@ -50776,6 +50779,21 @@ static void          jt515(long entity, short featIdx,
 static unsigned char cbtplay_dirkey(int d)
 {
 	return (unsigned char)(d == 0 ? 136 : 128 + d);
+}
+
+/* The equipped weapon's attack range (jt539's law): the item at actor+12,
+ * its type entry in the -27944 table (16 bytes, indexed by item[40]), +12.
+ * 0/255 mean "melee" -> 1. > 1 = a bow/sling/thrown that can hit at range. */
+static int cbtplay_wrange(unsigned char *actor)
+{
+	long wpn = *(long *)(void *)(actor + 12);
+	int  r;
+	if (wpn == 0)
+		return 1;
+	r = ((const unsigned char *)(uintptr_t)
+	     (g_a5_long(-27944) + (long)((unsigned char *)(uintptr_t)wpn)[40]
+	      * 16))[12];
+	return (r == 0 || r == 255) ? 1 : r;
 }
 
 /* Has this member already stood on (u,v) this turn? Prevents the routing
@@ -50902,6 +50920,22 @@ static int cbtplay_decide(long member, unsigned char *dir_out)
 	dbg_file_num("cbtplay:   ev", (long)ev);
 	dbg_file_num("cbtplay:   bestdist", (long)bestdist);
 #endif
+
+	/* 2b) RANGED: no adjacent enemy, but a bow/sling/thrown weapon can reach
+	 * the nearest one from here (Chebyshev <= weapon range). Fire the real AIM
+	 * command (cmd 1 -> jt539); the l2e30 intercept commits on jt539's own
+	 * jt554-validated target. Bounded to one ranged action per member turn
+	 * (g_cbtplay_acted) — the missile ends the turn on the Mac, but the port's
+	 * l08b4 does not re-latch `done` after jt539, so without the guard the
+	 * actor would AIM every pass until the cap. */
+	if (!g_cbtplay_acted && bestdist > 1
+	    && bestdist <= cbtplay_wrange(actor)) {
+#ifdef FRUA_CBTPLAY_DIAG
+		dbg_file_num("cbtplay:   RANGED range", (long)cbtplay_wrange(actor));
+#endif
+		g_cbtplay_target = best;        /* l2e30 falls back to this target */
+		return 1;                       /* AIM / ranged attack */
+	}
 
 	/* 3) move toward the target: strictly-closing step preferred, else the
 	 * best non-increasing (routing) step to a cell not yet visited. */
@@ -51936,6 +51970,8 @@ static void l08b4(long member)
 #ifdef FRUA_CBTPLAY
 	g_cbtplay_turns = 0;                            /* fresh decision budget */
 	g_cbtplay_dir   = 0;
+	g_cbtplay_aim   = 0;
+	g_cbtplay_acted = 0;                            /* ranged/spell not yet used */
 	g_cbtplay_vn    = 0;                            /* fresh visited-cell ring */
 #endif
 
@@ -52175,14 +52211,20 @@ static void l0d16(long actor_l, unsigned char *cmd_out)
 		unsigned char dirkey = 8;
 		int c = (++g_cbtplay_turns > CBTPLAY_CAP)
 		        ? 11 : cbtplay_decide(actor_l, &dirkey);
+		g_cbtplay_dir = 0;
+		g_cbtplay_aim = 0;
 		if (c == 0) {
 			*cmd_out = dirkey;              /* 129..136 movement key */
 			g_a5_byte(-24139) = 1;          /* input / roster-nav mode */
 			g_cbtplay_dir = 1;              /* mark: auto-driven l1162 */
+		} else if (c == 1) {
+			*cmd_out = 1;                   /* AIM / ranged (jt539) */
+			g_a5_byte(-24139) = 0;
+			g_cbtplay_aim   = 1;            /* mark: auto-commit l2e30 */
+			g_cbtplay_acted = 1;            /* one ranged action / turn */
 		} else {
 			*cmd_out = 11;                  /* auto-resolve / end turn */
 			g_a5_byte(-24139) = 0;
-			g_cbtplay_dir = 0;
 		}
 		dbg_file_num("cbtplay: cmd", (long)*cmd_out);
 		jt154();                                /* close the bar (l0d16's tail) */
@@ -60341,6 +60383,38 @@ static short l2e30(long m, long b, short r, short mode, short f4, short f5,
 	short          i;
 
 	PROBE("L2e30");
+
+#ifdef FRUA_CBTPLAY
+	/* Headless AIM auto-commit (#74 ranged): when cbtplay drove cmd 1, jt539
+	 * has already placed a jt554-validated target in b (== g_a5_-7254). If it
+	 * is a living enemy, return option 3 (commit -> l302c strike); otherwise
+	 * cancel (5). One decision either way — g_cbtplay_aim is one-shot. */
+	if (g_cbtplay_aim) {
+		unsigned char *r = (unsigned char *)(uintptr_t)b;
+		unsigned char  aside = ((unsigned char *)(uintptr_t)m)[95];
+		g_cbtplay_aim = 0;
+		if (r != NULL && b != m && r[95] != aside && r[382] != 0) {
+			dbg_file_num("cbtplay: AIM commit tgt-hp", (long)r[395]);
+			return 3;               /* commit the strike on jt539's target */
+		}
+		/* jt539's ring had no valid target (jt554 rejected). Inject decide's
+		 * chosen enemy into -7254 and let l302c/jt533 be the final arbiter —
+		 * if it also rejects (e.g. no line of sight), l302c clears the flag
+		 * and no strike fires (faithful). */
+		if (g_cbtplay_target != 0) {
+			unsigned char *t =
+			    (unsigned char *)(uintptr_t)g_cbtplay_target;
+			if (t[382] != 0 && t[95] != aside) {
+				g_a5_long(-7254) = g_cbtplay_target;
+				dbg_file_num("cbtplay: AIM inject tgt-hp",
+				             (long)t[395]);
+				return 3;       /* commit on the injected target */
+			}
+		}
+		dbg_log("cbtplay: AIM no valid target - cancel");
+		return 5;                       /* nothing valid -> cancel */
+	}
+#endif
 
 	hdr[8] = 1;
 	jt506((short)(signed char)l6b40(m), (short)(signed char)l6b6a(m),
