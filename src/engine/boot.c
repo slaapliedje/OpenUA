@@ -19514,7 +19514,17 @@ void frua_areatest_entry(void)
 	 * the ARROW KEYS (move into a monster to attack; "CAN'T GO THERE" is l1162
 	 * rejecting an illegal step) — QUICK ('q') is a convenience, not a
 	 * requirement. Arrow-driven play produces MORE sound than QUICK does: the
-	 * melee attack sfx jt52(8)/jt52(13) as well as jt52(11). */
+	 * melee attack sfx jt52(8)/jt52(13) as well as jt52(11).
+	 *
+	 * ★ ADD -DFRUA_CBTPLAY to drive the PARTY TURN too, with no keys at all
+	 * (#74): each player turn auto-picks a command in l0d16 — attack an
+	 * adjacent enemy, else step toward the nearest, else auto-resolve — and
+	 * feeds l1162 the direction a keypress would. So the whole recipe becomes
+	 * fully headless: `make EXTRA_CFLAGS="-DFRUA_CBTSND -DFRUA_CBTAUTO
+	 * -DFRUA_CBTPLAY"`, patch the STAGED HEIRS GAME001.DAT byte 48 5->7,
+	 * beginplay, Escape, then a few Returns past the event text — the fight
+	 * runs itself to a resolution (add -DFRUA_CBTPLAY_DIAG for per-decision
+	 * position/target logging). */
 	dbg_log("cbtsnd: ready - press k in the walk to fight");
 #endif
 #if defined(FRUA_BWMODE) && defined(FRUA_SPILLTEST)
@@ -50721,6 +50731,150 @@ static void jt532(short a, short b, short c)
 		}
 	}
 }
+#ifdef FRUA_CBTPLAY
+/* ===================================================================
+ * FRUA_CBTPLAY — headless combat auto-turn (#74).
+ *
+ * The tactical combat player turn is fully playable but INPUT-DRIVEN:
+ * l0d16 reads a command (jt173 verb bar) and l1162 reads a movement
+ * key (jt173). With no keyboard a headless run stalls on the party's
+ * first move (prior #74 work reached exactly this point). This harness
+ * makes the party fight itself: on each player turn it picks a command
+ * with no faithful engine change to the combat resolution — it only
+ * SUPPLIES the input the two jt173 reads would have gathered.
+ *
+ * Decision (cbtplay_decide): find the nearest living enemy (different
+ * side [95]); if one is in an adjacent cell attack it (Move/Attack,
+ * cmd 0, toward that direction); else step one cell toward it along
+ * the passable, affordable direction that most reduces the distance;
+ * else end the turn (auto-resolve, cmd 11). Geometry uses the same
+ * primitives the real turn does: the field cell (jt525/jt531), the
+ * per-direction probe (jt515 -> occupant id into g_a5_25676, terrain
+ * feature), the 8-direction delta tables (-27862/-27853) and the move
+ * cost table (-27848), so a chosen move/attack takes the identical
+ * l1162 branch a human keypress would.
+ *
+ * g_cbtplay_dir carries the chosen direction key (129..136, or 0 =
+ * none) from l0d16 to l1162. A per-member decision cap
+ * (CBTPLAY_CAP) is a hard backstop against any non-terminating pick.
+ * Build: make EXTRA_CFLAGS="-DFRUA_CBTPLAY ..."; combat-only, so the
+ * flag alone gates it — nothing drives outside a player combat turn.
+ * =================================================================== */
+#define CBTPLAY_CAP 24
+#define ABS_INT(x) ((x) < 0 ? -(x) : (x))
+static unsigned char g_cbtplay_dir;     /* l0d16 -> l1162 forced direction key */
+static short         g_cbtplay_turns;   /* per-member decision counter */
+
+static void          jt515(long entity, short featIdx,
+                           unsigned char *outA, unsigned char *outB,
+                           unsigned char *outC);   /* fwd (defined above) */
+
+/* dir 0..7 -> the l1162 movement key (136=0, 129..135 = 1..7). */
+static unsigned char cbtplay_dirkey(int d)
+{
+	return (unsigned char)(d == 0 ? 136 : 128 + d);
+}
+
+/* Decide one action for `member`. Returns the l08b4 command (0 =
+ * Move/Attack via *dir_out, 11 = auto-resolve / end turn). */
+static int cbtplay_decide(long member, unsigned char *dir_out)
+{
+	unsigned char *actor = (unsigned char *)(uintptr_t)member;
+	unsigned char *mc;
+	signed char    au = (signed char)jt525(member);
+	signed char    av = (signed char)jt531(member);
+	unsigned char  aside = actor[95];
+	long           n, best = 0;
+	int            bestdist = 0x7fff, bd = -1, bdd;
+	signed char    eu = 0, ev = 0;
+	int            d;
+
+	*dir_out = 8;
+
+	/* nearest living enemy (different side) */
+	for (n = g_a5_long(-27928); n; n = *(long *)(uintptr_t)n) {
+		unsigned char *node = (unsigned char *)(uintptr_t)n;
+		signed char nu, nv;
+		int dist;
+		if (n == member || node[382] == 0 || node[95] == aside)
+			continue;
+		nu = (signed char)jt525(n);
+		nv = (signed char)jt531(n);
+		dist = ABS_INT(nu - au);
+		if (ABS_INT(nv - av) > dist)
+			dist = ABS_INT(nv - av);
+		if (dist < bestdist) {
+			bestdist = dist; best = n; eu = nu; ev = nv;
+		}
+	}
+	if (best == 0)
+		return 11;                      /* no enemies -> end the turn */
+
+#ifdef FRUA_CBTPLAY_DIAG
+	dbg_file_num("cbtplay:   au", (long)au);
+	dbg_file_num("cbtplay:   av", (long)av);
+	dbg_file_num("cbtplay:   eu", (long)eu);
+	dbg_file_num("cbtplay:   ev", (long)ev);
+	dbg_file_num("cbtplay:   bestdist", (long)bestdist);
+	dbg_file_num("cbtplay:   aside", (long)aside);
+#endif
+	/* 1) an adjacent enemy -> attack it */
+	for (d = 0; d < 8; d++) {
+		unsigned char occ = 0, feat = 0, oc = 0;
+		jt515(member, (short)d, &occ, &feat, &oc);
+#ifdef FRUA_CBTPLAY_DIAG
+		if (occ > 0) {
+			unsigned char *r = (unsigned char *)(uintptr_t)g_a5_25676[occ];
+			dbg_file_num("cbtplay:   probe d", (long)d);
+			dbg_file_num("cbtplay:     occ", (long)occ);
+			dbg_file_num("cbtplay:     occ.side", r ? (long)r[95] : -1L);
+			dbg_file_num("cbtplay:     occ.alive", r ? (long)r[382] : -1L);
+		}
+#endif
+		if (occ > 0) {
+			long rec = g_a5_25676[occ];
+			unsigned char *r = (unsigned char *)(uintptr_t)rec;
+			if (r != NULL && r[95] != aside && r[382] != 0) {
+				*dir_out = cbtplay_dirkey(d);
+				return 0;
+			}
+		}
+	}
+
+	/* 2) step toward the nearest enemy along the best passable dir */
+	mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
+	bdd = bestdist;
+	for (d = 0; d < 8; d++) {
+		unsigned char occ = 0, feat = 0, oc = 0;
+		unsigned char cost, step;
+		signed char nu, nv;
+		int nd;
+		jt515(member, (short)d, &occ, &feat, &oc);
+		if (occ != 0 || feat == 0)      /* blocked, or off-field edge */
+			continue;
+		cost = (unsigned char)g_a5_buf(-27848)[feat * 4];
+		if (cost == 255)
+			continue;
+		step = (unsigned char)(jt472((short)d) ? cost * 3 : cost * 2);
+		if (step > mc[8])               /* cannot afford the step */
+			continue;
+		nu = (signed char)(au + (signed char)g_a5_buf(-27862)[d]);
+		nv = (signed char)(av + (signed char)g_a5_buf(-27853)[d]);
+		nd = ABS_INT(nu - eu);
+		if (ABS_INT(nv - ev) > nd)
+			nd = ABS_INT(nv - ev);
+		if (nd < bdd) {
+			bdd = nd; bd = d;
+		}
+	}
+	if (bd >= 0) {
+		*dir_out = cbtplay_dirkey(bd);
+		return 0;
+	}
+	return 11;                              /* boxed in -> end the turn */
+}
+#endif /* FRUA_CBTPLAY */
+
 /* Forward decls — l1162 deps defined later in this file. */
 static void          l167e(long m, long target, void *out);
 static unsigned char jt535(long m);
@@ -50764,6 +50918,18 @@ static void l1162(long actor_l, short cmd, unsigned char *done)
 	goto l1632;
 
 loop_top:
+#ifdef FRUA_CBTPLAY
+	/* Auto-turn: l08b4 delivered the direction key as `cmd` (key), so the
+	 * first loop pass processes the step/attack. When l1162 re-enters
+	 * loop_top asking for MORE input (key==255) on an auto-driven call,
+	 * terminate it (key 1) so exactly one step/attack runs per l0d16
+	 * decision and l08b4 re-decides. */
+	if (key == 255 && g_cbtplay_dir != 0) {
+		g_cbtplay_dir = 0;
+		g_a5_byte(-24139) = 0;          /* stop l1626 resetting key to 255 */
+		key = 1;
+	}
+#endif
 	if (key == 255) {
 		mc = (unsigned char *)(uintptr_t)(*(long *)(uintptr_t)(actor + 64));
 		jt394(buf, "%s%2d", "Move/Attack, Move Left = ", (int)(mc[8] >> 1));
@@ -51694,6 +51860,11 @@ static void l08b4(long member)
 	if (actor == NULL)
 		return;
 
+#ifdef FRUA_CBTPLAY
+	g_cbtplay_turns = 0;                            /* fresh decision budget */
+	g_cbtplay_dir   = 0;
+#endif
+
 	if (actor[382] == 0) {                          /* not controllable -> auto */
 		done = (unsigned char)l26ea(member);
 		return;
@@ -51917,6 +52088,33 @@ static void l0d16(long actor_l, unsigned char *cmd_out)
 	if (g_a5_byte(-18485) != 0)
 		jt155(12, &count);
 
+#ifdef FRUA_CBTPLAY
+	/* Headless auto-turn: choose the command instead of reading jt173.
+	 * A move/attack is delivered exactly as a human keypress would be —
+	 * the DIRECTION KEY (129..136) in roster-nav / input mode (-24139),
+	 * so l08b4's first switch routes it to l1162 (case 0 there is a
+	 * no-op entry — l1162 with key==0 returns at once; the real move is
+	 * driven by the 129..136 keys). A pass is the always-available
+	 * auto-resolve (cmd 11). The menu (jt155 chips) was built above for
+	 * the on-screen bar; we only supply the pick. */
+	{
+		unsigned char dirkey = 8;
+		int c = (++g_cbtplay_turns > CBTPLAY_CAP)
+		        ? 11 : cbtplay_decide(actor_l, &dirkey);
+		if (c == 0) {
+			*cmd_out = dirkey;              /* 129..136 movement key */
+			g_a5_byte(-24139) = 1;          /* input / roster-nav mode */
+			g_cbtplay_dir = 1;              /* mark: auto-driven l1162 */
+		} else {
+			*cmd_out = 11;                  /* auto-resolve / end turn */
+			g_a5_byte(-24139) = 0;
+			g_cbtplay_dir = 0;
+		}
+		dbg_file_num("cbtplay: cmd", (long)*cmd_out);
+		jt154();                                /* close the bar (l0d16's tail) */
+		return;
+	}
+#endif
 	/* read + validate the command keystroke */
 	g_a5_byte(-22308) = 0;
 	do {
