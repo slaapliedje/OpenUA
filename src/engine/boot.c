@@ -36960,9 +36960,11 @@ static int    jt159(const char *prompt, short b)
 #ifdef FRUA_CBTPLAY
 	/* Headless combat wants zero keypresses. Auto-answer every Yes/No dialog
 	 * a hands-off fight raises with NO (decline):
-	 *   - in combat "continue battle?" is FRUA's per-round auto-resolve
-	 *     offer — NO ends the fight (the engine resolves the remainder), so
-	 *     it can't be chased forever by kiting stragglers (YES loops it);
+	 *   - in combat "continue battle?" is l102a's POST-VICTORY prompt: it
+	 *     fires only when the monster side is empty (-25297 == 0, all foes
+	 *     defeated) and asks whether to keep the now-empty battlefield open;
+	 *     NO accepts the win and ends the fight (YES sets *done=0 and loops
+	 *     the party around an enemy-free field forever — measured 120x);
 	 *   - out of combat the post-fight "still treasure left, go back?" and
 	 *     kin decline so control returns to the walk.
 	 * The friendly-fire confirm (jt533) never reaches here — cbtplay only
