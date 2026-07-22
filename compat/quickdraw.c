@@ -542,6 +542,30 @@ static Boolean qd_effective_clip(GrafPtr port, Rect *out)
 	return 1;
 }
 
+#ifdef FRUA_PLANAR
+/*
+ * ADR-0016 B4: fill [x,x+w) x [y,y+h) into the backend's draw-time plane buffer,
+ * paralleling the chunky patCopy solid fill (the menu background + panels). The
+ * fill can cross band boundaries, so each scanline picks its own band's slot for
+ * the chunky index — the SAME per-band map the c2p uses, so the bytes match.
+ * planar_fill_stlow clips to the screen. (Bitwise pat-modes read the destination
+ * index, which the plane buffer does not retain, so only patCopy is converted;
+ * the rest stay chunky-only for now — the menu uses none of them.)
+ */
+static void dc_plane_fill(const dsp_planar_dt_t *dt, short x, short y,
+                          short w, short h, unsigned char idx)
+{
+	short yy, y1 = (short)(y + h);
+
+	for (yy = y; yy < y1; yy++) {
+		short band = (short)((long)yy * dt->nbands / dt->h);
+		unsigned char slot = dt->remap[(long)band * 256 + idx];
+		planar_fill_stlow(dt->planes, dt->line_bytes, dt->nplanes,
+		                  dt->w, dt->h, x, yy, w, 1, slot);
+	}
+}
+#endif
+
 /*
  * Fill a rectangle of the current port's pixmap, applying `mode` between
  * `fg` and the destination pixel, optionally gated by a one-bit pattern.
@@ -570,6 +594,10 @@ static void qd_pixmap_fill(GrafPtr port, const Rect *clip,
 	PixMap  *pm;
 	Rect     clipped;
 	short    row, w;
+#ifdef FRUA_PLANAR
+	dsp_planar_dt_t dt;
+	int             dt_on;
+#endif
 
 	if (((unsigned short)cp->portVersion & CGRAFPORT_FLAG) != CGRAFPORT_FLAG)
 		return;
@@ -583,6 +611,9 @@ static void qd_pixmap_fill(GrafPtr port, const Rect *clip,
 
 	g_qd_touched = 1;                        /* #152: about to write pixels */
 	w = (short)(clipped.right - clipped.left);
+#ifdef FRUA_PLANAR
+	dt_on = dsp_planar_draw_target(&dt);
+#endif
 
 	if (pat == NULL) {
 		for (row = clipped.top; row < clipped.bottom; row++) {
@@ -611,6 +642,14 @@ static void qd_pixmap_fill(GrafPtr port, const Rect *clip,
 				break;
 			}
 		}
+#ifdef FRUA_PLANAR
+		/* Parallel plane store for the solid patCopy fill (the menu's
+		 * backgrounds/panels). Bitwise modes read the dest index and are
+		 * left chunky-only — see dc_plane_fill. */
+		if (dt_on && mode == patCopy)
+			dc_plane_fill(&dt, clipped.left, clipped.top, w,
+			              (short)(clipped.bottom - clipped.top), fg);
+#endif
 		return;
 	}
 
