@@ -791,6 +791,16 @@ static void st_dt_selfcheck(void)
 /* B4 step 4 (the flip, re-landed for debugging): build one scanline of the
  * native-planar frame in s_dt. Owned pixels trusted; the rest bridged from
  * chunky. See the reverted 006b571 for the design rationale. */
+/* NEW-INK detector (the roster-text fix). The quantizer maps colours ABSENT
+ * from its source frame through a nearest-LUMA fallback — so a chromatic ink
+ * drawn AFTER the re-band (the gold roster text: its luma ~= the panel grey's)
+ * lands on the panel's slot and renders INVISIBLE. The baseline c2p dodges it
+ * only by cadence (slower presents -> the re-band usually fires after the text
+ * exists). Count converted pixels whose index the last quant never saw; the
+ * present tail schedules a re-quant when enough arrive — one present later the
+ * ink has a real slot. Same class the B1 wall-pinning solved for walls. */
+static long s_dt_new_ink;
+
 static void st_dt_build_row(short y)
 {
 	short band = (short)((long)y * ST_NBANDS / ST_H);
@@ -801,6 +811,8 @@ static void st_dt_build_row(short y)
 	for (x = 0; x < ST_W; x++) {
 		long c = (long)y * ST_W + x;
 
+		if (!s_used_idx[crow[x]])
+			s_dt_new_ink++;          /* ink the palette never saw */
 		if (s_dt_cov[c] && s_dt_idx[c] == crow[x])
 			continue;                        /* owned: trust the draw-time stamp */
 		planar_put_stlow(s_dt, LINE_BYTES, ST_DEPTH, x, y, lut[crow[x]]);
@@ -862,23 +874,70 @@ static void st_dt_probe(const char *tag, short x, short y)
 	dbg_log_num(tag, v);
 }
 
-/* Span probe over the roster-name row (y=30, x=120..231): counts chunky pixels
- * differing from the panel reference at x=240, and the max chunky index seen.
- * Distinguishes "text never drawn into chunky" (diff≈0 — engine-side) from
- * "text present but remap-collapsed" (diff>20 — backend-fixable). */
+/* Roster-NAME rect probe (surface y=26..38, x=115..300 — the whole "LADY ILLIS
+ * -4 84" line, so a single-row placement error can't blind it). Counts pixels
+ * holding the HUD text clut 23 and pixels differing from the panel reference,
+ * and logs the remap slot + CLUT RGB of both indices. One reading separates the
+ * three worlds:
+ *   c23 == 0            -> text never drawn into chunky (engine-side ordering)
+ *   c23 > 0, r23 == rref -> text present but remap-COLLAPSED (backend: widen
+ *                           the split guard)
+ *   c23 > 0, r23 != rref, RGBs equal -> engine painted grey-on-grey (faithful;
+ *                           the baseline would show it too at this instant)   */
 static void st_dt_probe_span(void)
 {
-	const unsigned char *row = s_chunky + 30L * ST_W;
-	unsigned char ref = row[240], mx = 0;
-	long diff = 0;
-	short x;
+	unsigned char ref = s_chunky[30L * ST_W + 240];
+	const unsigned char *lut = s_band_remap
+	    + (long)(30 * ST_NBANDS / ST_H) * 256;
+	long c23 = 0, diff = 0;
+	short x, y;
 
-	for (x = 120; x < 232; x++) {
-		if (row[x] != ref) diff++;
-		if (row[x] > mx) mx = row[x];
+	for (y = 26; y <= 38; y++) {
+		const unsigned char *row = s_chunky + (long)y * ST_W;
+		for (x = 115; x < 300; x++) {
+			if (row[x] == 23) c23++;
+			if (row[x] != ref) diff++;
+		}
 	}
-	dbg_log_num("b4span diff= ", diff);
-	dbg_log_num("b4span max = ", mx);
+	dbg_log_num("b4span ref  = ", ref);
+	dbg_log_num("b4span c23  = ", c23);
+	dbg_log_num("b4span diff = ", diff);
+	dbg_log_num("b4span r23  = ", lut[23]);
+	dbg_log_num("b4span rref = ", lut[ref]);
+	dbg_log_num("b4span rgb23= ", (long)s_clut[23 * 3] * 65536L
+	    + (long)s_clut[23 * 3 + 1] * 256L + s_clut[23 * 3 + 2]);
+	dbg_log_num("b4span rgbrf= ", (long)s_clut[(long)ref * 3] * 65536L
+	    + (long)s_clut[(long)ref * 3 + 1] * 256L + s_clut[(long)ref * 3 + 2]);
+
+	/* Name the culprit: the DOMINANT non-panel index in the rect (= the text
+	 * ink when text is present), its slot, and the RGB that slot actually
+	 * DISPLAYS (s_band_pal) vs the panel slot's. tdisp==pdisp with tcnt>0 is
+	 * the palette-level collapse caught red-handed (text present in chunky,
+	 * mapped to a slot displaying panel grey). */
+	{
+		static short hist[256];
+		short t = 0;
+
+		memset(hist, 0, sizeof hist);
+		for (y = 26; y <= 38; y++) {
+			const unsigned char *row = s_chunky + (long)y * ST_W;
+			for (x = 115; x < 300; x++)
+				if (row[x] != 23)
+					hist[row[x]]++;
+		}
+		for (x = 1; x < 256; x++)
+			if (hist[x] > hist[t])
+				t = x;
+		dbg_log_num("b4span tidx = ", t);
+		dbg_log_num("b4span tcnt = ", hist[t]);
+		dbg_log_num("b4span tslot= ", lut[t]);
+		dbg_log_num("b4span tdisp= ", (long)s_band_pal[(long)lut[t] * 3] * 65536L
+		    + (long)s_band_pal[(long)lut[t] * 3 + 1] * 256L
+		    + s_band_pal[(long)lut[t] * 3 + 2]);
+		dbg_log_num("b4span pdisp= ", (long)s_band_pal[(long)lut[23] * 3] * 65536L
+		    + (long)s_band_pal[(long)lut[23] * 3 + 1] * 256L
+		    + s_band_pal[(long)lut[23] * 3 + 2]);
+	}
 }
 #endif /* FRUA_PLANAR */
 
@@ -1253,6 +1312,18 @@ static void st_present(void)
 		st_dt_probe("b4probe hud(180,30)= ", 180, 30);
 		st_dt_probe_span();
 	}
+	/* NEW-INK re-quant trigger (see st_dt_build_row): enough converted pixels
+	 * carried indices the last quant never saw (post-re-band inks riding the
+	 * luma fallback -> invisible text). Schedule a re-quant: s_dirty alone is
+	 * NOT enough — the CLUT-guard would skip it (the CLUT did not change; the
+	 * CONTENT did), so invalidate the banded snapshot too. The re-quant's own
+	 * s_used_idx refresh then covers the ink, so this cannot loop. */
+	if (s_have_pal && s_banded_valid && s_dt_new_ink >= 4) {
+		dbg_log_num("b4ink: new-ink px -> requant, n = ", s_dt_new_ink);
+		s_dirty        = 1;
+		s_banded_valid = 0;
+	}
+	s_dt_new_ink = 0;
 #endif
 #ifdef FRUA_STPROF
 	{
