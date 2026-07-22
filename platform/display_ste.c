@@ -731,69 +731,48 @@ static void st_dt_selfcheck(void)
 	}
 }
 
-/* B4 step 4 (the flip): build one scanline of the native-planar frame in s_dt.
- * Owned pixels (a converted writer's draw-time stamp: cov set AND idx == the
- * current chunky index) are TRUSTED as-is; every other pixel is c2p'd from chunky
- * here — the "bridge" (never-drawn pixels, chrome an unconverted writer overwrote,
- * or, after a re-band cleared the epoch, the whole row). On a fully-owned row this
- * touches nothing; there is no full-frame transpose. */
-static void st_dt_build_row(short y)
+/* B4 step 3b: source the OWNED pixels of the displayed page from the draw-time
+ * plane stamps (s_dt), leaving the c2p as the bridge for everything else. Runs
+ * after st_blit_full, so the page already holds a full c2p; this overwrites each
+ * pixel a converted writer still owns with s_dt's slot. Owned == c2p (proven 3a),
+ * so the frame is visually identical — but the text + fills on screen now come
+ * from the native-planar path, the milestone before the c2p can be dropped. Both
+ * pages, like st_vp_composite (a flip must not show the other page's un-driven
+ * copy). FRUA_PLANAR-only; the full c2p still runs (perf win awaits every writer
+ * converted). */
+static void st_dt_composite(void)
 {
-	short band = (short)((long)y * ST_NBANDS / ST_H);
-	const unsigned char *lut  = s_band_remap + (long)band * 256;
-	const unsigned char *crow = s_chunky + (long)y * ST_W;
-	short x;
+	long  x, y;
+	short pg;
 
-	for (x = 0; x < ST_W; x++) {
-		long c = (long)y * ST_W + x;
-
-		if (s_dt_cov[c] && s_dt_idx[c] == crow[x])
-			continue;                        /* owned: trust the draw-time stamp */
-		planar_put_stlow(s_dt, LINE_BYTES, ST_DEPTH, x, y, lut[crow[x]]);
-	}
-}
-
-/* B4 step 4: present the frame from s_dt by COPYING it to the page, in place of
- * st_blit_full's full-frame c2p. The draw-time writers already stamped the owned
- * pixels (~all of a converted screen), so building a row is just bridging the few
- * non-owned pixels; the row-diff keeps idle presents cheap (unchanged rows are
- * already correct on the page) exactly like st_blit_full. A re-band cleared the
- * epoch, so its force_full rebuilds every pixel from chunky — same cost as a full
- * c2p, but only on the (rare) re-band. Mirrors st_blit_full's page/shadow/counter
- * bookkeeping so the reband-skip + smart-skip machinery is unchanged. */
-static void st_dt_present_full(void)
-{
-	short y, x, pg;
-
-	if (s_force_full > 0) {
-		for (y = 0; y < ST_H; y++)
-			st_dt_build_row(y);
-		for (pg = 0; pg < NPAGES; pg++) {
-			memcpy(s_page[pg], s_dt, SCREEN_BYTES);
-			memcpy(s_shadow_pg[pg], s_chunky, (size_t)ST_W * ST_H);
-		}
-		s_screen        = s_page[s_back];
-		s_shadow        = s_shadow_pg[s_back];
-		s_force_full    = 0;
-		s_remap_changed = 0;
+	if (s_dt == NULL || s_dt_cov == NULL || s_dt_idx == NULL || !s_have_pal)
 		return;
-	}
-	for (y = 0; y < ST_H; y++) {
-		const unsigned char *crow = s_chunky + (long)y * ST_W;
-		int conv = memcmp(crow, s_shadow + (long)y * ST_W, ST_W) != 0;
+#ifdef FRUA_PLANAR_DIAG
+	/* Falsification: wipe every owned pixel's c2p value to slot 0 first, so the
+	 * composite below is the SOLE source of those pixels. A correct screenshot
+	 * then proves s_dt (not the underlying c2p) drives the owned display. */
+	for (y = 0; y < ST_H; y++)
+		for (x = 0; x < ST_W; x++) {
+			long c = (long)y * ST_W + x;
+			if (!s_dt_cov[c] || s_dt_idx[c] != s_chunky[c])
+				continue;
+			for (pg = 0; pg < NPAGES; pg++)
+				planar_put_stlow(s_page[pg], LINE_BYTES, ST_DEPTH,
+				                 (short)x, (short)y, 0);
+		}
+#endif
+	for (y = 0; y < ST_H; y++)
+		for (x = 0; x < ST_W; x++) {
+			long c = (long)y * ST_W + x;
+			unsigned char slot;
 
-		if (!conv && s_remap_changed > 0)
-			for (x = 0; x < ST_W; x++)
-				if (s_remap_dirty[crow[x]]) { conv = 1; break; }
-		if (!conv)
-			continue;
-		st_dt_build_row(y);
-		memcpy(s_page[s_back] + (long)y * LINE_BYTES,
-		       s_dt + (long)y * LINE_BYTES, LINE_BYTES);
-		memcpy(s_shadow + (long)y * ST_W, crow, ST_W);
-	}
-	if (s_remap_changed > 0)
-		s_remap_changed--;
+			if (!s_dt_cov[c] || s_dt_idx[c] != s_chunky[c])
+				continue;                /* not owned / overwritten -> bridge */
+			slot = st_slot_at(s_dt, (short)x, (short)y);
+			for (pg = 0; pg < NPAGES; pg++)
+				planar_put_stlow(s_page[pg], LINE_BYTES, ST_DEPTH,
+				                 (short)x, (short)y, slot);
+		}
 }
 #endif /* FRUA_PLANAR */
 
@@ -1145,14 +1124,10 @@ static void st_present(void)
 				st_reband();
 		}
 	}
-#ifdef FRUA_PLANAR
-	st_dt_selfcheck();                       /* diag: owned == c2p (before build) */
-	if (s_have_pal)
-		st_dt_present_full();            /* step 4: flip-copy s_dt, NO full c2p */
-	else
-		st_blit_full();                  /* no remap yet: the c2p path is safe */
-#else
 	st_blit_full();
+#ifdef FRUA_PLANAR
+	st_dt_selfcheck();                       /* 3a: prove s_dt owned == c2p */
+	st_dt_composite();                       /* 3b: owned pixels driven from s_dt */
 #endif
 	st_vp_composite();                       /* overlay the planar viewport */
 #ifdef FRUA_STPROF
