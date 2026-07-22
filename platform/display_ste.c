@@ -491,12 +491,63 @@ static unsigned char *s_dt_idx;         /* ST_W*ST_H: the index it laid there  *
  * any plane bits a converted writer stamped under the PREVIOUS remap are stale.
  * Clear coverage so only pixels drawn under the current remap are trusted (the
  * rest fall to the c2p bridge). Called from st_reband / st_repalette. */
+#ifdef FRUA_PLANAR_DIAG
+static long s_dt_checks;                /* selfcheck budget (see st_dt_selfcheck) */
+static long s_dt_epoch;                 /* epoch serial, for log correlation      */
+#endif
+
 static void st_dt_epoch_reset(void)
 {
 	if (s_dt_cov)
 		memset(s_dt_cov, 0, (size_t)ST_W * ST_H);
+#ifdef FRUA_PLANAR_DIAG
+	/* Re-arm the selfcheck: each epoch (scene/palette change) gets audited,
+	 * so the DUNGEON frames are checked too — the flip's original "dungeon
+	 * breakage" verdict shipped unaudited because the menu consumed a global
+	 * budget. */
+	s_dt_checks = 0;
+	s_dt_epoch++;
+#endif
 }
 #endif
+
+/* CLUT indices the last re-quant actually saw in the frame (captured over the
+ * reband's own quant source, incl. the wall-pin overlay). Only these can prove
+ * a merged slot: absent indices ride the luma fallback and must not veto the
+ * repalette fast path (Phase-0's whole win). */
+static unsigned char s_used_idx[256];
+
+/* A content-unchanged palette load may still SPLIT two indices the last quant
+ * MERGED into one slot: their RGBs matched then (e.g. the transient
+ * clut[text]==clut[panel] grey during a recompose — the grey-on-grey HUD-text
+ * family, jt1089), so median-cut folded them together — and a slot->RGB reload
+ * (st_repalette) can never un-merge them, leaving the text invisible no matter
+ * which colour the slot reloads to. Detect it: two USED indices sharing a slot
+ * whose NEW CLUT colours diverge means the merge is stale -> take the full
+ * re-quant instead. Threshold 512 (squared RGB): the documented collapse case
+ * is a 28-unit red gap (784), comfortably above; genuine same-colour aliases
+ * sit near 0. */
+static int st_remap_split(void)
+{
+	short anchor[ST_NCOL];
+	short i, s;
+
+	for (s = 0; s < ST_NCOL; s++)
+		anchor[s] = -1;
+	for (i = 0; i < 256; i++) {
+		if (!s_used_idx[i])
+			continue;
+		s = s_band_remap[i];             /* band 0 = representative (B1) */
+		if (anchor[s] < 0) {
+			anchor[s] = i;
+			continue;
+		}
+		if (st_coldist(s_clut + (long)i * 3,
+		               s_clut + (long)anchor[s] * 3) > 512)
+			return 1;
+	}
+	return 0;
+}
 
 static void st_repalette(void)
 {
@@ -570,6 +621,14 @@ static void st_reband(void)
 	 * anchoring can return later if an art-heavy screen needs the extra colours. */
 	quant_banded(qsrc, ST_W, ST_H, s_clut,
 	             1, ST_NCOL, ST_BITS, s_band_pal, s_band_remap);
+
+	/* Capture which indices this quant actually saw (st_remap_split's domain). */
+	{
+		long n;
+		memset(s_used_idx, 0, sizeof s_used_idx);
+		for (n = 0; n < (long)ST_W * ST_H; n++)
+			s_used_idx[qsrc[n]] = 1;
+	}
 
 	/* B3.2 STABLE-SLOT ALIGNMENT: permute band 0's fresh 16 slots so each lands at
 	 * the position holding the closest colour in the PREVIOUS palette — a colour
@@ -656,6 +715,7 @@ static int st_dt_target(struct dsp_planar_dt *dt)
 	return 1;
 }
 
+#ifdef FRUA_PLANAR_DIAG
 /* Decode pixel (x,y)'s slot out of an ST-Low interleaved plane buffer — the
  * inverse of planar_put_stlow (plane p's word for 16-px group g at
  * y*LINE_BYTES + g*ST_DEPTH*2 + p*2, MSB = leftmost). */
@@ -683,12 +743,14 @@ static unsigned char st_slot_at(const unsigned char *buf, short x, short y)
  * zero mismatch count over a large owned set is the in-situ proof; the
  * overwritten count is the chrome the bridge (or a converted chrome writer)
  * must still supply. */
-static long s_dt_checks;
 static void st_dt_selfcheck(void)
 {
 	long owned = 0, bad = 0, overwritten = 0, x, y, shown = 0;
 
-	if (s_dt == NULL || s_dt_cov == NULL || s_dt_idx == NULL || s_dt_checks >= 4)
+	/* ONE audit per epoch: the 64000-px scan takes seconds at 8 MHz, and
+	 * auditing every present skews the autoplay pacing enough to break the
+	 * scripted dungeon entry (found live: 4/epoch stalled the hall). */
+	if (s_dt == NULL || s_dt_cov == NULL || s_dt_idx == NULL || s_dt_checks >= 1)
 		return;
 	for (y = 0; y < ST_H; y++) {
 		short band = (short)((long)y * ST_NBANDS / ST_H);
@@ -724,56 +786,170 @@ static void st_dt_selfcheck(void)
 		}
 	}
 	if (owned + overwritten > 0) {
+		dbg_log_num("b4dt: epoch       = ", s_dt_epoch);
 		dbg_log_num("b4dt: owned px    = ", owned);
 		dbg_log_num("b4dt: mismatches  = ", bad);
 		dbg_log_num("b4dt: overwritten = ", overwritten);
 		s_dt_checks++;
 	}
 }
+#endif /* FRUA_PLANAR_DIAG */
 
-/* B4 step 3b: source the OWNED pixels of the displayed page from the draw-time
- * plane stamps (s_dt), leaving the c2p as the bridge for everything else. Runs
- * after st_blit_full, so the page already holds a full c2p; this overwrites each
- * pixel a converted writer still owns with s_dt's slot. Owned == c2p (proven 3a),
- * so the frame is visually identical — but the text + fills on screen now come
- * from the native-planar path, the milestone before the c2p can be dropped. Both
- * pages, like st_vp_composite (a flip must not show the other page's un-driven
- * copy). FRUA_PLANAR-only; the full c2p still runs (perf win awaits every writer
- * converted). */
-static void st_dt_composite(void)
+/* B4 step 4 (the flip): build one scanline of the native-planar frame in s_dt.
+ * Owned pixels trusted; the rest bridged from chunky. */
+/* NEW-INK detector (the roster-text fix). The quantizer maps colours ABSENT
+ * from its source frame through a nearest-LUMA fallback — so a chromatic ink
+ * drawn AFTER the re-band (the gold roster text: its luma ~= the panel grey's)
+ * lands on the panel's slot and renders INVISIBLE. The baseline c2p dodges it
+ * only by cadence (slower presents -> the re-band usually fires after the text
+ * exists). Count converted pixels whose index the last quant never saw; the
+ * present tail schedules a re-quant when enough arrive — one present later the
+ * ink has a real slot. Same class the B1 wall-pinning solved for walls. */
+static long s_dt_new_ink;
+
+static void st_dt_build_row(short y)
 {
-	long  x, y;
-	short pg;
+	short band = (short)((long)y * ST_NBANDS / ST_H);
+	const unsigned char *lut  = s_band_remap + (long)band * 256;
+	const unsigned char *crow = s_chunky + (long)y * ST_W;
+	short x;
 
-	if (s_dt == NULL || s_dt_cov == NULL || s_dt_idx == NULL || !s_have_pal)
-		return;
-#ifdef FRUA_PLANAR_DIAG
-	/* Falsification: wipe every owned pixel's c2p value to slot 0 first, so the
-	 * composite below is the SOLE source of those pixels. A correct screenshot
-	 * then proves s_dt (not the underlying c2p) drives the owned display. */
-	for (y = 0; y < ST_H; y++)
-		for (x = 0; x < ST_W; x++) {
-			long c = (long)y * ST_W + x;
-			if (!s_dt_cov[c] || s_dt_idx[c] != s_chunky[c])
-				continue;
-			for (pg = 0; pg < NPAGES; pg++)
-				planar_put_stlow(s_page[pg], LINE_BYTES, ST_DEPTH,
-				                 (short)x, (short)y, 0);
-		}
-#endif
-	for (y = 0; y < ST_H; y++)
-		for (x = 0; x < ST_W; x++) {
-			long c = (long)y * ST_W + x;
-			unsigned char slot;
-
-			if (!s_dt_cov[c] || s_dt_idx[c] != s_chunky[c])
-				continue;                /* not owned / overwritten -> bridge */
-			slot = st_slot_at(s_dt, (short)x, (short)y);
-			for (pg = 0; pg < NPAGES; pg++)
-				planar_put_stlow(s_page[pg], LINE_BYTES, ST_DEPTH,
-				                 (short)x, (short)y, slot);
-		}
+	/* NEW-INK scan (cheap byte test per pixel; see the detector comment). */
+	for (x = 0; x < ST_W; x++)
+		if (!s_used_idx[crow[x]])
+			s_dt_new_ink++;
+	/* Rebuild the whole row through the OPTIMIZED span converter (nibble
+	 * transpose + flat fast path). Byte-identical to trusting the draw-time
+	 * stamps: ownership (cov && idx==chunky, same epoch) implies the stamp
+	 * equals lut[chunky] — the 3a audits pinned this at 0 mismatches — so
+	 * skipping owned pixels buys nothing while the per-pixel bridge the
+	 * first cut used cost ~2x the c2p on transitions (b4perf-measured).
+	 * Per-ROW ownership skip tracking is the future refinement. */
+	st_c2p_span(crow, s_dt + (long)y * LINE_BYTES, ST_W, lut);
 }
+
+/* B4 step 4: present from s_dt (row-diffed copy), replacing the full c2p.
+ * Mirrors st_blit_full's page/shadow/counter bookkeeping. */
+static void st_dt_present_full(void)
+{
+	short y, x, pg;
+
+	if (s_force_full > 0) {
+		for (y = 0; y < ST_H; y++)
+			st_dt_build_row(y);
+		for (pg = 0; pg < NPAGES; pg++) {
+			memcpy(s_page[pg], s_dt, SCREEN_BYTES);
+			memcpy(s_shadow_pg[pg], s_chunky, (size_t)ST_W * ST_H);
+		}
+		s_screen        = s_page[s_back];
+		s_shadow        = s_shadow_pg[s_back];
+		s_force_full    = 0;
+		s_remap_changed = 0;
+		return;
+	}
+	for (y = 0; y < ST_H; y++) {
+		const unsigned char *crow = s_chunky + (long)y * ST_W;
+		int conv = memcmp(crow, s_shadow + (long)y * ST_W, ST_W) != 0;
+
+		if (!conv && s_remap_changed > 0)
+			for (x = 0; x < ST_W; x++)
+				if (s_remap_dirty[crow[x]]) { conv = 1; break; }
+		if (!conv)
+			continue;
+		st_dt_build_row(y);
+		memcpy(s_page[s_back] + (long)y * LINE_BYTES,
+		       s_dt + (long)y * LINE_BYTES, LINE_BYTES);
+		memcpy(s_shadow + (long)y * ST_W, crow, ST_W);
+	}
+	if (s_remap_changed > 0)
+		s_remap_changed--;
+}
+
+#ifdef FRUA_PLANAR_DIAG
+/* Debug probe: after the present + composite, decode the SHOWN-to-be page at two
+ * pixels — a viewport wall pixel and a roster text pixel — and log page slot vs
+ * s_dt slot vs lut[chunky] + ownership. One short log per full present; the
+ * dungeon blackout's divergence names itself here. */
+static void st_dt_probe(const char *tag, short x, short y)
+{
+	short band = (short)((long)y * ST_NBANDS / ST_H);
+	long  c    = (long)y * ST_W + x;
+	long  v;
+
+	/* pack cov,page,s_dt,want as decimal fields: c_PP_SS_WW */
+	v = (long)(s_dt_cov[c] ? 1 : 0)            * 1000000L
+	  + (long)st_slot_at(s_page[s_back], x, y) * 10000L
+	  + (long)st_slot_at(s_dt, x, y)           * 100L
+	  + (long)s_band_remap[(long)band * 256 + s_chunky[c]];
+	dbg_log_num(tag, v);
+}
+
+/* Roster-NAME rect probe (surface y=26..38, x=115..300 — the whole "LADY ILLIS
+ * -4 84" line, so a single-row placement error can't blind it). Counts pixels
+ * holding the HUD text clut 23 and pixels differing from the panel reference,
+ * and logs the remap slot + CLUT RGB of both indices. One reading separates the
+ * three worlds:
+ *   c23 == 0            -> text never drawn into chunky (engine-side ordering)
+ *   c23 > 0, r23 == rref -> text present but remap-COLLAPSED (backend: widen
+ *                           the split guard)
+ *   c23 > 0, r23 != rref, RGBs equal -> engine painted grey-on-grey (faithful;
+ *                           the baseline would show it too at this instant)   */
+static void st_dt_probe_span(void)
+{
+	unsigned char ref = s_chunky[30L * ST_W + 240];
+	const unsigned char *lut = s_band_remap
+	    + (long)(30 * ST_NBANDS / ST_H) * 256;
+	long c23 = 0, diff = 0;
+	short x, y;
+
+	for (y = 26; y <= 38; y++) {
+		const unsigned char *row = s_chunky + (long)y * ST_W;
+		for (x = 115; x < 300; x++) {
+			if (row[x] == 23) c23++;
+			if (row[x] != ref) diff++;
+		}
+	}
+	dbg_log_num("b4span ref  = ", ref);
+	dbg_log_num("b4span c23  = ", c23);
+	dbg_log_num("b4span diff = ", diff);
+	dbg_log_num("b4span r23  = ", lut[23]);
+	dbg_log_num("b4span rref = ", lut[ref]);
+	dbg_log_num("b4span rgb23= ", (long)s_clut[23 * 3] * 65536L
+	    + (long)s_clut[23 * 3 + 1] * 256L + s_clut[23 * 3 + 2]);
+	dbg_log_num("b4span rgbrf= ", (long)s_clut[(long)ref * 3] * 65536L
+	    + (long)s_clut[(long)ref * 3 + 1] * 256L + s_clut[(long)ref * 3 + 2]);
+
+	/* Name the culprit: the DOMINANT non-panel index in the rect (= the text
+	 * ink when text is present), its slot, and the RGB that slot actually
+	 * DISPLAYS (s_band_pal) vs the panel slot's. tdisp==pdisp with tcnt>0 is
+	 * the palette-level collapse caught red-handed (text present in chunky,
+	 * mapped to a slot displaying panel grey). */
+	{
+		static short hist[256];
+		short t = 0;
+
+		memset(hist, 0, sizeof hist);
+		for (y = 26; y <= 38; y++) {
+			const unsigned char *row = s_chunky + (long)y * ST_W;
+			for (x = 115; x < 300; x++)
+				if (row[x] != 23)
+					hist[row[x]]++;
+		}
+		for (x = 1; x < 256; x++)
+			if (hist[x] > hist[t])
+				t = x;
+		dbg_log_num("b4span tidx = ", t);
+		dbg_log_num("b4span tcnt = ", hist[t]);
+		dbg_log_num("b4span tslot= ", lut[t]);
+		dbg_log_num("b4span tdisp= ", (long)s_band_pal[(long)lut[t] * 3] * 65536L
+		    + (long)s_band_pal[(long)lut[t] * 3 + 1] * 256L
+		    + s_band_pal[(long)lut[t] * 3 + 2]);
+		dbg_log_num("b4span pdisp= ", (long)s_band_pal[(long)lut[23] * 3] * 65536L
+		    + (long)s_band_pal[(long)lut[23] * 3 + 1] * 256L
+		    + s_band_pal[(long)lut[23] * 3 + 2]);
+	}
+}
+#endif /* FRUA_PLANAR_DIAG */
 #endif /* FRUA_PLANAR */
 
 /* --- backend entry points ------------------------------------------------ */
@@ -1100,7 +1276,11 @@ static void st_present(void)
 			 * an all-zero diff means nothing was drawn since. (st_reband borrows
 			 * s_shadow as a temp, so this MUST be sampled before the dispatch.) */
 			int content_same = s_banded_valid && !s_vp_active &&
-			    memcmp(s_chunky, s_shadow, (long)ST_W * ST_H) == 0;
+			    memcmp(s_chunky, s_shadow, (long)ST_W * ST_H) == 0 &&
+			    !st_remap_split();  /* a CLUT load that SPLITS a merged
+			                         * slot invalidates the remap even
+			                         * with content unchanged (the
+			                         * grey-on-grey HUD-text family) */
 #ifdef FRUA_STPROF
 			{
 				short yy, ci;
@@ -1124,12 +1304,44 @@ static void st_present(void)
 				st_reband();
 		}
 	}
-	st_blit_full();
 #ifdef FRUA_PLANAR
-	st_dt_selfcheck();                       /* 3a: prove s_dt owned == c2p */
-	st_dt_composite();                       /* 3b: owned pixels driven from s_dt */
+#ifdef FRUA_PLANAR_DIAG
+	st_dt_selfcheck();                       /* diag: owned == c2p (before build) */
+#endif
+	if (s_have_pal)
+		st_dt_present_full();            /* step 4: flip-copy s_dt, NO full c2p */
+	else
+		st_blit_full();
+#else
+	st_blit_full();
 #endif
 	st_vp_composite();                       /* overlay the planar viewport */
+#ifdef FRUA_PLANAR
+#ifdef FRUA_PLANAR_DIAG
+	/* Probes AFTER the composite, on the page about to be shown: viewport wall
+	 * pixel (60,60) and roster text row pixel (180,30). Fields c_PP_SS_WW =
+	 * cov, page slot, s_dt slot, remap[chunky]. */
+	if (s_have_pal) {
+		st_dt_probe("b4probe vp(60,60)  = ", 60, 60);
+		st_dt_probe("b4probe hud(180,30)= ", 180, 30);
+		st_dt_probe_span();
+	}
+#endif
+	/* NEW-INK re-quant trigger (see st_dt_build_row): enough converted pixels
+	 * carried indices the last quant never saw (post-re-band inks riding the
+	 * luma fallback -> invisible text). Schedule a re-quant: s_dirty alone is
+	 * NOT enough — the CLUT-guard would skip it (the CLUT did not change; the
+	 * CONTENT did), so invalidate the banded snapshot too. The re-quant's own
+	 * s_used_idx refresh then covers the ink, so this cannot loop. */
+	if (s_have_pal && s_banded_valid && s_dt_new_ink >= 4) {
+#ifdef FRUA_PLANAR_DIAG
+		dbg_log_num("b4ink: new-ink px -> requant, n = ", s_dt_new_ink);
+#endif
+		s_dirty        = 1;
+		s_banded_valid = 0;
+	}
+	s_dt_new_ink = 0;
+#endif
 #ifdef FRUA_STPROF
 	{
 		/* B3.0a: log EACH present that actually converted rows, tagged by which
@@ -1147,7 +1359,16 @@ static void st_present(void)
 				dbg_log_num("b30a diffed rows      = ", rows_now);
 		}
 	}
-	sp_in += TickCount() - t0;
+	{
+		/* Per-present cost, first 48 presents — the flip-vs-c2p comparison
+		 * number (b30a's row counts don't cover the flip path, which never
+		 * calls st_blit_rows). Same boot sequence, both builds, diff these. */
+		long in_ticks = TickCount() - t0;
+
+		sp_in += in_ticks;
+		if (sp_n < 48)
+			dbg_log_num("b4perf present ticks = ", in_ticks);
+	}
 	sp_rows = g_stprof_rows;
 	/* B3.0b fires on the first few FULL presents once a palette exists — full
 	 * presents are rare (scene/menu recomposes; dungeon walk uses rect presents),
