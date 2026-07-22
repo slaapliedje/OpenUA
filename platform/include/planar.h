@@ -102,6 +102,17 @@ void planar_blit_stlow(unsigned char *const src_planes[], short src_stride,
 void planar_viewport_register(unsigned char *(*scratch)(short *pitch),
                               void (*commit)(short x, short y, short w, short h));
 
+/*
+ * Install the active backend's draw-time plane target (ADR-0016 B4). The shared
+ * dsp_planar_draw_target() (display.h) dispatches through the hook a backend
+ * running the draw-time plane model installs at init; a backend that keeps the
+ * chunky+c2p path never registers, so converted writers see 0 and take their
+ * chunky store. Pass 0 to unregister (backend shutdown). Forward-declared struct
+ * (defined in display.h) so this header stays display-independent.
+ */
+struct dsp_planar_dt;
+void planar_draw_target_register(int (*fn)(struct dsp_planar_dt *dt));
+
 /* --- draw-time plane store (ADR-0016 draw-time present model) -------------
  *
  * The primitives the draw-time model routes every writer through: set slot bits

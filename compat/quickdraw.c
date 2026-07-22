@@ -24,6 +24,7 @@
 #include "printing.h"           /* pr_port_capture — printing-port text route */
 #include "macmemory.h"          /* NewHandleClear, DisposeHandle */
 #include "display.h"            /* dsp_color_t, dsp_detect — palette forward */
+#include "planar.h"             /* planar_put_stlow — B4 draw-time plane store */
 #include "font_8x8.h"           /* qd_font_8x8 — fallback bitmap font */
 #include "mac_font.h"           /* g_mac_font — preferred when loaded */
 #include "input.h"              /* plat_mouse_pos — software cursor   */
@@ -2090,6 +2091,27 @@ void TextFace(short face) { GrafPtr p; GetPort(&p); if (p) p->txFace = (Style)fa
 void TextMode(short mode) { GrafPtr p; GetPort(&p); if (p) p->txMode = mode; }
 void TextSize(short size) { GrafPtr p; GetPort(&p); if (p) p->txSize = size; }
 
+#ifdef FRUA_PLANAR
+/*
+ * ADR-0016 B4: stamp one text pixel into the backend's draw-time plane buffer,
+ * at the SAME clip-tested (x,y) the chunky store just wrote. The mac-font / 8x8
+ * glyph is inherently per-pixel (mac_font_pixel / a shifted mask), so the plane
+ * store rides DrawChar's own GrafPort clip for exact coverage parity with the
+ * chunky store. `idx` is the chunky palette index (fgColor or bkColor); the
+ * pixel's band (y*nbands/h) selects the remap row, so the slot bits are the
+ * SAME ones the per-band c2p would produce for that pixel — byte-identical.
+ * (planar_glyph_stlow is the clip-free batch form of this store, for callers
+ * with a packed single-band glyph.)
+ */
+static void dc_plane_px(const dsp_planar_dt_t *dt, short x, short y,
+                        unsigned char idx)
+{
+	short band = (short)((long)y * dt->nbands / dt->h);
+	planar_put_stlow(dt->planes, dt->line_bytes, dt->nplanes, x, y,
+	                 dt->remap[(long)band * 256 + idx]);
+}
+#endif
+
 /*
  * DrawChar — render one glyph at pnLoc with the baseline at pnLoc.v, then
  * advance the pen by the cell width. The 8x8 fallback font has ascent 7,
@@ -2108,6 +2130,10 @@ void DrawChar(short ch)
 	unsigned char fg, bk, mode;
 	Boolean       draw;
 	short         advance;
+#ifdef FRUA_PLANAR
+	dsp_planar_dt_t dt;
+	int             dt_on = 0;
+#endif
 
 	GetPort(&port);
 	if (port == NULL)
@@ -2134,6 +2160,12 @@ void DrawChar(short ch)
 	bk   = (unsigned char)cp->bkColor;
 	mode = (unsigned char)port->txMode;
 
+#ifdef FRUA_PLANAR
+	/* Draw-time plane store, in parallel with the chunky store below, when the
+	 * active backend is in draw-time plane mode (0 = default chunky+c2p path). */
+	dt_on = draw && dsp_planar_draw_target(&dt);
+#endif
+
 	if (g_mac_font_loaded) {
 		/* Real Mac bitmap font path — variable-width glyphs, per-row
 		 * bit lookup against the strike. */
@@ -2157,11 +2189,17 @@ void DrawChar(short ch)
 						                 + (y - pm->bounds.top) * pm->rowBytes
 						                 + (x - pm->bounds.left);
 						*p = fg;
+#ifdef FRUA_PLANAR
+						if (dt_on) dc_plane_px(&dt, x, y, fg);
+#endif
 					} else if (mode == srcCopy) {
 						unsigned char *p = (unsigned char *)pm->baseAddr
 						                 + (y - pm->bounds.top) * pm->rowBytes
 						                 + (x - pm->bounds.left);
 						*p = bk;
+#ifdef FRUA_PLANAR
+						if (dt_on) dc_plane_px(&dt, x, y, bk);
+#endif
 					}
 				}
 			}
@@ -2190,11 +2228,17 @@ void DrawChar(short ch)
 						                 + (y - pm->bounds.top) * pm->rowBytes
 						                 + (x - pm->bounds.left);
 						*p = fg;
+#ifdef FRUA_PLANAR
+						if (dt_on) dc_plane_px(&dt, x, y, fg);
+#endif
 					} else if (mode == srcCopy) {
 						unsigned char *p = (unsigned char *)pm->baseAddr
 						                 + (y - pm->bounds.top) * pm->rowBytes
 						                 + (x - pm->bounds.left);
 						*p = bk;
+#ifdef FRUA_PLANAR
+						if (dt_on) dc_plane_px(&dt, x, y, bk);
+#endif
 					}
 				}
 			}

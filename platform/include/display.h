@@ -76,6 +76,31 @@ const dsp_backend_t *dsp_detect(void);
  * planar path (or before the first palette is installed). */
 const unsigned char *dsp_planar_remap(short *nbands, short *screen_h);
 
+/* Native-planar draw-time plane stores (ADR-0016 B4). A backend that renders the
+ * frame by writing planes AT DRAW TIME (the FRUA_PLANAR draw-time model, in place
+ * of painting a chunky surface and batch-c2p'ing it each present) fills this out;
+ * the converted Toolbox/engine writers (DrawChar first) stamp their pixels straight
+ * into `planes` through the per-band remap, IN PARALLEL with their existing chunky
+ * store while the writers are converted one at a time. `remap` is `nbands` rows of
+ * 256 bytes; screen line y uses row remap + (y*nbands/h)*256 — the SAME map the c2p
+ * uses, so a converted writer produces byte-identical planes (see docs/planar-plan.md). */
+struct dsp_planar_dt {
+	unsigned char       *planes;      /* live interleaved plane buffer      */
+	const unsigned char *remap;       /* nbands * 256 index -> palette slot  */
+	short                line_bytes;  /* bytes per scanline (all planes)     */
+	short                w, h;        /* screen dims, for clipping           */
+	short                nplanes;
+	short                nbands;
+};
+typedef struct dsp_planar_dt dsp_planar_dt_t;
+
+/* Returns 1 and fills *dt when the active backend is in draw-time plane mode and a
+ * palette exists; 0 otherwise (the default chunky+c2p path, Falcon/TT, and any
+ * backend before its first palette). A converted writer gates its plane store on
+ * this and leaves its chunky store unchanged during the transition. Dispatches
+ * through planar_draw_target_register() (planar.h) so both build trees link. */
+int dsp_planar_draw_target(dsp_planar_dt_t *dt);
+
 /* Native-planar dungeon viewport (ADR-0016 B2). A bitplane backend renders the
  * first-person viewport as a SEPARATELY-composited planar region instead of
  * letting the (churning) viewport dirty the shared 8bpp surface's rows — so the

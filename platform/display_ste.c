@@ -604,6 +604,32 @@ static void st_reband(void)
 	s_remap_changed = 0;
 }
 
+#ifdef FRUA_PLANAR
+/* --- draw-time plane target (ADR-0016 B4) --------------------------------
+ *
+ * The writer-by-writer transition off the chunky+c2p path. Converted Toolbox/
+ * engine writers stamp their pixels straight into this plane buffer (through the
+ * same per-band remap the c2p uses) in parallel with their existing chunky store.
+ * s_dt accumulates the converted writers' output; once EVERY writer for a screen
+ * is converted it is a complete plane image and the present can flip it instead
+ * of c2p'ing s_chunky (a later step). Compiled out of the shipping build. */
+static unsigned char *s_dt;             /* draw-time plane accumulation buffer */
+
+static int st_dt_target(struct dsp_planar_dt *dt)
+{
+	if (!s_have_pal || s_dt == NULL)
+		return 0;                        /* no palette / no remap yet */
+	dt->planes     = s_dt;
+	dt->remap      = s_band_remap;
+	dt->line_bytes = LINE_BYTES;
+	dt->w          = ST_W;
+	dt->h          = ST_H;
+	dt->nplanes    = ST_DEPTH;
+	dt->nbands     = ST_NBANDS;
+	return 1;
+}
+#endif /* FRUA_PLANAR */
+
 /* --- backend entry points ------------------------------------------------ */
 
 static int st_init(short want_w, short want_h)
@@ -662,6 +688,14 @@ static int st_init(short want_w, short want_h)
 	s_st_active = 1;
 	planar_viewport_register(st_vp_scratch, st_vp_commit);
 
+#ifdef FRUA_PLANAR
+	/* Draw-time plane accumulation buffer + hook (ADR-0016 B4). */
+	s_dt = (unsigned char *)Mxalloc(SCREEN_BYTES, 0);
+	if (s_dt != NULL)
+		memset(s_dt, 0, SCREEN_BYTES);
+	planar_draw_target_register(st_dt_target);
+#endif
+
 #ifdef FRUA_STPROF
 	/* B3.0b scratch: a non-displayed ST-RAM page the c2p can target for timing. */
 	s_offpage = (unsigned char *)Mxalloc(SCREEN_BYTES, 0);
@@ -678,6 +712,10 @@ static void st_shutdown(void)
 	if (s_st_active) {
 		planar_viewport_register((unsigned char *(*)(short *))0,
 		                         (void (*)(short, short, short, short))0);
+#ifdef FRUA_PLANAR
+		planar_draw_target_register((int (*)(struct dsp_planar_dt *))0);
+		if (s_dt) { Mfree(s_dt); s_dt = NULL; }
+#endif
 		s_st_active = 0;
 		s_vp_active = 0;
 	}

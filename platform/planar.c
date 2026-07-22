@@ -39,6 +39,20 @@ void dsp_viewport_commit(short x, short y, short w, short h)
 		s_vp_commit_fn(x, y, w, h);
 }
 
+/* --- draw-time plane target dispatch (ADR-0016 B4) ----------------------- */
+
+static int (*s_dt_fn)(struct dsp_planar_dt *dt);
+
+void planar_draw_target_register(int (*fn)(struct dsp_planar_dt *dt))
+{
+	s_dt_fn = fn;
+}
+
+int dsp_planar_draw_target(dsp_planar_dt_t *dt)
+{
+	return s_dt_fn ? s_dt_fn(dt) : 0;
+}
+
 void chunky_to_planar_piece(const unsigned char *src, short src_pitch,
                             short w, short h,
                             const unsigned char *remap,
