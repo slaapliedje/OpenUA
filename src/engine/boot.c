@@ -36957,6 +36957,23 @@ static int    jt159(const char *prompt, short b)
 
 	PROBE("jt159");
 	(void)b;
+#ifdef FRUA_CBTPLAY
+	/* Headless combat wants zero keypresses. Auto-answer every Yes/No dialog
+	 * a hands-off fight raises with NO (decline):
+	 *   - in combat "continue battle?" is FRUA's per-round auto-resolve
+	 *     offer — NO ends the fight (the engine resolves the remainder), so
+	 *     it can't be chased forever by kiting stragglers (YES loops it);
+	 *   - out of combat the post-fight "still treasure left, go back?" and
+	 *     kin decline so control returns to the walk.
+	 * The friendly-fire confirm (jt533) never reaches here — cbtplay only
+	 * targets clear enemies — and the cast-abort path self-commits.
+	 * Logged so a mis-answered prompt is visible. */
+	{
+		dbg_file_str("cbtplay: jt159 auto-answer(No) prompt=",
+		             prompt ? prompt : "");
+		return 0;
+	}
+#endif
 	jt179(1);
 	r = jt182(prompt, (long)(uintptr_t)"Yes No", 1, g_a5_22281);
 	return (r == 0) ? 1 : 0;
@@ -39801,6 +39818,14 @@ static void l1806(short v)
 	g_event_modal_shown = 1;        /* this modal overdraws the play-screen
 	                                 * content + command bar; the event-exit
 	                                 * recompose (jt297 GAP-1) reads this. */
+#ifdef FRUA_CBTPLAY
+	/* Headless: auto-continue the "Press [Return] to continue." modal (skip
+	 * the l23b4 wait) so events and post-combat prompts never block. */
+	(void)v;
+	g_press_to_continue = 0;
+	g_a5_24139 = 0;
+	return;
+#endif
 	tmp = l23b4((short)(signed char)(v & 0xff));
 	g_press_to_continue = 0;
 	(void)l25b6(tmp, (unsigned char *)0, &g_a5_24139);
@@ -44647,6 +44672,15 @@ static void jt181(short n)
 	PROBE("jt181");
 	l177a();
 	l2858((short)2);
+#ifdef FRUA_CBTPLAY
+	/* Headless: draw the page-break prompt but skip the l23b4 keypress
+	 * wait — event text (pre-combat banners, post-combat XP/treasure) and
+	 * combat page-breaks auto-advance so a fight runs start to finish with
+	 * no keys. g_a5_-24139 = 0 mimics the Return the player would press. */
+	(void)n;
+	g_a5_24139 = 0;
+	return;
+#endif
 	tmp = l23b4((short)(signed char)(n & 0xff));
 	(void)l25b6(tmp, (unsigned char *)0, &g_a5_24139);
 }
@@ -45515,6 +45549,15 @@ static void l3d1e(void)
 
 	PROBE("L3d1e");
 	jt23();
+#ifdef FRUA_CBTPLAY
+	/* Headless: skip the Take/Pool/Share/Exit verb loop — the loot is
+	 * already staged, so leave it and exit at once (the follow-up "still
+	 * treasure left?" jt159 auto-declines). Makes the pre-combat landing
+	 * loot and the post-fight reward pass through with no keys. */
+	(void)saved; (void)have_heal; (void)heal_spell; (void)out5;
+	(void)count; (void)pick; (void)i; (void)done;
+	return;
+#endif
 	saved = 1;
 	do {
 		jt399(g_a5_24126, (short)G_A5_24126_LEN, 0xFF);
