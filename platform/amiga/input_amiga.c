@@ -20,6 +20,7 @@
  */
 
 #include "input.h"
+#include "dbglog.h"
 #include "plat_sound.h"        /* plat_sound_vbl — fed from the VERTB server */
 
 #ifdef FRUA_AMIGA
@@ -201,10 +202,65 @@ struct InputEvent *amiga_ihandler(struct InputEvent *list, APTR data)
 	return list;
 }
 
+
+#ifdef FRUA_AUTOPLAY
+/* Headless auto-drive (test only) — the Atari harness's script, ported.
+ * amiberry's synthetic input is unreliable at 7 MHz (keys/clicks drop with
+ * window focus), so the play-entry keystrokes are injected FROM INSIDE,
+ * paced by the engine clock: each lands only once the previous transition
+ * has drained. Scan/ascii pairs are TOS codes — exactly what this layer
+ * emits. Sequence: p (Play) a (Add) Down Return (add member) Escape
+ * b (Begin) then a Right/Left nudge for the first 3D paint. */
+struct ap_key { unsigned char scan, ascii; unsigned short delay; };
+static const struct ap_key g_ap[] = {
+	{ 0x19, 'p',  600 },
+	{ 0x1E, 'a',  600 },
+	{ 0x50, 0,    300 },
+	{ 0x1C, 0x0D, 600 },
+	{ 0x01, 0x1B, 600 },
+	{ 0x30, 'b',  1200 },   /* dungeon art load: extra slack at 7 MHz */
+	{ 0x4D, 0,    300 },
+	{ 0x4B, 0,    300 },
+};
+#define AP_N ((short)(sizeof g_ap / sizeof g_ap[0]))
+static short         g_ap_idx;
+static unsigned long g_ap_next;
+static int           g_ap_started;
+volatile int         g_ap_armed;    /* set by boot.c at "menu: modal up" */
+
+static int ap_due(void)
+{
+	if (!g_ap_armed || g_ap_idx >= AP_N)
+		return 0;
+	if (!g_ap_started) {
+		g_ap_started = 1;
+		g_ap_next = plat_ticks() + 120;
+	}
+	return plat_ticks() >= g_ap_next;
+}
+
+static int ap_take(unsigned char *out_scan, unsigned char *out_ascii)
+{
+	if (!ap_due())
+		return 0;
+	dbg_log_num("autoplay: send key idx=", g_ap_idx);
+	if (out_scan)  *out_scan  = g_ap[g_ap_idx].scan;
+	if (out_ascii) *out_ascii = g_ap[g_ap_idx].ascii;
+	g_ap_next = plat_ticks() + g_ap[g_ap_idx].delay;
+	g_ap_idx++;
+	return 1;
+}
+#endif /* FRUA_AUTOPLAY */
+
 int plat_kb_poll(unsigned char *out_scan, unsigned char *out_ascii)
 {
 	ULONG entry;
 	unsigned char scan, kbs, ascii;
+
+#ifdef FRUA_AUTOPLAY
+	if (ap_take(out_scan, out_ascii))
+		return 1;
+#endif
 
 #ifdef FRUA_KBTRACE
 	{
@@ -257,6 +313,10 @@ int plat_kb_poll(unsigned char *out_scan, unsigned char *out_ascii)
 
 int plat_kb_avail(void)
 {
+#ifdef FRUA_AUTOPLAY
+	if (ap_due())
+		return 1;
+#endif
 	return s_kb_tail != s_kb_head;
 }
 
