@@ -315,6 +315,17 @@ static void st_c2p_span(const unsigned char *src, unsigned char *dst, short w,
 	}
 }
 
+#ifdef FRUA_STPROF
+/* #41 hot-row attribution: span conversions per row across BOTH present paths
+ * (rect c2p here + the diffed s_dt rebuilds; force-fulls excluded — an epoch
+ * wipe converts everything and indicts no writer). Dumped + reset every 64
+ * full presents as b4hot lines (y*10000+count), with a why bitmask (bit 0:
+ * rowcov short, bit 1: idx mismatch) + first mismatching x per row. */
+static unsigned short s_prof_convrow[ST_H];
+static unsigned char  s_prof_convwhy[ST_H];
+static short          s_prof_mmx[ST_H];
+#endif
+
 static void st_blit_rows(short x0, short w, short y0, short h)
 {
 	short y;
@@ -330,6 +341,7 @@ static void st_blit_rows(short x0, short w, short y0, short h)
 		memcpy(s_shadow + (long)yy * ST_W + x0, src, (size_t)w);
 #ifdef FRUA_STPROF
 		{ extern long g_stprof_rows; g_stprof_rows++; }
+		s_prof_convrow[yy]++;
 #endif
 	}
 }
@@ -844,6 +856,21 @@ static int st_dt_ready_row(short y)
 	if (s_dt_rowcov != NULL && s_dt_rowcov[y] == ST_W
 	    && memcmp(s_dt_idx + (long)y * ST_W, crow, ST_W) == 0)
 		return 0;                        /* writer-stamped: s_dt authoritative */
+#ifdef FRUA_STPROF
+	/* #41 attribution: WHY did the skip fail — coverage hole (an unconverted
+	 * writer never stamped part of the row since the epoch) or a stamp
+	 * mismatch (a direct writer overwrote shim-stamped pixels)? For mismatch
+	 * rows also record the first differing x (names the overwriter's rect). */
+	if (s_dt_rowcov == NULL || s_dt_rowcov[y] != ST_W)
+		s_prof_convwhy[y] |= 1;
+	else {
+		const unsigned char *irow = s_dt_idx + (long)y * ST_W;
+
+		s_prof_convwhy[y] |= 2;
+		for (x = 0; x < ST_W; x++)
+			if (irow[x] != crow[x]) { s_prof_mmx[y] = x; break; }
+	}
+#endif
 	st_dt_build_row(y);
 	return 1;
 }
@@ -884,7 +911,8 @@ static void st_dt_present_full(void)
 		if (!conv)
 			continue;
 #ifdef FRUA_STPROF
-		if (st_dt_ready_row(y)) rows_conv++; else rows_skip++;
+		if (st_dt_ready_row(y)) { rows_conv++; s_prof_convrow[y]++; }
+		else rows_skip++;
 #else
 		st_dt_ready_row(y);
 #endif
@@ -1290,6 +1318,35 @@ static void st_flip_full(void)
 	s_back ^= 1;                             /* the old front is the next target */
 }
 
+#ifdef FRUA_STPROF
+/* #41 hot-row dump: rows still paying span conversions this 64-present window,
+ * encoded y*10000+count (threshold 2 keeps transition noise out of the log
+ * budget; the summary line counts every touched row regardless). */
+static void st_prof_hot_dump(void)
+{
+	short y, logs = 0;
+	long  touched = 0;
+
+	for (y = 0; y < ST_H; y++) {
+		if (s_prof_convrow[y] > 0)
+			touched++;
+		if (s_prof_convrow[y] >= 2 && logs < 24) {
+			logs++;
+			dbg_log_num("b4hot y*100000+why*10000+cnt = ",
+			            (long)y * 100000L
+			            + (long)s_prof_convwhy[y] * 10000L
+			            + s_prof_convrow[y]);
+			if (s_prof_convwhy[y] & 2)
+				dbg_log_num("b4hot   mismatch y*1000+x = ",
+				            (long)y * 1000L + s_prof_mmx[y]);
+		}
+	}
+	dbg_log_num("b4hot rows touched = ", touched);
+	memset(s_prof_convrow, 0, sizeof s_prof_convrow);
+	memset(s_prof_convwhy, 0, sizeof s_prof_convwhy);
+}
+#endif
+
 static void st_present(void)
 {
 #ifdef FRUA_STPROF
@@ -1432,6 +1489,7 @@ static void st_present(void)
 		dbg_log_num("stprof: rows converted = ", sp_rows);
 		dbg_log_num("stprof: rebands = ", sp_reband);
 		dbg_log_num("stprof: reband skips = ", sp_reband_skip);
+		st_prof_hot_dump();              /* #41: hot-row attribution window */
 		st_prof_b30b();                  /* B3.0b: compute-vs-contention sample */
 	}
 #endif
