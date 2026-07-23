@@ -38,6 +38,7 @@
 #include <string.h>              /* memcmp/memcpy (was implicitly declared) */
 
 #include "quantize.h"            /* quant_banded — the banded median-cut reducer */
+#include "planar.h"              /* draw-time plane path (B4) — hook + puts */
 
 #define CUSTOM ((volatile struct Custom *)0xDFF000)
 
@@ -75,6 +76,15 @@ static unsigned char  s_band_pal[ECS_NBANDS * ECS_NCOL * 3];
 static unsigned char  s_band_remap[ECS_NBANDS * 256];
 static short          s_dirty;
 static short          s_have_pal;
+
+#ifdef FRUA_PLANAR
+/* Draw-time plane path buffers (bodies further down, past ecs_repalette). */
+static unsigned char *e_dt;
+static unsigned char *e_dt_cov;
+static unsigned char *e_dt_idx;
+static short         *e_dt_rowcov;
+static int ecs_dt_target(struct dsp_planar_dt *dt);
+#endif
 
 #define FRAME_BYTES ((ULONG)ECS_PITCH * ECS_H * ECS_DEPTH)
 
@@ -201,6 +211,15 @@ static int ecs_init(short want_w, short want_h)
 	s_front = 0;
 	s_dirty = 1;                    /* first present builds the bands */
 	s_force_full = 1;
+#ifdef FRUA_PLANAR
+	/* Draw-time buffers (CPU-only: fast RAM is fine) + the shim hook. */
+	e_dt        = AllocMem(FRAME_BYTES, MEMF_ANY | MEMF_CLEAR);
+	e_dt_cov    = AllocMem((ULONG)ECS_W * ECS_H, MEMF_ANY | MEMF_CLEAR);
+	e_dt_idx    = AllocMem((ULONG)ECS_W * ECS_H, MEMF_ANY | MEMF_CLEAR);
+	e_dt_rowcov = AllocMem(ECS_H * sizeof(short), MEMF_ANY | MEMF_CLEAR);
+	if (e_dt && e_dt_cov && e_dt_idx && e_dt_rowcov)
+		planar_draw_target_register(ecs_dt_target);
+#endif
 
 	s_surface.width  = ECS_W;
 	s_surface.height = ECS_H;
@@ -224,6 +243,13 @@ static int ecs_init(short want_w, short want_h)
 
 static void ecs_shutdown_partial(void)
 {
+#ifdef FRUA_PLANAR
+	planar_draw_target_register((int (*)(struct dsp_planar_dt *))0);
+	if (e_dt)        { FreeMem(e_dt, FRAME_BYTES); e_dt = NULL; }
+	if (e_dt_cov)    { FreeMem(e_dt_cov, (ULONG)ECS_W * ECS_H); e_dt_cov = NULL; }
+	if (e_dt_idx)    { FreeMem(e_dt_idx, (ULONG)ECS_W * ECS_H); e_dt_idx = NULL; }
+	if (e_dt_rowcov) { FreeMem(e_dt_rowcov, ECS_H * sizeof(short)); e_dt_rowcov = NULL; }
+#endif
 	if (s_cop)       { FreeMem(s_cop, COP_WORDS * sizeof(UWORD)); s_cop = NULL; }
 	if (s_planes[0]) { FreeMem(s_planes[0], FRAME_BYTES); s_planes[0] = NULL; }
 	if (s_planes[1]) { FreeMem(s_planes[1], FRAME_BYTES); s_planes[1] = NULL; }
@@ -341,6 +367,81 @@ static void ecs_repalette(void)
 	memcpy(e_clut_quant, s_clut, sizeof e_clut_quant);
 }
 
+#ifdef FRUA_PLANAR
+/* --- draw-time plane path (ADR-0016 B4, ST-backend parity) ---------------
+ *
+ * The converted Toolbox writers stamp e_dt (SEPARATE planes, the Amiga
+ * layout — the shim's DC_PUT resolves to planar_put_amiga here) in parallel
+ * with their chunky writes. The row-diff present then SKIPS the remap+c2p for
+ * a row whose every pixel was stamped this epoch and matches chunky, copying
+ * the finished planes instead. The force path stays ecs_render untouched:
+ * the re-band's epoch reset clears coverage, so stale e_dt rows can never be
+ * trusted and re-bridge lazily on their next change. ecs_repalette does NOT
+ * reset the epoch — the remaps are unchanged there, so stamps stay valid. */
+static void ecs_dt_epoch_reset(void)
+{
+	if (e_dt_cov)
+		memset(e_dt_cov, 0, (long)ECS_W * ECS_H);
+	if (e_dt_rowcov)
+		memset(e_dt_rowcov, 0, ECS_H * sizeof(short));
+}
+
+static int ecs_dt_target(struct dsp_planar_dt *dt)
+{
+	if (!s_have_pal || e_dt == NULL)
+		return 0;
+	dt->planes       = e_dt;
+	dt->remap        = s_band_remap;
+	dt->cov          = e_dt_cov;
+	dt->idx          = e_dt_idx;
+	dt->rowcov       = e_dt_rowcov;
+	dt->chunky       = s_chunky;
+	dt->chunky_pitch = ECS_W;
+	dt->line_bytes   = ECS_PITCH;            /* one plane's pitch */
+	dt->plane_bytes  = (long)ECS_PITCH * ECS_H;
+	dt->w            = ECS_W;
+	dt->h            = ECS_H;
+	dt->nplanes      = ECS_DEPTH;
+	dt->nbands       = ECS_NBANDS;
+	return 1;
+}
+
+static void remap_rect(short x, short y, short w, short h);
+
+/* Prepare row y of e_dt: NEW-INK scan, then skip (writer-stamped) or bridge
+ * (remap + c2p the row into e_dt). Returns 1 if bridged. */
+static int ecs_dt_ready_row(short y)
+{
+	const unsigned char *crow = s_chunky + (long)y * ECS_W;
+	unsigned char *pl[ECS_DEPTH];
+	short x, p;
+
+	for (x = 0; x < ECS_W; x++)
+		if (!e_used_idx[crow[x]])
+			e_new_ink++;
+	if (e_dt_rowcov[y] == ECS_W
+	    && memcmp(e_dt_idx + (long)y * ECS_W, crow, ECS_W) == 0)
+		return 0;
+	remap_rect(0, y, ECS_W, 1);
+	for (p = 0; p < ECS_DEPTH; p++)
+		pl[p] = e_dt + (long)p * ECS_PITCH * ECS_H;
+	c2p_amiga_n_rect(s_remap_buf, ECS_W, pl, ECS_PITCH,
+	                 0, y, ECS_W, 1, ECS_DEPTH);
+	return 1;
+}
+
+/* Copy row y's five plane slices from e_dt into a display plane set. */
+static void ecs_dt_copy_row(unsigned char *set, short y)
+{
+	short p;
+
+	for (p = 0; p < ECS_DEPTH; p++)
+		CopyMem(e_dt + (long)p * ECS_PITCH * ECS_H + (long)y * ECS_PITCH,
+		        set  + (ULONG)p * ECS_PITCH * ECS_H + (long)y * ECS_PITCH,
+		        ECS_PITCH);
+}
+#endif /* FRUA_PLANAR */
+
 /* Remap a rect of the chunky surface into s_remap_buf, each row through ITS
  * band's 256->32 LUT. */
 static void remap_rect(short x, short y, short w, short h)
@@ -422,6 +523,9 @@ static void ecs_reband(void)
 	}
 	memcpy(e_clut_quant, s_clut, sizeof e_clut_quant);
 	e_quant_valid = 1;
+#ifdef FRUA_PLANAR
+	ecs_dt_epoch_reset();            /* slots renumbered: stamps are stale */
+#endif
 	for (b = 0; b < ECS_NBANDS; b++) {
 		const unsigned char *bp = s_band_pal + (long)b * ECS_NCOL * 3;
 
@@ -495,9 +599,20 @@ static void ecs_present(void)
 			if (memcmp(s_chunky + (long)y * ECS_W,
 			           s_shadow + (long)y * ECS_W, ECS_W) == 0)
 				continue;
-			remap_rect(0, y, ECS_W, 1);
-			c2p_amiga_n_rect(s_remap_buf, ECS_W, planes, ECS_PITCH,
-			                 0, y, ECS_W, 1, ECS_DEPTH);
+#ifdef FRUA_PLANAR
+			if (e_dt != NULL && s_have_pal) {
+				/* skip-or-bridge via the draw-time stamps, then
+				 * copy the finished plane row to the display. */
+				(void)ecs_dt_ready_row(y);
+				ecs_dt_copy_row(front, y);
+			} else
+#endif
+			{
+				remap_rect(0, y, ECS_W, 1);
+				c2p_amiga_n_rect(s_remap_buf, ECS_W, planes,
+				                 ECS_PITCH, 0, y, ECS_W, 1,
+				                 ECS_DEPTH);
+			}
 			CopyMem(s_chunky + (long)y * ECS_W,
 			        s_shadow + (long)y * ECS_W, ECS_W);
 		}
