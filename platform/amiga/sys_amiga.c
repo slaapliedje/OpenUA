@@ -22,19 +22,55 @@
 
 #include <exec/types.h>
 #include <exec/memory.h>
+#include <exec/tasks.h>
 #include <dos/dos.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
 
-/* Initial stack for the CLI-launched binary. A Shell program otherwise
- * inherits the Shell's default 4 KB, and the engine's art-load recursion
- * (l17e2 -> jt987 -> the jt104 bind callback -> jt460, each frame holding
- * a 210-byte FileSpec) runs deep enough to overflow it — an intermittent,
- * Amiga-only hang that surfaced the moment the on-load converter added a
- * second path buffer to l17e2. libnix/the AmigaOS startup grows the stack
- * to this floor before main(). 256 KB matches the headroom the Falcon and
- * ST builds get from their crt0. */
-unsigned long __stack = 256UL * 1024;
+/* --- stack floor -----------------------------------------------------------
+ *
+ * A Shell-launched program inherits ~4 KB of stack, and the `__stack` cookie
+ * this file used to set is INERT with this toolchain's -noixemul ncrt0 (it
+ * references no such symbol — proven in installer/asl_amiga.c, which hit the
+ * same wall). The engine overflows 4 KB two independent ways: the art-load
+ * recursion (l17e2 -> jt987 -> jt104 bind -> jt460, a 210-byte FileSpec per
+ * frame), and the ECS backend's re-band — quant_banded's ~2 KB of locals
+ * fired from the bottom of the lifted draw chain, which wedged the adventure
+ * screen on both 68000 and 68020 until this trampoline landed.
+ *
+ * So: run the engine's whole life on a 256 KB AllocMem'd stack via StackSwap
+ * (the uainst pattern). StackSwap moves sp out from under the compiler, so
+ * the trampoline keeps a frame pointer and touches only statics between the
+ * two swaps. 256 KB matches the Falcon/ST crt0 headroom. */
+#define FRUA_AMIGA_STACK (256UL * 1024)
+
+static struct StackSwapStruct s_sss;
+static int (*s_stk_fn)(void);
+static int   s_stk_result;
+
+static void __attribute__((noinline, optimize("no-omit-frame-pointer")))
+stack_trampoline(void)
+{
+	StackSwap(&s_sss);
+	s_stk_result = s_stk_fn();              /* runs on the big stack */
+	StackSwap(&s_sss);
+}
+
+__attribute__((optimize("no-omit-frame-pointer")))
+int plat_run_big_stack(int (*fn)(void))
+{
+	UBYTE *mem = AllocMem(FRUA_AMIGA_STACK, MEMF_ANY);
+
+	if (mem == NULL)
+		return fn();            /* no RAM: fall back, may be tight */
+	s_stk_fn          = fn;
+	s_sss.stk_Lower   = (APTR)mem;
+	s_sss.stk_Upper   = (ULONG)mem + FRUA_AMIGA_STACK;
+	s_sss.stk_Pointer = (APTR)(mem + FRUA_AMIGA_STACK);
+	stack_trampoline();
+	FreeMem(mem, FRUA_AMIGA_STACK);
+	return s_stk_result;
+}
 
 void plat_console_puts(const char *s)
 {

@@ -57,3 +57,10 @@ int plat_have_blitter(void)
 {
 	return (Blitmode(-1) & 0x0002) != 0;
 }
+
+/* The MiNT crt0 already sets a large stack (the 256 KB floor the HAL contract
+ * asks for), so the Atari backend runs the engine right where it is. */
+int plat_run_big_stack(int (*fn)(void))
+{
+	return fn();
+}

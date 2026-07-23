@@ -38,4 +38,13 @@ void plat_get_datetime(struct plat_datetime *out);
  * this probes XBIOS Blitmode(-1). Queried once at display init. */
 int plat_have_blitter(void);
 
+/* Run `fn` on a stack with at least 256 KB of headroom and return its result.
+ * The engine's lifted draw chain runs deep, and the ECS/ST backends re-band
+ * (quant_banded, ~2 KB of locals) from the BOTTOM of it. The Atari crt0
+ * already grants that headroom, so its backend just calls fn(); an Amiga
+ * Shell grants ~4 KB and the `__stack` cookie is inert under -noixemul ncrt0
+ * (see installer/asl_amiga.c), so its backend StackSwaps onto an AllocMem'd
+ * stack for the program's whole life. main() runs the engine through this. */
+int plat_run_big_stack(int (*fn)(void));
+
 #endif /* PLATFORM_PLAT_SYS_H */

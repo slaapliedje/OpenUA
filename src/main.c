@@ -381,7 +381,7 @@ static void load_frua_cursors(void)
 	dbg_log_num("main: frua.cur cursors loaded = ", (long)count);
 }
 
-int main(void)
+static int frua_main_body(void)
 {
 	const dsp_backend_t *dsp;
 	dsp_surface_t       *surf;
@@ -721,4 +721,13 @@ int main(void)
 	dsp->shutdown();
 	dbg_log("main: shutdown ok");
 	return rc;
+}
+
+/* The engine runs deep — the lifted draw chain plus a backend re-band
+ * overflows a small OS-granted stack (the Amiga Shell's 4 KB did, live).
+ * plat_run_big_stack guarantees the 256 KB floor each platform's crt0 may
+ * or may not provide; the whole engine life runs inside it. */
+int main(void)
+{
+	return plat_run_big_stack(frua_main_body);
 }
