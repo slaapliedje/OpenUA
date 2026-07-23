@@ -836,6 +836,21 @@ static void st_dt_build_row(short y)
 	 * lut[chunky] — 3a-pinned at 0 mismatches — while the per-pixel bridge
 	 * the first cut used cost ~2x the c2p on transitions (b4perf). */
 	st_c2p_span(crow, s_dt + (long)y * LINE_BYTES, ST_W, lut);
+
+	/* #41 SELF-HEALING OWNERSHIP: the row just built IS remap[chunky], which
+	 * is precisely the ownership invariant — so claim it. A row whose skip
+	 * failed (a coverage hole left by a pre-epoch backdrop, or a direct
+	 * engine writer's overwrite) converts ONCE and then skips on every later
+	 * present whose changes came through stamping writers; a direct writer's
+	 * next overwrite breaks idx==chunky and re-converts (what the un-healed
+	 * path paid every time). Without this, a coverage hole was permanent
+	 * until the writer that owned it happened to redraw. */
+	if (s_dt_cov != NULL && s_dt_idx != NULL) {
+		memset(s_dt_cov + (long)y * ST_W, 1, ST_W);
+		memcpy(s_dt_idx + (long)y * ST_W, crow, ST_W);
+		if (s_dt_rowcov != NULL)
+			s_dt_rowcov[y] = ST_W;
+	}
 }
 
 /* Prepare row y of s_dt for presentation. NEW-INK scan always runs (a stamped

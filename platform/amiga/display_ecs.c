@@ -427,6 +427,14 @@ static int ecs_dt_ready_row(short y)
 		pl[p] = e_dt + (long)p * ECS_PITCH * ECS_H;
 	c2p_amiga_n_rect(s_remap_buf, ECS_W, pl, ECS_PITCH,
 	                 0, y, ECS_W, 1, ECS_DEPTH);
+	/* #41 SELF-HEALING OWNERSHIP (ST parity): the row just bridged IS
+	 * remap[chunky] — the ownership invariant — so claim it. A coverage hole
+	 * (pre-epoch backdrop) bridges ONCE and skips thereafter; a direct
+	 * writer's overwrite breaks idx==chunky and re-bridges. The epoch reset
+	 * still wipes cov/rowcov, so a re-band invalidates healed rows too. */
+	memset(e_dt_cov + (long)y * ECS_W, 1, ECS_W);
+	memcpy(e_dt_idx + (long)y * ECS_W, crow, ECS_W);
+	e_dt_rowcov[y] = ECS_W;
 	return 1;
 }
 
