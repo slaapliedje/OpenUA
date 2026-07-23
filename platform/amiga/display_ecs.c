@@ -249,6 +249,18 @@ static dsp_surface_t *ecs_surface(void)
 	return &s_surface;
 }
 
+/* NEW-INK detector (ported from the ST backend, where it cured the invisible
+ * roster text). quant_banded maps colours ABSENT from its source frame through
+ * a nearest-LUMA fallback — so a chromatic ink drawn AFTER the re-band (HUD
+ * text whose luma ~= its panel's) lands on the panel's slot and renders
+ * invisible; whether a machine shows it is pure present-cadence luck. Capture
+ * which CLUT indices the last re-band actually saw; count converted pixels
+ * carrying unseen indices (piggybacked on remap_rect's existing per-pixel
+ * pass, near-free); the present tail schedules a re-quant when enough arrive.
+ * Cannot loop: the re-quant's own capture covers the ink. */
+static unsigned char e_used_idx[256];
+static long          e_new_ink;
+
 /* Remap a rect of the chunky surface into s_remap_buf, each row through ITS
  * band's 256->32 LUT. */
 static void remap_rect(short x, short y, short w, short h)
@@ -263,8 +275,11 @@ static void remap_rect(short x, short y, short w, short h)
 		unsigned char *dst = s_remap_buf + (long)yy * ECS_W + x;
 		short c;
 
-		for (c = 0; c < w; c++)
+		for (c = 0; c < w; c++) {
+			if (!e_used_idx[src[c]])
+				e_new_ink++;
 			dst[c] = lut[src[c]];
+		}
 	}
 }
 
@@ -276,6 +291,14 @@ static void ecs_reband(void)
 
 	quant_banded(s_chunky, ECS_W, ECS_H, s_clut,
 	             ECS_NBANDS, ECS_NCOL, ECS_BITS, s_band_pal, s_band_remap);
+	/* Capture what this quant saw (the new-ink detector's domain). */
+	{
+		long n;
+		for (n = 0; n < 256; n++)
+			e_used_idx[n] = 0;
+		for (n = 0; n < (long)ECS_W * ECS_H; n++)
+			e_used_idx[s_chunky[n]] = 1;
+	}
 	for (b = 0; b < ECS_NBANDS; b++) {
 		const unsigned char *bp = s_band_pal + (long)b * ECS_NCOL * 3;
 
@@ -324,21 +347,26 @@ static void ecs_present(void)
 
 	if (s_force_full || s_dirty) {
 		ecs_render();
-		return;
+	} else {
+		front = s_planes[s_front];
+		for (p = 0; p < ECS_DEPTH; p++)
+			planes[p] = front + (ULONG)p * ECS_PITCH * ECS_H;
+		for (y = 0; y < ECS_H; y++) {
+			if (memcmp(s_chunky + (long)y * ECS_W,
+			           s_shadow + (long)y * ECS_W, ECS_W) == 0)
+				continue;
+			remap_rect(0, y, ECS_W, 1);
+			c2p_amiga_n_rect(s_remap_buf, ECS_W, planes, ECS_PITCH,
+			                 0, y, ECS_W, 1, ECS_DEPTH);
+			CopyMem(s_chunky + (long)y * ECS_W,
+			        s_shadow + (long)y * ECS_W, ECS_W);
+		}
 	}
-	front = s_planes[s_front];
-	for (p = 0; p < ECS_DEPTH; p++)
-		planes[p] = front + (ULONG)p * ECS_PITCH * ECS_H;
-	for (y = 0; y < ECS_H; y++) {
-		if (memcmp(s_chunky + (long)y * ECS_W,
-		           s_shadow + (long)y * ECS_W, ECS_W) == 0)
-			continue;
-		remap_rect(0, y, ECS_W, 1);
-		c2p_amiga_n_rect(s_remap_buf, ECS_W, planes, ECS_PITCH,
-		                 0, y, ECS_W, 1, ECS_DEPTH);
-		CopyMem(s_chunky + (long)y * ECS_W,
-		        s_shadow + (long)y * ECS_W, ECS_W);
-	}
+	/* NEW-INK re-quant trigger: SCHEDULE only — the next full present
+	 * re-bands against the complete frame (the standing mid-draw policy). */
+	if (s_have_pal && e_new_ink >= 4)
+		s_dirty = 1;
+	e_new_ink = 0;
 }
 
 static void ecs_present_rect(short x, short y, short w, short h)
@@ -375,6 +403,11 @@ static void ecs_present_rect(short x, short y, short w, short h)
 			CopyMem(s_chunky + (long)(y + r) * ECS_W + x,
 			        s_shadow + (long)(y + r) * ECS_W + x, w);
 	}
+	/* NEW-INK re-quant trigger — schedule only; rect presents NEVER re-band
+	 * (mid-draw policy above), the next full present does. */
+	if (s_have_pal && e_new_ink >= 4)
+		s_dirty = 1;
+	e_new_ink = 0;
 }
 
 static void ecs_set_palette(const dsp_color_t *colors, short first, short count)
