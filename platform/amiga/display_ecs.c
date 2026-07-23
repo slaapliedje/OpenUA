@@ -35,6 +35,7 @@
 #include <hardware/dmabits.h>
 #include <proto/exec.h>
 #include <proto/graphics.h>
+#include <string.h>              /* memcmp/memcpy (was implicitly declared) */
 
 #include "quantize.h"            /* quant_banded — the banded median-cut reducer */
 
@@ -261,6 +262,85 @@ static dsp_surface_t *ecs_surface(void)
 static unsigned char e_used_idx[256];
 static long          e_new_ink;
 
+/* --- B1/Phase-0 palette machinery (ST-backend parity, ADR-0016) ----------
+ *
+ * Before this, EVERY substantial set_palette re-quantized: histogram + 25
+ * band reduces on a 7 MHz 68000 — the scene-change hitch — even when the
+ * engine was defensively re-installing an identical CLUT (a full recompose
+ * re-seats the same palette). Ported from the ST backend:
+ *   - CLUT-guard: a load whose CLUT matches the snapshot the bands were
+ *     built from would reproduce them — skip the quant outright.
+ *   - repalette: a changed CLUT with UNCHANGED content (a within-scene fade/
+ *     settle) keeps the index->slot remaps valid; only slot->RGB moved.
+ *     Rewrite the copper COLOR words via per-band slot representatives — no
+ *     re-quant, no force-full.
+ *   - split-guard: a content-same load that SPLITS two used indices sharing
+ *     a slot (their RGBs matched at quant time; the new CLUT moves them
+ *     apart — the invisible-HUD-text family) invalidates the remap: take
+ *     the full re-quant instead (a repalette can never un-merge a slot). */
+static unsigned char e_clut_quant[256 * 3];        /* CLUT the bands were built from */
+static short         e_quant_valid;
+static unsigned char e_used_band[ECS_NBANDS][256]; /* per-band used capture   */
+static unsigned char e_slot_rep[ECS_NBANDS][ECS_NCOL]; /* rep CLUT idx / slot;
+                                                        * 0xFF = empty slot   */
+
+static long e_coldist(const unsigned char *a, const unsigned char *b)
+{
+	long dr = (long)a[0] - b[0];
+	long dg = (long)a[1] - b[1];
+	long db = (long)a[2] - b[2];
+
+	return dr * dr + dg * dg + db * db;
+}
+
+static int ecs_remap_split(void)
+{
+	short b, i;
+
+	for (b = 0; b < ECS_NBANDS; b++) {
+		short anchor[ECS_NCOL];
+		const unsigned char *brem = s_band_remap + (long)b * 256;
+
+		for (i = 0; i < ECS_NCOL; i++)
+			anchor[i] = -1;
+		for (i = 0; i < 256; i++) {
+			short s;
+
+			if (!e_used_band[b][i])
+				continue;
+			s = brem[i];
+			if (anchor[s] < 0) {
+				anchor[s] = i;
+				continue;
+			}
+			if (e_coldist(s_clut + (long)i * 3,
+			              s_clut + (long)anchor[s] * 3) > 512)
+				return 1;
+		}
+	}
+	return 0;
+}
+
+/* Content-same palette change: reload the copper COLOR words from the NEW
+ * CLUT via each band-slot's representative index. Same 4-bit encoding as
+ * ecs_reband. Empty slots (rep 0xFF) keep their words. */
+static void ecs_repalette(void)
+{
+	short b, i;
+
+	for (b = 0; b < ECS_NBANDS; b++)
+		for (i = 0; i < ECS_NCOL; i++) {
+			unsigned char rep = e_slot_rep[b][i];
+
+			if (rep == 0xFF)
+				continue;
+			*s_cop_pal[b][i] = (UWORD)(((s_clut[rep * 3 + 0] >> 4) << 8)
+			                          | ((s_clut[rep * 3 + 1] >> 4) << 4)
+			                          | (s_clut[rep * 3 + 2] >> 4));
+		}
+	memcpy(e_clut_quant, s_clut, sizeof e_clut_quant);
+}
+
 /* Remap a rect of the chunky surface into s_remap_buf, each row through ITS
  * band's 256->32 LUT. */
 static void remap_rect(short x, short y, short w, short h)
@@ -291,14 +371,57 @@ static void ecs_reband(void)
 
 	quant_banded(s_chunky, ECS_W, ECS_H, s_clut,
 	             ECS_NBANDS, ECS_NCOL, ECS_BITS, s_band_pal, s_band_remap);
-	/* Capture what this quant saw (the new-ink detector's domain). */
+	/* Capture what this quant saw: the global used set (the new-ink
+	 * detector's domain) and the per-band sets (the split-guard's). */
 	{
 		long n;
-		for (n = 0; n < 256; n++)
-			e_used_idx[n] = 0;
-		for (n = 0; n < (long)ECS_W * ECS_H; n++)
-			e_used_idx[s_chunky[n]] = 1;
+		short y;
+
+		memset(e_used_idx, 0, sizeof e_used_idx);
+		memset(e_used_band, 0, sizeof e_used_band);
+		for (y = 0; y < ECS_H; y++) {
+			short bb = (short)((long)y * ECS_NBANDS / ECS_H);
+			const unsigned char *row = s_chunky + (long)y * ECS_W;
+
+			for (n = 0; n < ECS_W; n++) {
+				e_used_idx[row[n]]      = 1;
+				e_used_band[bb][row[n]] = 1;
+			}
+		}
 	}
+	/* Per-band slot representatives (the repalette's map): for each used
+	 * index, keep the one whose CLUT colour sits nearest its slot's reduced
+	 * RGB. One distance per used index — cheap next to the quant itself. */
+	{
+		long best[ECS_NCOL];
+		short bnd, i;
+
+		for (bnd = 0; bnd < ECS_NBANDS; bnd++) {
+			const unsigned char *brem = s_band_remap + (long)bnd * 256;
+			const unsigned char *bpal = s_band_pal + (long)bnd * ECS_NCOL * 3;
+
+			for (i = 0; i < ECS_NCOL; i++) {
+				e_slot_rep[bnd][i] = 0xFF;
+				best[i] = 0x7fffffffL;
+			}
+			for (i = 0; i < 256; i++) {
+				short s;
+				long d;
+
+				if (!e_used_band[bnd][i])
+					continue;
+				s = brem[i];
+				d = e_coldist(s_clut + (long)i * 3,
+				              bpal + (long)s * 3);
+				if (d < best[s]) {
+					best[s] = d;
+					e_slot_rep[bnd][s] = (unsigned char)i;
+				}
+			}
+		}
+	}
+	memcpy(e_clut_quant, s_clut, sizeof e_clut_quant);
+	e_quant_valid = 1;
 	for (b = 0; b < ECS_NBANDS; b++) {
 		const unsigned char *bp = s_band_pal + (long)b * ECS_NCOL * 3;
 
@@ -345,6 +468,23 @@ static void ecs_present(void)
 	unsigned char *planes[ECS_DEPTH];
 	short p, y;
 
+	if (s_dirty && e_quant_valid) {
+		if (memcmp(s_clut, e_clut_quant, sizeof e_clut_quant) == 0) {
+			/* CLUT-guard: identical CLUT would reproduce identical
+			 * bands — the engine's defensive re-install. Skip. */
+			dbg_log("ecs: quant skipped (CLUT unchanged)");
+			s_dirty = 0;
+		} else if (!s_force_full
+		           && memcmp(s_chunky, s_shadow,
+		                     (long)ECS_W * ECS_H) == 0
+		           && !ecs_remap_split()) {
+			/* Content unchanged: remaps stay valid, only slot->RGB
+			 * moved — copper reload, no re-quant, no re-render. */
+			dbg_log("ecs: repalette (content unchanged)");
+			ecs_repalette();
+			s_dirty = 0;
+		}
+	}
 	if (s_force_full || s_dirty) {
 		ecs_render();
 	} else {
@@ -364,8 +504,10 @@ static void ecs_present(void)
 	}
 	/* NEW-INK re-quant trigger: SCHEDULE only — the next full present
 	 * re-bands against the complete frame (the standing mid-draw policy). */
-	if (s_have_pal && e_new_ink >= 4)
-		s_dirty = 1;
+	if (s_have_pal && e_new_ink >= 4) {
+		s_dirty       = 1;
+		e_quant_valid = 0;  /* bypass the CLUT-guard: content changed */
+	}
 	e_new_ink = 0;
 }
 
@@ -405,8 +547,10 @@ static void ecs_present_rect(short x, short y, short w, short h)
 	}
 	/* NEW-INK re-quant trigger — schedule only; rect presents NEVER re-band
 	 * (mid-draw policy above), the next full present does. */
-	if (s_have_pal && e_new_ink >= 4)
-		s_dirty = 1;
+	if (s_have_pal && e_new_ink >= 4) {
+		s_dirty       = 1;
+		e_quant_valid = 0;  /* bypass the CLUT-guard: content changed */
+	}
 	e_new_ink = 0;
 }
 
