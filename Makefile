@@ -768,11 +768,18 @@ release-amiga-ecs:
 # Atari ST/STE: a bare-68000 build (CPU68K=68000). The 68000 codegen runs on
 # EVERY Atari (ST/STE via ST-low 16-colour, TT via TT-low, Falcon via VIDEL),
 # detection picks the backend — so this .prg is the "runs on any Atari" binary.
+# The ST/STE zip ships the DRAW-TIME plane path (-DFRUA_PLANAR, ADR-0016 B4):
+# full presents build the frame in the accumulation planes (writer-stamped rows
+# skip conversion; the rest span-bridge) and page-flip — the batch full-frame
+# c2p is gone from the present path. Proven byte-identical to the c2p output
+# (the b4dt audits: 64000/64000 owned, 0 mismatches) and soak-verified across
+# menu/hall/dungeon/events under autoplay. Falcon/TT (VIDEL/TT-low) and the
+# Amiga builds keep their default paths; FRUA_PLANAR_DIAG never ships.
 release-ste:
 	$(MAKE) test
 	$(MAKE) clean
 	$(MAKE) installer
-	$(MAKE) CPU68K=68000 NOEMBED=1 EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_VERSION=\"$(VERSION)\"'
+	$(MAKE) CPU68K=68000 NOEMBED=1 EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_PLANAR -DFRUA_VERSION=\"$(VERSION)\"'
 	$(MAKE) CPU68K=68000 strip-target
 	$(call PKG_DIST,openua-atari-st-$(VERSION),frua.prg,Atari ST/STE 16-colour,Needs: an ST or STE (or Mega ST/STE) with 2MB and TOS 2.06 or EmuTOS. ST-low 16-colour native bitplanes. This 68000 build also runs on the TT and Falcon (they pick their own higher-colour backend) so it is the run-on-anything Atari binary.)
 
