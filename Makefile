@@ -757,11 +757,18 @@ release-amiga:
 	$(MAKE) MACHINE=amiga strip-target
 	$(call PKG_DIST,openua-amiga-$(VERSION),frua,Amiga AGA / RTG,Needs: an AA machine (A1200/A4000) or an accelerated ECS Amiga with a graphics card such as Picasso96 or CyberGraphX. KS3.0+ and about 4MB. AGA vs RTG is chosen at runtime.)
 
+# The ECS zip ships the DRAW-TIME plane path too (-DFRUA_PLANAR, ADR-0016 B4,
+# same promotion as release-ste below): writers stamp Amiga separate-plane
+# format at draw time, full presents skip writer-owned rows and bridge the
+# rest — the full-frame remap+c2p drops out of the steady state, which is the
+# difference between frozen-feeling and playable input on a 7 MHz 68000.
+# Soaked on amiberry (menu -> add character -> Begin Adventuring -> dungeon
+# event, A600-class 68000 ECS config) 2026-07-23.
 release-amiga-ecs:
 	$(MAKE) test
 	$(MAKE) clean
 	$(MAKE) installer-amiga
-	$(MAKE) MACHINE=amiga CPU68K=68000 NOEMBED=1 EXTRA_LDFLAGS=-s EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_FORCE_ECS -DFRUA_VERSION=\"$(VERSION)\"'
+	$(MAKE) MACHINE=amiga CPU68K=68000 NOEMBED=1 EXTRA_LDFLAGS=-s EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_FORCE_ECS -DFRUA_PLANAR -DFRUA_VERSION=\"$(VERSION)\"'
 	$(MAKE) MACHINE=amiga strip-target
 	$(call PKG_DIST,openua-amiga-ecs-$(VERSION),frua,Amiga ECS/OCS 32-colour,Needs: an ECS or OCS Amiga (A500+/A600/A2000/A3000) with KS2.0+ and 2MB. Native 32-colour bitplanes for machines with no AGA and no graphics card.)
 
