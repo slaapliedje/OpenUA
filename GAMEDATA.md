@@ -12,12 +12,11 @@ release contains them**. You supply them from your own copy of the game.
 - **GOG** — [Forgotten Realms: The Archives – Collection Two](https://www.gog.com/game/forgotten_realms_the_archives_collection_two)
 - **Steam** — [Forgotten Realms: The Archives – Collection Two](https://store.steampowered.com/app/1882280/Forgotten_Realms_The_Archives__Collection_Two/)
 
-The GOG/Steam re-releases bundle the **DOS** version of FRUA. Its designs and
-data files are byte-identical to the Mac ones and its art converts (see below) —
-but one piece, the engine resource archive `frua.rsc`, can today only be built
-from the **Macintosh application** itself. So the Mac release gives you a
-complete install; the DOS release covers module data and art once you have that
-base.
+The GOG/Steam re-releases bundle the **DOS** version of FRUA. **Either
+release gives you a complete install.** The DOS path is the easy one: a single
+bundled script converts everything, including the engine resource archive
+`frua.rsc` (built from the DOS `CKIT.EXE`), the soundtrack, and the sampled
+sound effects. The Mac path is a short manual copy plus one packing step.
 
 ## The game folder
 
@@ -56,8 +55,8 @@ folder. Then:
    flat into the game folder.
 2. **Designs** — copy each `*.DSN` folder whole. If a design has a `SAVE/`
    subfolder, move its contents up into the `.DSN` folder itself.
-3. **`frua.rsc`** — pack it from the application's resource fork (needs a
-   clone of this repo and Python 3). From the unpacked release:
+3. **`frua.rsc`** — pack it from the application's resource fork (needs
+   Python 3; the tools ship in the release zip). From the unpacked release:
 
    ```sh
    python3 tools/appledouble.py "…/Unlimited Adventures.rsrc" \
@@ -76,25 +75,32 @@ folder. Then:
 If you build OpenUA from source, `make gamedata DSN=HEIRS.DSN` performs all of
 this into `data/work/gamedata/` for you.
 
-## From GOG / Steam (the DOS release)
+## From GOG / Steam (the DOS release) — one command
 
-Design and data files (`GAME001.DAT`, `GEO*.DAT`, `MONST*`, …) are
-byte-identical between the DOS and Mac releases — copy them as-is. The **art**
-is not: DOS art containers are `HLIB` (VGA planar, little-endian), the engine
-reads Mac `GLIB`. One conversion pass fixes a module's art in place:
+Install FRUA from GOG or Steam on your PC, then run the bundled staging
+script (Python 3, no other dependencies) from the unzipped release folder:
 
 ```sh
-python3 tools/art_convert.py SOMEMODULE.DSN/*.TLB    # HLIB -> GLIB .ctl
+python3 stage_dos.py "C:/GOG Games/Forgotten Realms UA" OPENUA
 ```
 
-This is the door to the [fan-module archive](http://frua.rosedragon.org) —
-hundreds of community adventures, mostly authored on the PC. Verified
-end-to-end with *Pool of Radiance* running on its own converted art. Known
-limit: RLE-compressed big-picture entries (piece type 2) are not decoded yet
-and are refused loudly rather than mangled.
+That builds a **complete** game folder: the shared data files and every
+design, all art converted to the engine's `.ctl` twins, the root data banks
+converted to the engine's native library format, `MUSIC.SLB` synthesized from
+the DOS XMI soundtrack, `SOUNDS.GLB` rebuilt from the digitized DOS sound
+effects, `frua.rsc` built from `CKIT.EXE`, the colour mouse pointers, and the
+`start.dat` boot marker (`--design NAME.DSN` picks which adventure boots).
+Copy the engine binary from the release zip into that folder and you are done.
+Re-running the script later is safe — it overwrites data but deletes nothing,
+so save games and rolled characters survive.
 
-Remember the caveat above: the DOS release cannot produce `frua.rsc`, so it
-complements a Mac base install rather than replacing it.
+Fan modules from the [fan-module archive](http://frua.rosedragon.org) —
+hundreds of community adventures, mostly authored on the PC — install with
+the native `uainst` on the machine itself (drag the ZIP onto it), or convert
+on the PC with `art_convert.py`; see `CONVERTER.md`. Verified end-to-end with
+*Pool of Radiance* running on its own converted art. Known limit:
+RLE-compressed big-picture entries (piece type 2) are refused loudly rather
+than mangled.
 
 ## Setting it up per platform
 

@@ -701,6 +701,15 @@ define PKG_DIST
 	@cp README.md GAMEDATA.md docs/enhancements.md dist/$(1)/ 2>/dev/null || true
 	@cp tools/art_convert.py dist/$(1)/
 	@cp docs/converter-howto.md dist/$(1)/CONVERTER.md
+	@# The game-data staging tools (Python 3, run on a PC): stage_dos.py turns
+	@# a GOG/Steam DOS install into a complete game folder in one command
+	@# (ADR-0017); appledouble+rsrcpack cover the Mac frua.rsc path. All
+	@# stdlib-only; strs_map_dos12.json is rsrc_from_dos's STRS position
+	@# table (found next-to-script in this flat layout).
+	@cp tools/stage_dos.py tools/rsrc_from_dos.py tools/rsrcpack.py \
+	    tools/macrsrc.py tools/glb2glib.py tools/xmi2slb.py tools/voc2glb.py \
+	    tools/hlib_extract.py tools/appledouble.py \
+	    installer/strs_map_dos12.json dist/$(1)/
 	@case "$(1)" in \
 	*falcon*|*atari*) \
 		[ -f uainst.ttp ] && cp uainst.ttp dist/$(1)/UAINST.TTP || true;; \

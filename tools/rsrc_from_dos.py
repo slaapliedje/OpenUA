@@ -38,8 +38,18 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import rsrcpack
 
-DEFAULT_MAP = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           os.pardir, "installer", "strs_map_dos12.json")
+def _default_map():
+    """The STRS positions table: ../installer/ in the repo layout, or flat
+    next to this script in a release-zip layout."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    for p in (os.path.join(here, os.pardir, "installer", "strs_map_dos12.json"),
+              os.path.join(here, "strs_map_dos12.json")):
+        if os.path.isfile(p):
+            return p
+    return os.path.join(here, "strs_map_dos12.json")
+
+
+DEFAULT_MAP = _default_map()
 
 # The 37 Mac-only STRS entries, port-authored (ADR-0017 decision 6). Each is
 # platform plumbing, not game content: art/control filename templates, the
