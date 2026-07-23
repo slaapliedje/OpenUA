@@ -144,6 +144,26 @@ static inline void planar_put_stlow(unsigned char *dst, short line_bytes,
 	}
 }
 
+/* Amiga-format draw-time plane store: SEPARATE planes (plane p starting at
+ * dst + p*plane_bytes, `pitch` bytes/row, MSB-first) — the ECS/AGA layout,
+ * vs planar_put_stlow's ST-Low word-interleave. Same contract otherwise. */
+static inline void planar_put_amiga(unsigned char *dst, short pitch,
+                                    long plane_bytes, short nplanes,
+                                    short x, short y, unsigned char slot)
+{
+	long          byte = (long)y * pitch + (x >> 3);
+	unsigned char mask = (unsigned char)(0x80u >> (x & 7));
+	short p;
+
+	for (p = 0; p < nplanes; p++) {
+		unsigned char *d = dst + (long)p * plane_bytes + byte;
+		if ((slot >> p) & 1)
+			*d = (unsigned char)(*d | mask);
+		else
+			*d = (unsigned char)(*d & ~mask);
+	}
+}
+
 /* Fill rect [x,x+w) x [y,y+h), clipped to (dst_w x dst_h), with `slot`. */
 static inline void planar_fill_stlow(unsigned char *dst, short line_bytes,
                                      short nplanes, short dst_w, short dst_h,

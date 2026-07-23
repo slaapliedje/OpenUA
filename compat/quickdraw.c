@@ -544,6 +544,20 @@ static Boolean qd_effective_clip(GrafPtr port, Rect *out)
 }
 
 #ifdef FRUA_PLANAR
+/* The draw-time plane store, resolved per PLATFORM at compile time: ST-Low
+ * word-interleaved planes on Atari, separate planes on Amiga (the backend's
+ * dt struct carries the matching geometry — line_bytes is the interleaved
+ * scanline on ST, the single-plane pitch on Amiga). */
+#ifdef FRUA_AMIGA
+#define DC_PUT(dt, x, y, slot) \
+	planar_put_amiga((dt)->planes, (dt)->line_bytes, (dt)->plane_bytes, \
+	                 (dt)->nplanes, (x), (y), (slot))
+#else
+#define DC_PUT(dt, x, y, slot) \
+	planar_put_stlow((dt)->planes, (dt)->line_bytes, (dt)->nplanes, \
+	                 (x), (y), (slot))
+#endif
+
 /*
  * ADR-0016 B4: fill one chunky row-span [prow, prow+w) into the draw-time plane
  * buffer, paralleling the chunky patCopy solid fill (the menu background + panels).
@@ -567,8 +581,12 @@ static void dc_plane_fill(const dsp_planar_dt_t *dt, const unsigned char *prow,
 	sx   = (short)(off % dt->chunky_pitch);
 	band = (short)((long)sy * dt->nbands / dt->h);
 	slot = dt->remap[(long)band * 256 + idx];
-	planar_fill_stlow(dt->planes, dt->line_bytes, dt->nplanes,
-	                  dt->w, dt->h, sx, sy, w, 1, slot);
+	{
+		short xx, xe = (short)(sx + w);
+		if (xe > dt->w) xe = dt->w;
+		for (xx = sx; xx < xe; xx++)
+			DC_PUT(dt, xx, sy, slot);
+	}
 	if (dt->cov) {
 		x1 = (short)(sx + w);
 		if (x1 > dt->w) x1 = dt->w;
@@ -584,6 +602,42 @@ static void dc_plane_fill(const dsp_planar_dt_t *dt, const unsigned char *prow,
 			if (dt->idx)
 				memset(dt->idx + (long)sy * dt->w + sx, idx,
 				       (size_t)(x1 - sx));
+		}
+	}
+}
+
+/*
+ * ADR-0016 B4: bridge one just-written chunky row-span [prow, prow+w) into the
+ * draw-time plane buffer, reading the RESULT from chunky. Mode-agnostic — a
+ * bitwise pat-mode or a pattern fill needs no destination readback here because
+ * the span is re-encoded AFTER the chunky write. Address-mapped like the other
+ * helpers (offscreen pixmaps skipped), marks the span owned.
+ */
+static void dc_plane_bridge_span(const dsp_planar_dt_t *dt,
+                                 const unsigned char *prow, short w)
+{
+	long  off = prow - dt->chunky;
+	short sx, sy, band, x, x1;
+	const unsigned char *lut;
+
+	if (off < 0 || off >= (long)dt->chunky_pitch * dt->h)
+		return;                          /* offscreen pixmap: not our screen */
+	sy   = (short)(off / dt->chunky_pitch);
+	sx   = (short)(off % dt->chunky_pitch);
+	band = (short)((long)sy * dt->nbands / dt->h);
+	lut  = dt->remap + (long)band * 256;
+	x1   = (short)(sx + w);
+	if (x1 > dt->w) x1 = dt->w;
+	for (x = sx; x < x1; x++) {
+		unsigned char idx = prow[x - sx];
+		DC_PUT(dt, x, sy, lut[idx]);
+		if (dt->cov) {
+			long c = (long)sy * dt->w + x;
+			if (!dt->cov[c]) {
+				dt->cov[c] = 1;
+				if (dt->rowcov) dt->rowcov[sy]++;
+			}
+			if (dt->idx) dt->idx[c] = idx;
 		}
 	}
 }
@@ -617,8 +671,7 @@ void qd_planar_bridge_rect(short x0, short y0, short x1, short y1)
 
 		for (x = x0; x < x1; x++) {
 			unsigned char idx = crow[x];
-			planar_put_stlow(dt.planes, dt.line_bytes, dt.nplanes,
-			                 x, y, lut[idx]);
+			DC_PUT(&dt, x, y, lut[idx]);
 			if (dt.cov) {
 				long c = (long)y * dt.w + x;
 				if (!dt.cov[c]) {
@@ -708,12 +761,16 @@ static void qd_pixmap_fill(GrafPtr port, const Rect *clip,
 				break;
 			}
 #ifdef FRUA_PLANAR
-			/* Parallel plane store for the solid patCopy fill (the menu's
-			 * backgrounds/panels); `p` is this row's chunky write address, so
-			 * an offscreen pixmap is skipped. Bitwise modes read the dest index
-			 * and are left chunky-only — see dc_plane_fill. */
-			if (dt_on && mode == patCopy)
-				dc_plane_fill(&dt, p, w, fg);
+			/* Parallel plane store: constant-slot fill for patCopy;
+			 * bitwise modes re-encode the written row (the bridge reads
+			 * the RESULT, so no destination readback is needed). `p` is
+			 * the row's chunky address — offscreen pixmaps skip. */
+			if (dt_on) {
+				if (mode == patCopy)
+					dc_plane_fill(&dt, p, w, fg);
+				else
+					dc_plane_bridge_span(&dt, p, w);
+			}
 #endif
 		}
 		return;
@@ -742,6 +799,10 @@ static void qd_pixmap_fill(GrafPtr port, const Rect *clip,
 				p[col] = bk;
 			}
 		}
+#ifdef FRUA_PLANAR
+		if (dt_on)
+			dc_plane_bridge_span(&dt, p, w);
+#endif
 	}
 }
 
@@ -1333,19 +1394,31 @@ void CopyBits(const BitMap *srcBits, const BitMap *dstBits,
 	if (w <= 0 || h <= 0)
 		return;
 
-	for (y = 0; y < h; y++) {
-		const unsigned char *sp = (const unsigned char *)srcBits->baseAddr
-		                        + ((src.top + y) - srcBits->bounds.top)
-		                          * srcBits->rowBytes
-		                        + (src.left - srcBits->bounds.left);
-		unsigned char       *dp = (unsigned char *)dstBits->baseAddr
-		                        + ((dst.top + y) - dstBits->bounds.top)
-		                          * dstBits->rowBytes
-		                        + (dst.left - dstBits->bounds.left);
-		short x;
+	{
+#ifdef FRUA_PLANAR
+		dsp_planar_dt_t dt;
+		int             dt_on = dsp_planar_draw_target(&dt);
+#endif
+		for (y = 0; y < h; y++) {
+			const unsigned char *sp = (const unsigned char *)srcBits->baseAddr
+			                        + ((src.top + y) - srcBits->bounds.top)
+			                          * srcBits->rowBytes
+			                        + (src.left - srcBits->bounds.left);
+			unsigned char       *dp = (unsigned char *)dstBits->baseAddr
+			                        + ((dst.top + y) - dstBits->bounds.top)
+			                          * dstBits->rowBytes
+			                        + (dst.left - dstBits->bounds.left);
+			short x;
 
-		for (x = 0; x < w; x++)
-			dp[x] = sp[x];
+			for (x = 0; x < w; x++)
+				dp[x] = sp[x];
+#ifdef FRUA_PLANAR
+			/* B4: own the blitted row (art/event pics; screen-aliasing
+			 * dst only — the address map skips offscreen targets). */
+			if (dt_on)
+				dc_plane_bridge_span(&dt, dp, w);
+#endif
+		}
 	}
 }
 
@@ -1989,6 +2062,31 @@ void qd_cursor_track(void)
 	g_qd_touched = prev_touched;             /* composite+restore = net zero */
 }
 
+#ifdef FRUA_PLANAR
+/* B4: own the 16-row cursor rect just written/restored at (ox,oy). */
+static void dc_plane_bridge_cursor(unsigned char *px, short pitch,
+                                   short sw, short sh, short ox, short oy)
+{
+	dsp_planar_dt_t dt;
+	short y;
+
+	if (!dsp_planar_draw_target(&dt))
+		return;
+	for (y = 0; y < 16; y++) {
+		short dy = (short)(oy + y);
+		short x0 = ox < 0 ? 0 : ox;
+		short x1 = (short)(ox + 16);
+
+		if (dy < 0 || dy >= sh)
+			continue;
+		if (x1 > sw) x1 = sw;
+		if (x1 > x0)
+			dc_plane_bridge_span(&dt, px + (long)dy * pitch + x0,
+			                     (short)(x1 - x0));
+	}
+}
+#endif
+
 static void cursor_composite(void)
 {
 	unsigned char *px;
@@ -2040,6 +2138,9 @@ static void cursor_composite(void)
 	g_cursor_save_x = ox;
 	g_cursor_save_y = oy;
 	g_cursor_saved  = 1;
+#ifdef FRUA_PLANAR
+	dc_plane_bridge_cursor(px, pitch, sw, sh, ox, oy);
+#endif
 }
 
 static void cursor_restore(void)
@@ -2065,6 +2166,10 @@ static void cursor_restore(void)
 			d[dx] = g_cursor_save[y * 16 + x];
 		}
 	}
+#ifdef FRUA_PLANAR
+	dc_plane_bridge_cursor(px, pitch, sw, sh,
+	                       g_cursor_save_x, g_cursor_save_y);
+#endif
 }
 
 /*
@@ -2219,8 +2324,7 @@ static void dc_plane_px(const dsp_planar_dt_t *dt, const unsigned char *p,
 	sy   = (short)(off / dt->chunky_pitch);
 	sx   = (short)(off % dt->chunky_pitch);
 	band = (short)((long)sy * dt->nbands / dt->h);
-	planar_put_stlow(dt->planes, dt->line_bytes, dt->nplanes, sx, sy,
-	                 dt->remap[(long)band * 256 + idx]);
+	DC_PUT(dt, sx, sy, dt->remap[(long)band * 256 + idx]);
 	if (dt->cov) {
 		long c = (long)sy * dt->w + sx;
 		if (!dt->cov[c]) {

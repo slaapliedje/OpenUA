@@ -81,6 +81,29 @@ int main(void)
 			}
 		}
 	}
+	/* planar_put_amiga: separate-plane layout — exactly one pixel changes. */
+	for (trial = 0; trial < 3000; trial++) {
+		unsigned char ascr[NP * (W / 8) * H];
+		int px = rnd() % W, py = rnd() % H, p;
+		unsigned char sl = (unsigned char)(rnd() & 15);
+		memset(ascr, 0, sizeof ascr);
+		planar_put_amiga(ascr, W / 8, (long)(W / 8) * H, NP,
+		                 (short)px, (short)py, sl);
+		for (y = 0; y < H; y++) for (x = 0; x < W; x++) {
+			unsigned char got = 0, exp;
+			for (p = 0; p < NP; p++)
+				if (ascr[(long)p * (W / 8) * H + (long)y * (W / 8)
+				         + (x >> 3)] & (0x80 >> (x & 7)))
+					got |= (unsigned char)(1 << p);
+			exp = (x == px && y == py) ? sl : 0;
+			if (got != exp) {
+				printf("AMIGA MISMATCH t=%d at(%d,%d) got %d exp %d\n",
+				       trial, x, y, got, exp);
+				return 1;
+			}
+		}
+	}
+
 	/* planar_glyph_stlow: a 1bpp glyph over a bg fill. Set bits -> fg; clear
 	 * bits -> bg when opaque, else the bg fill shows through. Clipping (negative
 	 * origin, oversize glyph) must never touch a pixel outside the screen. */

@@ -103,7 +103,10 @@ struct dsp_planar_dt {
 	                                   * the present skips its conversion */
 	const unsigned char *chunky;      /* the on-screen 8bpp surface base      */
 	short                chunky_pitch;/* its bytes/row (== w on ST)           */
-	short                line_bytes;  /* bytes per scanline (all planes)      */
+	short                line_bytes;  /* ST: bytes/scanline (interleaved);
+	                                   * Amiga: bytes/row of ONE plane (pitch) */
+	long                 plane_bytes; /* Amiga: bytes per plane (pitch*h);
+	                                   * unused on ST (interleaved layout)    */
 	short                w, h;        /* screen dims                          */
 	short                nplanes;
 	short                nbands;

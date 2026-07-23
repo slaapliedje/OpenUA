@@ -712,6 +712,7 @@ static int st_dt_target(struct dsp_planar_dt *dt)
 	dt->chunky       = s_chunky;
 	dt->chunky_pitch = ST_W;
 	dt->line_bytes   = LINE_BYTES;
+	dt->plane_bytes  = 0;            /* interleaved layout: unused */
 	dt->w            = ST_W;
 	dt->h            = ST_H;
 	dt->nplanes      = ST_DEPTH;
