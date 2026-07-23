@@ -486,6 +486,7 @@ static void st_compute_slot_reps(void)
 static unsigned char *s_dt;             /* draw-time plane accumulation buffer */
 static unsigned char *s_dt_cov;         /* ST_W*ST_H: 1 where a writer drew   */
 static unsigned char *s_dt_idx;         /* ST_W*ST_H: the index it laid there  */
+static short         *s_dt_rowcov;      /* ST_H: covered-pixel count per row   */
 
 /* Reset the draw-time coverage epoch: a re-band renumbers the palette slots, so
  * any plane bits a converted writer stamped under the PREVIOUS remap are stale.
@@ -500,6 +501,8 @@ static void st_dt_epoch_reset(void)
 {
 	if (s_dt_cov)
 		memset(s_dt_cov, 0, (size_t)ST_W * ST_H);
+	if (s_dt_rowcov)
+		memset(s_dt_rowcov, 0, ST_H * sizeof(short));
 #ifdef FRUA_PLANAR_DIAG
 	/* Re-arm the selfcheck: each epoch (scene/palette change) gets audited,
 	 * so the DUNGEON frames are checked too — the flip's original "dungeon
@@ -705,6 +708,7 @@ static int st_dt_target(struct dsp_planar_dt *dt)
 	dt->remap        = s_band_remap;
 	dt->cov          = s_dt_cov;
 	dt->idx          = s_dt_idx;
+	dt->rowcov       = s_dt_rowcov;
 	dt->chunky       = s_chunky;
 	dt->chunky_pitch = ST_W;
 	dt->line_bytes   = LINE_BYTES;
@@ -812,20 +816,35 @@ static void st_dt_build_row(short y)
 	short band = (short)((long)y * ST_NBANDS / ST_H);
 	const unsigned char *lut  = s_band_remap + (long)band * 256;
 	const unsigned char *crow = s_chunky + (long)y * ST_W;
+
+	/* Rebuild the row through the OPTIMIZED span converter (nibble transpose
+	 * + flat fast path). Byte-identical to trusting the draw-time stamps:
+	 * ownership (cov && idx==chunky, same epoch) implies the stamp equals
+	 * lut[chunky] — 3a-pinned at 0 mismatches — while the per-pixel bridge
+	 * the first cut used cost ~2x the c2p on transitions (b4perf). */
+	st_c2p_span(crow, s_dt + (long)y * LINE_BYTES, ST_W, lut);
+}
+
+/* Prepare row y of s_dt for presentation. NEW-INK scan always runs (a stamped
+ * ink the quant never saw still needs its re-quant — see the detector). Then
+ * the #41 skip: a row whose EVERY pixel was stamped this epoch (rowcov == W)
+ * with idx matching chunky (no unconverted writer overwrote it — one memcmp)
+ * is already correct in s_dt, so the span conversion is skipped entirely: the
+ * writers' draw-time work replaces the present-time transpose, the end-state
+ * payoff of the draw-time model. Returns 1 if the row was converted. */
+static int st_dt_ready_row(short y)
+{
+	const unsigned char *crow = s_chunky + (long)y * ST_W;
 	short x;
 
-	/* NEW-INK scan (cheap byte test per pixel; see the detector comment). */
 	for (x = 0; x < ST_W; x++)
 		if (!s_used_idx[crow[x]])
 			s_dt_new_ink++;
-	/* Rebuild the whole row through the OPTIMIZED span converter (nibble
-	 * transpose + flat fast path). Byte-identical to trusting the draw-time
-	 * stamps: ownership (cov && idx==chunky, same epoch) implies the stamp
-	 * equals lut[chunky] — the 3a audits pinned this at 0 mismatches — so
-	 * skipping owned pixels buys nothing while the per-pixel bridge the
-	 * first cut used cost ~2x the c2p on transitions (b4perf-measured).
-	 * Per-ROW ownership skip tracking is the future refinement. */
-	st_c2p_span(crow, s_dt + (long)y * LINE_BYTES, ST_W, lut);
+	if (s_dt_rowcov != NULL && s_dt_rowcov[y] == ST_W
+	    && memcmp(s_dt_idx + (long)y * ST_W, crow, ST_W) == 0)
+		return 0;                        /* writer-stamped: s_dt authoritative */
+	st_dt_build_row(y);
+	return 1;
 }
 
 /* B4 step 4: present from s_dt (row-diffed copy), replacing the full c2p.
@@ -833,10 +852,17 @@ static void st_dt_build_row(short y)
 static void st_dt_present_full(void)
 {
 	short y, x, pg;
+#ifdef FRUA_STPROF
+	long rows_conv = 0, rows_skip = 0;
+#endif
 
 	if (s_force_full > 0) {
 		for (y = 0; y < ST_H; y++)
-			st_dt_build_row(y);
+#ifdef FRUA_STPROF
+			if (st_dt_ready_row(y)) rows_conv++; else rows_skip++;
+#else
+			st_dt_ready_row(y);
+#endif
 		for (pg = 0; pg < NPAGES; pg++) {
 			memcpy(s_page[pg], s_dt, SCREEN_BYTES);
 			memcpy(s_shadow_pg[pg], s_chunky, (size_t)ST_W * ST_H);
@@ -845,7 +871,7 @@ static void st_dt_present_full(void)
 		s_shadow        = s_shadow_pg[s_back];
 		s_force_full    = 0;
 		s_remap_changed = 0;
-		return;
+		goto log;
 	}
 	for (y = 0; y < ST_H; y++) {
 		const unsigned char *crow = s_chunky + (long)y * ST_W;
@@ -856,13 +882,29 @@ static void st_dt_present_full(void)
 				if (s_remap_dirty[crow[x]]) { conv = 1; break; }
 		if (!conv)
 			continue;
-		st_dt_build_row(y);
+#ifdef FRUA_STPROF
+		if (st_dt_ready_row(y)) rows_conv++; else rows_skip++;
+#else
+		st_dt_ready_row(y);
+#endif
 		memcpy(s_page[s_back] + (long)y * LINE_BYTES,
 		       s_dt + (long)y * LINE_BYTES, LINE_BYTES);
 		memcpy(s_shadow + (long)y * ST_W, crow, ST_W);
 	}
 	if (s_remap_changed > 0)
 		s_remap_changed--;
+log:
+#ifdef FRUA_STPROF
+	{
+		static long logs;
+		if ((rows_conv | rows_skip) && logs < 48) {
+			logs++;
+			dbg_log_num("b4skip conv rows = ", rows_conv);
+			dbg_log_num("b4skip skip rows = ", rows_skip);
+		}
+	}
+#endif
+	(void)0;
 }
 
 #ifdef FRUA_PLANAR_DIAG
@@ -1012,15 +1054,18 @@ static int st_init(short want_w, short want_h)
 
 #ifdef FRUA_PLANAR
 	/* Draw-time plane accumulation buffer + hook (ADR-0016 B4). */
-	s_dt     = (unsigned char *)Mxalloc(SCREEN_BYTES, 0);
-	s_dt_cov = (unsigned char *)Mxalloc((long)ST_W * ST_H, 0);
-	s_dt_idx = (unsigned char *)Mxalloc((long)ST_W * ST_H, 0);
+	s_dt        = (unsigned char *)Mxalloc(SCREEN_BYTES, 0);
+	s_dt_cov    = (unsigned char *)Mxalloc((long)ST_W * ST_H, 0);
+	s_dt_idx    = (unsigned char *)Mxalloc((long)ST_W * ST_H, 0);
+	s_dt_rowcov = (short *)Mxalloc(ST_H * sizeof(short), 0);
 	if (s_dt != NULL)
 		memset(s_dt, 0, SCREEN_BYTES);
 	if (s_dt_cov != NULL)
 		memset(s_dt_cov, 0, (size_t)ST_W * ST_H);
 	if (s_dt_idx != NULL)
 		memset(s_dt_idx, 0, (size_t)ST_W * ST_H);
+	if (s_dt_rowcov != NULL)
+		memset(s_dt_rowcov, 0, ST_H * sizeof(short));
 	planar_draw_target_register(st_dt_target);
 #endif
 
@@ -1042,9 +1087,10 @@ static void st_shutdown(void)
 		                         (void (*)(short, short, short, short))0);
 #ifdef FRUA_PLANAR
 		planar_draw_target_register((int (*)(struct dsp_planar_dt *))0);
-		if (s_dt)     { Mfree(s_dt); s_dt = NULL; }
-		if (s_dt_cov) { Mfree(s_dt_cov); s_dt_cov = NULL; }
-		if (s_dt_idx) { Mfree(s_dt_idx); s_dt_idx = NULL; }
+		if (s_dt)        { Mfree(s_dt); s_dt = NULL; }
+		if (s_dt_cov)    { Mfree(s_dt_cov); s_dt_cov = NULL; }
+		if (s_dt_idx)    { Mfree(s_dt_idx); s_dt_idx = NULL; }
+		if (s_dt_rowcov) { Mfree(s_dt_rowcov); s_dt_rowcov = NULL; }
 #endif
 		s_st_active = 0;
 		s_vp_active = 0;

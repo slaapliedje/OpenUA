@@ -96,6 +96,11 @@ struct dsp_planar_dt {
 	const unsigned char *remap;       /* nbands * 256 index -> palette slot   */
 	unsigned char       *cov;         /* w*h coverage: 1 where a writer wrote */
 	unsigned char       *idx;         /* w*h: the chunky index each writer laid */
+	short               *rowcov;      /* h entries: covered-pixel count per row —
+	                                   * rowcov[y]==w means every pixel was
+	                                   * stamped this epoch; with idx==chunky
+	                                   * over the row, s_dt is authoritative and
+	                                   * the present skips its conversion */
 	const unsigned char *chunky;      /* the on-screen 8bpp surface base      */
 	short                chunky_pitch;/* its bytes/row (== w on ST)           */
 	short                line_bytes;  /* bytes per scanline (all planes)      */

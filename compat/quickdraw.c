@@ -573,8 +573,14 @@ static void dc_plane_fill(const dsp_planar_dt_t *dt, const unsigned char *prow,
 		x1 = (short)(sx + w);
 		if (x1 > dt->w) x1 = dt->w;
 		if (x1 > sx) {
-			memset(dt->cov + (long)sy * dt->w + sx, 1,
-			       (size_t)(x1 - sx));
+			unsigned char *crow = dt->cov + (long)sy * dt->w;
+			if (dt->rowcov) {
+				short xx, newc = 0;
+				for (xx = sx; xx < x1; xx++)
+					if (!crow[xx]) newc++;
+				dt->rowcov[sy] = (short)(dt->rowcov[sy] + newc);
+			}
+			memset(crow + sx, 1, (size_t)(x1 - sx));
 			if (dt->idx)
 				memset(dt->idx + (long)sy * dt->w + sx, idx,
 				       (size_t)(x1 - sx));
@@ -615,7 +621,10 @@ void qd_planar_bridge_rect(short x0, short y0, short x1, short y1)
 			                 x, y, lut[idx]);
 			if (dt.cov) {
 				long c = (long)y * dt.w + x;
-				dt.cov[c] = 1;
+				if (!dt.cov[c]) {
+					dt.cov[c] = 1;
+					if (dt.rowcov) dt.rowcov[y]++;
+				}
 				if (dt.idx) dt.idx[c] = idx;
 			}
 		}
@@ -2214,7 +2223,10 @@ static void dc_plane_px(const dsp_planar_dt_t *dt, const unsigned char *p,
 	                 dt->remap[(long)band * 256 + idx]);
 	if (dt->cov) {
 		long c = (long)sy * dt->w + sx;
-		dt->cov[c] = 1;
+		if (!dt->cov[c]) {
+			dt->cov[c] = 1;
+			if (dt->rowcov) dt->rowcov[sy]++;
+		}
 		if (dt->idx) dt->idx[c] = idx;
 	}
 }
