@@ -122,11 +122,17 @@ bug that affected implemented ones.**
   copies the OPPOSITE direction from the Mac and runs front-to-back, corrupting a
   row when `cc < 2*base[3]`. Re-lift to match the asm and validate on a real grid
   before trusting the editor's column resize. (Surfaced by the jt406 audit.)
-- Per-step cell-change / redraw-hint arms (`l63c0`, `0x43f8..0x445c`).
-
 Done (2026-07-24): the drow-gear-dissolves scan (`l5676`, `ev[12]` bit 3) is
 lifted and live-verified via the `FRUA_DROWTEST` harness (plants a class-62
 item, fires a synthetic type-11 event; DBG.LOG proves the one-item destroy).
+
+Done (2026-07-24): the l63c0 cell-change / hover-cursor arms (asm
+L64f2..L666c) — the editor's live mouse tracking (jt272/jt284 hit-test,
+jt312/jt280 redraw, l4268 restore). Gated `g_geo_editor_active`: the
+hit-tests write the party position from the pointer, which is editor
+semantics — the Mac never ran l63c0 in play. Live-verified in the Map
+Editor: the cell cursor follows the pointer, cell-to-cell moves restore
+the old cell, leaving the map restores fully.
 
 ## P3 — art / data formats
 

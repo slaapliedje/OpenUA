@@ -16392,6 +16392,9 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 	signed char    exitflag = 0;            /* fp@(-1): 0 keep looping, !=0 exit */
 	short          pollres, procres = 0;    /* fp@(-8), fp@(-6) */
 	short          o10 = 0, o12 = 0;        /* fp@(-10), fp@(-12) */
+	signed char    hov_r = -128, hov_c = -128, hov_f = -128;
+	                                        /* fp@(-13/-14/-15): last hover cell */
+	unsigned char  hov_on = 0;              /* fp@(-25): hover cursor drawn */
 
 	PROBE("L63c0");
 
@@ -16591,10 +16594,70 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 		} else {
 			jt1113(&o10, &o12);
 		}
-		/* TODO: the cell-change detection + re-render arms
-		 * (L64f2..L666c: jt272/jt284 hit-test, facing/coord update into
-		 * g_a5_-12286/-12287/-12288, jt312/jt280 redraw) are deferred —
-		 * they need jt272/284/297/311 lifted. */
+		/* Cell-change hover-cursor arms (asm L64f2..L666c, #67): the
+		 * editor's live mouse tracking. Over the map, jt272 (a_wild:
+		 * classifies the in-cell offset as a numpad direction, writes
+		 * the party cell AND facing) or jt284 (flat: cell only) move
+		 * the cell cursor and the view re-renders — jt312 when a_deep,
+		 * else the jt280 readout (mode 1 = live coords). Off the map,
+		 * one restore pass (jt312 / jt280 mode-0 dashes, then l4268)
+		 * and the cell cache poisons to -128. The Mac jt312 takes a
+		 * second flag arg here (0 = hover draw, 1 = restore); the
+		 * lifted jt312 recomposes fully either way, so it is dropped.
+		 * PORT GATE (g_geo_editor_active): jt272/jt284 write the party
+		 * position from the POINTER — editor semantics. The Mac never
+		 * ran l63c0 in play (its play walk is jt948/jt953); ungated,
+		 * the play party would follow the mouse. Same rationale as the
+		 * jt303 / jt299 editor-chrome gates. */
+		if (g_geo_editor_active) {
+			short         hit;
+			unsigned char hchanged = 0, hoff = 0;
+
+			if (a_wild != 0) {
+				hit = jt272(o10, o12);
+				if (hit < -1) {
+					hoff = 1;
+				} else {
+					if (hit >= 0)
+						g_a5_byte(-12286) =
+						    (unsigned char)(hit & 0xff);
+					if ((signed char)g_a5_byte(-12286) != hov_f
+					 || (signed char)g_a5_byte(-12287) != hov_r
+					 || (signed char)g_a5_byte(-12288) != hov_c
+					 || !hov_on)
+						hchanged = 1;
+				}
+			} else {
+				hit = jt284(o10, o12);
+				if (hit < 0) {
+					hoff = 1;
+				} else if ((signed char)g_a5_byte(-12287) != hov_r
+					|| (signed char)g_a5_byte(-12288) != hov_c
+					|| !hov_on) {
+					hchanged = 1;
+				}
+			}
+			if (hchanged) {
+				hov_r  = (signed char)g_a5_byte(-12287);
+				hov_c  = (signed char)g_a5_byte(-12288);
+				hov_f  = (signed char)g_a5_byte(-12286);
+				hov_on = 1;
+				if ((unsigned char)a_deep)
+					jt312(ctx);
+				else
+					jt280(rec, (short)8024, (short)8092,
+					      (short)1);
+			} else if (hoff && hov_on) {
+				hov_on = 0;
+				if ((unsigned char)a_deep)
+					jt312(ctx);
+				else
+					jt280(rec, (short)8024, (short)8092,
+					      (short)0);
+				l4268(ctx);
+				hov_r = hov_c = hov_f = -128;
+			}
+		}
 		(void)o12;
 
 		pollres = l2d3e();              /* event poll (JT[456]) */
@@ -68031,7 +68094,6 @@ static signed char l4900(void)
  * inside the -12272-unit cell: 8 = top band, 4 = bottom, 6 = left,
  * 2 = right (numpad directions); exact diagonals return -1 unless
  * the L4900 facing gate passes. */
-static short jt272(short y, short x) __attribute__((unused));
 static short jt272(short y, short x)
 {
 	short cell, rem_y, rem_x, half, last;
@@ -69494,7 +69556,6 @@ static short jt283(short cell, short side, short val)
  * store into -12287/-12288, then 1 when the facing gate (L4900)
  * passes or the in-cell offset avoids every edge row/column,
  * else 0. */
-static short jt284(short y, short x) __attribute__((unused));
 static short jt284(short y, short x)
 {
 	short cell, rem_y, rem_x, last;
