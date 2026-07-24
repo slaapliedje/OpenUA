@@ -300,6 +300,126 @@ NOOP_RE = re.compile(
     r'faithful.{0,12}empty|the constant|constant \(|empty `?rts', re.I)
 
 
+# ---------------------------------------------------------------------------
+# SWITCH-ARM GAPS
+#
+# ★ The measurement that lied (docs/enhancements.md). `--stubs` counts PROBE
+# stub BODIES, and an unimplemented switch arm is not a body:
+#
+#     case 2:                 /* Cast — TODO: L06d6 */
+#             break;
+#
+# It calls nothing, so it is invisible to the stub triage, and at runtime the
+# command silently does nothing. CAST and INV were BOTH this, and the port
+# shipped for months with two dead buttons while the audit read "0 live gaps".
+# This scan is the missing half: every `case`/`default` arm whose body is
+# empty-or-break-only, classified by what its comment says about WHY.
+#
+# Most empty arms are legitimate — a fallthrough group (`case 1: case 2:`), a
+# faithfully-empty Mac arm, or work handled by the code after the switch. The
+# scan cannot know which, so it does not guess: it reports the arm with its
+# comment and splits on the wording. A DEFERRED arm claims to be unfinished; an
+# EXPLAINED arm gives a reason; a BARE arm says nothing at all and is the one
+# worth a human look, because that is the shape CAST and INV had.
+
+CASE_RE = re.compile(r'^\s*(case\s+[^:]+|default)\s*:\s*(.*)$')
+# Wording that says "this arm is unfinished".
+ARM_TODO_RE = re.compile(
+    r'\bTODO\b|\bdeferred?\b|\bstub\b|not (?:yet )?(?:lifted|implemented|wired)|'
+    r'unimplemented|pending', re.I)
+# Wording that explains an intentionally empty arm.
+ARM_OK_RE = re.compile(
+    r'no-op|noop|nothing|fall[- ]?s? ?through|falls thru|handled|ignored?|'
+    r'unused|never|not reached|unreachable|faithful|empty on the mac|'
+    r'the mac does|same as|skip', re.I)
+
+
+def arm_gaps(path=SRC):
+    """Every empty switch arm in the file, split deferred / explained / bare.
+
+    Returns rows of (func, line, label, kind, comment). `kind` is 'deferred'
+    (the comment admits it is unfinished), 'explained' (the comment gives a
+    reason) or 'bare' (no comment at all — judge it by hand)."""
+    lines = load(path)
+    funcs = parse_funcs(lines)
+    owner = {}
+    for name, _sig, op, cl in funcs:
+        for k in range(op, cl + 1):
+            owner[k] = name
+
+    rows = []
+    for i, raw in enumerate(lines):
+        m = CASE_RE.match(raw)
+        if not m:
+            continue
+        label = m.group(1).strip()
+        # Walk forward collecting this arm's statements + comments, stopping at
+        # the next label or at the switch's closing brace (depth < 0).
+        stmts, comment, depth, incomment = [], [], 0, False
+        # A GROUPED label (`case 16:` immediately above `case 17: do();`) is
+        # ordinary C, not an unimplemented arm — the work is in the last label
+        # of the run. Distinguish by how the arm ENDS: its own `break;` (or the
+        # end of the switch) means it really is a no-op arm; running into the
+        # next label with no break means it falls through and is fine.
+        ended, fellthrough = False, False
+        # Anything on the label's own line counts as body ("case 3: x = 1;").
+        pending = [m.group(2)] + lines[i + 1:i + 400]
+        for off, line in enumerate(pending):
+            t = line.strip()
+            if off:
+                if CASE_RE.match(line) and depth == 0:
+                    fellthrough = not ended
+                    break
+                depth += depth_delta(line)
+                if depth < 0:
+                    break
+            # Peel comments off, keeping their text for classification.
+            if incomment:
+                if '*/' in t:
+                    comment.append(t.split('*/', 1)[0])
+                    t, incomment = t.split('*/', 1)[1].strip(), False
+                else:
+                    comment.append(t)
+                    continue
+            while '/*' in t:
+                head, rest = t.split('/*', 1)
+                if '*/' in rest:
+                    c, t = rest.split('*/', 1)
+                    comment.append(c)
+                    t = (head + ' ' + t).strip()
+                else:
+                    comment.append(rest)
+                    t, incomment = head.strip(), True
+                    break
+            if t.startswith('//'):
+                comment.append(t[2:])
+                continue
+            t = t.strip()
+            if t in ('break;', 'break ;'):
+                ended = True
+                continue
+            if t and t not in ('{', '}'):
+                stmts.append(t)
+                break                              # a real statement: not a gap
+        if stmts or fellthrough:
+            continue
+        doc = ' '.join(' '.join(comment).replace('*', ' ').split())
+        if ARM_TODO_RE.search(doc):
+            kind = 'deferred'
+        elif doc and ARM_OK_RE.search(doc):
+            kind = 'explained'
+        elif doc:
+            kind = 'commented'
+        elif label == 'default':
+            # An empty `default:` is ordinary C — the catch-all that does
+            # nothing. Not the CAST/INV shape, and there are ~200 of them.
+            kind = 'default'
+        else:
+            kind = 'bare'
+        rows.append((owner.get(i, '?'), i + 1, label, kind, doc))
+    return rows
+
+
 def triage(path=SRC):
     """Split the stub bodies into faithful-no-op / live gap / uncalled gap."""
     lines = load(path)
@@ -335,8 +455,35 @@ def main():
     ap.add_argument('--quiet', action='store_true')
     ap.add_argument('--stubs', action='store_true',
                     help='triage the remaining stubs instead of auditing comments')
+    ap.add_argument('--arms', action='store_true',
+                    help='report EMPTY SWITCH ARMS — the gaps --stubs cannot see')
     ap.add_argument('--file', default=SRC)
     a = ap.parse_args()
+
+    if a.arms:
+        rows = arm_gaps(a.file)
+        by = {}
+        for r in rows:
+            by.setdefault(r[3], []).append(r)
+        print('%d empty switch arms: %d deferred, %d bare case, %d commented, '
+              '%d explained, %d empty default\n'
+              % (len(rows), len(by.get('deferred', [])), len(by.get('bare', [])),
+                 len(by.get('commented', [])), len(by.get('explained', [])),
+                 len(by.get('default', []))))
+        print('=== DEFERRED — the arm says it is unfinished (these are gaps) ===')
+        for f, l, lab, _k, d in by.get('deferred', []):
+            print('  %-14s line %-6d %-22s %s' % (f, l, lab, d[:96]))
+        print('\n=== BARE CASE — a NAMED arm, empty, no comment. '
+              'This is the shape CAST and INV had. ===')
+        for f, l, lab, _k, _d in by.get('bare', []):
+            print('  %-14s line %-6d %s' % (f, l, lab))
+        print('\n=== COMMENTED — a comment, but not obviously either way ===')
+        for f, l, lab, _k, d in by.get('commented', []):
+            print('  %-14s line %-6d %-22s %s' % (f, l, lab, d[:80]))
+        print('\nOmitted: %d explained arms (fallthrough / faithfully empty / '
+              'handled elsewhere) and %d empty `default:` catch-alls.'
+              % (len(by.get('explained', [])), len(by.get('default', []))))
+        return 1 if by.get('deferred') else 0
 
     if a.stubs:
         noop, live, dead = triage(a.file)

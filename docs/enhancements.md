@@ -47,6 +47,29 @@ runtime. **CAST and INV are both this.** ★**TOOL GAP: stub_audit should also f
 switch arms whose body is empty-or-TODO.** Until it does, the JT/stub numbers
 overstate completeness — treat them as a floor, not a verdict.
 
+### ✅ TOOL GAP CLOSED 2026-07-24 — `stub_audit.py --arms`
+
+The missing half now exists. `--arms` walks every `case`/`default` arm in
+boot.c, keeps the ones whose body is empty, and splits them by what the arm
+says about itself. Two filters do the real work, and both were needed before
+the signal was readable:
+
+- **Fallthrough groups are not gaps.** `case 16: case 17: case 18: do();` has
+  two "empty" arms that are ordinary C. An arm counts only if it ends in its
+  OWN `break` (or the switch's end); running into the next label with no break
+  is a fallthrough and is skipped. This alone dropped 330 raw hits to 236.
+- **An empty `default:` is not a gap either** — it is the catch-all that
+  deliberately does nothing. 160 of them, reported as a count, not a list.
+
+**Result on the current tree: 0 deferred arms, 0 bare `case` arms.** The one
+deferred arm it found (`jt251` case 5) is lifted — see the P2 entry below. The
+two bare cases it found (`jt297` case 0 = no key, `jt601` case 1 = "self only")
+were both legitimate and now carry a one-line comment saying so.
+
+So the "0 live gaps" number can finally be read as a verdict rather than a
+floor — but only because a second measurement backs it. `--arms` exits non-zero
+when a deferred arm exists, so it can gate CI the way `--quiet` does.
+
 ## P1 — player-visible, blocking a 1.0
 
 | # | Gap | Where | Status |
@@ -128,6 +151,22 @@ bug that affected implemented ones.**
   REMOVED region (the loss warning). Re-lifted to the asm's pointer setup and
   pinned byte-exact across grow/shrink/mixed + overlap-hazard widths by
   `tests/test_l4842_reshape.py`.
+- ~~**`jt251` case 5 — the mode-5 redraw-hint pack**~~ — ✅ DONE 2026-07-24,
+  the last deferred switch arm in the engine. The old deferral blamed "a CREL
+  reloc the disassembler couldn't tell apart" for the two `A5@(-12300)` loads
+  at 0x441e/0x4422. **That was a misdiagnosis**: CODE 2's 59 CREL relocations
+  all target ABSOLUTE operands and dis68k annotates every one (`reloc
+  STRS+0x2b46`); these two carry no note, so both really are -12300 and the
+  subtraction is a literal `G - G` = 0. Nothing was unresolved. Confirmed
+  independently by `jt253`, which runs the byte-identical block at 0x4784 and
+  lifted it the same way months ago. The arm folds `master[12]`'s low byte into
+  `*flagsp`, shifts the word down 8, and encodes the remaining cell index in
+  three 32-cell bands (512 / 768 / 1024 in bits 8..10). **Not live-exercised**:
+  mode 5 is the hand-off to `jt250`, and the Game Settings interactions
+  drivable headlessly resolve to modes 1 and 11 (traced with
+  `-DFRUA_MODE5TRACE`) — correct by construction and by the sibling precedent,
+  but the arm itself has not been seen to fire.
+
 Done (2026-07-24): the drow-gear-dissolves scan (`l5676`, `ev[12]` bit 3) is
 lifted and live-verified via the `FRUA_DROWTEST` harness (plants a class-62
 item, fires a synthetic type-11 event; DBG.LOG proves the one-item destroy).

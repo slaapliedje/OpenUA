@@ -15623,6 +15623,7 @@ static void jt297(void *rec_v, short key, long cb)
 		}
 		break;
 	case 0:
+		/* no key this pass — nothing to step. Faithfully empty. */
 		break;
 	default:
 		jt1080();
@@ -18970,6 +18971,9 @@ static short jt251(short command, long *flagsp, void *rec_v)
 	/* L4372: clear *flagsp's low word, then OR in the redraw bits keyed
 	 * by the resolved next mode (JT[1] @ 0x4388). */
 	*flagsp &= 0xffff0000L;
+#ifdef FRUA_MODE5TRACE
+	dbg_file_num("jt251 pack mode  ", (long)*(short *)(rec + 2));
+#endif
 	switch (*(short *)(rec + 2)) {
 	case 10:                                /* L43a0 */
 		if (*(short *)(rec + 2) == *(short *)(master + 10))
@@ -18984,14 +18988,57 @@ static short jt251(short command, long *flagsp, void *rec_v)
 	case 11:                                /* L44ae */
 		*flagsp |= (long)*(short *)(master + 12);
 		break;
-	case 5:                                 /* L43f8 */
-		/* TODO: the receding-cell redraw-hint encoding (0x43f8..0x445c)
-		 * folds (master[12]&0xff)<<16 plus a cell index derived from the
-		 * level base into *flagsp. The two A5-12300 loads in the disasm
-		 * are a CREL reloc the disassembler couldn't tell apart, so the
-		 * second global is unresolved — deferred. It only tunes the
-		 * redraw hint for mode-5 transitions, not the returned mode. */
+	case 5: {                               /* L43f8 — tiered position pack */
+		/* The same encoder jt253 runs at 0x4784 (byte-identical block);
+		 * that lift is the precedent this one follows.
+		 *
+		 * ★ The old deferral here claimed the two A5-12300 loads at
+		 * 0x441e/0x4422 were "a CREL reloc the disassembler couldn't tell
+		 * apart". That was a MISDIAGNOSIS: CODE 2's 59 CREL relocations
+		 * all target ABSOLUTE operands and dis68k annotates every one of
+		 * them ("reloc STRS+0x2b46"). These two carry no such note — they
+		 * are plain A5 displacements, and both really are -12300. So
+		 * `movel A5@(-12300),d0; subl A5@(-12300),d0` is a literal G - G
+		 * and the term is ZERO, exactly as jt253 lifted it. Nothing was
+		 * ever unresolved.
+		 *
+		 * master[12] carries two packed halves: the low byte drops
+		 * straight into *flagsp, then the word is shifted down 8 and the
+		 * remainder read as a cell index biased by 48. The index is
+		 * encoded in three 32-cell bands — 512 / 768 / 1024 in bits 8..10
+		 * with the sub-index above it (quartered in the first two bands,
+		 * whole in the third, which is only 8 wide). The lslw/oriw/extl
+		 * sequence is 16-bit, so cast through unsigned short. */
+		short idx;
+
+#ifdef FRUA_MODE5TRACE
+		dbg_file_num("jt251 case5 hint ", (long)*(short *)(master + 12));
+#endif
+		*flagsp |= (long)(*(short *)(master + 12) & 0xFF);
+		*(short *)(master + 12) =
+		    (short)(*(short *)(master + 12) >> 8);
+		idx = (short)(*(short *)(master + 12) - 48);
+		if (idx < 32) {
+			*flagsp |= (long)(short)(unsigned short)
+			           (((unsigned)(idx / 4) << 11) | 512u);
+		} else {
+			idx -= 32;
+			if (idx < 32) {
+				*flagsp |= (long)(short)(unsigned short)
+				           (((unsigned)(idx / 4) << 11) | 768u);
+			} else {
+				idx -= 32;
+				if (idx < 8)
+					*flagsp |= (long)(short)(unsigned short)
+					           (((unsigned)idx << 11) | 1024u);
+			}
+		}
+#ifdef FRUA_MODE5TRACE
+		dbg_file_num("jt251 case5 idx  ", (long)idx);
+		dbg_file_num("jt251 case5 flags", *flagsp);
+#endif
 		break;
+	}
 	default:                                /* 1 -> L44be */
 		break;
 	}
@@ -40395,6 +40442,7 @@ static void jt601(short code, short cnt, unsigned char *out)
 	*out = 1;
 	switch ((short)(signed char)g_a5_buf(-16906)[(long)idx * 16 + 7]) {
 	case 1:
+		/* self only — the staging above IS the answer. Faithfully empty. */
 		break;
 	case 2:
 		jt23();
