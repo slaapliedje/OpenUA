@@ -1849,7 +1849,7 @@ static void  jt1014(short kind, const char *name, short group);
  * tiles, ...) keyed by a record type (1/21/33/51/52) and a command
  * (0..7). Called 8x across CODE 2/10/11.
  *
- * Lifted PARTIALLY — the prologue + input command class only:
+ * FULLY LIFTED. This body is the PROLOGUE (asm 0x22d8..0x242c):
  *   - file-group setup (jt131/jt134/jt113/jt1014);
  *   - point the staging cursor at the record buffer (g_a5_-11660 =
  *     g_a5_-22208, the L30cc block) and grab the field buffer
@@ -1859,12 +1859,20 @@ static void  jt1014(short kind, const char *name, short group);
  *   - cmd 0/1: clear the 450-byte record;
  *   - write the control-block header (type, slot, arg).
  *
- * DEFERRED — the ~3000-byte per-type field-serialization tail
- * (asm 0x242c..0x30c2): the cmd-3 record fetch and the L258e type
- * dispatch that encodes/decodes individual fields across record
- * types. The function therefore stages the raw record but does not
- * yet transform fields; it returns a provisional 0 status (the
- * real status word fp@(-14) is accumulated in the deferred tail).
+ * ...and it tail-calls jt325_tail for the rest (asm 0x242c..0x30c2):
+ * the cmd-3 record fetch, the L258e type dispatch, the modal field
+ * editor and the per-cmd commit. jt325_tail owns the status word
+ * fp@(-14) and is what this returns. It lives with its CODE-9
+ * sibling helpers (all ~40 callees in scope there), not here.
+ *
+ * ★ This header said "Lifted PARTIALLY / DEFERRED ... returns a
+ * provisional 0 status" until 2026-07-24 — stale since commit
+ * 482e008 (2026-07-10) lifted the tail, and it cost at least one
+ * session that went looking for a skeleton that was not there.
+ * docs/jt325-record-editor-wall.md has said "Phase D is COMPLETE"
+ * the whole time. stub_audit does not catch this class: its stub
+ * test gates on a PROBE-shaped BODY, and this body is real. When a
+ * header describes a lift's scope, re-read it when the scope moves.
  *
  * Args mirror the Mac stack: a8 (stored to the control block),
  * rec (caller record ptr), ctrl (control block), type, src (input
@@ -1940,8 +1948,8 @@ static short jt325(short a8, long *rec, void *ctrl, short type,
 	/* The field-serialization + interactive record-editor tail
 	 * (asm 0x242c..0x30c2) — block A (cmd-3 fetch), block B (cmd->status
 	 * map), the modal editor loop (L2626<->L2adc), field validation,
-	 * per-cmd commit, and finalize. Lifted as jt325_tail (below); it owns
-	 * the status word fp@(-14) and does the closing JT[134](1). */
+	 * per-cmd commit, and finalize. Lifted as jt325_tail; it owns the
+	 * status word fp@(-14) and does the closing JT[134](1). */
 	return jt325_tail(rec, cb, type, src, cmd, count, flag20, slot10);
 }
 
