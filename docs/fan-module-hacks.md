@@ -550,12 +550,12 @@ Both would have been "obvious" and both were wrong. The trace settled it.
 
 ### Still open (real, but NOT the disk error)
 
-- **Drawing method 23** (compressed transparent) does not convert. The MAC/CTL
-  layout is **solved and confirmed** (`m23_decode`, `planar=False`, consumes SSI's
-  own streams exactly); the **DOS sweep layout is NOT** — the row set and opaque
-  pixel count come out exact, only the columns land wrong. Ground truth is staged
-  (`data/work/fanmods/pormac`). Solve it against that, not against DRAW23.TXT.
-- **Method 25** (image-ID list) and the CBODY/COMSPR entry class.
+*(Updated 2026-07-24: the first two items below CLOSED in the DOS-stack sprint
+— the method-23 DOS sweep law was solved against the staged pormac ground
+truth exactly as prescribed here (commit `33302f8a`, the `4*(256-v)` skip law,
+proven by re-encoding SSI's own streams), and method 25 + CBODY/COMSPR
+followed. See docs/enhancements.md P3 for the proof pointers.)*
+
 - `art_convert`'s CLI is driven by a shell glob: use `*.TLB *.tlb`, or the
   mixed-case files are silently skipped.
 

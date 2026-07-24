@@ -142,17 +142,25 @@ the old cell, leaving the map restores fully.
 
 ## P3 — art / data formats
 
-- **Drawing method 23, DOS sweep layout: UNSOLVED.** The Mac/CTL linear layout is
-  solved and confirmed; the DOS 4-plane sweep puts the right rows and the right
-  opaque-pixel count in the wrong columns. Ground truth is staged. Tried and
-  rejected: `x = p + 4c`, `x = 22p + c`, both sweep orders, both skip scalings.
-- **Method 25** (image-ID list) and the **CBODY / COMSPR** entry class in
-  `art_convert`.
-- **`TITLE.CTL`** converts differently (nested container).
-- **Custom module music (`.XMI`)** — a whole unstarted subsystem. Needs a decision
-  before anyone promises it.
+All of the format work below closed during the DOS-stack sprint (2026-07-18/19);
+this section was stale until 2026-07-24 and is kept as a pointer to the proofs.
+
+- ~~**Drawing method 23, DOS sweep layout**~~ — ✅ SOLVED (commit `33302f8a`):
+  sweep `p` starts at `x = p + 1`, literals step 4, skip byte `v` advances
+  `4*(256 - v)` (DRAW23.TXT carries two off-by-ones). Proven by re-encoding
+  SSI's own DOS streams byte-exactly (57/62; the 5 outliers are the corpus's
+  35 `x == W` encoder-artifact pixels). Pinned by the `test_m23_*` trio in
+  `tests/test_art_convert.py`; the C converter carries the same law.
+- ~~**Method 25** (image-ID list) + **CBODY / COMSPR**~~ — ✅ done in both
+  converters (id-list u16 swap `0a4d9273`; type-128 composite table, AND/OR
+  mask pairs, `cbod`/`coms` planar classes).
+- ~~**`TITLE.CTL`** nested container~~ — ✅ done (`8719aa48`, nested
+  PIC*/SPRIT/TITLE frames re-encode; the Mac-only 0xc3 composite codec
+  followed in `2c01aab6`, 121 entries content-identical).
+- ~~**Custom module music (`.XMI`)**~~ — ✅ shipped: `tools/xmi2slb.py` +
+  `tools/voc2glb.py` (the ADR-0017 DOS audio path, ear-verified).
 - `art_convert`'s CLI relies on a shell glob — **mixed-case files (`Pica1003.tlb`)
-  are silently skipped.** Pass `*.TLB *.tlb`.
+  are silently skipped.** Pass `*.TLB *.tlb`. (Still true.)
 
 ## P4 — engineering / release hygiene
 
