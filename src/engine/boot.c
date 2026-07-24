@@ -14637,6 +14637,11 @@ static void jt312(unsigned char *page)
 	 * -> the map scroll-follows the party as l1908 walks. jt221 dispatches on
 	 * -12290, so it takes the l52b8/l50fe map path here, never render_3d. */
 	if (g_a5_12290 != 0) {
+#ifdef FRUA_MAPTRACE
+		dbg_file_num("jt312 map-leg r*100+c ",
+		             (long)(signed char)g_a5_byte(-12287) * 100
+		             + (signed char)g_a5_byte(-12288));
+#endif
 		/* #147: same atomic-rebuild hold as the 3D leg below — the AREA map
 		 * leg also runs port_draw_play_frame (grey=white fill in mono) then
 		 * repaints the map + roster/clock/bar, and would flash white without
@@ -14688,6 +14693,10 @@ static void jt312(unsigned char *page)
 			if (qd_screen_pixels(&mpx, &mpitch, &msw, &msh) && mpx != NULL)
 				port_draw_play_frame(mpx, mpitch, msw, msh);
 			l52b8(&cy, &cx, NULL, NULL, (short)11, (short)11, (short)1);
+#ifdef FRUA_MAPTRACE
+			dbg_file_num("jt312 map-leg rel cy*100+cx ",
+			             (long)cy * 100 + cx);
+#endif
 			l50fe((short)cy, (short)cx,
 			      (short)(signed char)g_a5_12286,
 			      (short)8012, (short)8012,
@@ -14966,6 +14975,10 @@ static void jt1193(void);
 static void jt1067(void);
 static void jt1080(void);
 static short       jt358(void);                                                              /* CODE 8+0x6e4a — defined below */
+/* l1908 deps (#77) — defined below with the CODE 22 map-walk family. */
+static void        jt279(short y, short x, short b1, short b2, short b3);
+static void        jt295(short y, short x, short b1, short b2, short b3);
+static void        jt213(short a, short b, short c);
 /* JT[273] (CODE 22+0x4900) — deep/turn-counter gate: returns the counter
  * jt358() when it is <= 4, else 0. (l63c0 ORs this into its deep-view flag.) */
 static int         jt273(void)
@@ -15364,7 +15377,35 @@ static void l1908(void *rec_v, short row, short col, short facing, short redraw)
 	else if (facing > 8)
 		facing = (short)(facing - 8);
 
-	/* TODO: L4900 / L423e / L3998 — move sound + smooth-scroll animation. */
+	/* L1908 pre-move (asm 0x1924-0x1996, #77): retire the OLD cell's party
+	 * marker before the position moves. The depth gate (L4900 = jt273)
+	 * picks the deep-map marker draw (L423e = jt279) vs the flat-map cell
+	 * redraw (L3998 = jt295); both take the OLD -12287/-12288 cell, the
+	 * -11708/-11707 scroll base and rec[5]. PORT GATE: the Mac only runs
+	 * this driver with a map view on screen; the port reuses it for the
+	 * first-person play walk, where the map transform state these leaves
+	 * read is stale — run the branch only when a map is actually up (the
+	 * editor walk, or the play AREA map -12290), same rationale as the
+	 * jt299 editor-chrome gate below. */
+	if (g_geo_editor_active || g_a5_12290 != 0) {
+#ifdef FRUA_MAPTRACE
+		dbg_file_num("l1908 pre-move old r*100+c ",
+		             (long)(signed char)g_a5_byte(-12287) * 100
+		             + (signed char)g_a5_byte(-12288));
+#endif
+		if (jt273() != 0)
+			jt279((short)(signed char)g_a5_byte(-12287),
+			      (short)(signed char)g_a5_byte(-12288),
+			      (short)(unsigned char)g_a5_byte(-11708),
+			      (short)(unsigned char)g_a5_byte(-11707),
+			      (short)rec[5]);
+		else
+			jt295((short)(signed char)g_a5_byte(-12287),
+			      (short)(signed char)g_a5_byte(-12288),
+			      (short)(unsigned char)g_a5_byte(-11708),
+			      (short)(unsigned char)g_a5_byte(-11707),
+			      (short)rec[5]);
+	}
 	g_a5_byte(-12287) = (unsigned char)row;
 	g_a5_byte(-12288) = (unsigned char)col;
 	g_a5_byte(-12286) = (unsigned char)facing;
@@ -15380,6 +15421,15 @@ static void l1908(void *rec_v, short row, short col, short facing, short redraw)
 	/* mirror the (possibly wrapped) party cell into rec+46. */
 	for (k = 0; k < 6; k++)
 		rec[46 + k] = g_a5_byte(-12288 + k);
+
+#ifdef FRUA_MAPTRACE
+	dbg_file_num("l1908 post-move new r*100+c ",
+	             (long)(signed char)g_a5_byte(-12287) * 100
+	             + (signed char)g_a5_byte(-12288));
+	dbg_file_num("l1908 moved ", (long)moved);
+	dbg_file_num("l1908 redraw/rec4/rec5 ",
+	             (long)(redraw ? 100 : 0) + (rec[4] ? 10 : 0) + (rec[5] ? 1 : 0));
+#endif
 
 	/* L1798 is JT[299] (see docs/lxxxx-jt-aliases.md) — recompose the map
 	 * screen: jt304 view + jt303 status header + jt308 row paint.
@@ -15398,9 +15448,20 @@ static void l1908(void *rec_v, short row, short col, short facing, short redraw)
 	 * view region. The corruption only surfaces a few moves in.) */
 	if (moved && g_geo_editor_active)
 		jt299((long)(uintptr_t)rec_v, 0);
-	/* else: JT[213] blocked-step recentre redraw — deferred. */
+	else if (!moved && (g_geo_editor_active || g_a5_12290 != 0))
+		/* L1908 blocked-step arm (asm 0x1a0e-0x1a3c, #77): the step did
+		 * not land, so re-mark the (unchanged) party cell on the map —
+		 * JT[213] draws the marker at -12287/-12288 with the facing.
+		 * Same map-view port gate as the pre-move branch. */
+		jt213((short)(signed char)g_a5_byte(-12287),
+		      (short)(signed char)g_a5_byte(-12288),
+		      (short)(unsigned char)g_a5_byte(-12286));
 
-	if (redraw && rec[4] != 0 && rec[5] == 0)
+	/* Redraw tail, faithful polarity (asm 0x1a3e-0x1a68, #77): repaint when
+	 * the record is wilderness-kind (rec[4]==0) OR its rec[5] flag is clear.
+	 * The earlier lift required rec[4]!=0, which skipped the wilderness
+	 * repaint the Mac performs. */
+	if (redraw && (rec[4] == 0 || rec[5] == 0))
 		jt312((unsigned char *)rec_v);
 }
 
