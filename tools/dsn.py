@@ -169,7 +169,8 @@ def main(argv):
     print("wrote", folder)
     print("  GAME001.DAT: title=%r start_area=%d entry=%d xp=%d"
           % (d.title, d.start_area, d.start_entry, d.xp))
-    print("  GEO001.DAT :", d.areas[1].width, "x", d.areas[1].height, "area")
+    for n in sorted(d.areas):
+        print("  GEO%03d.DAT :" % n, d.areas[n].width, "x", d.areas[n].height, "area")
     return 0
 
 

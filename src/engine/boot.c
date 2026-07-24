@@ -16454,6 +16454,13 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 		port_hud_text_clut();
 		jt938();
 		jt937(g_a5_long(-27932));
+		play_sticky_text_replay();      /* #65: this is the rebuild the
+		                                 * return-from-event takes (the
+		                                 * deferred-HUD twin of the
+		                                 * s_view_first block's replay) —
+		                                 * without it the square text is
+		                                 * wiped the moment the modal
+		                                 * drops. */
 	}
 
 	/* Port adaptation: the Mac draws immediately to the visible CGrafPort,
@@ -48315,21 +48322,33 @@ static void  l4d26(void *ev_v)
 	 * screen, so remember the event for play_sticky_text_replay. The ev
 	 * pointer targets the area's resident ENCR buffer; the sticky is
 	 * cleared on every landed step and on walk-loop (re)entry, so it can
-	 * never outlive the area. */
+	 * never outlive the area. Replay it NOW too (#65): the confirm arm
+	 * above jt20-cleared the box after the final page's Return, and the
+	 * walk's turn/step rect presents never run the full-recompose block
+	 * that replays it — without this the text is gone the moment the
+	 * modal drops and stays gone while the party stands on the square. */
 	g_sticky_text_ev = ev;
+	play_sticky_text_replay();
 }
 
 /* Replay the sticky text event's box content — l4d26's draw loop minus
  * the sound, the picture, and the l1806 page confirms: paged lines are
- * drawn and immediately superseded (cursor reset + jt20), so the box
- * ends holding exactly the final page, like the live pass did. */
+ * drawn and page breaks BETWEEN lines still clear, so the box ends
+ * holding exactly the final page. The break on the LAST non-empty line
+ * must NOT clear (#65): a single confirmed line is the common authored
+ * case, and honouring its break bit left the box empty — the reported
+ * "flashes instead of persisting". DOS keeps the final page visible
+ * regardless of how it was confirmed. */
 static void play_sticky_text_replay(void)
 {
 	unsigned char *ev = g_sticky_text_ev;
-	short          i, flag = 1;
+	short          i, flag = 1, last = -1;
 
 	if (ev == NULL)
 		return;
+	for (i = 0; i <= 4; i++)
+		if (*(short *)(ev + i * 2 + 8) != 0)
+			last = i;
 	g_a5_byte(-27911) = 17;
 	g_a5_byte(-27912) = 1;
 	for (i = 0; i <= 4; i++) {
@@ -48345,7 +48364,7 @@ static void play_sticky_text_replay(void)
 			jt96(1, 17, 38, 22, style, 0, 0,
 			     (long)(uintptr_t)&g_a5_byte(-5213), 17);
 			g_a5_byte(-27981) = 0;
-			if (ev[4] & flag) {     /* page break: clear, continue */
+			if ((ev[4] & flag) && i < last) {   /* page break BETWEEN lines */
 				g_a5_byte(-27911) = 17;
 				g_a5_byte(-27912) = 1;
 				jt20();
