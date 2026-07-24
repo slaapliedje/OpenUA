@@ -50121,6 +50121,16 @@ static void l3540(void)
 			g_a5_byte(-7933) = (unsigned char)l2df8_c13(r, c, 0);
 			g_a5_byte(-7931) = (unsigned char)l2df8_c13(r, c, 2);
 			g_a5_byte(-7930) = (unsigned char)l2df8_c13(r, c, 4);
+#ifdef FRUA_CBTFIELDDIAG
+			/* #75: cell (r,c) -> edge codes W/N/E/S, one encoded line
+			 * per scan cell, diffable across replay-ON/OFF builds. */
+			dbg_file_num("fld",
+			    (long)(r & 0xff) * 1000000L + (long)(c & 0xff) * 10000L
+			    + (long)g_a5_byte(-7932) * 1000L
+			    + (long)g_a5_byte(-7933) * 100L
+			    + (long)g_a5_byte(-7931) * 10L
+			    + (long)g_a5_byte(-7930));
+#endif
 
 			l2e92();
 			l2f82();
@@ -50221,6 +50231,25 @@ static void l3f24(void)
 		l3540();
 	else
 		l3ef6();
+#ifdef FRUA_CBTFIELDDIAG
+	/* #75: dump the finished 50x25 field terrain map, one row per line. */
+	{
+		unsigned char *fld = (unsigned char *)(uintptr_t)g_a5_long(-25318);
+		char           line[52];
+		short          fy, fx;
+
+		dbg_file_str("fldmap", gs[34] ? "outdoor(l3540)" : "indoor(l3ef6)");
+		for (fy = 0; fy < 25; fy++) {
+			for (fx = 0; fx < 50; fx++) {
+				unsigned char v = fld[9 + fy * 50 + fx];
+				line[fx] = (char)((v < 10) ? '0' + v
+				          : (v < 36) ? 'a' + (v - 10) : '#');
+			}
+			line[50] = 0;
+			dbg_file_str("fldrow", line);
+		}
+	}
+#endif
 }
 
 /* CODE 13+0x404e — the per-actor COMBATANT sub-record build. Faithful full lift.

@@ -108,6 +108,68 @@ void a5_seed_authored_scalars(void)
 			g_a5_byte(b[i].slot) = b[i].val;
 	}
 
+	/* Terrain-feature rules matrix (A5-27848, 76 classes x 4 bytes):
+	 * {move triple, display tile} per combat/area terrain class. The
+	 * combat-field builders stamp class codes into the live map and the
+	 * cell drawer picks art via [class*4+3] (l78fa: tile2 = -27848[feat*4
+	 * +3]); l1162 charges movement from the same rows. Without these rows
+	 * the replay-off build drew tile 0 for every class — the #75 "spurious
+	 * wall chunks throughout the combat zone". This is functional game-rule
+	 * data (passability kind + move cost + tile index), authored here as
+	 * the port's own statement of the rules (the #68 rules-matrix
+	 * precedent). Layout is two tile banks: classes 1..31 draw DungCom
+	 * tile class-1, classes 32..69 draw WildCom tile class-32; the
+	 * multi-cell object/event classes 26..31 and the water class 70 remap
+	 * explicitly. The movement kinds:
+	 *   S start   01 00 ff      W wall     ff 01 02   O open  01 01 00
+	 *   D dense   02 02 00      H heavy    02 01 00   B block ff 01 00
+	 *   G ground  01 00 00      X barrier  ff 00 00   Z unused 0
+	 * Verified byte-exact against the Mac image (tests/test_a5_scalars.py). */
+	{
+		static const char kind[77] =
+		    "S"                          /*  0                    */
+		    "WWWWOWWWO"                  /*  1.. 9                */
+		    "WOWOWOWOW"                  /* 10..18                */
+		    "WWWWOOWD"                   /* 19..26                */
+		    "OOOOO"                      /* 27..31                */
+		    "WWWWW"                      /* 32..36                */
+		    "OOOOO"                      /* 37..41                */
+		    "WWHOO"                      /* 42..46                */
+		    "OOOHH"                      /* 47..51                */
+		    "OOOBBB"                     /* 52..57                */
+		    "OOOGGXBHOB"                 /* 58..67                */
+		    "OOO"                        /* 68..70                */
+		    "ZZZZZ";                     /* 71..75                */
+		static const unsigned char trip[9][4] = {
+			/* S */ {  1,   0, 255 }, /* W */ { 255, 1, 2 },
+			/* O */ {  1,   1,   0 }, /* D */ {   2, 2, 0 },
+			/* H */ {  2,   1,   0 }, /* B */ { 255, 1, 0 },
+			/* G */ {  1,   0,   0 }, /* X */ { 255, 0, 0 },
+			/* Z */ {  0,   0,   0 },
+		};
+		static const char kinds[10] = "SWODHBGXZ";
+		/* Object/event classes 26..31 draw other tiles; 70 = class 54's. */
+		static const unsigned char tile26[6] = { 38, 14, 13, 12, 20, 21 };
+
+		for (i = 0; i < 76; i++) {
+			const char    *kp = kind + i;
+			short          k  = 0;
+			unsigned char  tile;
+
+			while (kinds[k] != *kp)
+				k++;
+			if (i == 0 || *kp == 'Z') tile = 0;
+			else if (i >= 26 && i <= 31) tile = tile26[i - 26];
+			else if (i == 70)        tile = 22;
+			else if (i >= 32)        tile = (unsigned char)(i - 32);
+			else                     tile = (unsigned char)(i - 1);
+			g_a5_byte(-27848 + i * 4 + 0) = trip[k][0];
+			g_a5_byte(-27848 + i * 4 + 1) = trip[k][1];
+			g_a5_byte(-27848 + i * 4 + 2) = trip[k][2];
+			g_a5_byte(-27848 + i * 4 + 3) = tile;
+		}
+	}
+
 	/* Compass direction labels (g_a5_27980): 8 facings x 3 bytes — the
 	 * N / NE / E / SE / S / SW / W / NW rose strings. The compass-face
 	 * selector (l67ca) reads [facing*3] to pick which FRAME face (pieces

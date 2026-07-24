@@ -205,3 +205,36 @@ def test_race_class_rules_matrix(image, csrc):
     for r in rows:
         blob += bytes(int(x) for x in r.replace(" ", "").split(",") if x)
     assert blob == a5_at(image, -30864, 84)
+
+
+def test_terrain_rules_matrix(image, csrc):
+    """g_a5_-27848: the 76x4 terrain-feature rules matrix (#75).
+
+    {move triple, display tile} per combat/area terrain class — the table
+    l78fa reads for cell art ([class*4+3]) and l1162 charges movement from.
+    Re-derived here from the same kind-string + tile-bank rules the C states,
+    then compared byte-for-byte against the Mac image.
+    """
+    m = re.search(r'kind\[77\] =\s*((?:"[^"]*"\s*(?:/\*[^*]*\*/\s*)?)+);', csrc)
+    assert m, "terrain kind string not authored"
+    kind = "".join(re.findall(r'"([^"]*)"', m.group(1)))
+    assert len(kind) == 76
+    trip = {"S": (1, 0, 255), "W": (255, 1, 2), "O": (1, 1, 0),
+            "D": (2, 2, 0),   "H": (2, 1, 0),   "B": (255, 1, 0),
+            "G": (1, 0, 0),   "X": (255, 0, 0), "Z": (0, 0, 0)}
+    tile26 = [38, 14, 13, 12, 20, 21]
+    blob = b""
+    for i in range(76):
+        t = trip[kind[i]]
+        if i == 0 or kind[i] == "Z":
+            tile = 0
+        elif 26 <= i <= 31:
+            tile = tile26[i - 26]
+        elif i == 70:
+            tile = 22
+        elif i >= 32:
+            tile = i - 32
+        else:
+            tile = i - 1
+        blob += bytes((t[0], t[1], t[2], tile))
+    assert blob == a5_at(image, -27848, 76 * 4)
