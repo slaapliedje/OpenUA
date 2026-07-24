@@ -4578,6 +4578,13 @@ static short g_cbtauto_done;        /* FRUA_CBTAUTO: shared one-shot — the l63
 static short g_cbtsnd_fire;         /* FRUA_CBTSND: 'k' in the walk latches "start the fight"
                                      * (was nested under FRUA_AREATEST — CBTSND now stands alone) */
 #endif
+#ifdef FRUA_DROWTEST
+/* #67 drow-arm harness deps: plant a class-62 item on the lead member from a
+ * fresh -21508 pool node, then fire a synthetic type-11 event through l5676.
+ * Auto-fires after the walk settles (the l2d3e Phase-1 letter latches do not
+ * trip under the headless driver — the CBTAUTO lesson). */
+static void jt477(void *bucket, short tag, void *out);
+#endif
 static void  jt23(void);                                            /* play-frame stand-up (defined below) */
 static void  jt904(unsigned char *out_done);                        /* View-character screen (defined below) */
 
@@ -16620,6 +16627,56 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 			            (long)FRUA_CBTAUTO_EV);
 			l709e((short)FRUA_CBTAUTO_EV);
 			dbg_log("cbtsnd: combat returned");
+		}
+#endif
+#ifdef FRUA_DROWTEST
+		/* #67 drow-arm harness: once the walk settles, plant a class-62
+		 * (drow) item on the lead member and fire a synthetic type-11
+		 * stairs event with ev[12] bit 3 set. The dissolve scan must
+		 * destroy the item, jt21-recompute the member, and show the
+		 * "drow equipment dissolves" message. Chain lengths are logged
+		 * before/after so the destruction is provable from DBG.LOG. */
+		{
+			static short s_drow_polls;
+
+			if (s_drow_polls >= 0 && ++s_drow_polls > 24) {
+				long mp = g_a5_long(-27928);
+
+				s_drow_polls = -1;              /* once */
+				if (mp != 0) {
+					long           node_l = 0;
+					long           ip;
+					long           n;
+					unsigned char  sev[20];
+
+					jt477(&g_a5_byte(-21508), 62, &node_l);
+					if (node_l != 0) {
+						unsigned char *it =
+						    (unsigned char *)(uintptr_t)node_l;
+						memset(it, 0, 62);
+						it[40] = 62;    /* drow class */
+						*(long *)it =
+						    *(long *)((uintptr_t)mp + 8);
+						*(long *)((uintptr_t)mp + 8) = node_l;
+					}
+					for (n = 0, ip = *(long *)((uintptr_t)mp + 8);
+					     ip != 0; ip = *(long *)(uintptr_t)ip)
+						n++;
+					dbg_file_num("drowtest: items pre  ", n);
+					memset(sev, 0, sizeof sev);
+					sev[12] = 8;    /* bit 3: dissolve scan; bit 0
+					                 * clear: direct ev[8]/ev[9] landing */
+					sev[9]  = g_a5_byte(-4940);   /* land in place */
+					sev[8]  = g_a5_byte(-4939);
+					sev[7]  = (unsigned char)
+					          ((g_a5_byte(-12286) & 3) << 1);
+					l5676(sev, 11);
+					for (n = 0, ip = *(long *)((uintptr_t)mp + 8);
+					     ip != 0; ip = *(long *)(uintptr_t)ip)
+						n++;
+					dbg_file_num("drowtest: items post ", n);
+				}
+			}
 		}
 #endif
 #ifdef FRUA_AREATEST
@@ -31869,7 +31926,6 @@ static void l6096(long *pnode)
  * Faithful lift of L21a0. The asm dereferences the predecessor unconditionally
  * at the unlink; the port guards a NULL walk (node-not-in-list) instead of
  * faulting. */
-static void jt30(long holder_l, long node_l) __attribute__((unused));
 static void jt30(long holder_l, long node_l)
 {
 	unsigned char *holder = (unsigned char *)(uintptr_t)holder_l;
@@ -46500,7 +46556,44 @@ static void  l5676(void *ev_v, short type)
 		}
 		if (ev[14] != 0)
 			g_a5_word(-18878) = ev[14];            /* SET TARGET LEVEL */
-		/* TODO: drow-gear-dissolves scan (ev[12] bit3). */
+		/* Drow-gear-dissolves scan (asm 0x583c-0x5910, ev[12] bit 3):
+		 * surfacing from the Underdark. Walk the party (head -27928,
+		 * next @+0) and each member's item list (head @+8, next @+0);
+		 * items of class 62/63 (item[40], the drow weapon/armour
+		 * classes) are destroyed via jt30 — which restarts that
+		 * member's item scan, since the unlink invalidates the cursor.
+		 * flag bit 0 = any member lost gear (per-party, gates the
+		 * message); bit 1 = THIS member lost gear (cleared per member,
+		 * gates the jt21 derived-stat recompute). */
+		if (ev[12] & 8) {
+			unsigned char flag = 0;
+			long mp;
+
+			for (mp = g_a5_long(-27928); mp != 0;
+			     mp = *(long *)(uintptr_t)mp) {
+				long ip = *(long *)((uintptr_t)mp + 8);
+
+				flag &= 1;
+				while (ip != 0) {
+					unsigned char *it =
+					    (unsigned char *)(uintptr_t)ip;
+					if (it[40] == 62 || it[40] == 63) {
+						jt30(mp, ip);
+						ip = *(long *)((uintptr_t)mp + 8);
+						flag = 3;
+					} else {
+						ip = *(long *)(uintptr_t)ip;
+					}
+				}
+				if (flag & 2)
+					jt21(mp);
+			}
+			if (flag != 0) {
+				jt96(1, 17, 38, 22, 7, 0, 1,
+				     (long)(uintptr_t)ua_strs_at(0x6a64), 0);
+				jt175();
+			}
+		}
 		jt198(g_a5_word(-18878));                      /* load the level */
 		if (g_a5_word(-18878) > 4) l0ba2(); else l0b88();
 		l0006_20();                                    /* post-load init */

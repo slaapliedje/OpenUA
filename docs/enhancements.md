@@ -122,8 +122,11 @@ bug that affected implemented ones.**
   copies the OPPOSITE direction from the Mac and runs front-to-back, corrupting a
   row when `cc < 2*base[3]`. Re-lift to match the asm and validate on a real grid
   before trusting the editor's column resize. (Surfaced by the jt406 audit.)
-- **Drow-gear-dissolves scan** (`l5676`, `ev[12]` bit 3) — unimplemented event arm.
 - Per-step cell-change / redraw-hint arms (`l63c0`, `0x43f8..0x445c`).
+
+Done (2026-07-24): the drow-gear-dissolves scan (`l5676`, `ev[12]` bit 3) is
+lifted and live-verified via the `FRUA_DROWTEST` harness (plants a class-62
+item, fires a synthetic type-11 event; DBG.LOG proves the one-item destroy).
 
 ## P3 — art / data formats
 
