@@ -297,7 +297,7 @@ run: $(TARGET)
 # Builds its own 68000 configuration (same pattern as run-mono: depending
 # on $(TARGET) let a bare `make run-ste` silently rebuild the default
 # 68020 binary, which dies on the STE's 68000).
-EMUTOS ?= $(HOME)/Downloads/Atari/etos256us.img
+EMUTOS ?= /usr/share/hatari/tos206us.img
 run-ste:
 	$(MAKE) CPU68K=68000 EXTRA_CFLAGS="$(EXTRA_CFLAGS)"
 	$(HATARI) --machine ste --memsize 4 --tos $(EMUTOS) --zoom 2 --sound 44100 \
