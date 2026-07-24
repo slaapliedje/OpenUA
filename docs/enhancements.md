@@ -118,10 +118,16 @@ bug that affected implemented ones.**
   (`l53b0` prologue, dormant tile converter); two `l4842` sites (dormant editor
   map-resize) flagged as a copy-DIRECTION divergence needing a Mac-trace re-lift.
   See the banner on `jt406`'s definition and commit `62527d3e`.
-- ⚠️ **`l4842` map column-resize** (dormant, editor-only) — its row re-spacing
-  copies the OPPOSITE direction from the Mac and runs front-to-back, corrupting a
-  row when `cc < 2*base[3]`. Re-lift to match the asm and validate on a real grid
-  before trusting the editor's column resize. (Surfaced by the jt406 audit.)
+- ~~**`l4842` map column-resize**~~ — ✅ DONE 2026-07-24. The flagged
+  copy-direction divergence was an argument-role misreading: l4842's rr/cc are
+  the OLD dims (the caller snapshots them before the settings editor writes
+  the new dims into the header), so the Mac's directions are correct —
+  front-to-back compacts a narrowing (dst trails src), back-to-front spreads a
+  widening (dst leads src, prior row's tail gap zeroed each pass; row lim-1's
+  own gap stays unzeroed, a faithful quirk). The scans collect events from the
+  REMOVED region (the loss warning). Re-lifted to the asm's pointer setup and
+  pinned byte-exact across grow/shrink/mixed + overlap-hazard widths by
+  `tests/test_l4842_reshape.py`.
 Done (2026-07-24): the drow-gear-dissolves scan (`l5676`, `ev[12]` bit 3) is
 lifted and live-verified via the `FRUA_DROWTEST` harness (plants a class-62
 item, fires a synthetic type-11 event; DBG.LOG proves the one-item destroy).

@@ -5153,10 +5153,11 @@ static void jt399(void *buf, short size, short fill)
  *   - 1 was REVERSED and is now FIXED: l53b0's prologue header copy
  *     (~line 78385) copied obuf INTO desc+4 instead of desc+4 -> obuf
  *     (Mac CODE 10 @0x53de). Dormant tile-converter, so it never bit.
- *   - 2 in l4842 (the editor map column-resize, ~lines 79432/79452) DIVERGE
- *     from the Mac in copy DIRECTION, not just arg order — flagged in place,
- *     NOT blindly swapped (a bare swap would make it worse). l4842 is
- *     __attribute__((unused)); validate its reshape before trusting it.
+ *   - 2 in l4842 (the editor map column-resize) DIVERGED in copy DIRECTION —
+ *     RESOLVED 2026-07-24: the divergence was an argument-role misreading
+ *     (l4842's rr/cc are the OLD dims; the header already holds the NEW
+ *     ones), not a Mac bug. Re-lifted to the asm's pointer setup and pinned
+ *     byte-exact by tests/test_l4842_reshape.py.
  * The hazard for FUTURE transcriptions remains, hence this banner: a Mac
  * `JT[406](A, B, n)` must be written jt406(B, A, n) — SWAP the first two. */
 static void jt406(void *dst, const void *src, short count) __attribute__((unused));
@@ -83868,16 +83869,25 @@ static void jt252(void) { PROBE("jt252"); }
  * via the global — the caller guarantees fp@(8) == g_a5(-12300)); each cell's
  * byte at offset 4 (base + k*6 + 294) is its event id.
  *
- * Steps: (1) if the new dims already fit (base[2] >= rr && base[3] == cc), do
- * nothing. (2) Reset the selection ring and scan the two newly-exposed regions
- * — rows [base[2],rr) x cols [0,cc) and rows [0,min(rr,base[2])) x cols
- * [base[3],cc) — appending each non-empty cell's event id to the ring (L20ac)
- * and counting them. (3) Re-space the surviving rows from the old stride
- * (base[3]*6) to the new stride (cc*6) via jt406 block moves: forward when the
- * width grew, back-to-front when it shrank (zeroing the vacated gap each row),
- * or just zero the freed tail when the width is unchanged. Returns the count of
- * events found in the affected region (so the caller can warn about loss). */
-static short l4842(void *base_p, short rr_arg, short cc_arg) __attribute__((unused));
+ * ARGUMENT TRUTH (the key to the whole function, confirmed at the jt253 call
+ * sites): rr/cc are the OLD dims — the caller snapshots them (ctx[6]/[7])
+ * BEFORE the settings editor writes the new dims into the header — and
+ * base[2]/base[3] already hold the NEW dims when this runs. The 2026-07-14
+ * jt406-audit divergence note read rr/cc as the new dims, which made the Mac's
+ * copy directions look inverted; under the correct reading the asm is
+ * perfectly coherent and the previous lift was the inverted one.
+ *
+ * Steps: (1) if nothing was removed (newH >= oldH && newW == oldW), do
+ * nothing. (2) Reset the selection ring and scan the two REMOVED regions —
+ * dropped rows [newH, oldH) x cols [0, oldW) and dropped cols [newW, oldW) x
+ * rows [0, min(oldH,newH)) — appending each non-empty cell's event id to the
+ * ring (L20ac) and counting them (the caller's loss warning; newly-exposed
+ * cells are empty and can hold no events). (3) Re-space the surviving rows
+ * from the old stride (cc*6) to the new stride (base[3]*6) via jt406 block
+ * moves: FRONT-to-back when the width shrank (dst trails src — no overlap),
+ * BACK-to-front when it grew (dst leads src), zeroing each row's vacated tail
+ * gap and the dropped-rows region; or just zero the freed tail when the width
+ * is unchanged. Returns the count of events found in the removed region. */
 static short l4842(void *base_p, short rr_arg, short cc_arg)
 {
 	unsigned char *base = (unsigned char *)base_p;
@@ -83892,71 +83902,68 @@ static short l4842(void *base_p, short rr_arg, short cc_arg)
 	unsigned char i, j;                 /* fp@(-1) / fp@(-2)                */
 
 	PROBE("L4842");
-	if (base[2] >= rr && base[3] == cc)
+	if (base[2] >= rr && base[3] == cc)     /* newH >= oldH, same width */
 		return 0;
 
 	l20ac((short)0);                    /* reset the selection ring */
 
-	/* scan the newly-exposed rows [base[2], rr) x cols [0, cc) */
+	/* scan the DROPPED rows [newH, oldH) x cols [0, oldW) */
 	for (i = base[2]; i < rr; i++)
 		for (j = 0; j < cc; j++) {
 			evid = base[((long)i * cc + j) * 6 + 294];
 			if (evid != 0) { l20ac((short)evid); count++; }
 		}
 
-	lim = (unsigned char)jt413((short)rr, (short)base[2]);
+	lim = (unsigned char)jt413((short)rr, (short)base[2]);  /* surviving rows */
 
-	/* scan the newly-exposed cols [base[3], cc) x rows [0, lim) */
+	/* scan the DROPPED cols [newW, oldW) x rows [0, lim) */
 	for (j = base[3]; j < cc; j++)
 		for (i = 0; i < lim; i++) {
 			evid = base[((long)i * cc + j) * 6 + 294];
 			if (evid != 0) { l20ac((short)evid); count++; }
 		}
 
-	delta = (short)(((int)cc - (int)base[3]) * 6);
-	endp  = base + 290 + (long)rr * cc * 6;
+	delta = (short)(((int)cc - (int)base[3]) * 6);  /* (oldW - newW) * 6 */
+	endp  = base + 290 + (long)rr * cc * 6;         /* end of the OLD data */
 
-	/* ⚠️ SUSPECTED jt406 arg-order + copy-DIRECTION divergence from the Mac —
-	 * NOT fixed here, needs a Mac-trace validation of the whole reshape first.
-	 * At the grow call (Mac CODE 2 @0x4a02) the pushes are DST=fp@-16 (base[3]*6-
-	 * strided), SRC=fp@-12 (cc*6-strided): BlockMove copies the wide-strided
-	 * pointer INTO the narrow-strided one. This port maps its `dst` to the
-	 * cc-strided pointer and `src` to the base[3]-strided one, so port
-	 * jt406(dst,src) copies narrow->wide — the OPPOSITE direction, and it runs
-	 * FRONT-to-back, which overlaps and corrupts the next row when cc < 2*base[3].
-	 * The shrink call (0x4b22) is inverted the same way. Both look like an
-	 * "intuitive" reconstruction that diverged from the asm. l4842 is dormant
-	 * (__attribute__((unused)), editor map-resize, never exercised headless), so
-	 * this is latent — but do NOT trust the map column-resize until the reshape
-	 * is re-lifted to match the asm's pointer setup and validated on a real grid.
-	 * A bare arg swap would NOT fix it (the init offsets/strides differ too). */
+	/* Re-lifted 2026-07-24 to the asm's pointer setup (the flagged jt406
+	 * divergence): the Mac JT[406](A, B, n) is src-first, so the lifted
+	 * calls are jt406(B, A, n) — see the jt406 banner. Directions verified
+	 * overlap-safe both ways: narrowing runs front-to-back with dst
+	 * trailing src; widening runs back-to-front with dst leading src, and
+	 * each pass zeroes the previous row's vacated (newW-oldW)*6 tail gap,
+	 * which starts at-or-after any still-unmoved old row. */
 	if (delta > 0) {
-		/* columns grew: re-space each surviving row to the wider stride */
-		dst = base + 290 + (long)cc * 6;
-		src = base + 290 + (long)base[3] * 6;
-		stride = (short)((int)base[3] * 6);
+		/* width SHRANK: compact each surviving row to the narrower
+		 * stride, keeping the first newW columns; then zero from the
+		 * end of the compacted data to the old end. */
+		src = base + 290 + (long)cc * 6;          /* old row 1 */
+		dst = base + 290 + (long)base[3] * 6;     /* new row 1 */
+		stride = (short)((int)base[3] * 6);       /* newW*6 bytes kept */
 		for (i = 1; i < lim; i++) {
-			jt406(dst, src, stride);        /* ⚠️ see the note above */
-			dst += (long)cc * 6;
-			src += (long)base[3] * 6;
+			jt406(dst, src, stride);          /* Mac @0x4a02 */
+			src += (long)cc * 6;
+			dst += (long)base[3] * 6;
 		}
-		jt399(src, (short)jt4(jt7((long)(endp - src), 6), 6), (short)0);
-	} else if (delta < 0) {
-		/* columns shrank: re-space rows to the narrower stride, back-to-front */
-		delta = (short)(-delta);
-		dst = base + 290 + (long)lim * cc * 6;
 		jt399(dst, (short)jt4(jt7((long)(endp - dst), 6), 6), (short)0);
-		dst -= (long)cc * 6;
-		src = base + 290 + (long)(lim - 1) * base[3] * 6;
-		stride = (short)((int)cc * 6);
+	} else if (delta < 0) {
+		/* width GREW: first zero the dropped-rows region past the
+		 * surviving data, then re-space rows to the wider stride
+		 * back-to-front (row 0 stays in place). */
+		delta = (short)(-delta);                  /* (newW - oldW) * 6 */
+		src = base + 290 + (long)lim * cc * 6;    /* end of surviving old data */
+		jt399(src, (short)jt4(jt7((long)(endp - src), 6), 6), (short)0);
+		src -= (long)cc * 6;                      /* old row lim-1 */
+		dst = base + 290 + (long)(lim - 1) * base[3] * 6;  /* new row lim-1 */
+		stride = (short)((int)cc * 6);            /* oldW*6 bytes kept */
 		for (i = (unsigned char)(lim - 1); i > 0; i--) {
-			jt406(dst, src, stride);        /* ⚠️ see the divergence note above */
-			jt399(src - delta, delta, (short)0);
-			dst -= (long)cc * 6;
-			src -= (long)base[3] * 6;
+			jt406(dst, src, stride);          /* Mac @0x4b22 */
+			jt399(dst - delta, delta, (short)0);  /* prev row's tail gap */
+			src -= (long)cc * 6;
+			dst -= (long)base[3] * 6;
 		}
 	} else {
-		/* width unchanged: just zero the freed tail past the new extent */
+		/* width unchanged (height shrank): zero the freed tail */
 		dst = base + 290 + (long)base[2] * base[3] * 6;
 		if (dst < endp)
 			jt399(dst, (short)jt4(jt7((long)(endp - dst), 6), 6),
