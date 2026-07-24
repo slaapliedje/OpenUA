@@ -527,7 +527,19 @@ const dsp_backend_t *dsp_detect(void)
 
 int plat_cursor_active(void)
 {
+#ifdef FRUA_AGA_SPRITE_CURSOR
 	return s_spr[0] != NULL;           /* the display takeover succeeded */
+#else
+	/* #64: the sprite cursor's palette bank 0xF0 IS playfield colours
+	 * 240-255 on an 8-plane screen — there is no bank the playfield can't
+	 * reach, so the cursor's colour claim stomps any art pixel indexing
+	 * the CLUT tail (the Mac system palette keeps its blue/grey ramps
+	 * there: the merchant-BIGPIC "bars"). Until a scheme exists that
+	 * avoids the collision, report inactive so the shim composites the
+	 * software cursor (the RTG/ECS path). The sprite machinery stays,
+	 * opt back in with -DFRUA_AGA_SPRITE_CURSOR. */
+	return 0;
+#endif
 }
 
 void plat_cursor_set_sprite(const unsigned short *rgb565,
