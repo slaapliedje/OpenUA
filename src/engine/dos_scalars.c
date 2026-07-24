@@ -91,6 +91,15 @@ int dos_scalars_load(void)
 		if (SetFPos(refnum, fsFromStart, r->off) != noErr ||
 		    FSRead(refnum, &count, buf) != noErr || count != r->len)
 			continue;           /* verified above; be defensive anyway */
+		if (r->flags & A4_DOS_SWAP16) {
+			/* x86 stored the word table little-endian; restore the
+			 * Mac big-endian byte order the engine indexes (#68). */
+			for (k = 0; k + 1 < r->len; k += 2) {
+				unsigned char t = buf[k];
+				buf[k]     = buf[k + 1];
+				buf[k + 1] = t;
+			}
+		}
 		for (k = 0; k < r->len; k++) {
 			if (g_a5_byte(r->slot + k) == 0 && buf[k] != 0) {
 				g_a5_byte(r->slot + k) = buf[k];

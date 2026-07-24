@@ -351,7 +351,49 @@ def split_by_dos(runs, dos, min_run=4, min_part=8):
     return locatable, residue
 
 
-def emit_c_dos_scalars(locatable, fh):
+def swap16_pass(residue, img, dos, min_run=8):
+    """(swapped_locatable, residue') — 16-bit word tables the DOS build
+    stores little-endian (#68).
+
+    A Mac big-endian word table survives in CKIT.EXE with every byte pair
+    swapped, so exact matching can never find it. Worse, the Mac nonzero-run
+    extractor FRAGMENTS such tables: a BE value below 256 has a 0x00 high
+    byte, which terminates the run, so the captured run usually starts
+    mid-word (the XP ladder at A5-17514 = 250,500,1000,... lost its leading
+    00 byte this way). So re-window each residual run against the full image
+    (zeros included) at each sub-word alignment and search the byte-swapped
+    form. The returned bytes are the A5-side (big-endian) window; the loader
+    swaps what it reads back into that order. A byte sum is swap-invariant,
+    so the ADR-0017 checksum needs no special casing.
+    """
+    a5_base = len(img)
+    out, rest = [], []
+    for slot, b in residue:
+        hit = None
+        if len(b) >= min_run:
+            for pre in range(4):
+                for post in range(4):
+                    s = a5_base + slot - pre
+                    e = a5_base + slot + len(b) + post
+                    w = bytes(img[s:e])
+                    if len(w) % 2:
+                        continue
+                    sw = b"".join(bytes((w[i + 1], w[i]))
+                                  for i in range(0, len(w), 2))
+                    p = dos.find(sw)
+                    if p >= 0:
+                        hit = (slot - pre, w, p)
+                        break
+                if hit:
+                    break
+        if hit:
+            out.append(hit)
+        else:
+            rest.append((slot, b))
+    return out, rest
+
+
+def emit_c_dos_scalars(locatable, fh, swapped=()):
     fh.write("\n/* Scalar runs recoverable from the user's DOS CKIT.EXE:\n"
              " * \"the A5 global at `slot` is `len` bytes taken from DOS+`off`\".\n"
              " * Shared game-rule tables, byte-identical between the releases.\n"
@@ -366,9 +408,14 @@ def emit_c_dos_scalars(locatable, fh):
              "const struct a4_dos_run g_a5_dos_scalars[] = {\n")
     for slot, b, off in locatable:
         chk = sum(b) & 0xFFFF
-        fh.write(f"\t{{ {slot:7d}, {len(b):4d}, {off:7d}L, 0x{chk:04x} }},\n")
+        fh.write(f"\t{{ {slot:7d}, {len(b):4d}, {off:7d}L, 0x{chk:04x}, 0 }},\n")
+    for slot, b, off in swapped:
+        chk = sum(b) & 0xFFFF
+        fh.write(f"\t{{ {slot:7d}, {len(b):4d}, {off:7d}L, 0x{chk:04x}, "
+                 f"A4_DOS_SWAP16 }},\n")
+    total = len(locatable) + len(swapped)
     fh.write("};\n\n"
-             f"const short g_a5_dos_scalar_count = {len(locatable)};\n")
+             f"const short g_a5_dos_scalar_count = {total};\n")
 
 
 def emit_c_scalars(runs, fh):
@@ -454,18 +501,23 @@ def main(argv=None):
             # SHIPS. Because positions are free, emit EVERY DOS-extractable
             # run, unfiltered: this auto-closes indexed-table gaps (the table
             # lives in the user's own binary) with no per-table authoring.
-            loc, res = [], runs
+            loc, swp, res = [], [], runs
             if args.dos:
                 dosimg = open(args.dos, "rb").read()
                 # Re-fuse zero-split tables first (#75): fragments whose whole
                 # region matches the DOS image become one run each.
                 loc, res = split_by_dos(
                     coalesce_runs_by_dos(runs, dosimg), dosimg)
+                # #68: word tables the DOS build stores byte-swapped.
+                swp, res = swap16_pass(res, img, dosimg)
                 lb = sum(len(b) for _, b, _ in loc)
+                sb = sum(len(b) for _, b, _ in swp)
                 rb = sum(len(b) for _, b in res)
                 print(f"  DOS-extractable (ALL, shipped): {len(loc)} runs / "
-                      f"{lb} bytes; residue to author: {len(res)} runs / "
-                      f"{rb} bytes ({100*rb/(lb+rb):.1f}%)", file=sys.stderr)
+                      f"{lb} bytes + {len(swp)} swapped runs / {sb} bytes; "
+                      f"residue to author: {len(res)} runs / "
+                      f"{rb} bytes ({100*rb/(lb+sb+rb):.1f}%)",
+                      file=sys.stderr)
                 if args.residue_report:
                     reached = set()
                     if args.refs_from:
@@ -487,7 +539,7 @@ def main(argv=None):
                                       f"{b.hex(' ')}\n")
                     print(f"  residue worklist -> {args.residue_report}",
                           file=sys.stderr)
-            emit_c_dos_scalars(loc, fh)
+            emit_c_dos_scalars(loc, fh, swp)
 
             # Diagnostic blob (FRUA_SCALAR_SEED) — the FULL set, so it can
             # reproduce the whole A5 world for parity testing. Copyrighted;

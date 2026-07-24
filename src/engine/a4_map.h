@@ -45,7 +45,13 @@ struct a4_dos_run {
 	short          len;    /* run length in bytes             */
 	long           off;    /* byte offset into CKIT.EXE       */
 	unsigned short sum;    /* 16-bit sum of the run's bytes   */
+	unsigned short flags;  /* A4_DOS_* treatment of the read  */
 };
+
+/* The DOS build stores 16-bit word tables little-endian; swap each byte
+ * pair after reading so the A5 world gets the Mac big-endian order (#68).
+ * The byte SUM is order-invariant, so verification needs no special case. */
+#define A4_DOS_SWAP16 1
 
 extern const struct a4_dos_run g_a5_dos_scalars[];
 extern const short             g_a5_dos_scalar_count;
