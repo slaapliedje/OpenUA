@@ -116,3 +116,81 @@ def _drel():
     from macrsrc import ResourceFork
     rf = ResourceFork.from_file(RFORK)
     return {(r.type, r.id): r.data for r in rf.resources}[("DREL", 0)]
+
+
+@pytest.fixture(scope="module")
+def full_map(world):
+    """The whole shipped pipeline: verbatim runs, then the byte-swapped passes.
+    Returns (img, dos, locatable, swapped, residue)."""
+    img, dos, loc, res_runs = world
+    sys.path.insert(0, "tools")
+    import a4map
+    swp, rest = a4map.swap_pass(res_runs, img, dos)
+    swp2, rest = a4map.swap_coalesce_pass(rest, img, dos)
+    return img, dos, loc, swp + swp2, rest
+
+
+def test_swapped_runs_round_trip(full_map):
+    """Each swapped run must decode BOTH ways: the DOS bytes under its declared
+    transform are the Mac image's bytes at that A5 offset. A wrong transform or
+    a chance match would poison the A5 world with plausible garbage, which is
+    the failure mode #67 exists to prevent."""
+    img, dos, _, swp, _ = full_map
+    sys.path.insert(0, "tools")
+    import a4map
+    shape = {"A4_DOS_SWAP16": (2, 2), "A4_DOS_SWAP32": (4, 4),
+             "A4_DOS_SWAP16_Q": (2, 4)}
+    assert swp, "no byte-swapped runs at all?"
+    for slot, b, off, flag in swp:
+        width, stride = shape[flag]
+        assert a4map._byteswap(dos[off:off + len(b)], width, stride) == b, \
+            f"run at A5{slot}: {flag} does not reproduce the run from DOS"
+        base = len(img) + slot
+        assert bytes(img[base:base + len(b)]) == b, \
+            f"run at A5{slot}: window disagrees with the Mac image"
+
+
+def test_chargen_rules_tables_are_covered(full_map):
+    """#67 regression: the char-gen rules tables must be fully DOS-sourced.
+
+    Both were invisible to the earlier passes and left a Mac-free build
+    rolling LEVEL-1, AGE-10 characters where the DATA replay gives level 6,
+    age 26 — the exact "correctly-executed wrong path" signature:
+
+      A5-30212  per-class XP thresholds, 32-bit LONGS (SWAP32)
+      A5-30780  racial age/HP quads, `short base; char dice; char sides`
+                (SWAP16_Q — pair-swapping transposes dice/sides and misses)
+
+    Zero bytes need no coverage: the A5 buffer starts zeroed.
+    """
+    img, _, loc, swp, _ = full_map
+    base = len(img)
+
+    def uncovered(a5, n):
+        out = []
+        for a in range(a5, a5 + n):
+            if img[base + a] == 0:
+                continue
+            if any(s <= a < s + len(b) for s, b, _ in loc):
+                continue
+            if any(s <= a < s + len(b) for s, b, _, _ in swp):
+                continue
+            out.append(a)
+        return out
+
+    assert uncovered(-30780, 168) == [], "racial age/HP quads not covered"
+    # The XP ladder's last few high-level entries differ between the releases
+    # (DOS lays them elsewhere); levels 1..12 of every class must be covered,
+    # which is what char-gen and training read.
+    missing = uncovered(-30212, 816)
+    assert len(missing) <= 8, f"XP threshold coverage regressed: {missing}"
+
+
+def test_pitch_table_stays_residue(full_map):
+    """A5-804 is in NO file of the DOS install (it is Mac-only), so no pass may
+    claim it — including the byte-swapped ones. If this ever fires, a pass is
+    matching by chance and every other run is suspect."""
+    _, _, loc, swp, _ = full_map
+    for a5 in range(-804, -780):
+        assert not any(s <= a5 < s + len(b) for s, b, _ in loc)
+        assert not any(s <= a5 < s + len(b) for s, b, _, _ in swp)

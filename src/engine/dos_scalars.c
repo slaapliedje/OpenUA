@@ -91,10 +91,27 @@ int dos_scalars_load(void)
 		if (SetFPos(refnum, fsFromStart, r->off) != noErr ||
 		    FSRead(refnum, &count, buf) != noErr || count != r->len)
 			continue;           /* verified above; be defensive anyway */
+		/* x86 stored the table in its own byte order; restore the Mac
+		 * big-endian order the engine indexes. Word tables (#68) and,
+		 * since #67, long tables and 4-byte structs whose leading field
+		 * is a word (see a4_map.h). Each form is its own inverse. */
 		if (r->flags & A4_DOS_SWAP16) {
-			/* x86 stored the word table little-endian; restore the
-			 * Mac big-endian byte order the engine indexes (#68). */
 			for (k = 0; k + 1 < r->len; k += 2) {
+				unsigned char t = buf[k];
+				buf[k]     = buf[k + 1];
+				buf[k + 1] = t;
+			}
+		} else if (r->flags & A4_DOS_SWAP32) {
+			for (k = 0; k + 3 < r->len; k += 4) {
+				unsigned char t = buf[k];
+				buf[k]     = buf[k + 3];
+				buf[k + 3] = t;
+				t          = buf[k + 1];
+				buf[k + 1] = buf[k + 2];
+				buf[k + 2] = t;
+			}
+		} else if (r->flags & A4_DOS_SWAP16_Q) {
+			for (k = 0; k + 3 < r->len; k += 4) {
 				unsigned char t = buf[k];
 				buf[k]     = buf[k + 1];
 				buf[k + 1] = t;

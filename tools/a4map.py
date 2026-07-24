@@ -351,46 +351,218 @@ def split_by_dos(runs, dos, min_run=4, min_part=8):
     return locatable, residue
 
 
-def swap16_pass(residue, img, dos, min_run=8):
-    """(swapped_locatable, residue') — 16-bit word tables the DOS build
-    stores little-endian (#68).
+# How a Mac-side (big-endian) table can appear in the x86 executable. Each
+# entry is (C flag name, width, stride): reverse `width` bytes at the start of
+# every `stride`-byte record. SWAP16 is every word; SWAP32 every long; SWAP16_Q
+# only the leading word of a 4-byte record — the shape of a
+# `struct { short base; char dice; char sides; }` table, where blind pair
+# swapping would also transpose the two trailing bytes and never match.
+_SWAP_MODES = (
+    ("A4_DOS_SWAP16",   2, 2),
+    ("A4_DOS_SWAP32",   4, 4),
+    ("A4_DOS_SWAP16_Q", 2, 4),
+)
 
-    A Mac big-endian word table survives in CKIT.EXE with every byte pair
-    swapped, so exact matching can never find it. Worse, the Mac nonzero-run
+# How far either side of a residual fragment to look for a locatable window.
+# A fragment is usually a table's interior crumb: its scalar's zero bytes were
+# eaten, so the window has to be re-grown before it can match anything. 8 spans
+# two longs, enough to re-align any of the modes above.
+_EXTEND = 8
+
+
+def _byteswap(w, width, stride):
+    out = bytearray(w)
+    for i in range(0, len(w) - stride + 1, stride):
+        out[i:i + width] = w[i:i + width][::-1]
+    return bytes(out)
+
+
+def swap_pass(residue, img, dos, min_run=8, modes=_SWAP_MODES):
+    """(byteswapped_locatable, residue') — tables the DOS build stores in
+    x86 byte order (#68, #67).
+
+    A Mac big-endian table survives in CKIT.EXE with each scalar's bytes
+    reversed, so exact matching can never find it. Worse, the Mac nonzero-run
     extractor FRAGMENTS such tables: a BE value below 256 has a 0x00 high
     byte, which terminates the run, so the captured run usually starts
     mid-word (the XP ladder at A5-17514 = 250,500,1000,... lost its leading
     00 byte this way). So re-window each residual run against the full image
-    (zeros included) at each sub-word alignment and search the byte-swapped
-    form. The returned bytes are the A5-side (big-endian) window; the loader
-    swaps what it reads back into that order. A byte sum is swap-invariant,
-    so the ADR-0017 checksum needs no special casing.
+    (zeros included) at each sub-word alignment and search each candidate
+    encoding in `modes`.
+
+    Word swapping alone was not enough: the chargen rules tables are LONGS
+    (the per-class XP thresholds at A5-30212, 32-bit) and 4-byte STRUCTS (the
+    racial age quads at A5-30780, `short base; char dice; char sides`), and
+    both stayed in the residue — which is what left a Mac-free build rolling
+    level-1, age-10 characters (#67).
+
+    The widest matching window wins, so a run is covered as far as the DOS
+    layout agrees rather than stopping at the first hit. The returned bytes
+    are the A5-side (big-endian) window; the loader applies the same
+    involution to what it reads. A byte sum is order-invariant, so the
+    ADR-0017 checksum needs no special casing.
     """
     a5_base = len(img)
     out, rest = [], []
     for slot, b in residue:
-        hit = None
-        if len(b) >= min_run:
-            for pre in range(4):
-                for post in range(4):
+        best = None
+        for flag, width, stride in modes:
+            for pre in range(_EXTEND):
+                for post in range(_EXTEND):
                     s = a5_base + slot - pre
                     e = a5_base + slot + len(b) + post
                     w = bytes(img[s:e])
-                    if len(w) % 2:
+                    if len(w) % stride or len(w) < min_run:
                         continue
-                    sw = b"".join(bytes((w[i + 1], w[i]))
-                                  for i in range(0, len(w), 2))
-                    p = dos.find(sw)
-                    if p >= 0:
-                        hit = (slot - pre, w, p)
-                        break
-                if hit:
-                    break
-        if hit:
-            out.append(hit)
+                    p = dos.find(_byteswap(w, width, stride))
+                    if p >= 0 and (best is None or len(w) > len(best[1])):
+                        best = (slot - pre, w, p, flag)
+        if best:
+            out.append(best)
         else:
             rest.append((slot, b))
     return out, rest
+
+
+def swap_coalesce_pass(residue, img, dos, max_gap=32, min_merge=8,
+                       max_len=1024, modes=_SWAP_MODES):
+    """(byteswapped_locatable, residue') — swap_pass at CLUSTER scale.
+
+    swap_pass can only look at runs already `min_run` long, and a byte-swapped
+    table rarely leaves one: a BE scalar with a zero high byte is shredded into
+    2- and 3-byte fragments by scalar_runs(), each far too short to locate. The
+    per-class XP threshold ladder at A5-30212 is 816 bytes in the Mac image and
+    reaches this point as ~150 bytes of such crumbs.
+
+    So do for byte-swapped tables what coalesce_runs_by_dos does for verbatim
+    ones: cluster neighbouring residual runs, rebuild the whole region from the
+    IMAGE (interior zeros included), and search each candidate encoding. A
+    region that matches nothing splits at its widest interior gap and each half
+    retries, so a cluster that welded two unrelated tables still recovers both.
+    """
+    a5_base = len(img)
+    out, rest = [], []
+
+    def locate(slot, end):
+        best = None
+        for flag, width, stride in modes:
+            for pre in range(stride):
+                for post in range(stride):
+                    s, e = slot - pre, end + post
+                    w = bytes(img[a5_base + s:a5_base + e])
+                    if (len(w) % stride or len(w) < min_merge
+                            or len(w) > max_len):
+                        continue
+                    p = dos.find(_byteswap(w, width, stride))
+                    if p >= 0 and (best is None or len(w) > len(best[1])):
+                        best = (s, w, p, flag)
+        return best
+
+    def emit(cl):
+        slot = cl[0][0]
+        end = cl[-1][0] + len(cl[-1][1])
+        hit = locate(slot, end)
+        if hit:
+            out.append(hit)
+            return
+        if len(cl) == 1:
+            rest.append(cl[0])
+            return
+        gaps = [(cl[i + 1][0] - (cl[i][0] + len(cl[i][1])), i)
+                for i in range(len(cl) - 1)]
+        _, i = max(gaps)
+        emit(cl[:i + 1])
+        emit(cl[i + 1:])
+
+    cur = []
+    for slot, b in sorted(residue):
+        if cur and slot - (cur[-1][0] + len(cur[-1][1])) > max_gap:
+            emit(cur)
+            cur = []
+        cur.append((slot, b))
+    if cur:
+        emit(cur)
+
+    return out, rest
+
+
+def finish_swapped(located, residue, img, dos, max_len=1024):
+    """(grown, residue') — widen every located run to the full extent the DOS
+    layout agrees over, fuse the overlaps that creates, then drop residual runs
+    the result now covers."""
+    grown = merge_swapped([grow_swapped_run(hit, img, dos, max_len)
+                           for hit in located], max_len)
+    covered = set()
+    for slot, b, _, _ in grown:
+        covered.update(range(slot, slot + len(b)))
+    rest = [(s, b) for s, b in residue
+            if not all(a in covered for a in range(s, s + len(b)))]
+    return grown, rest
+
+
+def merge_swapped(runs, max_len=1024):
+    """Fuse runs that grew into each other.
+
+    Growing turns neighbouring fragments of one table into a stack of nearly
+    identical overlapping windows — hundreds of them, and every run costs the
+    ST a seek + read of CKIT.EXE at boot, twice (verify, then apply). Two runs
+    merge when they share a transform, overlap or abut, and agree on where the
+    A5 world sits relative to the DOS file (`off - slot` constant), which means
+    the fused window is the same mapping over a wider span.
+    """
+    out = []
+    for slot, b, off, flag in sorted(runs, key=lambda r: (r[3], r[0])):
+        if out:
+            pslot, pb, poff, pflag = out[-1]
+            same_map = (poff - pslot) == (off - slot)
+            if (pflag == flag and same_map and slot <= pslot + len(pb)
+                    and max(pslot + len(pb), slot + len(b)) - pslot <= max_len):
+                tail = (pslot + len(pb)) - slot      # how much of b overlaps pb
+                if tail < len(b):
+                    pb = pb + b[tail:]
+                out[-1] = (pslot, pb, poff, pflag)
+                continue
+        out.append((slot, b, off, flag))
+    return out
+
+
+def grow_swapped_run(hit, img, dos, max_len=1024):
+    """Extend a located run as far as the DOS layout keeps agreeing.
+
+    A cluster window is only as wide as the residual fragments that formed it,
+    so a table's edge records can fall outside it and drop back into the
+    residue — the per-class XP ladder lost its level-12 thresholds that way.
+    Growing costs no search: walk outwards one record at a time and keep going
+    while the DOS bytes, under this run's own transform, still equal the Mac
+    image's. Stops at the first disagreement, so it can only add bytes that
+    were already verifiable.
+    """
+    slot, b, off, flag = hit
+    a5_base = len(img)
+    width, stride = dict((f, (w, s)) for f, w, s in _SWAP_MODES)[flag]
+
+    def agrees(s, n, o):
+        if o < 0 or o + n > len(dos) or a5_base + s < 0:
+            return False
+        w = bytes(img[a5_base + s:a5_base + s + n])
+        return len(w) == n and _byteswap(dos[o:o + n], width, stride) == w
+
+    while len(b) + stride <= max_len and agrees(slot, len(b) + stride, off):
+        b = bytes(img[a5_base + slot:a5_base + slot + len(b) + stride])
+    while (len(b) + stride <= max_len
+           and agrees(slot - stride, len(b) + stride, off - stride)):
+        slot -= stride
+        off -= stride
+        b = bytes(img[a5_base + slot:a5_base + slot + len(b) + stride])
+    return (slot, b, off, flag)
+
+
+def swap16_pass(residue, img, dos, min_run=8):
+    """Word-swap-only form of swap_pass, kept for callers that want just #68's
+    original pass. Returns (slot, bytes, dos_off) triples."""
+    out, rest = swap_pass(residue, img, dos, min_run,
+                          modes=_SWAP_MODES[:1])
+    return [(s, b, o) for s, b, o, _ in out], rest
 
 
 def emit_c_dos_scalars(locatable, fh, swapped=()):
@@ -409,10 +581,10 @@ def emit_c_dos_scalars(locatable, fh, swapped=()):
     for slot, b, off in locatable:
         chk = sum(b) & 0xFFFF
         fh.write(f"\t{{ {slot:7d}, {len(b):4d}, {off:7d}L, 0x{chk:04x}, 0 }},\n")
-    for slot, b, off in swapped:
+    for slot, b, off, flag in swapped:
         chk = sum(b) & 0xFFFF
         fh.write(f"\t{{ {slot:7d}, {len(b):4d}, {off:7d}L, 0x{chk:04x}, "
-                 f"A4_DOS_SWAP16 }},\n")
+                 f"{flag} }},\n")
     total = len(locatable) + len(swapped)
     fh.write("};\n\n"
              f"const short g_a5_dos_scalar_count = {total};\n")
@@ -508,10 +680,14 @@ def main(argv=None):
                 # region matches the DOS image become one run each.
                 loc, res = split_by_dos(
                     coalesce_runs_by_dos(runs, dosimg), dosimg)
-                # #68: word tables the DOS build stores byte-swapped.
-                swp, res = swap16_pass(res, img, dosimg)
+                # #68 / #67: word, long and 4-byte-struct tables the DOS
+                # build stores in x86 byte order — per run, then at cluster
+                # scale for the ones scalar_runs() shredded into crumbs.
+                swp, res = swap_pass(res, img, dosimg)
+                swp2, res = swap_coalesce_pass(res, img, dosimg)
+                swp, res = finish_swapped(swp + swp2, res, img, dosimg)
                 lb = sum(len(b) for _, b, _ in loc)
-                sb = sum(len(b) for _, b, _ in swp)
+                sb = sum(len(b) for _, b, _, _ in swp)
                 rb = sum(len(b) for _, b in res)
                 print(f"  DOS-extractable (ALL, shipped): {len(loc)} runs / "
                       f"{lb} bytes + {len(swp)} swapped runs / {sb} bytes; "

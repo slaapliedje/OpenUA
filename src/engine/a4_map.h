@@ -48,10 +48,21 @@ struct a4_dos_run {
 	unsigned short flags;  /* A4_DOS_* treatment of the read  */
 };
 
-/* The DOS build stores 16-bit word tables little-endian; swap each byte
- * pair after reading so the A5 world gets the Mac big-endian order (#68).
- * The byte SUM is order-invariant, so verification needs no special case. */
-#define A4_DOS_SWAP16 1
+/* The DOS build stores tables in x86 byte order; reverse each scalar after
+ * reading so the A5 world gets the Mac big-endian order the engine indexes.
+ * The byte SUM is order-invariant, so verification needs no special case.
+ *
+ *   SWAP16     every 16-bit word           (#68)
+ *   SWAP32     every 32-bit long           — the per-class XP thresholds
+ *                                            at A5-30212 (#67)
+ *   SWAP16_Q   the LEADING word of each 4-byte record, trailing two bytes
+ *              left alone — `struct { short base; char dice; char sides; }`,
+ *              the racial age/HP quads at A5-30780 (#67). Blind pair
+ *              swapping transposes dice/sides too and never matches.
+ */
+#define A4_DOS_SWAP16   1
+#define A4_DOS_SWAP32   2
+#define A4_DOS_SWAP16_Q 4
 
 extern const struct a4_dos_run g_a5_dos_scalars[];
 extern const short             g_a5_dos_scalar_count;
