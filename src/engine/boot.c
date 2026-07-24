@@ -25012,6 +25012,23 @@ static short l2d3e(void)
 				break;
 			rec += DLITEM_BYTES;
 		}
+#ifdef FRUA_CBTKEYDIAG
+		dbg_log_num("cbtkey: ph5 key =  ", (long)sel_key);
+		if (i < count)
+			dbg_log_num("cbtkey: ph5 item*1M+s29*1000+s30 = ",
+			            (long)i * 1000000L
+			            + (long)rec[29] * 1000L + rec[30]);
+		else {
+			dbg_log("cbtkey: ph5 unclaimed");
+			rec = (unsigned char *)g_a5_9254;
+			for (i = 0; i < count && i < 14; i++) {
+				dbg_log_num("cbtkey: pool i*1M+s29*1000+f28 = ",
+				            (long)i * 1000000L
+				            + (long)rec[29] * 1000L + rec[28]);
+				rec += DLITEM_BYTES;
+			}
+		}
+#endif
 		if (i < count) {
 			method = *(dlitem_method_t *)rec;
 			if (method != NULL) {
@@ -52370,6 +52387,10 @@ static void l0d16(long actor_l, unsigned char *cmd_out)
 		*cmd_out = (unsigned char)jt173((long)(uintptr_t)ua_strs_at(0x4460),
 		               g_a5_long(-13756), 1, 0, cx, cy);
 
+#ifdef FRUA_CBTKEYDIAG
+		dbg_log_num("cbtkey: jt173 ->  ", (long)*cmd_out);
+		dbg_log_num("cbtkey: -24139 =  ", (long)g_a5_byte(-24139));
+#endif
 		if (g_a5_byte(-24139) != 0) {           /* roster-nav: only special keys ok */
 			unsigned char k = *cmd_out;
 			if (k == 192 || k == 208 || k == 204 || k == 215 || k == 18
@@ -63613,6 +63634,16 @@ static short l25b6(short arg_count, unsigned char *buf,
 			if (g_a5_24126[i * 2 + 1] == ch)
 				break;
 		}
+#ifdef FRUA_CBTKEYDIAG
+		dbg_log_num("cbtkey: l25b6 ch =", (long)ch);
+		for (i = 0; i < 6; i++)
+			dbg_log_num("cbtkey: tbl i*1000+c =",
+			            (long)g_a5_24126[i * 2] * 1000L
+			            + g_a5_24126[i * 2 + 1]);
+		for (i = 0; i < 20; i++)
+			if (g_a5_24126[i * 2 + 1] == ch)
+				break;
+#endif
 		if (i < 20)
 			result = g_a5_24126[i * 2];
 		else

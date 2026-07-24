@@ -79,8 +79,12 @@ static const struct ap_key g_ap[] = {
 	{ 0x1C, 0x0D, 600 },    /* Return -> add the selected (* BARBARUS)   */
 	{ 0x01, 0x1B, 600 },    /* Escape -> back to the hall            */
 	{ 0x30, 'b',  900 },    /* Begin Adventuring -> dungeon (15s art)*/
+#ifndef FRUA_CBTKEYDIAG
+	/* #62 diag runs drop the nudge keys: they queue past the CBTAUTO fire
+	 * and get consumed as combat moves, polluting the command-read test. */
 	{ 0x4D, 0,    300 },    /* Right (nudge: force the 3D paint)     */
 	{ 0x4B, 0,    300 },    /* Left  (net-zero facing)               */
+#endif
 };
 #define AP_N ((short)(sizeof g_ap / sizeof g_ap[0]))
 static short         g_ap_idx;
