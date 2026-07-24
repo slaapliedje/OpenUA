@@ -64296,8 +64296,7 @@ static void jt23(void);
 static void jt904(unsigned char *out_done);
 
 /* jt953 (JT[953] = CODE 21 + 0x4038) — the exploration command processor.
- * Structural skeleton (lift level 2): the CFG + the loop + every *available*
- * JT call are faithful; arms whose action helper isn't lifted yet are TODO.
+ * FULLY LIFTED: the CFG, both state loops and every arm are faithful.
  *
  * The play selector g_a5_-27990 (JT[3] switch) picks the mode: 4 = the
  * standing command bar, 3 = the "Move" direction sub-mode.
@@ -64308,11 +64307,18 @@ static void jt904(unsigned char *out_done);
  * then dispatches the picked index 0..7:
  *   0 Move | 1 Area | 2 Cast | 3 View | 4 Encamp (leave) | 5 Search |
  *   6 Look | 7 Inv. It repeats until Encamp, or g_a5_-24139 flags a cancel.
- *   The Area / Cast / Search / Look / Inv / Move-step actions reach
- *   still-stubbed JT entries (JT[221] area, L06d6 cast, JT[201/202] step,
- *   JT[914/947], L3b80) and are deferred here.
- * State 3 — Move sub-mode: JT[171] is the direction-bar variant (result
- *   129..136 -> facing g_a5_-12286); jt171 isn't lifted, so deferred whole.
+ *   The catch-all arm is the ROSTER CURSOR (see the default case).
+ * State 3 — Move sub-mode: jt171 is the direction-bar variant (result
+ *   129..136 -> facing g_a5_-12286, with 136 the wrap arm meaning facing 0);
+ *   a commit or cmd 4 (back) ends the sub-mode.
+ *
+ * ★ This header claimed state 3 was "deferred whole" because "jt171 isn't
+ * lifted", and that the state-4 action arms reached "still-stubbed" entries,
+ * until 2026-07-24. Both were stale — jt171 is a real 43-line lift, the
+ * state-3 loop below is faithful to 0x43ce..0x44f4, and every state-4 arm
+ * (Area/Cast/Search/Look/Inv) resolves to a live helper. Like jt325's header,
+ * this outlived the work it described and put jt953 on a shortlist of
+ * "remaining skeletons" that had nothing left in it.
  *
  * On the way out (L44f6) it stands up the play frame once via jt103. Returns
  * the last picked command byte. */
