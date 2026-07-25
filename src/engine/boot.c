@@ -4404,12 +4404,22 @@ static void  l709e(short a)
 		 *
 		 * Why it matters: -4943 is set by three event handlers (l4336's
 		 * ev[12]&4, the passage ev[10]&0x20, the combat ev[7]&0x20) and
-		 * 1.0 only clears it in the L76a6 tail below — INSIDE
-		 * `if (-4945 == 0)`. So when an event chains (-4945 != 0) the
-		 * clear is skipped and the flag survives into the next event,
-		 * where the `-4942 && -4943` test can re-scan the party's cell on
-		 * the strength of a previous event's request. Clearing per event
-		 * makes the flag mean "this event asked for it". */
+		 * 1.0 clears it ONLY in the tail at 0x76fa — after the whole
+		 * event loop body, so nothing clears it on ENTRY. The very first
+		 * event of a call therefore runs its `-4942 && -4943` test
+		 * against a flag left over from a PREVIOUS l709e call, and can
+		 * re-scan the party's cell on the strength of an earlier event's
+		 * request. Clearing per iteration makes the flag mean "this
+		 * event asked for it".
+		 *
+		 * CORRECTION to what stood here: 1.0's tail clear is NOT inside
+		 * `if (-4945 == 0)`. The guard at 0x76a6 is
+		 * `tstb -4945; bnes L76fa`, so L76fa — the clear itself — is the
+		 * JOIN both paths reach; it is unconditional. The leak is
+		 * across CALLS, not across chained events within one call.
+		 *
+		 * Hunk 33 deletes that tail clear, and with this one in place it
+		 * is redundant (each iteration would clear twice). See the tail. */
 		g_a5_byte(-4943) = 0;
 		g_a5_byte(-4945) = 0;
 		ev = (unsigned char *)(uintptr_t)(g_a5_long(-13038)
@@ -4534,7 +4544,23 @@ static void  l709e(short a)
 						    (short)(signed char)g_a5_byte(-12287));
 					if (idx & 0xff) g_a5_byte(-4945) = 1;
 				}
-				g_a5_byte(-4943) = 0;
+				/* ★ Mac 1.2 FIX (ADR-0018), oracle hunk 33 at CODE 20
+				 * L76fa: the tail `clrb -4943` is DELETED. It is the
+				 * companion to hunk 31, which moved the clear to the top
+				 * of the loop body — with that in place this one is
+				 * redundant, since every iteration would clear the flag
+				 * twice.
+				 *
+				 * Unlike hunk 35, this deletion is NOT load-bearing: it
+				 * arms nothing. The loop-back chain at 0x7708 does test
+				 * -4943 (`tstb -4943; bnew L70d4`), but the `tstb -4942;
+				 * beqw L70d4` immediately above it always branches —
+				 * -4942 was cleared four instructions earlier — so that
+				 * test is unreachable in BOTH releases. The only
+				 * remaining reader is the `-4942 && -4943` test just
+				 * above, and l709e is the sole reader of the flag
+				 * anywhere, so the one observable difference is the value
+				 * left in -4943 after l709e returns. Nothing looks. */
 			}
 		}
 		/* L76fe */
@@ -48589,6 +48615,19 @@ static void l2e42(void *ev_v)
 		l085e();
 		jt938();
 	}
+
+	/* ★ Mac 1.2 FIX (ADR-0018), oracle hunk 29 at CODE 20 L3114 (2 inserted
+	 * instructions, right before the `unlk`/`rts`). Once the animated
+	 * passage has finished walking the party, mark the transition done.
+	 *
+	 * -4942 is l709e's chain-control flag: its loop breaks on
+	 * `-4945 == 0 || -4942 != 0`, and the tail latches it into -4941. Other
+	 * movement handlers already set it as "transition done" (l4144's caller,
+	 * the two l5bde arms). l2e42 physically relocates the party over ev[6]
+	 * frames, so without this the event chain kept running with the
+	 * pre-move context and could fire follow-on events resolved against the
+	 * cell the party had just left. 1.2 stops the chain at the move. */
+	g_a5_byte(-4942) = 1;
 }
 
 /* L3ac6 (CODE 20 + 0x3ac6) — the play-sounds event (l709e case 17). Faithful
@@ -49490,6 +49529,7 @@ static void jt39(void *rec_v, short dmg)
 	unsigned char  dealt = 0;  /* fp@-3 : remaining HP (HP - dmg) when HP>=dmg */
 	short          status;
 	unsigned char *sub;
+	unsigned char  no_perma;   /* 1.2 hunk 1: the design's hdr[29] flag       */
 
 	PROBE("jt39");
 	if (rec == NULL)
@@ -49499,10 +49539,37 @@ static void jt39(void *rec_v, short dmg)
 	else                                       /* survives */
 		dealt = (unsigned char)((short)rec[395] - dmg);
 
-	if ((unsigned short)over > 9)              /* L25e2 — massive overkill */
+	/* ★ Mac 1.2 FIX (ADR-0018), oracle hunk 1 at CODE 6 L25c0 (5 inserted
+	 * instructions). Honour the design's no-permadeath flag here too: when
+	 * `hdr[29]` is set, 1.2 branches straight past BOTH status-6
+	 * ("destroyed") outcomes to the over-test.
+	 *
+	 * This is hunk 17's fix from the other direction. Hunk 17 covers the
+	 * explicit-status route (jt860, where a spell names status 6/7/8);
+	 * this covers the DAMAGE route, where massive overkill promotes a
+	 * character to destroyed on its own. Both had to be plugged for the
+	 * feature to hold, and 1.2 plugs both.
+	 *
+	 * The branch target is 1.2's L25fc = 1.0's L25ee, the `over > 0` arm —
+	 * and that arm RE-TESTS `over` (`tstw %fp@(-2); blss L2616`), so
+	 * jumping there cannot mislabel a survivor: over > 0 lands on status 5
+	 * (dead but revivable, the one l33d8 brings back at 1 HP), over <= 0
+	 * falls through to the ordinary survive path. Worth stating because
+	 * the insert sits at the JOIN of the would-die and survives branches,
+	 * so it runs on both.
+	 *
+	 * PORT-SAFETY: the Mac derefs -28006 unguarded; a NULL record here
+	 * just means "flag not set". */
+	{
+		const unsigned char *hdr =
+		    (const unsigned char *)(uintptr_t)g_a5_long(-28006);
+
+		no_perma = (unsigned char)(hdr != NULL && hdr[29] != 0);
+	}
+	if (!no_perma && (unsigned short)over > 9) /* L25e2 — massive overkill */
 		rec[94] = 6;                       /* destroyed */
-	else if (dealt == 0 && rec[94] == 1)       /* 0 HP + status 1 -> destroyed */
-		rec[94] = 6;
+	else if (!no_perma && dealt == 0 && rec[94] == 1)
+		rec[94] = 6;                       /* 0 HP + status 1 -> destroyed */
 	else if (over > 0) {                       /* L25ee — died (overkill 1..9) */
 		rec[94] = 5;
 		if (g_a5_byte(-27990) == 5) {
@@ -97783,8 +97850,39 @@ static short l216a(void *ev_v)
 			hdr = (unsigned char *)(uintptr_t)g_a5_long(-28006);
 			if (hdr != NULL)
 				hdr[20] = 1;                            /* 0x26ec */
+			/* ★ Mac 1.2 FIX (ADR-0018), oracle hunks 27 + 28 at CODE
+			 * 20 L26de (@0x26e4). The 4-byte money field at ev[8] is
+			 * BYTE-SWAPPED before it is handed to jt933.
+			 *
+			 * ENCR event records are stored little-endian — the port
+			 * already assembles every multi-byte event field by hand
+			 * that way (`lo | (hi << 8)` for the text ids in l2e42,
+			 * l216a's own intro/wish ids) — so reading a long straight
+			 * off ev+8 on a 68k gives it byte-reversed. 1.2 routes it
+			 * through CODE 4+0x22aa, which is the port's `jt1199`
+			 * endian swap. Mind the index: that entry is JT[1199] in
+			 * 1.0's table and JT[1198] in 1.2's PERMUTED one, and the
+			 * port's own `jt1198` is an unrelated plane-count helper.
+			 * Match on (segment, offset), not on the index.
+			 *
+			 * Hunk 28 is only the bookkeeping half — 1.2 keeps the
+			 * swapped value in d0 and so drops a reloaded `moveal
+			 * %fp@(8),%a0`. No separate semantic content.
+			 *
+			 * This is REACHABLE with real data. Scanning all 836
+			 * GEO*.DAT files on hand finds 192 type-9 temple events,
+			 * and every one of them stores bytes 8..11 as
+			 * `01 00 00 00` — little-endian 1. Read big-endian, as 1.0
+			 * does, that is 16,777,216. So the field is off by a factor
+			 * of 2^24 in the direction that makes any threshold
+			 * unsatisfiable.
+			 *
+			 * The OTHER caller is harmless either way: l5bde case 0
+			 * memsets a synthetic 20-byte subrec and sets only
+			 * [0]/[4]/[5]/[6]/[7], so the long is 0 there and
+			 * jt1199(0) == 0. */
 			if (jt933((long)(uintptr_t)ev, (short)exit_arm,
-			          *(long *)(ev + 8),
+			          jt1199(*(long *)(ev + 8)),
 			          (short)(ev[12] != 0 ? 1 : 0)))        /* 0x26f2 */
 				result = 1;
 		}

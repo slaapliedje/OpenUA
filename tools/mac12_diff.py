@@ -338,6 +338,35 @@ def frame_slot_changes():
     return interesting, churn
 
 
+def func_entry(la, i):
+    """Index of the ENCLOSING FUNCTION's entry instruction, scanning back from i.
+
+    A hunk's nearest LABEL is usually a branch target *inside* a function, not
+    that function's entry, which is the root reason the label-based lift check
+    misreports: hunk 14's `L3426` lives inside `l33d8`, hunk 2's `L4e3a` inside
+    `l4d98`, hunk 17's `L003a` inside `jt860`. Triage needs the entry.
+
+    THINK C opens every non-leaf function with `linkw %fp,#-N` and ends it with
+    `rts`, so a function START is either a `linkw` right after a return/jump, or
+    (for a leaf with no frame) the first LABELLED instruction after a return.
+    Scanning for the nearest preceding `linkw` alone is not enough — a function
+    with an early `unlk`+`rts` would hand back a mid-function index.
+    """
+    def is_start(k):
+        if k == 0:
+            return True
+        prev = la.ops[k - 1]
+        if prev not in ("rts", "rte", "jmp"):
+            return False
+        if la.ops[k] == "linkw":
+            return True
+        return la.rows[k][1] != la.rows[k - 1][1]      # a leaf, newly labelled
+    for k in range(min(i, len(la.ops) - 1), -1, -1):
+        if is_start(k):
+            return k
+    return 0
+
+
 def jt_exports(seg, lo, hi):
     """JT indices whose entry point falls in [lo, hi] of this segment."""
     path = os.path.join(DIS_10, "jumptable.txt")
@@ -468,6 +497,9 @@ def main(argv=None):
     ap.add_argument("--frameslots", action="store_true",
                     help="frame-slot changes, split into real fixes (frame size "
                          "unchanged) vs renumbering churn (frame grew)")
+    ap.add_argument("--triage", action="store_true",
+                    help="per hunk: the ENCLOSING FUNCTION's entry and whether "
+                         "the port lifted it (the portable-or-blocked question)")
     ap.add_argument("-C", "--context", type=int, default=10,
                     help="instructions of context (default 10)")
     args = ap.parse_args(argv)
@@ -475,6 +507,30 @@ def main(argv=None):
     for d in (DIS_10, DIS_12):
         if not os.path.isdir(d):
             sys.exit(f"{d} missing — see docs/mac-release.md 'The 1.2 oracle'")
+
+    if args.triage:
+        hs = hunks()
+        print("Enclosing FUNCTION per hunk, and whether the port lifted it.\n"
+              "The entry is found by walking back to the function prologue, NOT\n"
+              "by the hunk's nearest label — a label is usually a branch target\n"
+              "inside a larger function (hunk 14's L3426 lives in l33d8).\n")
+        print("  # | seg | hunk lbl  | fn entry  | JT at entry | lifted as")
+        for n, seg, tag, i1, i2, j1, j2, la, lb in hs:
+            e = func_entry(la, i1)
+            ea, elbl = la.addr_at(e), la.label_at(e)
+            jts = jt_exports(seg, ea, ea)
+            lifted = jt_lifted(jts)
+            names = ["jt%d" % x for x in lifted]
+            hits, wrong, confirmed = in_boot_c(elbl, seg)
+            if confirmed:
+                names.append(elbl.lower())
+            verdict = ",".join(names) if names else ("?" if hits else "-")
+            print(" %2d | %3d | %-9s | %-9s | %-11s | %s"
+                  % (n, seg, la.label_at(i1), "%s@%#06x" % (elbl, ea),
+                     ",".join(str(x) for x in jts) or "-", verdict))
+        print("\n`-` / `?` still needs a hand check: a function lifted under a\n"
+              "port-chosen name (l33d8 for an L3426 hunk) shows no evidence here.")
+        return 0
 
     if args.calltargets:
         rows = call_target_changes()

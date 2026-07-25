@@ -22,7 +22,7 @@ streams**; CODE 17 changes only in operands (see below).
 
 | # | seg | 1.0 label | kind | 1.0 | 1.2 | lifted | status | note |
 |--:|--:|---|---|--:|--:|---|---|---|
-| 1 | 6 | `L25c0` | insert | 0 | 5 | jt39 | ⬜ open |  |
+| 1 | 6 | `L25c0` | insert | 0 | 5 | jt39 | ✅ ported | jt39: no-permadeath skips BOTH status-6 arms — hunk 17's fix on the damage route |
 | 2 | 6 | `L4e3a` | replace | 1 | 1 | `l4d98` | ✅ ported | l4d98: clear the -22222 SLOT (`pea`), not the object it points at (`movel`) |
 | 3 | 7 | `L1a66` | delete | 11 | 0 | - | ⬜ open |  |
 | 4 | 7 | `L1ace` | replace | 1 | 1 | - | ⬜ open |  |
@@ -46,22 +46,22 @@ streams**; CODE 17 changes only in operands (see below).
 | 22 | 19 | `L2d74` | insert | 0 | 1 | `jt893` | ✅ ported | jt893: restore at the single exit |
 | 23 | 20 | `L00c4` | delete | 18 | 0 | `l0098` | ✅ ported | l0098: the OTHER half of the tolower fix — deletes 1.0's `A-Z` pre-test; already covered by the A-Z-only implementation |
 | 24 | 20 | `L18e2` | insert | 0 | 7 | `l159a` | ✅ ported | l159a combat entry: `ev[12]` bit5 forces the starting range (`rec[56]`) to 0 |
-| 25 | 20 | `L24e6` | insert | 0 | 2 | ? | ⛔ blocked | byte-swap `ev[8]` before the money compare — but the port has not lifted the enclosing message composition |
-| 26 | 20 | `L24e6` | replace | 1 | 1 | ? | ⛔ blocked | the compare rearranged to suit hunk 25 |
-| 27 | 20 | `L26de` | insert | 0 | 4 | ✗ | ⛔ blocked | CODE 20's L26de is NOT lifted — the old "yes" was a CODE 10 name collision |
-| 28 | 20 | `L26de` | delete | 1 | 0 | ✗ | ⛔ blocked | same function as 27; blocked with it |
-| 29 | 20 | `L3114` | insert | 0 | 2 | - | ⬜ open |  |
+| 25 | 20 | `L24e6` | insert | 0 | 2 | `l216a` | ⛔ blocked | byte-swap `ev[8]` before the money compare; `l216a` IS lifted but its "generous donation" block is a deferred sub-flow (`l026e_c20`/`l4218` stubs) |
+| 26 | 20 | `L24e6` | replace | 1 | 1 | `l216a` | ⛔ blocked | the compare rearranged to suit hunk 25 |
+| 27 | 20 | `L26de` | insert | 0 | 4 | `l216a` | ✅ ported | l216a: byte-swap the 4-byte `ev[8]` before jt933 (`jt1199`) |
+| 28 | 20 | `L26de` | delete | 1 | 0 | `l216a` | ✅ ported | the bookkeeping half of 27 (a reload dropped); no separate content |
+| 29 | 20 | `L3114` | insert | 0 | 2 | `l2e42` | ✅ ported | l2e42: set -4942 ("transition done") once the animated passage has moved the party |
 | 30 | 20 | `L57a0` | insert | 0 | 5 | yes | ✅ ported | l5676: "Transfer module ends testing!" before the test-play teardown |
 | 31 | 20 | `L70d4` | insert | 0 | 1 | `l709e` | ✅ ported | l709e: clear `-4943` per event so the deferred re-trigger flag cannot leak across a chain |
-| 32 | 20 | `L76c4` | replace | 3 | 1 | - | ⬜ open |  |
-| 33 | 20 | `L76fa` | delete | 1 | 0 | - | ⬜ open |  |
+| 32 | 20 | `L76c4` | replace | 3 | 1 | `l709e` | ➖ churn | codegen only: `moveq`+`moveb`+`tstw` -> `tstb`. Same test, no semantic change |
+| 33 | 20 | `L76fa` | delete | 1 | 0 | `l709e` | ✅ ported | l709e: drop the tail `-4943` clear, redundant once hunk 31 clears at the loop top |
 | 34 | 21 | `L13f6` | insert | 0 | 4 | - | ⬜ open |  |
 | 35 | 21 | `L3af2` | delete | 20 | 0 | yes | ✅ ported | l3af2: DELETE 1.0's silent clamp — the half that ARMS hunks 36-38. **OBSERVED FIRING** |
 | 36 | 21 | `L4816` | insert | 0 | 8 | yes | ✅ ported | jt955 case 3: overland bounds guard #1 + the refusal message |
 | 37 | 21 | `L4816` | insert | 0 | 5 | yes | ✅ ported | jt955 case 3: overland bounds guard #2 (out of range == blocked) |
 | 38 | 21 | `L4874` | insert | 0 | 8 | `jt955` | ✅ ported | jt955 case 3: the second guard's tail |
 
-### Ported so far (19 of 38)
+### Ported so far (24 of 38, +1 churn)
 
 | hunks | function | fix |
 |---|---|---|
@@ -79,6 +79,11 @@ streams**; CODE 17 changes only in operands (see below).
 | 17 | `jt860` (CODE 18 `L003a`) | honour the design's **no-permadeath** flag. `hdr[29]` off -28006 is the same byte `l33d8` consults when deciding whether a wiped party is really destroyed; statuses 6/7/8 are the permanent removals (exactly the values the function's own entry switch treats as terminal) and 5 is the status `l33d8` REVIVES AT 1 HP when the flag is set. So 1.0 had a hole in the feature: a design could declare that characters never die permanently and Slay Living, Finger of Death, petrification and annihilation would still remove them for good, because they route through `jt860` with 6/7/8 and 1.0 wrote that straight into `rec[94]`. Reachable: `jt612` calls `jt860` with 6, `jt615` with 8 |
 | 9 | `l611c` (CODE 10 `L611c`) | reconcile the **ability-score pairs** before the edited monster record is written back: `rec[113+2i] = rec[112+2i]` for i = 0..5 (STR/INT/WIS/DEX/CON/CHA) plus `rec[125] = rec[124]` for the exceptional-Strength percentile. The record keeps every ability twice — permanent at `112+2i`, current at `113+2i` (the layout `L24d2`'s roll writes, `docs/char-record-layout.md`; `l1d54` reads Strength from `rec[113]`). Only the permanent copy is meaningful in a monster TEMPLATE, so an edit lands there and 1.0 wrote the record out with the current bytes still stale. It sits one line below the existing `dest[395] = dest[129]` HP reconciliation, i.e. 1.2 extends a pattern the function already had. Direction is from the asm (`moveb %a0@(112),%a1@(113)`, both registers `dest + 2i`), not from the reading. Reachable via the Monster Editor (`jt263`, `jt264` dispatch case 21) |
 | 2 | `l4d98` (CODE 6 `L4e3a`) | clear the **-22222 slot**, not the object it points at. 1.0 pushed the slot's CONTENTS (`movel %a5@(-22222)`), 1.2 pushes its ADDRESS (`pea %a5@(-22222)`); the callee is the same `l5f4e`/jt65 "zero `size` bytes at `ptr`". So on every new-game reset 1.0 zeroed the first 4 bytes of whatever -22222 pointed AT — the shared FC/art handle `jt204` hands to JT[115], the one `jt121` blits from and `jt124` commits as a palette — and left a dangling pointer in the slot. Every other clear in that reset block already takes the address of its own A5 slot (`-27894`, `-24204`, `-24236`), so -22222 was the odd one out; same shape of fix as hunks 10/11. The port's `!= 0` PORT-SAFETY guard went with it — it existed only because 1.0 dereferenced the slot |
+
+| 27, 28 | `l216a` (CODE 20 `L26de`) | byte-swap the 4-byte `ev[8]` before handing it to `jt933`. ENCR records are stored little-endian — the port already assembles every other multi-byte event field that way by hand (`lo \| (hi << 8)`) — so reading a long straight off `ev+8` on a 68k gives it reversed. 1.2 routes it through CODE 4+0x22aa = the port's `jt1199`. **Mind the index:** that entry is JT[1199] in 1.0's table and JT[1198] in 1.2's permuted one, and the port's own `jt1198` is an unrelated plane-count helper — match on (segment, offset). Reachable with real data: of the 836 GEO*.DAT files on hand, **192 hold type-9 temple events and every one stores bytes 8..11 as `01 00 00 00`** — little-endian 1, which 1.0 reads as 16,777,216, off by 2^24 in the direction that makes a threshold unsatisfiable. Hunk 28 is only the bookkeeping half (1.2 keeps the result in d0 and drops a reload) |
+| 1 | `jt39` (CODE 6 `L25c0`) | honour no-permadeath on the DAMAGE route — hunk 17's fix from the other side. When `hdr[29]` is set, 1.2 branches past BOTH status-6 ("destroyed") outcomes — `over > 9` massive overkill, and `dealt == 0 && rec[94] == 1` — straight to the `over > 0` arm, which lands on status 5, the one `l33d8` revives at 1 HP. Hunk 17 plugs the explicit-status route (a spell naming 6/7/8); this plugs damage promoting a character to destroyed on its own. **The branch target re-tests `over`** (`tstw %fp@(-2); blss L2616`), so jumping there cannot mislabel a survivor — worth stating because the insert sits at the JOIN of the would-die and survives branches and so runs on both. `hdr[29]` is per-combat, set from the combat event's `ev[12] & 0x40` (`boot.c` ~48861) and cleared after the fight; **19 such combats exist** across the fan modules on hand (Game40 x9, Game39 x4, G39INST/G39RAW x2 each, Curse, GAME39), so both hunks are reachable — just not in HEIRS |
+| 29 | `l2e42` (CODE 20 `L3114`) | set `-4942` ("transition done") once the animated passage has finished walking the party. That is l709e's chain-control flag: its loop breaks on `-4945 == 0 \|\| -4942 != 0` and the tail latches it into `-4941`; other movement handlers already set it. `l2e42` physically relocates the party over `ev[6]` frames, so without this the event chain kept running with the pre-move context and could fire follow-on events resolved against the cell the party had just left |
+| 33 | `l709e` (CODE 20 `L76fa`) | drop the tail `clrb -4943`. Companion to hunk 31, which moved that clear to the top of the loop body — with it there this one is redundant (every iteration would clear twice). **Unlike hunk 35 this deletion arms nothing:** the loop-back chain at 0x7708 does test `-4943`, but the `tstb -4942; beqw L70d4` immediately above always branches (`-4942` was cleared four instructions earlier), so that test is unreachable in BOTH releases. Also corrects hunk 31's note, which claimed 1.0's tail clear sits inside `if (-4945 == 0)`: the guard at 0x76a6 is `tstb -4945; bnes L76fa`, so L76fa — the clear — is the JOIN both paths reach and is unconditional. The leak hunk 31 fixes is across CALLS (nothing cleared the flag on entry), not across chained events within one call |
 
 Verified: same-harness before/after frames are byte-identical on the walk, camp,
 Magic, chargen and map-editor paths (AE=0), i.e. no regression.
@@ -137,6 +142,40 @@ observed-firing — each needs its own situation (a design under test, a prompt
 inside the Items browser, that one picker, a monster edited then saved). The
 harness now exists to promote them one at a time; see ADR-0018.
 
+
+### `--triage`: the enclosing FUNCTION, not the nearest label
+
+Added 2026-07-25, and it moved eleven hunks out of "unknown". A hunk's nearest
+LABEL is usually a branch target *inside* a function, so it answers the wrong
+question — `mac12_diff.py --triage` walks back to the function PROLOGUE instead
+(THINK C's `linkw %fp,#-N` after a return, or the first labelled instruction
+after a return for a frameless leaf) and reports whether the port lifted that.
+
+It immediately overturned two calls in this file:
+
+- hunks **27/28** were marked blocked because CODE 20's `L26de` is not lifted.
+  The enclosing function is `L216a@0x216a` — a ~1862-byte dispatcher that IS
+  lifted, with `L26de` a label 1396 bytes into it. Verified there is no `linkw`
+  or `rts` between the two, so the entry detection is not over-reaching.
+- hunks **25/26** carried "the port has not lifted the enclosing message
+  composition". Same function, also lifted. They stay blocked, but for a
+  precise reason: the "generous donation" block they sit in is a deferred
+  sub-flow (`l026e_c20`, `l4218`, `jt933` are leaf stubs).
+
+### A silent-failure scan reported the opposite of the truth
+
+Worth recording because it nearly shipped a wrong comment. The first scan for
+type-9 temple events reported **zero across 836 files**, and that number went
+into a code comment justifying hunks 27/28 as harmless-but-faithful. The scan
+called `Geo.load`, which does not exist — the loader is `Geo.parse` — and the
+loop wrapped it in `try: ... except Exception: continue`, so every file raised
+`AttributeError`, every file was skipped, and the result was a confident `0`.
+
+The re-run found **192 temple events**, all with `01 00 00 00` at bytes 8..11,
+which is what makes hunks 27/28 a real fix rather than a formality. Same shape
+as the `"A battle begins..."` positive control that tested nothing: **a scan
+that reports "none found" must first prove it can find something.** Never let a
+blanket `except` sit between a typo and a count you intend to rely on.
 
 ### The `lXXXX` collision made this table lie — fixed 2026-07-25
 
