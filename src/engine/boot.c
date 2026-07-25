@@ -33626,6 +33626,7 @@ static void l28b2(void *entity_v)
  * (-27928, .next @ +0): in context mode 5 (-27990==5) pull the item's
  * attributes (jt525/jt531/jt513), let jt508 build the layout grid, and scan
  * it (-19170 / -18894) for a match; otherwise any holder counts. */
+static void jt820(long rec_l, long item, short flag);
 static void l026e(void *arg, short code_w) __attribute__((unused));
 static void l026e(void *arg, short code_w)
 {
@@ -33636,6 +33637,38 @@ static void l026e(void *arg, short code_w)
 	unsigned char  local272[272];
 
 	PROBE("L026e");
+#ifdef FRUA_FXDIAG
+	/* Hunk 18 reachability. jt868(15) sweeps this list at the top of EVERY
+	 * combatant turn, and 137 (the explosion burst, jt822) is in it — so if
+	 * the hunk can fire at all, it fires here. Logs whether the hook table
+	 * has jt822 installed, whether this actor carries effect 137, and the
+	 * two data-driven producers that could put it there. */
+	if (code == 137) {
+		static short n137;
+		if (n137 < 3) {
+			n137++;
+			dbg_file_num("l026e code 137: hook installed ",
+			             (long)(g_a5_long(-25242 + 137 * 4) != 0));
+			dbg_file_num("   actor carries fx 137 ",
+			             (long)jt41((long)*(void **)arg, 137, &out));
+			dbg_file_num("   a5 -15024 (id-117 kind) ",
+			             (long)(unsigned char)g_a5_byte(-15024));
+			dbg_file_num("   a5 -24734 (l77a0 override) ",
+			             (long)g_a5_long(-24734));
+			/* The only data-driven writer of effect 137 would be
+			 * jt820 (it mirrors an item's byte-15 effect id onto
+			 * the bearer) — but jt820 is reached ONLY through the
+			 * -23187 override slot, never the type table. So: is
+			 * the override actually jt820? */
+			dbg_file_num("   override == jt820 ",
+			             (long)(g_a5_long(-24734)
+			                    == (long)(uintptr_t)jt820));
+			dbg_file_num("   jt820 addr ",
+			             (long)(uintptr_t)jt820);
+			out = 0;
+		}
+	}
+#endif
 	if (jt41((long)*(void **)arg, code, &out) != 0) {
 		found = 1;
 	} else if (code == 21 || code == 45 || code == 46 || code == 49) {
@@ -60661,6 +60694,9 @@ static void jt822(long rec_l, long node, short flag)
 
 	PROBE("jt822");
 	(void)node; (void)flag;
+#ifdef FRUA_FXDIAG
+	dbg_file_str("jt822 ENTRY source ", (const char *)&rec[96]);
+#endif
 	jt18((void *)(uintptr_t)rec_l, g_a5_long(-14672), 10, 1);
 	x = jt525(rec_l);
 	y = jt531(rec_l);
@@ -60692,9 +60728,32 @@ static void jt822(long rec_l, long node, short flag)
 		 * accumulates it. (The faithful oddity noted above stands: the
 		 * jt876 target is `rec`, the SOURCE, not the victim.) */
 		jt876(rec_l, 148, 1, 255, 0);
+#ifdef FRUA_FXDIAG
+		dbg_file_str("  jt822 VICTIM ", (const char *)&ent[96]);
+#endif
  next:
 		g_a5_byte(-22307)++;
 	}
+#ifdef FRUA_FXDIAG
+	/* Hunk 18's observable: the magnitude jt876 stamped into the
+	 * effect-148 node on the SOURCE record (1.2 = 1, 1.0 = 0). */
+	{
+		const unsigned char *n148 = *(const unsigned char *const *)(rec + 4);
+		short seen = 0;
+		while (n148 != NULL) {
+			if (n148[0] == 148) {
+				seen++;
+				/* node[2] is a WORD (jt876: *(short *)(node+2) = c),
+				 * so a byte read here returns its HIGH half and
+				 * reports 0 for both builds. */
+				dbg_file_num("  fx148 node value ",
+				             (long)*(const short *)(n148 + 2));
+			}
+			n148 = *(const unsigned char *const *)(n148 + 6);
+		}
+		dbg_file_num("  fx148 node count ", (long)seen);
+	}
+#endif
 }
 
 /* JT[823] (CODE 18 + 0x627e) — both passes: absorb attack forms
@@ -62477,12 +62536,15 @@ static void jt854(long rec_l, long node, short flag)
  * an effect node): clear the -23187 hook override, then mirror the
  * item's linked effect type (item[55]) onto the bearer — removal pass
  * drops it, apply pass adds it (0 mag, 255 rounds). */
-static void jt820(long rec_l, long item, short flag) __attribute__((unused));
 static void jt820(long rec_l, long item, short flag)
 {
 	unsigned char *it = (unsigned char *)(uintptr_t)item;
 
 	PROBE("jt820");
+#ifdef FRUA_FXDIAG
+	dbg_file_num("jt820 mirror item[55] ", (long)(unsigned char)it[55]);
+	dbg_file_num("   flag (0 = add) ", (long)(unsigned char)flag);
+#endif
 	g_a5_byte(-23187) = 0;
 	if ((unsigned char)flag != 0)
 		jt878(rec_l, (short)(unsigned char)it[55], 0);
@@ -65827,6 +65889,10 @@ static unsigned char jt597(short code)
 				dbg_file_num("   mode  ", (long)(d[6] & 15));
 				dbg_file_num("   incbt ", (long)d[11]);
 				dbg_file_num("   ctime ", (long)(d[12] / 3));
+				/* [10] is the effect KIND l6114 hands to jt871
+				 * -- the map from a spell to the effect it puts
+				 * on the target's rec+4 list. */
+				dbg_file_num("   fxkind ", (long)d[10]);
 			}
 		}
 	}

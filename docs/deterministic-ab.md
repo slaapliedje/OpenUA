@@ -148,12 +148,12 @@ Two things worth carrying forward:
 
 ## Promotion status of the ported 1.2 fixes
 
-Sixteen of the 33 are **observed firing** (ON vs OFF produce different measured
+Seventeen of the 33 are **observed firing** (ON vs OFF produce different measured
 state, same seed). Four cannot fire at all and that is a finding, not a gap.
 The rest each need a specific situation, listed so the next pass does not have
 to re-derive it.
 
-### Observed firing (16)
+### Observed firing (17)
 
 | hunks | situation | evidence |
 |---|---|---|
@@ -164,6 +164,7 @@ to re-derive it.
 | 15 | same module, 2 monsters so round 2 arrives | `BLEED SUPPRESSED, status stays 5` (ON) vs `bleed tick mc[16] 5` (OFF) |
 | 27, 28 | authored TEMPLE.DSN, `-DFRUA_TMPDIAG` | at the live jt933 call: raw `1677721600` vs swapped `100` — BOTH from one run |
 | 9 | Monster Editor, BASILISK (id 42): Strength 10 -> 18 and % 0 -> 50, then Ok | the SAVED `MONST042.dat` differs in exactly **two** bytes across all 450: `[113]` 18 (ON) vs 10 (OFF), `[125]` 50 (ON) vs 0 (OFF) |
+| 18 | authored FXTEST.DSN + an exploding item patched into BARBARUS's `.CHR`, `-DFRUA_FXDIAG` | same source, same victim: `jt822 VICTIM BASILISK`, `fx148 node value` **1** (ON) vs **0** (OFF) |
 | 19-22 | authored SHOPPIC.DSN (`tools/mk_bigpic_design.py --shop`), Items -> Sell, `-DFRUA_ITMDIAG` | `jt893 ENTRY saved -22281` is **1** in both, then `in-browser` / loop-top / `jt182 confirm sees -22281` are **0 0 0** (ON) vs **1 1 1** (OFF) |
 | 17 | authored NOPERMA.DSN with **monster 42 (BASILISK)**, `-DFRUA_CBTPLAY -DFRUA_NPDIAG` | same gaze, same seed: `final-status` **5** (ON) vs **7** (OFF) on `subject BARBARUS side 0`; ON the party walks on at 1 HP, OFF the screen reads *"The monsters rejoice, for the party has been destroyed!"* |
 | 16 | authored caster (`tools/mk_caster_chr.py`), Hall -> View -> Spells | the picker's command bar reads **`Exit`** (ON) vs **blank** (OFF); `-24126` `0 FF ..` vs the stale `1 'S' 7 'E'`; `l2184("Exit") -> "Exit"` vs `""` |
@@ -189,6 +190,74 @@ spell picker headless" below.
 Hunk 17 is the most CONSEQUENTIAL of the set — the only one where the two
 builds end the session differently. Full recipe below; the short version is
 that the whole no-permadeath family (1, 15, 17) now fires in a single run.
+
+### Building an exploding item (hunk 18)
+
+Hunk 18 lives in `jt822`, the explosion burst, which the `-25242` hook table
+holds at slot **137**. `jt868(15)` sweeps that slot at the top of EVERY
+combatant turn, so the hook is polled constantly — but `l026e` only fires it
+when the actor CARRIES effect 137 on its `rec+4` list, and a census says
+nothing on hand produces it:
+
+| producer | measured |
+|---|---|
+| spell table `def[10]` (the kind `l6114` hands `jt871`) | 137 spells dumped; distinct kinds top out at **123**, no 137 |
+| the id-117 random-effect roller (`a5 -15024`) | **106** |
+| every literal `jt876` / `jt871` / `l3dfe` call site | none uses 137 |
+| item templates (byte 15 -> node `[55]`) | 12 tables, 1,600+ records; max **126**, no 137 |
+
+So it looks unreachable — and stopping there would have been wrong. The live
+probe says the hook IS installed (`hook installed 1`), and one more measurement
+opens the door: `l77a0`'s override slot `-24734` is **non-zero and equals
+`jt820`**. That matters because `jt820` is the one function that turns item data
+into an effect — it mirrors an item's byte-15 effect id onto its bearer — and it
+is reachable ONLY through that override, never through the type table. The full
+chain, every link measured:
+
+    ready an item whose [15] = 137 and [16] bit7 = 1
+      -> jt882 -> l2d78 case 0 (kind = [16] & 0x7f = 0), sets -23187
+      -> l77a0(137, ...) takes the OVERRIDE -> jt820
+      -> jt876(bearer, 137, ...) puts effect 137 on rec+4
+      -> next combat turn: jt868(15) -> l026e(137) -> jt41 finds it
+      -> l77a0(137) with -23187 clear -> the type table -> jt822
+      -> per victim: jt876(source, 148, 1)          <- the hunk
+
+Nothing ships such an item, so patch one into a test character. A saved `.CHR`
+carries its own 18-byte template copy per item, so this needs no `ITEM.DAT`
+edit — item *k* starts at `398 + k*18`:
+
+```python
+b = bytearray(open('data/work/gamedata/CHAR0000.CHR','rb').read())
+o = 398 + 0*18                 # item 0 = BARBARUS's Helm, already readied
+b[o+15] = 137                  # node[55] — the l77a0 effect id
+b[o+16] = 0x80                 # node[56] — bit7 = run the l2d78 pass, kind 0
+open('data/work/gamedata/CHAR0000.CHR','wb').write(bytes(b))
+```
+
+Build the module with combat one step AWAY from the entry cell, so the item can
+be readied first (`mk_noperma_design.py` puts it ON the entry cell; move the
+hook to the four neighbours). Then: `beginplay` -> `v` -> `i` -> click the item
+row -> click `Rdy` x3 -> `Exit` -> `Exit` -> `Up` into the fight.
+
+    ON   jt822 ENTRY source BARBARUS / VICTIM BASILISK / fx148 node value 1 / count 1
+    OFF  jt822 ENTRY source BARBARUS / VICTIM BASILISK / fx148 node value 0 / count 1
+
+Traps:
+
+- **`node[2]` is a WORD**, not a byte — `jt876` does `*(short *)(node+2) = c`.
+  A byte read returns the HIGH half and reports 0 for BOTH builds, which looks
+  exactly like a hunk that does not fire. This cost a run.
+- **Pick an item that is already readied.** The first attempt armed the
+  Composite Long Bow, which BARBARUS cannot ready at all (sword + shield fill
+  both hands) — `Rdy` just silently does nothing. An already-worn item toggles
+  off and back on, and the ON transition is what applies the effect.
+- **`Rdy` needs three clicks to end READIED**, because `l2d78` runs on both
+  transitions and the click/toggle bookkeeping is off by one. Screenshot and
+  confirm the row reads `Yes.` before leaving the browser — a readied item is
+  what puts the effect on the record.
+- **jt822 fires happily OUTSIDE combat** and reports zero victims (the field
+  staging table is empty). Seeing `jt822 ENTRY` is not evidence; seeing
+  `jt822 VICTIM` is.
 
 ### Reaching an Items-browser prompt with the flag live (hunks 19-22)
 
@@ -436,7 +505,7 @@ already has `rec[113+2i] == rec[112+2i]`, so loading one and pressing Ok makes
 the fix write back the bytes that were already there. Verified on all four of
 HEIRS' records and on stock BASILISK. The divergence has to come from an edit.
 
-### Needs a situation (14)
+### Needs a situation (13)
 
 | hunks | the situation still to construct |
 |---|---|
@@ -444,7 +513,6 @@ HEIRS' records and on stock BASILISK. The divergence has to come from an edit.
 | 31 | a chained event pair where the first sets `-4943` (`ev[12]&4`, passage `ev[10]&0x20`, combat `ev[7]&0x20`) and the second would inherit it. Authorable. |
 | 29 | an animated passage followed by a chained event. Authorable. |
 | 13 | the editor's test-play Hall — and the obvious route is a DEAD END. `l07dc` picks the Hall only in its `else`: `if (g_a5_-18485 != 0) { jt582(); ... } else { jt918(1); }`, and `jt918` is `l0aae`'s sole caller. So a non-zero `-18485` at play entry means the Hall is never reached — the flag has to go non-zero AFTER `jt918`'s loop is already running. `l30d4` (the spell-memorization sub-editor) is not it: it sets 5 on entry and restores 0 on exit. The one writer that leaves it set is `l3236` case 7 (CODE 11 @0x3348, the GEO editor's tool command — 1, then 2 when `jt318` agrees), so the situation is: enter the editor from `jt918`, issue that command, and see whether the loop re-enters `l0aae`. |
-| 18 | a spell that routes through `jt822` (hook id 137, the explosion burst) with victims. |
 | 7 | the `L3f80` picker modal. |
 | 10, 11 | delete a monster from a design folder. |
 | 14 | a party wipe with a summoned creature still on the combatant list. |
@@ -585,6 +653,10 @@ ON/OFF pair.
   effect index — `jt547` hands it straight to `jt599` and the `-24066` UA_FX
   table — so this doubles as the map from a spell to the handler it runs. It
   also logs `l4faa`'s slot table and `l2184`'s word extraction (hunk 16).
+- **`-DFRUA_FXDIAG`** — the hunk-18 chain: `l026e`'s code-137 sweep (hook
+  installed? actor carrying it? the two data-driven producers? is the `l77a0`
+  override `jt820`?), `jt820`'s item->bearer mirror, and `jt822`'s entry,
+  victims and resulting effect-148 node value.
 - **`-DFRUA_NPDIAG`** — logs the flag seed at combat entry and the decision at
   all three no-permadeath sites; the `jt860` site also names the subject and its
   side, which is what proved hunk 17 lands on a PARTY member and not a monster. **`-DFRUA_OVDIAG`** now also logs the overland

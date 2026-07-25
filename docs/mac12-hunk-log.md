@@ -39,7 +39,7 @@ streams**; CODE 17 changes only in operands (see below).
 | 15 | 13 | `L105c` | insert | 0 | 5 | `l102a` | ✅ ported | l102a: no-permadeath also stops the per-round BLEED-OUT (dying -> dead at >9) |
 | 16 | 16 | `L50cc` | insert | 0 | 3 | `l4faa` | ✅ ported | l4faa default arm: jt179(0) — init the slot table l2184 reads instead of inheriting a stale one. **OBSERVED FIRING** |
 | 17 | 18 | `L003a` | insert | 0 | 13 | jt860 | ✅ ported | jt860: honour the design's no-permadeath flag — status 6/7/8 downgrades to 5. **OBSERVED FIRING** |
-| 18 | 18 | `L61d4` | replace | 1 | 1 | `jt822` | ✅ ported | jt822: the effect-148 VALUE word 0 -> 1 (magnitude, one per victim) |
+| 18 | 18 | `L61d4` | replace | 1 | 1 | `jt822` | ✅ ported | jt822: the effect-148 VALUE word 0 -> 1 (magnitude, one per victim). **OBSERVED FIRING** |
 | 19 | 19 | `L25ce` | insert | 0 | 2 | yes | ✅ ported | jt893: hoist the -22281 save+clear to entry. **OBSERVED FIRING** |
 | 20 | 19 | `L2c20` | delete | 2 | 0 | yes | ✅ ported | jt893: 1.0 per-case save+clear deleted. **OBSERVED FIRING** |
 | 21 | 19 | `L2c20` | delete | 1 | 0 | yes | ✅ ported | jt893: 1.0 per-case restore deleted. **OBSERVED FIRING** |
@@ -123,7 +123,36 @@ Two corrections to the 2026-07-24 entry that stood here:
   run to record 13, whose bit5 is clear. The event-byte count (11 of HEIRS' 175
   combat events affected) was unaffected; only the cell attribution was wrong.
 
-**Promotion status: 16 of 33 observed firing, 4 established as unable to fire.**
+**Promotion status: 17 of 33 observed firing, 4 established as unable to fire.**
+
+**Hunk 18 is OBSERVED FIRING (2026-07-25)** — the one that looked dead and was
+not. Same source, same victim, same seed:
+
+    ON   jt822 ENTRY source BARBARUS / VICTIM BASILISK / fx148 node value 1 / count 1
+    OFF  jt822 ENTRY source BARBARUS / VICTIM BASILISK / fx148 node value 0 / count 1
+
+Getting there took a producer census, and the census said NO. Nothing on hand
+puts effect kind 137 (the `jt822` slot) on a record: the spell table's `def[10]`
+kinds top out at 123 across all 137 spells; the id-117 roller (`a5 -15024`)
+produces 106; no literal `jt876`/`jt871`/`l3dfe` call uses 137; and 12 item
+tables (1,600+ records) max out at 126. On that evidence hunk 18 belonged in the
+"cannot fire" list next to 34.
+
+One more measurement changed the answer. `l77a0`'s override slot `-24734` is
+non-zero and **equals `jt820`** — and `jt820` is exactly the function that turns
+item data into an effect (it mirrors an item's byte-15 effect id onto its
+bearer). It is unreachable through the type table, which is why the census
+missed it. So the situation IS authorable: patch `[15] = 137` and `[16] = 0x80`
+into a saved character's own item-template copy, ready the item, and the next
+combat turn's `jt868(15)` sweep detonates it.
+
+Two corrections this produced. The `jt876` value slot is a **WORD**
+(`*(short *)(node+2) = c`), so reading `node[2]` as a byte returns its high half
+and reports 0 for BOTH builds — the first run looked like a dead hunk for that
+reason alone. And `jt822` runs happily outside combat with zero victims, so
+`jt822 ENTRY` proves nothing; only `jt822 VICTIM` does.
+
+Recipe and the remaining traps are in `docs/deterministic-ab.md`.
 
 **Hunks 19-22 are OBSERVED FIRING (2026-07-25)** — four at once, since they are
 one 1.2 change split across four diff sites. Authored SHOPPIC.DSN
