@@ -74,11 +74,13 @@ missing is a live run. This is the list to work from, not a stub list.
 
 | Path | Function | Why it is still open |
 |---|---|---|
-| Character **training** | `jt557`, 289 lines | **NOT UNVERIFIED — INERT.** Re-driven with a party seated: pressing `t` does nothing, and clicking "Train Character" changes only the cursor pixels (AE=1412, i.e. no state change). `grep -n 'jt557 *('` finds **no caller**: the body is fully lifted but nothing invokes it. The Mac dispatches JT[557] from `CODE 10+0x5cec` and `CODE 12+0x0f68`; neither was wired. Tracked in #78. |
+| Character **training** | `jt557`, 289 lines | **WIRED 2026-07-24, and now diagnosed.** It had no caller: `l0f1a` (the hall's case 0) ran a port stand-in and the menu item was pinned disabled. Both fixed — `jt557` now runs on a Train click, verified by trace: valid record, conscious check passed, money 100 vs cost 0, `trainMask 0` correctly computed (level-6 fighter, 50,000 XP vs the 70,001 needed). Still produces **no visible output**, for two *pre-existing* reasons pinned below. |
 | Spell **memorize / cast / scribe** with a real caster | `l06d6` 30, `l0bc6` 83, `l0df2` 165, `l1374` 66 | Only exercised with a Fighter in the party, so every list was legitimately empty. Needs a Magic-User seated. |
 | **Inn / tavern** events | `l398a` 34, `l4f9a` | Never driven; no HEIRS cell reached that fires them. |
 | **Event / NPC editors** | `jt263` NPC block, event editor | Deferred scope (ADR-0008), never driven. |
 | Alt / Fix camp arms | `l2d7e` 52, `l038a` 7 | Bar entries seen, arms not exercised. |
+| Training's **guild class mask** | `jt557` L7324 gate | `guildMask = g_a5_28006[48]` is **always 0** — the game record's byte 48 is never populated (jt918's own comment flags it: "unliftable until the design header populates [48]"). With 0, `(haveMask & guildMask) == 0` always holds, so every character gets "we don't train that class here" instead of the correct verdict. |
+| `jt101` **alerts never survive a repaint** | `jt101` in the hall loop | jt557's refusals go through `jt101`, and `jt918` repaints the hall every loop iteration, so the alert is overpainted before a frame is presented. Same class as the shop messages `docs/shop-merchant-wall.md` documents ("immediately overpainted by the loop's next repaint"), which is why `FRUA_SHOPTRACE` exists. `-DFRUA_HALLDIAG` is the equivalent harness for the hall. |
 
 ## 4. Status docs that are wrong (do not trust these)
 

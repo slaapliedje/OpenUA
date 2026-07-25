@@ -29021,12 +29021,27 @@ static void cg_train_screen(void)
 	}
 }
 
+static void jt557(void);                /* CODE 17+0x6cd2 — the trainer, below */
+
+/* L0f1a — case 0 (Train Character). CODE 12 + 0x0f1a.
+ *
+ * The asm arm is `tstb a5@(-14440); beqw L1242; jsr JT[557]; clrb a5@(-27946)`.
+ * The port ran cg_train_screen() here instead — a stand-in that rolled its own
+ * hit die and set THAC0 = 39 + level, with no racial level limit, no training
+ * cost, no guild mask and no XP clamp. jt557 is the faithful handler and is
+ * fully lifted, so call it (2026-07-24). The stand-in is kept for reference
+ * (it is what the roster's own 't' key still drives) but is no longer the
+ * Training Hall's Train button.
+ *
+ * -27946 is the menu-repaint latch the other arms clear the same way. */
 static int l0f1a(short a)
 {
 	(void)a;
 	PROBE("jt918/case0 L0f1a");
-	if (g_a5_14440 != 0)
-		cg_train_screen();           /* port: level up on earned XP */
+	if (g_a5_14440 == 0)
+		return 0;
+	jt557();                             /* JT[557] — the faithful trainer */
+	g_a5_27946 = 0;
 	return 0;
 }
 /* Forward — jt488 and jt159 are defined further down (sprintf into
@@ -31305,6 +31320,14 @@ static void jt557(void)
 	void          *iter;
 
 	PROBE("jt557");
+#ifdef FRUA_HALLDIAG
+	dbg_file_num("jt557 enter, rec ", (long)(uintptr_t)rec);
+	if (rec) {
+		dbg_file_num("   rec[94] conscious ", (long)rec[94]);
+		dbg_file_num("   rec[76] money ", (long)*(unsigned short *)(rec + 76));
+		dbg_file_num("   cost -18480 ", g_a5_long(-18480));
+	}
+#endif
 
 	if (rec[94] != 0) {                             /* L6cd2: conscious? */
 		jt101("we only train conscious people", 11, 0);
@@ -31492,6 +31515,13 @@ static void jt557(void)
 	if (xpAfter > 0 && jt180() == 0 && xpAfter < *(long *)(rec + 68))
 		*(long *)(rec + 68) = xpAfter;
 
+#ifdef FRUA_HALLDIAG
+	dbg_file_num("jt557 haveMask ", (long)haveMask);
+	dbg_file_num("   trainMask ", (long)trainMask);
+	dbg_file_num("   guildMask ", (long)guildMask);
+	dbg_file_num("   jt180 (-12647 name-edit) ", (long)jt180());
+	dbg_file_num("   -22730 bypass ", (long)(unsigned char)g_a5_22730);
+#endif
 	/* L7324: guild class-mask gate */
 	if (g_a5_22730 == 0) {
 		if ((haveMask & guildMask) == 0 && jt180() == 0) {
@@ -91853,7 +91883,17 @@ static int jt918(short a)
 			if (g_a5_27932 != 0)
 				l02dc(g_a5_27932);   /* repaint the roster grid */
 
-			g_a5_14440 = 0;                    /* Train Character    (disabled) */
+			/* Train Character — ENABLED as of 2026-07-24. It was
+			 * pinned to 0 with the rationale "no eligibility gate
+			 * lifted yet"; that gate IS jt557, which has since been
+			 * lifted in full (the AD&D racial level-limit switch, the
+			 * guild class mask, the jt26 XP thresholds and the
+			 * affordability check), so the reason no longer holds. The
+			 * item's refusal messages ("we only train conscious
+			 * people", "Training costs %s platinum") only make sense
+			 * if the player can reach them, so gate it on the roster
+			 * like the other character-scoped items. */
+			g_a5_14440 = (unsigned char)party; /* Train Character    */
 			g_a5_14439 = (unsigned char)party; /* Modify Character   */
 			g_a5_14438 = 1;                    /* Delete Character   */
 			g_a5_14437 = 1;                    /* Create Character   */
@@ -91903,6 +91943,10 @@ static int jt918(short a)
 
 #ifdef FRUA_CGTRACE
 			dbg_log_num("jt918 dispatch local = ", (long)local);
+#endif
+#ifdef FRUA_HALLDIAG
+			dbg_file_num("hall case ", (long)local);
+			dbg_file_num("   -14440 train-flag ", (long)(unsigned char)g_a5_14440);
 #endif
 			switch (local) {
 			case 0:  rc = l0f1a(a); break;
