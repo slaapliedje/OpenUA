@@ -20709,9 +20709,22 @@ static short  jt1125(short kind, long p1, long p2)
 	if (out1 == NULL || out2 == NULL)
 		return 0;
 
+	/* Drain the pump's stash first (TaskList #84); only poll the shim queue
+	 * when it is empty. The short-circuit keeps the no-stash path bit-for-bit
+	 * the same call it always was. */
 	if (!WaitNextEvent(everyEvent, &ev, 1, NULL)) {
 		*out1 = 0;
 		*out2 = 0;
+		/* PORT BUG (found 2026-07-25): g_event_was_click was assigned only
+		 * AFTER a successful fetch, so this early return left it STALE at 1
+		 * from the last real click — and this path runs on every idle poll,
+		 * i.e. hundreds of times per second. Every consumer then saw
+		 * "the last event was a click" forever, paired with the (0,0)
+		 * coordinates just zeroed above. l2d3e's Phase 2 comment describes
+		 * exactly that symptom ("on an idle/hover pass it tested the stale
+		 * (0,0) event coords") and works around it in Phase 4 rather than
+		 * clearing the flag. Clear it here: no event means no click. */
+		g_event_was_click = 0;
 		return 0;
 	}
 

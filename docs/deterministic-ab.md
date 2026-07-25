@@ -223,6 +223,28 @@ Two more measurements pin the shape of it:
 - On the MAIN MENU `l2d3e` does receive events (`key 1`). So the starvation is
   specific to contexts where `l23b4`'s loop calls the pump first.
 
+**Attempt 1 (reverted): stash in `l725c`, drain in `jt1125`.** It was inert, and
+the reason is a trap worth recording. My `l731e PUMPED` log fires on the
+`EventAvail(mask, &ev)` PEEK in the while condition — which is non-destructive.
+The actual pop happens one level down in `l725c`, which runs its OWN
+`WaitNextEvent(mask, ...)` with a MASK that `l731e` narrows
+(`mask &= ~0x08` when `-820` is set, `mask &= ~0x07` when no mouseDown is
+available). So the push never fired: `l731e` demonstrably SEES keyDown/mouseDown
+in the peek, but that does not mean `l725c` took them. **A peek in the loop
+condition is not the consumer** — instrument the destructive call, not the test
+that guards it. Next step is the mask computation and `l66e8`, which together
+decide whether `l725c` ever pops these events at all.
+
+**A real bug fell out of it and IS fixed:** `g_event_was_click` was assigned only
+after a successful fetch, so `jt1125`'s no-event early return — which runs on
+every idle poll, hundreds of times a second — left the flag STALE at 1 from the
+last real click, paired with the (0,0) coordinates it had just zeroed. That is
+precisely the symptom `l2d3e`'s Phase 2 comment describes ("on an idle/hover pass
+it tested the stale (0,0) event coords") and works around in Phase 4 instead of
+clearing the flag. It also made my own first measurement unreadable: "clicks seen
+403" was 403 idle polls, not 403 clicks. Now cleared on the no-event path;
+verified the Hall renders byte-identically and play entry is unchanged.
+
 **The fix is to finish the faithful architecture.** `jt1125`'s own doc records
 it: *"The Mac body pulls from an internal event buffer (g_a5_904 / 912 / 910
 cluster) that L731e fills from IRQ + Toolbox."* The Mac has ONE reader — the
