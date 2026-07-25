@@ -35,7 +35,7 @@ streams**; CODE 17 changes only in operands (see below).
 | 11 | 10 | `L6238` | replace | 1 | 5 | yes | ✅ ported | l6238: the second jt431 join (same change as hunk 10) |
 | 12 | 12 | `L071c` | replace | 1 | 2 | - | ⬜ open |  |
 | 13 | 12 | `L0d3e` | insert | 0 | 16 | - | ⬜ open |  |
-| 14 | 12 | `L3426` | replace | 1 | 5 | - | ⬜ open |  |
+| 14 | 12 | `L3426` | replace | 1 | 5 | yes | ✅ ported | l33d8 pass 2: skip SUMMONED combatants (`mc[21]==1`) so a conjured creature cannot mask a party wipe |
 | 15 | 13 | `L105c` | insert | 0 | 5 | - | ⬜ open |  |
 | 16 | 16 | `L50cc` | insert | 0 | 3 | - | ⬜ open |  |
 | 17 | 18 | `L003a` | insert | 0 | 13 | yes | ⬜ open |  |
@@ -61,7 +61,7 @@ streams**; CODE 17 changes only in operands (see below).
 | 37 | 21 | `L4816` | insert | 0 | 5 | yes | ✅ ported | jt955 case 3: overland bounds guard #2 (out of range == blocked) |
 | 38 | 21 | `L4874` | insert | 0 | 8 | yes | ✅ ported | jt955 case 3: the second guard's tail |
 
-### Ported so far (11 of 38)
+### Ported so far (12 of 38)
 
 | hunks | function | fix |
 |---|---|---|
@@ -69,6 +69,7 @@ streams**; CODE 17 changes only in operands (see below).
 | 30 | `l5676` (CODE 20 `L57a0`) | say "Transfer module ends testing!" before a type-11 transfer tears down a test-play session, instead of vanishing silently |
 | 19–22 | `jt893` (CODE 19 `L25ce`) | the in-combat flag `-22281` is suppressed across the WHOLE Items browser (save+clear at entry, restore at exit) rather than only around the trade/give confirm |
 | 7 | the `L3f80` picker (CODE 7) | the modal key-mode argument to `l2ebc` goes 0 -> 1, enabling `l23b4`'s `arg_lo != 0` arm |
+| 14 | `l33d8` (CODE 12 `L3426`) | pass 2 of the post-fight outcome resolver now SKIPS summoned combatants. 1.0 `bras L347a` -> 1.2 `braw L34c2` (the branch outgrew its 8-bit displacement) plus 4 inserted instructions testing `node[64]->[21] == 1` and branching to the ADVANCE label — a `continue`. Pass 1 and the main pass already stop at the first summoned entry; pass 2 was the one place scanning unfiltered. It matters because `found` + the design's `hdr[29]` no-permadeath flag CLEARS `-27982`, the "party destroyed" flag: in 1.0 a summoned creature sitting in status 3/4/5 (fled/dead/petrified) or carrying `rec[382]` satisfied `found` on its own, so a party that had actually been wiped could come out not registered as destroyed — on the strength of a monster it had conjured |
 | 10, 11 | `l6238` (CODE 10 `L6238`) | build the delete path FORWARDS — clear the buffer, `jt431` the design dir, `jt431` the leaf — instead of `jt436`'s in-place directory prefix, which has to slide the existing contents up inside a fixed 202-byte buffer. 1.2 also grew the frame 16 bytes for a separate leaf buffer. `l419e` right below already used the two-append idiom, so 1.2 is making `l6238` consistent with the rest of CODE 10 |
 
 Verified: same-harness before/after frames are byte-identical on the walk, camp,
@@ -76,6 +77,27 @@ Magic, chargen and map-editor paths (AE=0), i.e. no regression. None of the four
 fixes has been *observed firing* — each needs a specific situation (a party at a
 map edge, a design under test, a prompt inside the Items browser, that one
 picker). That distinction is deliberate; see ADR-0018's caveat.
+
+## Frame-slot changes — 134, all churn
+
+`--operands` normalises `%fp@(N)` away because a 1.2 function that gained a
+local renumbers every slot below it. That also hid the class of bug the tool
+exists to find, so `mac12_diff.py --frameslots` reports frame slots separately.
+
+Frame SIZE alone does not separate fix from churn: CODE 19's `L25ce` (`jt893`)
+keeps `linkw #-28` on both sides yet moves seven distinct slots. The
+discriminator that works is per-FUNCTION shape — a real wrong-slot bug changes
+ONE use site while its siblings stay put; a re-layout renames EVERY use of the
+local. Grouping must be by enclosing function (the last `linkw`), not by nearest
+label, or one re-layout leaks out as several single-mapping "fixes".
+
+**Result: 0 genuine frame-slot fixes, 134 churn rows** — 111 in CODE 19, 23 in
+CODE 10, i.e. entirely inside the two functions 1.2 restructured and that are
+already ported (`jt893`, hunks 19–22; `l6238`, hunks 10–11, whose frame grew
+202 → 218 bytes). This **retracts** the audit's "two stack-slot corrections"
+(`%fp@(-24)` → `%fp@(-20)` in CODE 19, `%fp@(-7)` → `%fp@(-9)` in CODE 10):
+both rename every use of their local and are re-layout, not fixes. They were an
+artifact of the first unusable 229-difference run.
 
 ## Operand-only changes — 93
 

@@ -129,8 +129,13 @@ def operand_hunks():
 
     The mnemonic-stream compare is deliberately blind to operands, which is what
     makes it immune to relocation noise — but it is equally blind to a fix that
-    only changes an operand. Both of 1.2's frame-slot corrections
-    (`%fp@(-24)` -> `%fp@(-20)`) live here, so this pass is not optional.
+    only changes an operand, so this pass is not optional.
+
+    NOTE it deliberately normalises `%fp@(N)` away (see `_NOISE`): several 1.2
+    functions gained a local, which renumbers every slot below it and accounted
+    for ~136 of the raw 229 differences. That means a genuine frame-slot FIX is
+    invisible here — use `--frameslots`, which separates the two cases by
+    checking whether the enclosing function's `linkw` frame size moved.
     """
     out = []
     for seg, pa, pb in segments():
@@ -147,6 +152,96 @@ def operand_hunks():
                     out.append((seg, ra[1], ra[0], rb[0], ra[2].strip(),
                                 rb[2].strip()))
     return out
+
+
+LINKW = re.compile(r"linkw %fp,#(-?\d+)")
+FPSLOT = re.compile(r"%fp@\(\s*(-?\d+)\s*\)")
+
+
+def frame_slot_changes():
+    """Frame-slot operand changes, split by whether the FRAME SIZE moved.
+
+    `--operands` normalises `%fp@(N)` because a 1.2 function that gained a local
+    renumbers every slot below it — pure churn. But that also hides real fixes:
+    1.2 contains at least two corrections where a wrong slot was being read
+    (`docs/function-audit-2026-07-24.md` §5 names `%fp@(-24)` -> `%fp@(-20)` and
+    `%fp@(-7)` -> `%fp@(-9)`), and normalising them away made the tool blind to
+    exactly the class of bug it was built to find.
+
+    Frame size alone is NOT enough to tell them apart. CODE 19's `L25ce`
+    (= jt893) keeps `linkw #-28` in both releases yet moves seven distinct
+    slots (-20->-12, -14->-8, -16->-18, -4->-26, ...): that is the compiler
+    re-laying out the frame after 1.2 restructured the function, which is
+    exactly the jt893 change already ported as hunks 19-22. Reporting it as 7
+    findings is noise.
+
+    The discriminator that works is per-FUNCTION shape:
+      - a re-layout permutes MANY distinct slots and usually leaves no fp
+        reference untouched;
+      - a real fix changes ONE slot mapping while the function's other fp
+        references stay exactly where they were.
+    So a function qualifies only when it has a single distinct (a_slot ->
+    b_slot) mapping AND at least one unchanged fp reference elsewhere in it.
+
+    Returns (interesting, churn), each [(seg, func_lo_addr, frame, a_addr,
+    b_addr, a_text, b_text)].
+    """
+    per_func = {}       # key -> {"rows": [...], "maps": set(), "same": int}
+    for seg, pa, pb in segments():
+        la, lb = Listing(pa), Listing(pb)
+        # frame size in force at each instruction index, per side
+        # (frame_size, enclosing_linkw_addr) per instruction index. The addr
+        # matters: grouping by nearest LABEL splits one function into blocks,
+        # and a re-layout then looks like several single-mapping "fixes" —
+        # jt893 leaked two that way.
+        def frames(lst):
+            out, cur, at = [], None, -1
+            for addr, _lbl, text in lst.rows:
+                m = LINKW.search(text)
+                if m:
+                    cur, at = int(m.group(1)), addr
+                out.append((cur, at))
+            return out
+        fa, fb = frames(la), frames(lb)
+        sm = difflib.SequenceMatcher(None, la.ops, lb.ops, autojunk=False)
+        for tag, i1, i2, j1, j2 in sm.get_opcodes():
+            if tag != "equal":
+                continue
+            for k in range(i2 - i1):
+                ia, ib = i1 + k, j1 + k
+                ra, rb = la.rows[ia], lb.rows[ib]
+                ta, tb = ra[2], rb[2]
+                sa = FPSLOT.findall(ta)
+                sb = FPSLOT.findall(tb)
+                if not sa:
+                    continue
+                key = (seg, fa[ia][1])      # enclosing function
+                st = per_func.setdefault(
+                    key, {"rows": [], "maps": set(), "same": 0,
+                          "frame": (fa[ia][0], fb[ib][0])})
+                if sa == sb:
+                    st["same"] += 1
+                    continue
+                # ignore rows whose non-fp operands also differ; those are
+                # already reported by --operands
+                if norm_operands(ta.split(None, 2)[-1]) != \
+                        norm_operands(tb.split(None, 2)[-1]):
+                    continue
+                st["maps"].update(zip(sa, sb))
+                st["rows"].append(
+                    (seg, ra[1], fa[ia][0], ra[0], rb[0],
+                     ta.strip(), tb.strip()))
+
+    interesting, churn = [], []
+    for key, st in sorted(per_func.items()):
+        if not st["rows"]:
+            continue
+        single = len({m for m in st["maps"] if m[0] != m[1]}) == 1
+        stable = st["same"] > 0
+        same_frame = st["frame"][0] == st["frame"][1]
+        (interesting if (single and stable and same_frame)
+         else churn).extend(st["rows"])
+    return interesting, churn
 
 
 def jt_exports(seg, lo, hi):
@@ -207,6 +302,9 @@ def main(argv=None):
     ap.add_argument("--seg", type=int, help="show every hunk in a segment")
     ap.add_argument("--operands", action="store_true",
                     help="instructions that differ only in a meaningful operand")
+    ap.add_argument("--frameslots", action="store_true",
+                    help="frame-slot changes, split into real fixes (frame size "
+                         "unchanged) vs renumbering churn (frame grew)")
     ap.add_argument("-C", "--context", type=int, default=10,
                     help="instructions of context (default 10)")
     args = ap.parse_args(argv)
@@ -214,6 +312,19 @@ def main(argv=None):
     for d in (DIS_10, DIS_12):
         if not os.path.isdir(d):
             sys.exit(f"{d} missing — see docs/mac-release.md 'The 1.2 oracle'")
+
+    if args.frameslots:
+        interesting, churn = frame_slot_changes()
+        print("%d frame-slot changes in functions whose FRAME SIZE is "
+              "unchanged  <- candidate real fixes" % len(interesting))
+        print("%d in functions whose frame grew (a gained local renumbers "
+              "every slot below it) — churn\n" % len(churn))
+        for seg, lbl, frame, aa, ab, ta, tb in interesting:
+            print("CODE %-2d near %-9s  linkw #%d (same both sides)"
+                  % (seg, lbl, frame if frame is not None else 0))
+            print("   1.0 @%#06x  %s" % (aa, ta))
+            print("   1.2 @%#06x  %s" % (ab, tb))
+        return 0
 
     if args.operands:
         ops = operand_hunks()

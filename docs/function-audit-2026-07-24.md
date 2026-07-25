@@ -230,11 +230,26 @@ fixes — now an enumerable worklist rather than a mystery, tracked hunk by hunk
 in `docs/mac12-hunk-log.md`. **Correction:** the count in this section was first
 published as 32 from a throwaway parser that mis-tokenised the listings; a
 correctly-anchored mnemonic compare (`tools/mac12_diff.py`) gives 38 structural
-hunks plus 93 operand-only changes. Several look like
-exactly the kind of thing a bug-fix release contains: a `bras` → `beqs` (an
-unconditional branch becoming conditional, CODE 12 `L3426`) and two
-stack-slot corrections (`%fp@(-24)` → `%fp@(-20)` in CODE 19, `%fp@(-7)` →
-`%fp@(-9)` in CODE 10).
+hunks plus 93 operand-only changes.
+
+**Second correction (2026-07-25), to this section's own examples.** It offered
+three specimens of "the kind of thing a bug-fix release contains". One was
+real and two were not:
+
+- the CODE 12 `L3426` change **is** a real fix, but it is not a `bras` → `beqs`.
+  It is `bras` → `braw` (the branch simply outgrew its 8-bit displacement) plus
+  **four inserted instructions**, and the fix is a `continue` that skips
+  summoned combatants in `l33d8`'s second pass. Ported; see the hunk log.
+- the "two stack-slot corrections" (`%fp@(-24)` → `%fp@(-20)` in CODE 19,
+  `%fp@(-7)` → `%fp@(-9)` in CODE 10) are **not fixes at all** — they are
+  compiler frame re-layout. They came from the first, unusable 229-difference
+  run before frame slots were normalised. `mac12_diff.py --frameslots` now
+  separates the cases by per-function shape: a real wrong-slot bug changes ONE
+  use site while its siblings stay put, whereas each of these renames EVERY use
+  of its local, inside a function 1.2 restructured (`l6238`'s frame grew
+  202 → 218 bytes; `jt893` was restructured). Result: **0 genuine frame-slot
+  fixes, 134 churn rows**, all confined to CODE 10 (23) and CODE 19 (111) — the
+  two segments whose restructures are already ported.
 
 ### What a retarget would actually cost
 

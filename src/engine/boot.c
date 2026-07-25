@@ -45716,7 +45716,36 @@ static void l33d8(void)
 	for (cur = g_a5_long(-27928); cur != 0 && !found;
 	     cur = *(long *)(uintptr_t)cur) {
 		unsigned char *p = (unsigned char *)(uintptr_t)cur;
+		/* ★ Mac 1.2 FIX (ADR-0018), oracle hunk 14: CODE 12, 1.0 @0x3430
+		 * `bras L347a` -> 1.2 @0x3466 `braw L34c2` plus four inserted
+		 * instructions at 1.2 @0x346a:
+		 *
+		 *     moveal %fp@(-4),%a0 ; moveal %a0@(64),%a0
+		 *     cmpib #1,%a0@(21)   ; beqs L34ba
+		 *
+		 * L34ba is the ADVANCE label (`node = node->next`), so this is a
+		 * `continue`, not a break — 1.2 SKIPS summoned combatants in
+		 * pass 2. Pass 1 and the main pass already stop at the first
+		 * summoned entry (`mc[21] == 1`); pass 2 was the one place that
+		 * scanned the whole list unfiltered. The `bras` -> `braw` is
+		 * just the branch growing past its 8-bit displacement.
+		 *
+		 * Why it matters: `found` combined with the design's hdr[29]
+		 * no-permadeath flag CLEARS -27982, the "party destroyed" flag.
+		 * In 1.0 a summoned creature sitting in status 3/4/5 (fled /
+		 * dead / petrified) or carrying rec[382] satisfied `found` all
+		 * by itself — so a party that had actually been wiped could come
+		 * out of the resolver not registered as destroyed, on the
+		 * strength of a monster it had conjured. 1.2 counts only real
+		 * members.
+		 *
+		 * PORT-SAFETY: rec[64] is NULL outside combat, same as the other
+		 * two passes — a NULL mc must not skip the entry. */
+		unsigned char *mc = (unsigned char *)(uintptr_t)
+		    *(long *)(void *)(p + 64);
 
+		if (mc != NULL && mc[21] == 1)
+			continue;
 		if (p[382] != 0 || p[94] == 4 || p[94] == 3 || p[94] == 5)
 			found = 1;
 	}
