@@ -27116,38 +27116,55 @@ store:
 
 /* The 12 menu items L0aae builds via JT[452] — `Train Character` etc.,
  * each with a single-letter accelerator (the `selector` field is the
- * ASCII code of the highlighted key). The full Mac body splits the
- * install into three JT[452] calls of five items each; the skeleton
- * just iterates the table. */
+ * ASCII code of the highlighted key). The Mac splits the install into
+ * three JT[452] calls of FOUR items each (0x0aba / 0x0b6c / 0x0c1e),
+ * plus a fourth call installing the shape-7 page-flip callback.
+ *
+ * ORDER IS LOAD-BEARING AND WAS WRONG UNTIL 2026-07-24 (#82). The
+ * install index is the enable-flag slot (-14440 + i) AND the JT[3]
+ * dispatch case — verified: every one of the 12 case bodies tests
+ * exactly -14440 + its own case number. So row i's label must be the
+ * label of case i's body.
+ *
+ * The trap: JT[452] is variadic and C pushes right-to-left, so within
+ * each group the LAST item pushed by the asm is the FIRST argument.
+ * Reading the asm top-down gives each group of four REVERSED. That
+ * misreading is what produced the port's old "Train/Create, Add/View
+ * and Remove/Change-Class are label-crossed on the Mac" theory and the
+ * compensating case-4/case-7 dispatch swap; there is no crossing. Two
+ * independent cross-checks on the corrected order:
+ *   - case 0 -> JT[574] (create) sits under "Create Character", and
+ *     case 3 -> JT[557] (the trainer) under "Train Character"; likewise
+ *     case 4 -> JT[556] under Change Class, case 7 -> JT[584] under
+ *     Remove, case 9 -> JT[585] under Save.
+ *   - the STRS offsets come out strictly ascending, i.e. SSI laid the
+ *     label strings down in install order.
+ * It also reproduces the live BasiliskII enable set exactly (all 12
+ * items — see the L0df6/L0e98 transcription at the jt918 cluster). */
 static const struct {
 	long          label_strs_off;       /* STRS resource byte offset    */
 	short         selector;             /* accelerator key (ASCII)      */
 	short         page;                 /* 8000-channel page id         */
 	short         phrase;               /* phrase id                    */
 } k_jt918_menu_items[] = {
-	{ 0x5f1c, 'T', 8004, 8080 },   /* 0  "Train Character"    */
-	{ 0x5f0a, 'M', 8004, 8073 },   /* 1  "Modify Character"   */
-	{ 0x5ef8, 'D', 8084, 8066 },   /* 2  "Delete Character"   */
-	{ 0x5ee6, 'C', 8084, 8059 },   /* 3  "Create Character"   */
-	{ 0x5f5e, 'R', 8004, 8066 },   /* 4  "Remove Character"   */
-	{ 0x5f50, 'A', 8004, 8059 },   /* 5  "Add Character"      */
-	{ 0x5f40, 'V', 8004, 8094 },   /* 6  "View Character"     */
-	{ 0x5f2c, 'H', 8004, 8087 },   /* 7  "Human Change Class" */
-	{ 0x5f70, 'L', 8084, 8073 },   /* 8  "Load Saved Game"  -> case 8  (l10ca jt582 load) */
-	/* The install index IS the JT[3] dispatch case (jt453 returns it), so the
-	 * label at array slot N must be the item case N's body handles. Two slots
-	 * are swapped vs. raw build order so the labels line up with their JT[3]
-	 * bodies (JT[3] table @ CODE12 0xefc, decoded): case 8 = L10ca = the LOAD
-	 * picker (JT[582] + the "Game not saved. Load anyway?" jt159), case 9 =
-	 * L1142 = disk save (JT[585]), case 10 = L115a = play-entry, case 11 =
-	 * L120c = Exit From Play. Verified on the real Mac (BasiliskII,
-	 * 2026-06-09) for Save/Begin; the Load<->Exit (8<->11) swap is the mirror
-	 * fix (2026-06-21) — clicking "Load Saved Game" now reaches L10ca's faithful
-	 * jt582 picker, not L120c's slot-A stand-in. Each entry carries its own
-	 * `phrase` y-id, so swapping the rows keeps every label drawn in place. */
-	{ 0x5f80, 'S', 8084, 8080 },   /* 9  "Save Current Game" -> case 9  (l1142 save) */
-	{ 0x5f92, 'B', 8084, 8087 },   /* 10 "Begin Adventuring" -> case 10 (l115a play) */
-	{ 0x5fa4, 'E', 8084, 8094 },   /* 11 "Exit From Play"    -> case 11 (l120c) */
+	/* group 1 — JT[452] @ CODE 12 + 0x0aba (arg order, not asm order) */
+	{ 0x5ee6, 'C', 8084, 8059 },   /* 0  "Create Character"  -> L0f1a  JT[574] */
+	{ 0x5ef8, 'D', 8084, 8066 },   /* 1  "Delete Character"  -> L0f2e  L15e2   */
+	{ 0x5f0a, 'M', 8004, 8073 },   /* 2  "Modify Character"  -> L0f3e  JT[1199]*/
+	{ 0x5f1c, 'T', 8004, 8080 },   /* 3  "Train Character"   -> L0f60  JT[557] */
+	/* group 2 — JT[452] @ 0x0b6c */
+	{ 0x5f2c, 'H', 8004, 8087 },   /* 4  "Human Change Class"-> L0f74  JT[556] */
+	{ 0x5f40, 'V', 8004, 8094 },   /* 5  "View Character"    -> L1036  JT[904] */
+	{ 0x5f50, 'A', 8004, 8059 },   /* 6  "Add Character"     -> L104c  L12a0   */
+	{ 0x5f5e, 'R', 8004, 8066 },   /* 7  "Remove Character"  -> L1060  JT[584] */
+	/* group 3 — JT[452] @ 0x0c1e. These four were already correct: they had
+	 * been put right empirically (Save/Begin on BasiliskII 2026-06-09, the
+	 * Load<->Exit mirror 2026-06-21), which is the same reversal, found the
+	 * hard way one group at a time. */
+	{ 0x5f70, 'L', 8084, 8073 },   /* 8  "Load Saved Game"   -> L10ca  JT[582] */
+	{ 0x5f80, 'S', 8084, 8080 },   /* 9  "Save Current Game" -> L1142  JT[585] */
+	{ 0x5f92, 'B', 8084, 8087 },   /* 10 "Begin Adventuring" -> L115a          */
+	{ 0x5fa4, 'E', 8084, 8094 },   /* 11 "Exit From Play"    -> L120c  JT[159] */
 };
 
 /* L0aae — build the design-menu, walk the c79x flag cluster to
@@ -29021,17 +29038,17 @@ static void cg_train_screen(void)
 	}
 }
 
-static void jt557(void);                /* CODE 17+0x6cd2 — the trainer, below */
-
-/* L0f1a — case 0 (Train Character). CODE 12 + 0x0f1a.
+/* L0f1a — case 0 (CREATE Character). CODE 12 + 0x0f1a.
  *
- * The asm arm is `tstb a5@(-14440); beqw L1242; jsr JT[557]; clrb a5@(-27946)`.
- * The port ran cg_train_screen() here instead — a stand-in that rolled its own
- * hit die and set THAC0 = 39 + level, with no racial level limit, no training
- * cost, no guild mask and no XP clamp. jt557 is the faithful handler and is
- * fully lifted, so call it (2026-07-24). The stand-in is kept for reference
- * (it is what the roster's own 't' key still drives) but is no longer the
- * Training Hall's Train button.
+ *   tstb a5@(-14440); beqw L1242
+ *   clrl -(sp); jsr JT[574]; addql #4,sp      // jt574(0) — char-gen
+ *   braw L1242
+ *
+ * Case 0's label is "Create Character" — see k_jt918_menu_items (#82). An
+ * earlier comment here transcribed the `jsr` as JT[557] (the trainer); it is
+ * JT[574] at CODE 17+0x3b5e, and acting on that misreading is how the port
+ * briefly ran the trainer from the Create button. The trainer belongs to case
+ * 3 (l0f60), where it now lives.
  *
  * -27946 is the menu-repaint latch the other arms clear the same way. */
 static int l0f1a(short a)
@@ -29040,17 +29057,7 @@ static int l0f1a(short a)
 	PROBE("jt918/case0 L0f1a");
 	if (g_a5_14440 == 0)
 		return 0;
-#ifdef FRUA_HALLFREE
-	/* HARNESS (make EXTRA_CFLAGS+=-DFRUA_HALLFREE): raise the Mac's own
-	 * free-training bypass so jt557 takes its SUCCESS branch regardless of
-	 * XP or purse. -22730 is not an invention — the trainer UI at CODE 17
-	 * +0x2840 raises the same flag, and jt557 already honours it at the
-	 * affordability check, the trainable-mask test and the guild gate. The
-	 * only headless way to exercise the "will become" preview / jt159
-	 * confirm / level-bump tail without hand-editing a .CHR. Never ship. */
-	g_a5_22730 = 1;
-#endif
-	jt557();                             /* JT[557] — the faithful trainer */
+	jt574(0);                            /* JT[574] — the char-gen entry */
 	g_a5_27946 = 0;
 	return 0;
 }
@@ -91248,19 +91255,26 @@ static int l0f60(short a)
 	PROBE("jt918/case3 L0f60");
 	if (g_a5_14437 == 0)
 		return 0;
-	/* "Create Character" -> the char-gen pick screen (jt574 -> l3666).
+	/* "Train Character" -> JT[557], the faithful trainer. Case 3 IS Train
+	 * (k_jt918_menu_items, #82) and the asm arm here is a bare
+	 * `jsr JT[557]` — no guild-mask forcing, unlike the trainer UI at
+	 * CODE 17 +0x2840 / CODE 10 +0x5cbe. The mask comes from l2d32, which
+	 * writes gameRec[48] = ev[8] on the way into a Training-Hall event.
 	 *
-	 * The literal disasm dispatches case 0 ("Train Character") to JT[574]
-	 * (create) and case 3 ("Create Character") to JT[557] (train) — i.e. the
-	 * two are swapped relative to their STRS labels, which only works out on
-	 * the Mac because its jt453/L2d3e hit-test returns a value the port's
-	 * "clicked build-index == JT[3] case" model doesn't reproduce (the #133
-	 * jt453-return detail). The port already resolves this by label on case 0
-	 * (l0f1a runs the train screen, not JT[574]); we do the same here so the
-	 * button named "Create Character" actually creates. JT[557] (train) stays
-	 * the case-0 path's job. Verified: this opens PICK RACE/CLASS from the
-	 * Training Hall. */
-	jt574(0);
+	 * There is no "label crossing" with case 0 here; that was a misreading
+	 * of the JT[452] varargs order. Case 0 creates, case 3 trains, and each
+	 * gates on its own slot (-14440 / -14437). */
+#ifdef FRUA_HALLFREE
+	/* HARNESS (make EXTRA_CFLAGS+=-DFRUA_HALLFREE): raise the Mac's own
+	 * free-training bypass so jt557 takes its SUCCESS branch regardless of
+	 * XP or purse. -22730 is not an invention — the trainer UI raises the
+	 * same flag, and jt557 already honours it at the affordability check,
+	 * the trainable-mask test and the guild gate. The only headless way to
+	 * exercise the "will become" preview / jt159 confirm / level-bump tail
+	 * without hand-editing a .CHR. Never ship. */
+	g_a5_22730 = 1;
+#endif
+	jt557();                             /* JT[557] — the faithful trainer */
 	g_a5_27946 = 0;
 	return 0;
 }
@@ -91292,17 +91306,16 @@ static int l0f74(short a)
 	short          rc;               /* fp@(-11) — jt556 result  */
 
 	(void)a;
-	PROBE("jt918/case7 L0f74");
-	/* Remove/Change-Class are label-crossed (like Train/Create, Add/View):
-	 * this Mac body is the HUMAN CHANGE CLASS handler, so the port's
-	 * by-label dispatch runs it from case 7 and it reads that label's slot
-	 * gate (-14433, seeded 0 — the item is disabled, faithful to the Hall
-	 * build). The Mac asm reads -14436 because ITS selector remap parks
-	 * this body under the Remove slot. Faithful body: jt556 validates and
-	 * runs the class pick (17 = aborted), then the readied weapon (type 8)
-	 * and armor (type 105) are un-readied (jt41 find -> jt878 remove) and
-	 * the picked-class arm re-adds the matching one (jt876). */
-	if (g_a5_14433 == 0)
+	PROBE("jt918/case4 L0f74");
+	/* HUMAN CHANGE CLASS — case 4, gate -14436 (#82). No label crossing:
+	 * case 4's label IS "Human Change Class" and this body calls JT[556].
+	 * The old comment below described the port's by-label dispatch swap,
+	 * now removed. Retained for its description of the body itself.
+	 * Faithful body: jt556 validates and runs the class pick (17 =
+	 * aborted), then the readied weapon (type 8) and armor (type 105) are
+	 * un-readied (jt41 find -> jt878 remove) and the picked-class arm
+	 * re-adds the matching one (jt876). */
+	if (g_a5_14436 == 0)
 		return 0;
 	rc = (short)jt556((long)(uintptr_t)rec);
 	if (rc != 17) {
@@ -91324,28 +91337,27 @@ static int l0f74(short a)
 	g_a5_27946 = 0;
 	return 0;
 }
-/* L1036 — case 5 (Add Character). CODE 12 + 0x1036.
+/* L1036 — case 5 (VIEW Character). CODE 12 + 0x1036.
  *
  *   tstb a5@(-14435); beqw L1242
  *   pea  fp@(-7); jsr JT[904]; addql #4, sp
  *   braw L1242
- */
+ *
+ * jt904 is the read-only record-sheet viewer — it opens on the SELECTED
+ * member (-27932) and pages through the party; the same driver jt948 runs
+ * for the in-dungeon "V" command. Case 5's label is "View Character"
+ * (k_jt918_menu_items, #82); the #100 fix had Add here on the belief that
+ * the Mac decouples display order from dispatch. It does not — that was
+ * the reversed-varargs misreading. Add is case 6. */
 static int l1036(short a)
 {
-	unsigned char local_byte = 0;
+	unsigned char local_byte = 0;       /* fp@(-7) — jt904's out flag */
 
 	(void)a;
-	(void)local_byte;
 	PROBE("jt918/case5 L1036");
 	if (g_a5_14435 == 0)
 		return 0;
-	/* Add Character: the faithful saved-pool -> party picker (l12a0 — jt589
-	 * list + the "* %s" markers on members already in the party + the "too
-	 * many rangers"/party-full cap). This was previously (wrongly) wired to the
-	 * View handler; the Mac decouples the menu display order from the case
-	 * dispatch. (#100 menu-dispatch fix. cg_add_character was the old port
-	 * stand-in and is left for fallback.) */
-	l12a0();
+	jt904(&local_byte);
 	g_a5_27946 = 0;
 	return 0;
 }
@@ -91509,27 +91521,25 @@ static void jt892(const unsigned char *rec)
  * l0f3e — see above. The old cg_delete_character pool-paging stand-in (whole-
  * pool browse + array shift + relink) was removed 2026-06-19 (#141). */
 
-/* L104c — case 6 (View Character). CODE 12 + 0x104c.
+/* L104c — case 6 (ADD Character). CODE 12 + 0x104c.
  *
- * The port dispatches the Hall menu by VISUAL LABEL: build-index 6 is the
- * "View Character" button. On the Mac the menu's View item carries the
- * selector that lands on case 5 (L1036 -> JT[904]); the Mac's own case-6
- * body (L12a0) is the *Add* screen. The port keeps Add in l1036 (case 5)
- * and View here, so the faithful View action is JT[904] — the read-only
- * record-sheet viewer that opens on the SELECTED member (-27932) and lets
- * you page through the party. The old cg_view_sheet() stand-in ignored the
- * selection (always showed the party head) and drew a mock screen; replaced
- * with the lifted jt904 driver (the same one jt948 runs for the in-dungeon
- * "V" command). (#100 menu-dispatch fix.) */
+ *   tstb a5@(-14434); beqw L1242
+ *   jsr  %pc@(L12a0)
+ *   clrb a5@(-27946); braw L1242
+ *
+ * l12a0 is the faithful saved-pool -> party picker (the jt589 list, the
+ * "* %s" markers on members already in the party, and the party-full /
+ * "too many rangers" cap). Case 6's label is "Add Character"
+ * (k_jt918_menu_items, #82) and -14434 is the slot the Mac clears when the
+ * party exceeds 5 non-NPC members — which is exactly the party-full gate,
+ * independently confirming that case 6 is Add. */
 static int l104c(short a)
 {
-	unsigned char done = 0;
-
 	(void)a;
 	PROBE("jt918/case6 L104c");
 	if (g_a5_14434 == 0)
 		return 0;
-	jt904(&done);
+	l12a0();
 	g_a5_27946 = 0;
 	return 0;
 }
@@ -91554,15 +91564,11 @@ static int l1060(short a)
 {
 	const unsigned char *block;
 
-	PROBE("jt918/case4 L1060");
-	/* The label-crossed REMOVE CHARACTER body (see l0f74): the port's
-	 * by-label dispatch runs this from case 4 (the Remove button), so it
-	 * reads the Remove slot's gate -14436; the Mac asm reads -14433
-	 * because its selector remap parks this body under the Change-Class
-	 * slot. Save the highlighted member to a .CHR (jt584) then unlink +
-	 * destroy it (jt19); NPCs (rec[147] bit 7) take the jt76/l185e
-	 * message path instead. */
-	if (g_a5_14436 == 0 || g_a5_27932 == 0)
+	PROBE("jt918/case7 L1060");
+	/* REMOVE CHARACTER — case 7, gate -14433 (#82). Save the highlighted
+	 * member to a .CHR (jt584) then unlink + destroy it (jt19); NPCs
+	 * (rec[147] bit 7) take the jt76/l185e message path instead. */
+	if (g_a5_14433 == 0 || g_a5_27932 == 0)
 		return 0;
 	block = (const unsigned char *)g_a5_27932;
 	if ((block[147] & 0x80) == 0) {
@@ -91885,48 +91891,32 @@ static int jt918(short a)
 		 * old else arm) makes the re-render backdrop identical to first entry. */
 		jt81();
 
-		/* Training Hall menu enable flags — Mac-verified (BasiliskII,
-		 * 2026-06-18, user). The discriminant is whether the roster
-		 * (the active party) holds a character:
-		 *   ALWAYS (a design is loaded):  Add, Create, Delete, Load, Exit
-		 *   roster non-empty:           + Modify, Remove, View, Save, Begin
-		 *   disabled (no eligibility gate lifted yet): Train, Change-Class
-		 * The Mac keys this off the current character pointer (-27932);
-		 * the port keys off the active-party list head (-27928), which
-		 * cg_party_relink clears to 0 on an empty roster — the same
-		 * discriminant and robust to a stale -27932.
+		/* L0df6 / L0e98 — the menu enable-flag cluster, CODE 12
+		 * 0x0df6..0x0ec6. FAITHFUL TRANSCRIPTION as of 2026-07-24 (#82);
+		 * every value below is the asm's, not authored.
 		 *
-		 * The Mac's own cluster init, for the record (CODE 12
-		 * 0x0df6..0x0ec6). Slot i is menu-item i's enable byte, painted
-		 * by the L0d10 loop as jt444(i, nonzero ? 24 : 16):
+		 * Slot i is menu-item i's enable byte (see k_jt918_menu_items for
+		 * the install order that fixes which label item i is), painted by
+		 * the L0d10 loop as jt444(i, nonzero ? 24 : 16). -14440 (Create)
+		 * and -14429 (Exit) are never written by ANY CODE segment: they
+		 * hold their DATA seeds, and a5_scalars.c has -14440 = 1, so both
+		 * are permanently enabled. Do not assign them here.
 		 *
-		 *   L0df6  (-27932 != 0, a character is selected)
-		 *     -14439 = 1;  -14438 = 1;
-		 *     -14437 = (gameRec[48] != 0 || -22730 != 0);   // 0x0e14..0x0e2e
-		 *     -14436 = -14437;
-		 *     -14435 = 1;  -14434 = 1;
-		 *     if (active party members > 5) -14434 = 0;     // 0x0e44..0x0e7a
-		 *     -14433 = 1;  -14432 = 1;  -14431 = 1;  -14430 = 1;
-		 *   L0e98  (-27932 == 0, fresh)
-		 *     -14439 = 1;  -14438 = -14437 = -14436 = -14435 = 0;
-		 *     -14434 = 1;  -14433 = 0;  -14432 = 1;
-		 *     -14431 = -14430 = 0;
-		 *   -14440 and -14429 are never written by ANY CODE segment —
-		 *     they hold their DATA seeds (see a5_scalars.c: -14440 = 1).
+		 * The discriminant is the Mac's current-character pointer
+		 * (-27932). The port additionally defaults that pointer to the
+		 * party head below, so it is equivalent to "the roster holds a
+		 * character".
 		 *
-		 * So the gameRecord[48] gate is NOT "unliftable" (this comment
-		 * used to claim it was): it is the fully determinate predicate
-		 * above, and l2d32 populates [48] from the Training-Hall event's
-		 * ev[8] on the way in. What is still unresolved is the slot ->
-		 * displayed-item MAPPING: a literal transcription onto the port's
-		 * labels would disable Create and Add on an empty roster, which
-		 * would make a fresh design unstartable, and it contradicts the
-		 * live BasiliskII enable set above. The Mac decouples the painted
-		 * order from the case dispatch (the #100 note below); until that
-		 * mapping is pinned down, the empirical set wins and the values
-		 * below stay port-authored. */
+		 * This reproduces the live BasiliskII enable set (user,
+		 * 2026-06-18) for all twelve items, which is what confirms the
+		 * install order: always available = Create, Delete, Add, Load,
+		 * Exit; roster-gated = Modify, View, Remove, Save, Begin;
+		 * mask-gated = Train, Human Change Class. The earlier authored
+		 * values, and the claim that a literal transcription would
+		 * disable Create and Add on an empty roster, were both artifacts
+		 * of the reversed label table — not of the oracle. */
 		{
-			short party = (g_a5_long(-27928) != 0) ? 1 : 0;
+			short party;
 
 			/* PORT: default the selection to the party head when unset, so the
 			 * roster grid (l02dc) paints on EVERY frame. Without this the first
@@ -91936,72 +91926,64 @@ static int jt918(short a)
 			if (g_a5_27932 == 0)
 				g_a5_27932 = g_a5_long(-27928);
 
-			if (g_a5_27932 != 0)
+			party = (g_a5_27932 != 0) ? 1 : 0;   /* L0df6 vs L0e98 */
+
+			if (party)
 				l02dc(g_a5_27932);   /* repaint the roster grid */
 
-			/* Train Character. Gated on "does THIS hall train?" —
-			 * the Mac's own guild-mask predicate from 0x0e14..0x0e2e,
-			 * applied here to the Train slot.
-			 *
-			 * This is a port DECISION, not a transcription, and the
-			 * reason is the slot->item mapping noted above: the Mac
-			 * leaves slot 0 at its DATA seed (1), yet the live Mac
-			 * greys Train out in the pre-adventure hall, so slot 0 is
-			 * evidently not the painted Train item there. Given the
-			 * port cannot copy the constant, the predicate to pick is
-			 * the one the Mac already uses to decide whether a hall
-			 * offers its guild services at all.
-			 *
-			 * It reproduces both observed behaviours: the
-			 * pre-adventure hall (reached from the main menu, no
-			 * Training-Hall event has run, gameRec[48] == 0) greys
-			 * Train, matching BasiliskII; an in-dungeon Training Hall
-			 * (l2d32 wrote rec[48] = ev[8] before jt918(1)) offers it.
-			 * It also means jt557 can never run against a zero mask,
-			 * which is what made it answer "we don't train that class
-			 * here" for every character regardless of class (#78).
-			 *
-			 * -22730 is the Mac's own bypass in the same expression
-			 * (the trainer UI raises it); jt557 honours it too. */
-			{
+			if (party) {                         /* L0df6 */
+				/* -14437 / -14436 (Train, Human Change Class):
+				 * the guild gate at 0x0e14..0x0e2e. gameRec[48]
+				 * is the hall's class mask, written by l2d32
+				 * from the Training-Hall event's ev[8]; it is 0
+				 * in the pre-adventure hall, which is why both
+				 * items grey there. -22730 is the Mac's own
+				 * free-training bypass. */
 				const unsigned char *gr =
 				    (const unsigned char *)g_a5_28006;
-				short trains = (gr != NULL && gr[48] != 0)
-				            || g_a5_22730 != 0;
-
-				g_a5_14440 = (unsigned char)(party && trains);
-			}
-			g_a5_14439 = (unsigned char)party; /* Modify Character   */
-			g_a5_14438 = 1;                    /* Delete Character   */
-			g_a5_14437 = 1;                    /* Create Character   */
-			g_a5_14436 = (unsigned char)party; /* Remove Character   */
-			g_a5_14435 = 1;                    /* Add Character      */
-			g_a5_14434 = (unsigned char)party; /* View Character     */
-			g_a5_14433 = 0;                    /* Human Change Class (disabled) */
-			g_a5_14432 = 1;                    /* Exit From Play     */
-			g_a5_14431 = (unsigned char)party; /* Save Current Game  */
-			g_a5_14430 = (unsigned char)party; /* Begin Adventuring  */
-			g_a5_14429 = 1;                    /* Load Saved Game    */
-
-			/* Add Character greys when the party is full (>5 active
-			 * members) — Mac L0e44. This is the "too many rangers / can't
-			 * add a 7th" gate, so it belongs on the displayed "Add
-			 * Character" item (-14435), NOT View. The port had it on
-			 * -14434 (View) because the Mac decouples the menu display
-			 * order from the case dispatch; corrected with the l1036/l104c
-			 * handler routing above. (#100 menu-dispatch fix.) */
-			if (party) {
+				unsigned char guild = (unsigned char)
+				    (((gr != NULL && gr[48] != 0)
+				      || g_a5_22730 != 0) ? 1 : 0);
 				short cnt = 0;
 				const unsigned char *node =
 				    (const unsigned char *)(uintptr_t)
 				    g_a5_long(-27928);
+
+				g_a5_14439 = 1;         /* Delete Character   */
+				g_a5_14438 = 1;         /* Modify Character   */
+				g_a5_14437 = guild;     /* Train Character    */
+				g_a5_14436 = g_a5_14437;/* Human Change Class */
+				g_a5_14435 = 1;         /* View Character     */
+				g_a5_14434 = 1;         /* Add Character      */
+
+				/* L0e44..0x0e7a: Add greys when the party is
+				 * full — >5 non-NPC members (rec[147] bit 7
+				 * marks an NPC). The #100 fix had already put
+				 * this on Add empirically; the install order
+				 * now shows why -14434 IS Add. */
 				while (node != NULL && cg_node_in_pool(node)) {
 					if (!(node[147] & 0x80))
 						cnt++;
 					node = *(const unsigned char * const *)node;
 				}
 				if (cnt > 5)
-					g_a5_14435 = 0;
+					g_a5_14434 = 0;
+
+				g_a5_14433 = 1;         /* Remove Character   */
+				g_a5_14432 = 1;         /* Load Saved Game    */
+				g_a5_14431 = 1;         /* Save Current Game  */
+				g_a5_14430 = 1;         /* Begin Adventuring  */
+			} else {                             /* L0e98 */
+				g_a5_14439 = 1;         /* Delete Character   */
+				g_a5_14438 = 0;         /* Modify Character   */
+				g_a5_14437 = 0;         /* Train Character    */
+				g_a5_14436 = 0;         /* Human Change Class */
+				g_a5_14435 = 0;         /* View Character     */
+				g_a5_14434 = 1;         /* Add Character      */
+				g_a5_14433 = 0;         /* Remove Character   */
+				g_a5_14432 = 1;         /* Load Saved Game    */
+				g_a5_14431 = 0;         /* Save Current Game  */
+				g_a5_14430 = 0;         /* Begin Adventuring  */
 			}
 		}
 
@@ -92030,10 +92012,10 @@ static int jt918(short a)
 			case 1:  rc = l0f2e(a); break;
 			case 2:  rc = l0f3e(a); break;
 			case 3:  rc = l0f60(a); break;
-			case 4:  rc = l1060(a); break;  /* REMOVE label -> the L1060 remove body   */
+			case 4:  rc = l0f74(a); break;  /* Human Change Class */
 			case 5:  rc = l1036(a); break;
 			case 6:  rc = l104c(a); break;
-			case 7:  rc = l0f74(a); break;  /* CHANGE CLASS label -> the L0f74 body    */
+			case 7:  rc = l1060(a); break;  /* Remove Character   */
 			case 8:  rc = l10ca(a); break;
 			case 9:  rc = l1142(a); break;
 			case 10: rc = l115a(a); break;
