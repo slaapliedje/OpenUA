@@ -123,7 +123,32 @@ Two corrections to the 2026-07-24 entry that stood here:
   run to record 13, whose bit5 is clear. The event-byte count (11 of HEIRS' 175
   combat events affected) was unaffected; only the cell attribution was wrong.
 
-**Promotion status: 9 of 33 observed firing, 4 established as unable to fire.**
+**Promotion status: 10 of 33 observed firing, 4 established as unable to fire.**
+
+**Hunk 9 is OBSERVED FIRING (2026-07-25)** — the first promotion through the
+editor UI, and the cleanest evidence of the set because the observable is a
+file. Monster Editor (main-menu hotkey `M`) -> BASILISK (monster id **42**) ->
+Edit -> Strength `10` -> `18`, exceptional-Strength % `0` -> `50` -> Ok. Two
+runs of the identical injected-click script, one per build, then byte-diff the
+saved `MONST042.dat`:
+
+    ON  pairs [(18, 18), ...]  pct (50, 50)
+    OFF pairs [(18, 10), ...]  pct (50,  0)
+    diff: [(113, 18, 10), (125, 50, 0)]
+
+**Exactly two bytes differ across all 450**, and they are the two the hunk
+writes — offset 113 from the `i = 0..5` loop, offset 125 from the separate
+trailing percentile statement. Both halves exercised, which took two edited
+fields; a Strength-only edit leaves 124/125 equal and proves only the loop.
+
+The live `l611c` diagnostic shows the divergence being repaired —
+`perm 18 / cur 10`, `pct perm 50 / pct cur 0` — which is 1.0's bug exactly: the
+editor writes the PERMANENT byte, and 1.0 saved the record with the CURRENT byte
+still holding whatever was loaded. Note an UNEDITED save proves nothing: every
+shipped record already has `rec[113+2i] == rec[112+2i]` (checked on HEIRS'
+MONST101/102/108/109 and on stock BASILISK), so the fix would write back bytes
+already in place. The divergence must come from an edit. Recipe and the four
+traps that cost a run each are in `docs/deterministic-ab.md`.
 
 **Hunks 27/28 are OBSERVED FIRING (2026-07-25).** `tools/mk_temple_design.py`
 authors a type-9 temple event whose bytes 8..11 read **100** little-endian and

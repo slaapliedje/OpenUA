@@ -148,12 +148,12 @@ Two things worth carrying forward:
 
 ## Promotion status of the ported 1.2 fixes
 
-Six of the 33 are **observed firing** (ON vs OFF produce different measured
+Ten of the 33 are **observed firing** (ON vs OFF produce different measured
 state, same seed). Four cannot fire at all and that is a finding, not a gap.
 The rest each need a specific situation, listed so the next pass does not have
 to re-derive it.
 
-### Observed firing (9)
+### Observed firing (10)
 
 | hunks | situation | evidence |
 |---|---|---|
@@ -163,6 +163,19 @@ to re-derive it.
 | 1 | authored NOPERMA.DSN, `-DFRUA_PARTYHP=1` | `over 10` -> status **5** (ON) vs **6** (OFF) |
 | 15 | same module, 2 monsters so round 2 arrives | `BLEED SUPPRESSED, status stays 5` (ON) vs `bleed tick mc[16] 5` (OFF) |
 | 27, 28 | authored TEMPLE.DSN, `-DFRUA_TMPDIAG` | at the live jt933 call: raw `1677721600` vs swapped `100` — BOTH from one run |
+| 9 | Monster Editor, BASILISK (id 42): Strength 10 -> 18 and % 0 -> 50, then Ok | the SAVED `MONST042.dat` differs in exactly **two** bytes across all 450: `[113]` 18 (ON) vs 10 (OFF), `[125]` 50 (ON) vs 0 (OFF) |
+
+Hunk 9 is the strongest evidence of the set, because the observable is a FILE
+rather than a log line: two full runs of the same click script, byte-diffed,
+differ only at the two offsets the fix writes. It also exercises BOTH statements
+of the hunk — the `i = 0..5` loop (offset 113 = current Strength) and the
+separate trailing percentile pair (offset 125) — which needed two edited fields,
+not one. The live `l611c` diagnostic shows the divergence the fix repairs:
+`perm 18 / cur 10`, `pct perm 50 / pct cur 0`. That is precisely 1.0's bug: the
+editor writes the PERMANENT byte and 1.0 saved the record with the CURRENT byte
+still holding the loaded value.
+
+The recipe is in "Reaching the Monster Editor headless" below.
 
 Hunk 1's run carries its own negative control: a second hit in the SAME run with
 `over 6` gives status 5 either way, so the divergence is specific to the
@@ -177,7 +190,58 @@ Hunk 1's run carries its own negative control: a second hit in the SAME run with
 | 34 | **Nothing produces effect 73.** The whitelist entry is real, but no `jt876` call anywhere in the port applies kind 73 (the kinds used are 255/0/97/55/105/8/62/31/15/12/95/7...). Unreachable until an effect-73 producer is lifted or a design supplies one. |
 | 23 | **No data in the wild.** Needs an option string carrying a digit; across every design on hand 406 strings have a `~`/`^` marker and not one contains a digit. Authorable, but nothing shipped exercises it. |
 
-### Needs a situation (19)
+### Reaching the Monster Editor headless (the hunk-9 recipe)
+
+Fully keyboard + injected-mouse; no special build flag beyond the diagnostic.
+Work in a THROWAWAY design — the editor writes into the current design folder.
+
+```sh
+cp -r data/frua-mac/joined/HEIRS.DSN data/work/gamedata/MONTEST.DSN
+python3 -c "n=b'MONTEST.DSN'; open('data/work/gamedata/start.dat','wb').write(n+b'\0'*(35-len(n)))"
+make EXTRA_CFLAGS='-DFRUA_MONDIAG'
+D=.claude/skills/run-falcon-port/driver.sh
+env -u DISPLAY FALCON_TOS=/usr/share/hatari/tos404.img $D start
+env -u DISPLAY $D key m           # main menu -> Monster Editor (hotkey 'M')
+env -u DISPLAY $D click 352 439   # "Edit"  (list bar: Leave|View|Rename|Edit|Default|Copy)
+env -u DISPLAY $D click 291 305   # the Strength value box
+env -u DISPLAY $D key 1 8         # -> 18
+env -u DISPLAY $D key Return      # commit the field
+env -u DISPLAY $D click 395 305   # the exceptional-Strength % box
+env -u DISPLAY $D key 5 0         # -> 50
+env -u DISPLAY $D key Return
+env -u DISPLAY $D click 400 108   # Name field — deactivates the numeric field
+env -u DISPLAY $D click  46 439   # "Ok"  — FIRST click only deactivates
+env -u DISPLAY $D click  46 439   # "Ok"  — SECOND click actually fires it
+```
+
+Four traps, each cost a run:
+
+- **`Ok` needs TWO clicks after a field edit.** The first click off an active
+  TextEdit only deactivates it; the button takes the second. A single click
+  produces no `jt263 jt325 -> ...` line at all, which reads exactly like a
+  dead button.
+- **The button bar is overdrawn by `jt360`'s "Valid numbers: 3 - 30" banner**
+  and never repaints while the form is open. `Ok`/`Prev`/`Next`/`Cancel` are
+  still live underneath — the banner is plain text (`jt94` at row 24), not a
+  DLItem. Do not conclude the buttons are gone because you cannot see them.
+- **The saved file is `MONSTnnn.dat`, lower-case**, from the `"%s%03d.dat"`
+  format in `jt129` — a case-sensitive `ls MONST042.DAT` finds nothing on a
+  Linux host even though the write succeeded.
+- **Saving also rewrites the design's `STRG001.DAT`**, one byte: the name-table
+  flag at offset 29 goes `0x06 -> 0x46` (`v8 = v7 | 64` in `l611c`'s `jt350`
+  call). Restore it between A/B runs or the second run starts from different
+  state. This is why the recipe uses a throwaway design.
+
+`ctx[3]` is the monster id, so the list row you edit picks the file: the first
+row, BASILISK, is id **42**, not 0 — the list is the stock table, and HEIRS'
+own MONST101/102/108/109 are far down it.
+
+A note on why an UNEDITED save proves nothing: every shipped MONST record
+already has `rec[113+2i] == rec[112+2i]`, so loading one and pressing Ok makes
+the fix write back the bytes that were already there. Verified on all four of
+HEIRS' records and on stock BASILISK. The divergence has to come from an edit.
+
+### Needs a situation (18)
 
 | hunks | the situation still to construct |
 |---|---|
@@ -186,7 +250,6 @@ Hunk 1's run carries its own negative control: a second hit in the SAME run with
 | 3, 5, 6 | a prompt containing a digit. Author a STRG string with a digit plus a `~` marker and watch `l2184`'s word extraction. |
 | 31 | a chained event pair where the first sets `-4943` (`ev[12]&4`, passage `ev[10]&0x20`, combat `ev[7]&0x20`) and the second would inherit it. Authorable. |
 | 29 | an animated passage followed by a chained event. Authorable. |
-| 9 | the Monster Editor: edit an ability, save, re-read `rec[113+2i]`. Mouse-driven; clicks do inject. |
 | 13 | the editor's test-play Hall (`-18485` = 5, set by `l30d4`). |
 | 16 | the `l4faa` picker in mode 0/5/7 after a different menu has left the `-24126` table dirty. |
 | 18 | a spell that routes through `jt822` (hook id 137, the explosion burst) with victims. |
@@ -292,6 +355,11 @@ that buffer and have `jt1125` read from it.
 
 Hunks gated on this: **9** (Monster Editor), **13** (editor Hall), **16** (the
 l4faa picker), **19-22** (Items browser). 6 of the remaining 19.
+
+**All four are unblocked now that #84 has landed.** Hunk 9 is promoted (above) —
+and its run is the end-to-end proof that the stash/drain fix works, since every
+step after `key m` is an injected click into a modal the pump used to starve:
+the list bar, the record form's two numeric fields, and the `Ok` button.
 
 A note on how 27/28 got measured anyway: with no input delivered, `l23b4` exits
 by its own TIMEOUT (`-24138` / `-13006`) and `l25b6` returns a cached result,

@@ -2003,6 +2003,9 @@ static short jt263(short state, long *result, void *ctxp)
 	char mode = 3;                /* fp@(-21) — serialize mode */
 
 	PROBE("jt263");
+#ifdef FRUA_MONDIAG
+	dbg_file_num("jt263 state ", (long)state);
+#endif
 	if (ctxp == 0)
 		return 0;
 	ctx = (unsigned char *)ctxp;
@@ -2124,6 +2127,10 @@ static short jt263(short state, long *result, void *ctxp)
 			               (void *)(uintptr_t)geo, (short)54,
 			               (void *)rec, (short)mode, (short)450);
 		}
+#ifdef FRUA_MONDIAG
+		dbg_file_num("jt263 jt325 -> ", (long)res325);
+		dbg_file_num("  ctx[3] id ", (long)ctx[3]);
+#endif
 		if (res325 == 1)                         /* L5e84 */
 			(void)l611c(ctx[3]);
 	}
@@ -80782,6 +80789,18 @@ static unsigned char l611c(short num)
 	{
 		short i;
 
+#ifdef FRUA_MONDIAG
+		{
+			short k;
+			dbg_file_num("l611c saving monster ", (long)num);
+			for (k = 0; k <= 5; k++) {
+				dbg_file_num("  perm ", (long)dest[112 + k * 2]);
+				dbg_file_num("  cur  ", (long)dest[113 + k * 2]);
+			}
+			dbg_file_num("  pct perm ", (long)dest[124]);
+			dbg_file_num("  pct cur  ", (long)dest[125]);
+		}
+#endif
 		for (i = 0; i <= 5; i++)
 			dest[113 + i * 2] = dest[112 + i * 2];
 		dest[125] = dest[124];
