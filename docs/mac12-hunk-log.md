@@ -45,14 +45,14 @@ streams**; CODE 17 changes only in operands (see below).
 | 21 | 19 | `L2c20` | delete | 1 | 0 | yes | ✅ ported | jt893: 1.0 per-case restore deleted |
 | 22 | 19 | `L2d74` | insert | 0 | 1 | - | ✅ ported | jt893: restore at the single exit |
 | 23 | 20 | `L00c4` | delete | 18 | 0 | yes | ⬜ open |  |
-| 24 | 20 | `L18e2` | insert | 0 | 7 | yes | ⬜ open |  |
+| 24 | 20 | `L18e2` | insert | 0 | 7 | yes | ✅ ported | l159a combat entry: `ev[12]` bit5 forces the starting range (`rec[56]`) to 0 |
 | 25 | 20 | `L24e6` | insert | 0 | 2 | yes | ⬜ open |  |
 | 26 | 20 | `L24e6` | replace | 1 | 1 | yes | ⬜ open |  |
 | 27 | 20 | `L26de` | insert | 0 | 4 | yes | ⬜ open |  |
 | 28 | 20 | `L26de` | delete | 1 | 0 | yes | ⬜ open |  |
 | 29 | 20 | `L3114` | insert | 0 | 2 | - | ⬜ open |  |
 | 30 | 20 | `L57a0` | insert | 0 | 5 | yes | ✅ ported | l5676: "Transfer module ends testing!" before the test-play teardown |
-| 31 | 20 | `L70d4` | insert | 0 | 1 | yes | ⬜ open |  |
+| 31 | 20 | `L70d4` | insert | 0 | 1 | yes | ✅ ported | l709e: clear `-4943` per event so the deferred re-trigger flag cannot leak across a chain |
 | 32 | 20 | `L76c4` | replace | 3 | 1 | - | ⬜ open |  |
 | 33 | 20 | `L76fa` | delete | 1 | 0 | - | ⬜ open |  |
 | 34 | 21 | `L13f6` | insert | 0 | 4 | - | ⬜ open |  |
@@ -61,7 +61,7 @@ streams**; CODE 17 changes only in operands (see below).
 | 37 | 21 | `L4816` | insert | 0 | 5 | yes | ✅ ported | jt955 case 3: overland bounds guard #2 (out of range == blocked) |
 | 38 | 21 | `L4874` | insert | 0 | 8 | yes | ✅ ported | jt955 case 3: the second guard's tail |
 
-### Ported so far (12 of 38)
+### Ported so far (14 of 38)
 
 | hunks | function | fix |
 |---|---|---|
@@ -69,14 +69,24 @@ streams**; CODE 17 changes only in operands (see below).
 | 30 | `l5676` (CODE 20 `L57a0`) | say "Transfer module ends testing!" before a type-11 transfer tears down a test-play session, instead of vanishing silently |
 | 19–22 | `jt893` (CODE 19 `L25ce`) | the in-combat flag `-22281` is suppressed across the WHOLE Items browser (save+clear at entry, restore at exit) rather than only around the trade/give confirm |
 | 7 | the `L3f80` picker (CODE 7) | the modal key-mode argument to `l2ebc` goes 0 -> 1, enabling `l23b4`'s `arg_lo != 0` arm |
+| 31 | `l709e` (CODE 20 `L70d4`) | clear `-4943` at the START of every event. 1.0 clears it only in the `L76a6` tail, and that clear sits INSIDE `if (-4945 == 0)` — so when an event chains (`-4945 != 0`) the clear is skipped and the deferred re-trigger flag survives into the next event, where the `-4942 && -4943` test can re-scan the party's cell on the strength of a previous event's request. **Read the operands, not the hunk position:** the diff points at 1.2's `clrb -4945` as the insert, but 1.0 already has that (@0x70de); both instructions are `clrb`, so the aligner paired the wrong ones. The genuinely new instruction is `clrb -4943` |
+| 24 | `l159a` combat entry (CODE 20 `L18e2`) | `ev[12]` bit5 now forces `rec[56]` (the starting range from `ev[14]` bits5–6) to 0, and the existing clamp drags `rec[55]` to 0 with it — the fight starts adjacent whatever range the designer picked. Measured, not guessed: 1.0 reads `ev[12]` bit5 at exactly ONE site (CODE 20 @0x4668, gating a `jt221`+`jt938` view refresh for type-1 events) and 1.2 reads it at two, so the flag was already live and 1.2 gives it an additional effect. **This is the first ported fix with reachable data in the shipped designs:** 11 of HEIRS' 175 combat events have bit5 set with a non-zero starting range (`GEO011` ev12 at cell(col=18,row=16) is one), and 31 such events exist across all designs on hand |
 | 14 | `l33d8` (CODE 12 `L3426`) | pass 2 of the post-fight outcome resolver now SKIPS summoned combatants. 1.0 `bras L347a` -> 1.2 `braw L34c2` (the branch outgrew its 8-bit displacement) plus 4 inserted instructions testing `node[64]->[21] == 1` and branching to the ADVANCE label — a `continue`. Pass 1 and the main pass already stop at the first summoned entry; pass 2 was the one place scanning unfiltered. It matters because `found` + the design's `hdr[29]` no-permadeath flag CLEARS `-27982`, the "party destroyed" flag: in 1.0 a summoned creature sitting in status 3/4/5 (fled/dead/petrified) or carrying `rec[382]` satisfied `found` on its own, so a party that had actually been wiped could come out not registered as destroyed — on the strength of a monster it had conjured |
 | 10, 11 | `l6238` (CODE 10 `L6238`) | build the delete path FORWARDS — clear the buffer, `jt431` the design dir, `jt431` the leaf — instead of `jt436`'s in-place directory prefix, which has to slide the existing contents up inside a fixed 202-byte buffer. 1.2 also grew the frame 16 bytes for a separate leaf buffer. `l419e` right below already used the two-append idiom, so 1.2 is making `l6238` consistent with the rest of CODE 10 |
 
 Verified: same-harness before/after frames are byte-identical on the walk, camp,
-Magic, chargen and map-editor paths (AE=0), i.e. no regression. None of the four
-fixes has been *observed firing* — each needs a specific situation (a party at a
-map edge, a design under test, a prompt inside the Items browser, that one
-picker). That distinction is deliberate; see ADR-0018's caveat.
+Magic, chargen and map-editor paths (AE=0), i.e. no regression.
+
+**On "observed firing" — still not achieved, including for hunk 24.** Hunk 24 is
+the first with reachable data (HEIRS `GEO011` ev12), and driving that cell does
+reach combat correctly ("OGRES AND THEIR SMALLER ALLIES ATTACK!" → the tactical
+map, OGRE 22 HP / AC 5). An A/B against a build with the one line disabled
+differs (AE=1012) — but that is **not** evidence the fix fired: the map geometry
+is identical in both runs and only the highlighted combatant changes (OGRE 22 HP
+vs GNOLL 10 HP / Halberd), which reads as initiative RNG between two separate
+boots, not as a placement change. A clean demonstration needs a deterministic
+seed; until then hunk 24 counts as ported-and-non-regressing, not
+observed-firing. The same caveat covers the rest; see ADR-0018.
 
 ## Frame-slot changes — 134, all churn
 

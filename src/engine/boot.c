@@ -4378,6 +4378,26 @@ static void  l709e(short a)
 
 		/* L70d4 — process event `idx`. */
 		g_a5_byte(-18470) = 1;
+		/* ★ Mac 1.2 FIX (ADR-0018), oracle hunk 31: CODE 20, 1.2 inserts
+		 * `clrb %a5@(-4943)` here (1.2 @0x70ec), so every event starts
+		 * with the deferred re-trigger flag clear.
+		 *
+		 * NOTE the hunk's reported insertion point is 1.2 @0x70f0, the
+		 * `clrb -4945` — that is an artefact, not the change. 1.0 @0x70de
+		 * already clears -4945; because BOTH instructions are `clrb` the
+		 * mnemonic-stream aligner paired 1.0's -4945 clear with 1.2's
+		 * -4943 clear and flagged the leftover. The operands say which
+		 * one is actually new.
+		 *
+		 * Why it matters: -4943 is set by three event handlers (l4336's
+		 * ev[12]&4, the passage ev[10]&0x20, the combat ev[7]&0x20) and
+		 * 1.0 only clears it in the L76a6 tail below — INSIDE
+		 * `if (-4945 == 0)`. So when an event chains (-4945 != 0) the
+		 * clear is skipped and the flag survives into the next event,
+		 * where the `-4942 && -4943` test can re-scan the party's cell on
+		 * the strength of a previous event's request. Clearing per event
+		 * makes the flag mean "this event asked for it". */
+		g_a5_byte(-4943) = 0;
 		g_a5_byte(-4945) = 0;
 		ev = (unsigned char *)(uintptr_t)(g_a5_long(-13038)
 		     + (long)(((idx & 0xff) - 1) * 20));
@@ -48692,6 +48712,26 @@ static void l159a(void *ev_v, short f)
 	rec[55] = (unsigned char)l1476((short)(signed char)g_a5_byte(-12288),
 	                               (short)(signed char)g_a5_byte(-12287),
 	                               (short)(unsigned char)g_a5_byte(-12286));
+	/* ★ Mac 1.2 FIX (ADR-0018), oracle hunk 24: seven instructions inserted
+	 * at 1.2 @0x18f8, between the rec[55] store and the clamp below:
+	 *
+	 *     a0 = ev ; d0 = a0@(12) ; btst #5 ; beq skip
+	 *     a0 = gameRec ; clrb a0@(56)
+	 *
+	 * ev[12] is monster-group slot 2's even byte, whose high bits carry
+	 * combat config (docs/geo-format.md: ev[8] bit5 = continue after
+	 * victory, ev[14] bits5-6 = starting range -> rec[56], ev[18] bits6-7 =
+	 * picture base). With bit5 set, 1.2 forces rec[56] to 0, and the
+	 * existing clamp then drags rec[55] to 0 as well — so the fight starts
+	 * at range 0 whatever starting range the designer picked.
+	 *
+	 * Measured, not guessed: 1.0 reads ev[12] bit5 at exactly ONE site
+	 * (CODE 20 @0x4668, in the l442e region, where for type-1 events it
+	 * gates a jt221 + jt938 view refresh); 1.2 reads it at two, this being
+	 * the new one. So the flag was already live in 1.0 — 1.2 gives it this
+	 * additional effect rather than implementing it for the first time. */
+	if (ev[12] & 0x20)
+		rec[56] = 0;
 	if (rec[56] < rec[55])                     /* clamp the bearing to the wall depth */
 		rec[55] = rec[56];
 

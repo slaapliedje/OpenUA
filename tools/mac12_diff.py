@@ -18,10 +18,19 @@ Inputs are the two disassembly trees:
     python3 tools/dis68k.py data/work/UnlimitedAdventures-1.2.rfork \
             --out data/work/disasm-1.2
 
+**Read the OPERANDS of an insert/delete hunk, not just its position.** The
+aligner matches on mnemonics alone, so when the inserted instruction shares its
+mnemonic with a neighbour the reported insertion point can land on the wrong
+one. Hunk 31 is the example: 1.2 adds `clrb %a5@(-4943)` next to an existing
+`clrb %a5@(-4945)` that 1.0 already has, and the hunk points at the -4945 clear
+as "inserted". Both are `clrb`; only the operand distinguishes them.
+
 Usage:
     mac12_diff.py --list                 # the hunk table
     mac12_diff.py --hunk 12 [-C 14]      # one hunk, both sides, in context
     mac12_diff.py --seg 21               # every hunk in one segment
+    mac12_diff.py --operands             # meaningful operand-only changes
+    mac12_diff.py --frameslots           # frame-slot fixes vs re-layout churn
 """
 import argparse
 import difflib
