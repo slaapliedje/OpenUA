@@ -1482,6 +1482,19 @@ static void  l0bbc(void)
 		g_a5_12286 = FRUA_ENTRY_FACING;
 		if (p != NULL)
 			p[134] = 0;            /* re-enter fresh */
+		/* OVERLAND (level <= 4): the party cell lives in p[37]/p[38],
+		 * and the copy from 12288/12287 happens in the branch ABOVE —
+		 * before this override runs. So without this the row/col were
+		 * silently ignored on the overland path and the party landed on
+		 * the design's own start cell; only the facing took effect.
+		 * Found while measuring hunk 35, which needs a party ON the map
+		 * edge. Mirrors the copy above, including the [67]/[68] and
+		 * [23]/[24] shadows. */
+		if (g_a5_18878 <= 4 && p != NULL) {
+			p[37] = g_a5_12288; p[38] = g_a5_12287;
+			p[67] = g_a5_12288; p[68] = g_a5_12287;
+			p[23] = g_a5_12288; p[24] = g_a5_12287;
+		}
 	}
 #endif
 
@@ -48226,29 +48239,43 @@ static int play_forward_allowed(void)
 }
 
 /* L3af2 (CODE 21+0x3af2) — compute the overland target cell into
- * -4904/-4903 (rec[37]/rec[38] + the facing deltas); an off-map target
- * ([0,37] x [0,14] is the fixed overland map) resolves back to the
- * current cell. */
+ * -4904/-4903 (rec[37]/rec[38] + the facing deltas). The target is left
+ * RAW, off-map values included; the single caller range-checks it.
+ *
+ * ★ Mac 1.2 FIX (ADR-0018), oracle hunk 35 at CODE 21 L3af2. 1.0 ended
+ * this function with a 20-instruction clamp: an off-map target ([0,37] x
+ * [0,14] is the fixed overland map) was silently resolved BACK to the
+ * party's current cell (`-4904 = rec[37]; -4903 = rec[38]`). 1.2 deletes
+ * that clamp outright, and the deletion is the other half of the fix
+ * already ported as hunks 36-38: the range check moves from the callee,
+ * where it quietly turned a border step into a no-op with no feedback,
+ * to the caller, which refuses it with "There is no way to go in that
+ * direction." and takes the ordinary blocked path.
+ *
+ * The two halves are not independent — they are one fix and this is the
+ * load-bearing half. `L3af2` has exactly ONE call site in the Mac
+ * (CODE 21 @0x4816, jt955 case 3, the site hunks 36-38 patch), so with
+ * the clamp still in place `ov_step_out_of_bounds()` can NEVER be true
+ * and hunks 36-38 are dead code. Deleting the clamp is what arms them.
+ *
+ * 1.0's clamp also carried two never-taken branches: THINK C zero-
+ * extends the byte (`moveq`+`moveb`) and then emits `tstw`+`bcs` for the
+ * `< 0` half of `x < 0 || x > 37`, and `tst` always clears carry. The
+ * wrap case was caught by the unsigned `> 37` test instead, so the dead
+ * branches changed nothing — noted only so the deletion is not mistaken
+ * for dropping a live test. */
 static void l3af2(void)
 {
 	unsigned char *rec = (unsigned char *)g_a5_28006;
 	short          f   = (short)(unsigned char)g_a5_byte(-12286);
-	short          x, y;
 
 	PROBE("L3af2");
 	if (rec == NULL)
 		return;
-	x = (short)(rec[37] + (signed char)g_a5_byte(-27862 + f));
-	y = (short)(rec[38] + (signed char)g_a5_byte(-27853 + f));
-	g_a5_byte(-4904) = (unsigned char)x;
-	g_a5_byte(-4903) = (unsigned char)y;
-	if ((signed char)g_a5_byte(-4904) < 0
-	    || (short)(signed char)g_a5_byte(-4904) > 37
-	    || (signed char)g_a5_byte(-4903) < 0
-	    || (short)(signed char)g_a5_byte(-4903) > 14) {
-		g_a5_byte(-4904) = rec[37];
-		g_a5_byte(-4903) = rec[38];
-	}
+	g_a5_byte(-4904) =
+	    (unsigned char)(rec[37] + (signed char)g_a5_byte(-27862 + f));
+	g_a5_byte(-4903) =
+	    (unsigned char)(rec[38] + (signed char)g_a5_byte(-27853 + f));
 }
 
 /* L3a28 (CODE 21+0x3a28) — the OVERLAND step commit: jt928 refresh,
@@ -48375,6 +48402,21 @@ static void jt955(void)
 		short zone, sid;
 
 		l3af2();
+#ifdef FRUA_OVDIAG
+		/* Overland bounds A/B (docs/deterministic-ab.md): the raw
+		 * candidate cell l3af2 produced and whether the 1.2 guard sees
+		 * it as off-map. With Mac 1.0's clamp still in l3af2 the
+		 * candidate is always in range and `oob` is always 0 — that is
+		 * the measurement showing hunk 35 is what ARMS hunks 36-38. */
+		dbg_file_num("OVCAND cur-row rec[37] ", (long)rec[37]);
+		dbg_file_num("   cur-col rec[38] ", (long)rec[38]);
+		dbg_file_num("   facing ", (long)(unsigned char)g_a5_byte(-12286));
+		dbg_file_num("   cand-row -4904 ",
+		    (long)(unsigned char)g_a5_byte(-4904));
+		dbg_file_num("   cand-col -4903 ",
+		    (long)(unsigned char)g_a5_byte(-4903));
+		dbg_file_num("   oob ", (long)ov_step_out_of_bounds());
+#endif
 		/* ★ Mac 1.2 FIX (ADR-0018), oracle hunks 36–38 at CODE 21
 		 * L4816/L4874. 1.0 walks off the edge of the overland map: it
 		 * feeds the candidate cell straight into jt197/jt210 without
@@ -55724,6 +55766,41 @@ static void jt860(long rec_l, short status, long msg)
 		return;
 	default:
 		break;
+	}
+	/* ★ Mac 1.2 FIX (ADR-0018), oracle hunk 17 at CODE 18 L003a (13
+	 * inserted instructions @0x003a). Honour the design's no-permadeath
+	 * flag: a status that would remove the character for good is
+	 * downgraded to 5.
+	 *
+	 * `hdr[29]` off -28006 is that flag — the same byte `l33d8` reads as
+	 * "the design's no-permadeath flag" when it decides whether a wiped
+	 * party is really destroyed. Statuses 6/7/8 are the permanent
+	 * removals (they are exactly the values the switch above treats as
+	 * terminal and refuses to overwrite); 5 is the status `l33d8`'s
+	 * post-combat resolver REVIVES AT 1 HP when `hdr[29]` is set.
+	 *
+	 * So 1.0 had a hole in the feature: a design could declare that
+	 * characters never die permanently, and Slay Living, Finger of Death,
+	 * petrification and annihilation would still remove them for good,
+	 * because they route through jt860 with status 6/7/8 and 1.0 wrote
+	 * that straight into rec[94] without consulting the flag. 1.2 funnels
+	 * them into the one status the resolver can undo.
+	 *
+	 * Reachable: jt612 ("is slain") calls jt860 with 6, jt615 with 8.
+	 * The compare is on the LOW BYTE of the status argument (`cmpib`
+	 * against fp@(13), the odd half of the short at fp@(12)).
+	 *
+	 * PORT-SAFETY: the Mac derefs -28006 unguarded; jt860 can run with no
+	 * game record resident, so a NULL flag pointer just means "flag not
+	 * set" rather than a crash. */
+	{
+		const unsigned char *hdr =
+		    (const unsigned char *)(uintptr_t)g_a5_long(-28006);
+		unsigned char st = (unsigned char)status;
+
+		if (hdr != NULL && hdr[29] != 0
+		    && (st == 6 || st == 7 || st == 8))
+			status = 5;
 	}
 	rec[94]  = (unsigned char)status;
 	rec[382] = 0;
@@ -80262,6 +80339,40 @@ static unsigned char l611c(short num)
 	dest = (unsigned char *)(uintptr_t)g_a5_long(-28006) + 101;
 	dest[397] = (unsigned char)num;
 	dest[395] = dest[129];
+	/* ★ Mac 1.2 FIX (ADR-0018), oracle hunk 9 at CODE 10 L611c (21
+	 * inserted instructions @0x615e). Reconcile the ability-score pairs
+	 * before the record goes out: copy each PERMANENT byte over its
+	 * CURRENT counterpart.
+	 *
+	 * The record keeps every ability twice — permanent at rec[112+2i],
+	 * current at rec[113+2i], for i = 0..5 (STR/INT/WIS/DEX/CON/CHA) —
+	 * plus the same pairing for the exceptional-Strength percentile at
+	 * rec[124] (permanent) / rec[125] (current). That is the layout
+	 * L24d2's roll writes (docs/char-record-layout.md) and the layout
+	 * play reads: l1d54 takes Strength from rec[113] and the percentile
+	 * from rec[124], l1ba4 its attribute from rec[119].
+	 *
+	 * Only the permanent copy is meaningful in a monster TEMPLATE — a
+	 * template has no notion of a temporary drain — so an edit lands on
+	 * rec[112+2i] and 1.0 wrote the record back with the current bytes
+	 * still holding whatever the record was loaded with. 1.2 syncs them
+	 * here, one line below the existing `dest[395] = dest[129]` HP
+	 * reconciliation, i.e. it extends a pattern this function already
+	 * had rather than inventing one.
+	 *
+	 * Direction is taken from the asm, not from the reading above:
+	 * `moveb %a0@(112),%a1@(113)` with both address registers holding
+	 * `dest + 2i` is unambiguously current <- permanent. The trailing
+	 * 124/125 pair sits OUTSIDE the loop in 1.2 as well (the loop runs
+	 * i <= 5, covering 112..123) — two separate C statements over two
+	 * separate variables, transcribed as such. */
+	{
+		short i;
+
+		for (i = 0; i <= 5; i++)
+			dest[113 + i * 2] = dest[112 + i * 2];
+		dest[125] = dest[124];
+	}
 	size = 450;
 	jt129((long)(uintptr_t)ua_strs_at(0x2fe2) /* "MONST" */,
 	      num, size, (long)(uintptr_t)dest);
@@ -93264,8 +93375,31 @@ static void l4d98(void)
 	g_a5_18473 = 0;
 	g_a5_4944  = 0;
 	g_a5_22218 = 90;
-	if (g_a5_22222 != 0)            /* PORT-SAFETY: jt204 slot */
-		l5f4e((void *)(uintptr_t)g_a5_22222, (short)4);
+	/* ★ Mac 1.2 FIX (ADR-0018), oracle hunk 2 at CODE 6 L4e3a (@0x4eb8).
+	 * Clear the -22222 SLOT, not the object it points at.
+	 *
+	 * 1.0 pushed the slot's CONTENTS (`movel %a5@(-22222),%sp@-`); 1.2
+	 * pushes its ADDRESS (`pea %a5@(-22222)`). The callee is unchanged —
+	 * CODE 6+0x5f4e, this same `l5f4e`/jt65 "zero `size` bytes at `ptr`" —
+	 * so 1.0 zeroed the first 4 bytes of whatever -22222 pointed AT and
+	 * left the stale pointer in the slot, while 1.2 nulls the slot.
+	 *
+	 * -22222 is the shared FC/art handle jt204 hands to JT[115], the one
+	 * jt121 blits from and jt124 commits as a palette. So on every
+	 * new-game reset 1.0 both scribbled over 4 bytes of a live resident FC
+	 * object and kept a dangling reference to it.
+	 *
+	 * Every other clear in this reset block already takes the address of
+	 * its own A5 slot — `l5f4e(&g_a5_byte(-27894), 4)`,
+	 * `l5f4e(&g_a5_byte(-24204), 36)`, `l5f4e(&g_a5_byte(-24236), 32)` —
+	 * so -22222 was the odd one out and 1.2 makes it consistent. Same
+	 * shape of fix as hunks 10/11, which made l6238 consistent with the
+	 * two-append idiom l419e already used.
+	 *
+	 * The old `!= 0` PORT-SAFETY guard goes with it: it existed only
+	 * because 1.0 dereferenced the slot. There is no deref now, and the
+	 * Mac does this unconditionally. */
+	l5f4e(&g_a5_22222, (short)4);
 	l36e0(&g_a5_long(-27866), (short)81);
 	l5f4e(&g_a5_byte(-24204), (short)36);
 	l5f4e(&g_a5_byte(-24236), (short)32);

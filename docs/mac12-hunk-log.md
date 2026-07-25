@@ -22,46 +22,46 @@ streams**; CODE 17 changes only in operands (see below).
 
 | # | seg | 1.0 label | kind | 1.0 | 1.2 | lifted | status | note |
 |--:|--:|---|---|--:|--:|---|---|---|
-| 1 | 6 | `L25c0` | insert | 0 | 5 | - | ⬜ open |  |
-| 2 | 6 | `L4e3a` | replace | 1 | 1 | yes | ⬜ open | value -> pointer for the L5f4e 2nd arg (-22222): needs the callee read too |
+| 1 | 6 | `L25c0` | insert | 0 | 5 | jt39 | ⬜ open |  |
+| 2 | 6 | `L4e3a` | replace | 1 | 1 | `l4d98` | ✅ ported | l4d98: clear the -22222 SLOT (`pea`), not the object it points at (`movel`) |
 | 3 | 7 | `L1a66` | delete | 11 | 0 | - | ⬜ open |  |
 | 4 | 7 | `L1ace` | replace | 1 | 1 | - | ⬜ open |  |
 | 5 | 7 | `L21b6` | delete | 18 | 0 | - | ⬜ open |  |
 | 6 | 7 | `L22a8` | replace | 19 | 1 | - | ⬜ open |  |
 | 7 | 7 | `L3f80` | replace | 1 | 1 | yes | ✅ ported | l2ebc key-mode arg 0 -> 1 (boot.c ~95700) |
 | 8 | 10 | `L38ba` | replace | 1 | 1 | - | ⬜ open |  |
-| 9 | 10 | `L611c` | insert | 0 | 21 | yes | ⬜ open |  |
+| 9 | 10 | `L611c` | insert | 0 | 21 | yes | ✅ ported | l611c: sync each ability's CURRENT byte from its PERMANENT byte before the save |
 | 10 | 10 | `L6238` | replace | 1 | 1 | yes | ✅ ported | l6238: build the path forwards (clear + 2x jt431) instead of jt436's in-place dir prefix |
 | 11 | 10 | `L6238` | replace | 1 | 5 | yes | ✅ ported | l6238: the second jt431 join (same change as hunk 10) |
 | 12 | 12 | `L071c` | replace | 1 | 2 | - | ⬜ open |  |
 | 13 | 12 | `L0d3e` | insert | 0 | 16 | - | ⬜ open |  |
-| 14 | 12 | `L3426` | replace | 1 | 5 | yes | ✅ ported | l33d8 pass 2: skip SUMMONED combatants (`mc[21]==1`) so a conjured creature cannot mask a party wipe |
+| 14 | 12 | `L3426` | replace | 1 | 5 | `l33d8` | ✅ ported | l33d8 pass 2: skip SUMMONED combatants (`mc[21]==1`) so a conjured creature cannot mask a party wipe |
 | 15 | 13 | `L105c` | insert | 0 | 5 | - | ⬜ open |  |
 | 16 | 16 | `L50cc` | insert | 0 | 3 | - | ⬜ open |  |
-| 17 | 18 | `L003a` | insert | 0 | 13 | yes | ⬜ open |  |
+| 17 | 18 | `L003a` | insert | 0 | 13 | jt860 | ✅ ported | jt860: honour the design's no-permadeath flag — status 6/7/8 downgrades to 5 |
 | 18 | 18 | `L61d4` | replace | 1 | 1 | - | ⬜ open |  |
 | 19 | 19 | `L25ce` | insert | 0 | 2 | yes | ✅ ported | jt893: hoist the -22281 save+clear to entry |
 | 20 | 19 | `L2c20` | delete | 2 | 0 | yes | ✅ ported | jt893: 1.0 per-case save+clear deleted |
 | 21 | 19 | `L2c20` | delete | 1 | 0 | yes | ✅ ported | jt893: 1.0 per-case restore deleted |
-| 22 | 19 | `L2d74` | insert | 0 | 1 | - | ✅ ported | jt893: restore at the single exit |
-| 23 | 20 | `L00c4` | delete | 18 | 0 | yes | ✅ ported | l0098: the OTHER half of the tolower fix — deletes 1.0's `A-Z` pre-test; already covered by the A-Z-only implementation |
-| 24 | 20 | `L18e2` | insert | 0 | 7 | yes | ✅ ported | l159a combat entry: `ev[12]` bit5 forces the starting range (`rec[56]`) to 0 |
-| 25 | 20 | `L24e6` | insert | 0 | 2 | yes | ⛔ blocked | byte-swap `ev[8]` before the money compare — but the port has not lifted the enclosing message composition |
-| 26 | 20 | `L24e6` | replace | 1 | 1 | yes | ⛔ blocked | the compare rearranged to suit hunk 25 |
-| 27 | 20 | `L26de` | insert | 0 | 4 | yes | ⬜ open |  |
-| 28 | 20 | `L26de` | delete | 1 | 0 | yes | ⬜ open |  |
+| 22 | 19 | `L2d74` | insert | 0 | 1 | `jt893` | ✅ ported | jt893: restore at the single exit |
+| 23 | 20 | `L00c4` | delete | 18 | 0 | `l0098` | ✅ ported | l0098: the OTHER half of the tolower fix — deletes 1.0's `A-Z` pre-test; already covered by the A-Z-only implementation |
+| 24 | 20 | `L18e2` | insert | 0 | 7 | `l159a` | ✅ ported | l159a combat entry: `ev[12]` bit5 forces the starting range (`rec[56]`) to 0 |
+| 25 | 20 | `L24e6` | insert | 0 | 2 | ? | ⛔ blocked | byte-swap `ev[8]` before the money compare — but the port has not lifted the enclosing message composition |
+| 26 | 20 | `L24e6` | replace | 1 | 1 | ? | ⛔ blocked | the compare rearranged to suit hunk 25 |
+| 27 | 20 | `L26de` | insert | 0 | 4 | ✗ | ⛔ blocked | CODE 20's L26de is NOT lifted — the old "yes" was a CODE 10 name collision |
+| 28 | 20 | `L26de` | delete | 1 | 0 | ✗ | ⛔ blocked | same function as 27; blocked with it |
 | 29 | 20 | `L3114` | insert | 0 | 2 | - | ⬜ open |  |
 | 30 | 20 | `L57a0` | insert | 0 | 5 | yes | ✅ ported | l5676: "Transfer module ends testing!" before the test-play teardown |
-| 31 | 20 | `L70d4` | insert | 0 | 1 | yes | ✅ ported | l709e: clear `-4943` per event so the deferred re-trigger flag cannot leak across a chain |
+| 31 | 20 | `L70d4` | insert | 0 | 1 | `l709e` | ✅ ported | l709e: clear `-4943` per event so the deferred re-trigger flag cannot leak across a chain |
 | 32 | 20 | `L76c4` | replace | 3 | 1 | - | ⬜ open |  |
 | 33 | 20 | `L76fa` | delete | 1 | 0 | - | ⬜ open |  |
 | 34 | 21 | `L13f6` | insert | 0 | 4 | - | ⬜ open |  |
-| 35 | 21 | `L3af2` | delete | 20 | 0 | yes | ⬜ open |  |
+| 35 | 21 | `L3af2` | delete | 20 | 0 | yes | ✅ ported | l3af2: DELETE 1.0's silent clamp — the half that ARMS hunks 36-38. **OBSERVED FIRING** |
 | 36 | 21 | `L4816` | insert | 0 | 8 | yes | ✅ ported | jt955 case 3: overland bounds guard #1 + the refusal message |
 | 37 | 21 | `L4816` | insert | 0 | 5 | yes | ✅ ported | jt955 case 3: overland bounds guard #2 (out of range == blocked) |
-| 38 | 21 | `L4874` | insert | 0 | 8 | yes | ✅ ported | jt955 case 3: the second guard's tail |
+| 38 | 21 | `L4874` | insert | 0 | 8 | `jt955` | ✅ ported | jt955 case 3: the second guard's tail |
 
-### Ported so far (15 of 38)
+### Ported so far (19 of 38)
 
 | hunks | function | fix |
 |---|---|---|
@@ -74,6 +74,11 @@ streams**; CODE 17 changes only in operands (see below).
 | 24 | `l159a` combat entry (CODE 20 `L18e2`) | `ev[12]` bit5 now forces `rec[56]` (the starting range from `ev[14]` bits5–6) to 0, and the existing clamp drags `rec[55]` to 0 with it — the fight starts adjacent whatever range the designer picked. Measured, not guessed: 1.0 reads `ev[12]` bit5 at exactly ONE site (CODE 20 @0x4668, gating a `jt221`+`jt938` view refresh for type-1 events) and 1.2 reads it at two, so the flag was already live and 1.2 gives it an additional effect. **This is the first ported fix with reachable data in the shipped designs:** 11 of HEIRS' 175 combat events have bit5 set with a non-zero starting range (`GEO011` ev12 at cell(col=18,row=16) is one), and 31 such events exist across all designs on hand |
 | 14 | `l33d8` (CODE 12 `L3426`) | pass 2 of the post-fight outcome resolver now SKIPS summoned combatants. 1.0 `bras L347a` -> 1.2 `braw L34c2` (the branch outgrew its 8-bit displacement) plus 4 inserted instructions testing `node[64]->[21] == 1` and branching to the ADVANCE label — a `continue`. Pass 1 and the main pass already stop at the first summoned entry; pass 2 was the one place scanning unfiltered. It matters because `found` + the design's `hdr[29]` no-permadeath flag CLEARS `-27982`, the "party destroyed" flag: in 1.0 a summoned creature sitting in status 3/4/5 (fled/dead/petrified) or carrying `rec[382]` satisfied `found` on its own, so a party that had actually been wiped could come out not registered as destroyed — on the strength of a monster it had conjured |
 | 10, 11 | `l6238` (CODE 10 `L6238`) | build the delete path FORWARDS — clear the buffer, `jt431` the design dir, `jt431` the leaf — instead of `jt436`'s in-place directory prefix, which has to slide the existing contents up inside a fixed 202-byte buffer. 1.2 also grew the frame 16 bytes for a separate leaf buffer. `l419e` right below already used the two-append idiom, so 1.2 is making `l6238` consistent with the rest of CODE 10 |
+
+| 35 | `l3af2` (CODE 21 `L3af2`) | **DELETE** 1.0's 20-instruction clamp, and this is the load-bearing half of the overland bounds fix. 1.0 ended `l3af2` by resolving an off-map candidate BACK to the party's current cell, so a step at the border was a silent no-op with no feedback. 1.2 deletes the clamp so the caller sees the raw candidate and refuses it with a message. **The two halves are one fix:** `L3af2` has exactly ONE call site in the Mac (CODE 21 @0x4816 = the `jt955` case-3 site hunks 36–38 patch), so while the clamp stood `ov_step_out_of_bounds()` could never be true and hunks 36–38 were DEAD CODE in the port. Ported 2026-07-25 and **OBSERVED FIRING** (below). 1.0's clamp also carried two never-taken `tstw`+`bcs` branches for the `< 0` half of `x < 0 \|\| x > 37` — THINK C zero-extends the byte and `tst` always clears carry, so the wrap case was caught by the unsigned `> 37` test; the dead branches changed nothing |
+| 17 | `jt860` (CODE 18 `L003a`) | honour the design's **no-permadeath** flag. `hdr[29]` off -28006 is the same byte `l33d8` consults when deciding whether a wiped party is really destroyed; statuses 6/7/8 are the permanent removals (exactly the values the function's own entry switch treats as terminal) and 5 is the status `l33d8` REVIVES AT 1 HP when the flag is set. So 1.0 had a hole in the feature: a design could declare that characters never die permanently and Slay Living, Finger of Death, petrification and annihilation would still remove them for good, because they route through `jt860` with 6/7/8 and 1.0 wrote that straight into `rec[94]`. Reachable: `jt612` calls `jt860` with 6, `jt615` with 8 |
+| 9 | `l611c` (CODE 10 `L611c`) | reconcile the **ability-score pairs** before the edited monster record is written back: `rec[113+2i] = rec[112+2i]` for i = 0..5 (STR/INT/WIS/DEX/CON/CHA) plus `rec[125] = rec[124]` for the exceptional-Strength percentile. The record keeps every ability twice — permanent at `112+2i`, current at `113+2i` (the layout `L24d2`'s roll writes, `docs/char-record-layout.md`; `l1d54` reads Strength from `rec[113]`). Only the permanent copy is meaningful in a monster TEMPLATE, so an edit lands there and 1.0 wrote the record out with the current bytes still stale. It sits one line below the existing `dest[395] = dest[129]` HP reconciliation, i.e. 1.2 extends a pattern the function already had. Direction is from the asm (`moveb %a0@(112),%a1@(113)`, both registers `dest + 2i`), not from the reading. Reachable via the Monster Editor (`jt263`, `jt264` dispatch case 21) |
+| 2 | `l4d98` (CODE 6 `L4e3a`) | clear the **-22222 slot**, not the object it points at. 1.0 pushed the slot's CONTENTS (`movel %a5@(-22222)`), 1.2 pushes its ADDRESS (`pea %a5@(-22222)`); the callee is the same `l5f4e`/jt65 "zero `size` bytes at `ptr`". So on every new-game reset 1.0 zeroed the first 4 bytes of whatever -22222 pointed AT — the shared FC/art handle `jt204` hands to JT[115], the one `jt121` blits from and `jt124` commits as a palette — and left a dangling pointer in the slot. Every other clear in that reset block already takes the address of its own A5 slot (`-27894`, `-24204`, `-24236`), so -22222 was the odd one out; same shape of fix as hunks 10/11. The port's `!= 0` PORT-SAFETY guard went with it — it existed only because 1.0 dereferenced the slot |
 
 Verified: same-harness before/after frames are byte-identical on the walk, camp,
 Magic, chargen and map-editor paths (AE=0), i.e. no regression.
@@ -102,10 +107,75 @@ Two corrections to the 2026-07-24 entry that stood here:
   run to record 13, whose bit5 is clear. The event-byte count (11 of HEIRS' 175
   combat events affected) was unaffected; only the cell attribution was wrong.
 
-The other ported fixes remain ported-and-non-regressing rather than
-observed-firing — each needs its own situation (a party at a map edge, a design
-under test, a prompt inside the Items browser, that one picker). The harness now
-exists to promote them one at a time; see ADR-0018.
+**Hunk 35 is OBSERVED FIRING (2026-07-25) — the second one, and it arms three
+more.** The party-at-a-map-edge situation the note below used to call
+outstanding turned out to be cheap to reach: `g_a5_18878 <= 4` routes play into
+`l0b88()` (mode 3 = overland), and `FRUA_ENTRY_LEVEL` sets that byte. HEIRS area
+1, party seated at row 37 (the last row of the 38x15 overland map) facing 2
+(`drow = +1`), same seed, same key sequence, `-DFRUA_OVDIAG` for the state:
+
+| | `cand-row` (-4904) | `ov_step_out_of_bounds()` |
+|---|---:|---:|
+| hunk 35 ON (1.2) | **38** — raw | **1** |
+| hunk 35 OFF (1.0 clamp restored) | 37 — clamped back | 0 |
+
+The step was refused and the party stayed at row 37; the two following
+diagnostic records (a turn, then an in-bounds step) are identical between runs,
+so the difference is attributable to the one deleted clamp. This is the
+measurement behind the "dead code" claim above: with 1.0's clamp in place the
+guard reads 0 at a genuine map edge, so **hunks 36-38 had never once been able
+to fire** in the port until hunk 35 landed. Four hunks promoted by one deletion.
+
+Found while setting this up: `FRUA_ENTRY_ROW`/`_COL` were **silently ignored on
+the overland path**. `p[37]`/`p[38]` are the party cell there, and they are
+copied from `-12288`/`-12287` in the branch ABOVE the harness override, so only
+the facing took effect and the party landed on the design's own start cell (row
+13, not 37). The override now mirrors that copy, shadows included.
+
+The remaining ported fixes are still ported-and-non-regressing rather than
+observed-firing — each needs its own situation (a design under test, a prompt
+inside the Items browser, that one picker, a monster edited then saved). The
+harness now exists to promote them one at a time; see ADR-0018.
+
+
+### The `lXXXX` collision made this table lie — fixed 2026-07-25
+
+The "lifted" column used to be a bare name grep (`\b[lL]<offset>\b` in
+`boot.c`) with **no segment awareness**, which is exactly the trap CLAUDE.md's
+naming rule warns about: the same hex offset is a DIFFERENT function in each
+CODE segment. Consequences, both found by reading a hunk that the table
+promised was portable:
+
+- hunks **27/28** (CODE 20 `L26de`) matched the port's CODE **10** `l26de` and
+  were recorded `lifted: yes`. CODE 20 + 0x26de is not lifted at all — they are
+  **blocked**, not open.
+- hunk **2** (CODE 6 `L4e3a`) matched the port's CODE **7** `l4e3a`. That one
+  turned out portable anyway, but only because `L4e3a` is a label INSIDE the
+  lifted `l4d98` — not because the grep was right.
+
+`in_boot_c()` is now segment-aware: the port writes its provenance into each
+definition's doc comment (`/* L611c (CODE 10+0x611c) — ... */`), so a hit
+carrying an explicit `CODE <n>` marker is evidence either way. `--hunk` prints
+mismatches as `IGNORE (other segment, same offset)` and warns when no hit names
+the hunk's own segment. A second signal was added because the label check could
+not see hunk 17 at all — its enclosing CODE 18 `L003a` is lifted as **`jt860`**,
+so `jt_lifted()` now checks whether the JT export the hunk sits under is
+defined in `boot.c`.
+
+Column values now mean:
+
+| value | meaning |
+|---|---|
+| `yes` | a `boot.c` hit names this segment — confirmed |
+| `jtN` / `` `lXXXX` `` | lifted under that name (JT export, or a label inside a larger function) |
+| `?` | the name appears but no hit names this segment — bare call sites only |
+| `-` / `✗` | no evidence / confirmed absent |
+
+**`?` and `-` do NOT mean "not ported".** The check is label-based, and a hunk's
+enclosing label is often just a branch target inside a differently-named
+function — hunks 14 (`L3426` in `l33d8`), 22 (`L2d74` in `jt893`) and 2
+(`L4e3a` in `l4d98`) are all ported with a weak or absent signal. Trust the
+hand-maintained **status** column; the lifted column is only a triage hint.
 
 
 ### Blocked on a prerequisite lift — hunks 25, 26 (CODE 20 `L24e6`)

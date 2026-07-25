@@ -352,18 +352,76 @@ def jt_exports(seg, lo, hi):
     return hits
 
 
-def in_boot_c(label):
-    """Where boot.c mentions this CODE-local label (either spelling)."""
+_CODE_MARK = re.compile(r"CODE\s*(\d+)")
+_SRC_TEXT = None
+
+
+def _src_text():
+    global _SRC_TEXT
+    if _SRC_TEXT is None:
+        try:
+            with open(SRC, encoding="utf-8", errors="replace") as f:
+                _SRC_TEXT = f.read()
+        except OSError:
+            _SRC_TEXT = ""
+    return _SRC_TEXT
+
+
+def in_boot_c(label, seg=None):
+    """Where boot.c mentions this CODE-local label, SPLIT BY SEGMENT.
+
+    Returns (hits, wrong_seg, confirmed).
+
+    `lXXXX` labels COLLIDE across CODE segments — the same hex offset is a
+    DIFFERENT function in each, which is why CLAUDE.md's naming rule says to
+    match on `(CODE, offset)`. A bare name grep does not, and this function
+    used to be a bare name grep: it reported CODE 10's `l26de` for the CODE 20
+    hunks 27/28 and CODE 7's `l4e3a` for the CODE 6 hunk 2, and the hunk log's
+    "lifted" column recorded both as `yes`. Two hunks were queued as portable
+    when their enclosing function is not in the port at all.
+
+    The port writes its provenance into the definition's doc comment
+    (`/* L611c (CODE 10+0x611c) — ... */`), so a hit carrying an explicit
+    `CODE <n>` marker is evidence either way. `confirmed` means some hit names
+    THIS segment; unmarked hits (bare call sites) stay in `hits` as weak
+    evidence but never confirm on their own.
+    """
     if not os.path.exists(SRC) or not label.startswith("L"):
-        return []
+        return [], [], False
     off = label[1:]
     pat = rf"\b[lL]{off}\b"
     try:
         out = subprocess.run(["grep", "-nE", pat, SRC], capture_output=True,
                              text=True).stdout.splitlines()
     except OSError:
-        return []
-    return out[:6]
+        return [], [], False
+    if seg is None:
+        return out[:6], [], bool(out)
+
+    hits, wrong, confirmed = [], [], False
+    for line in out:
+        marks = {int(m) for m in _CODE_MARK.findall(line)}
+        if not marks:
+            hits.append(line)                  # bare call site — no provenance
+        elif seg in marks:
+            hits.append(line)
+            confirmed = True
+        else:
+            wrong.append(line)                 # a same-offset OTHER-segment fn
+    return hits[:6], wrong[:3], confirmed
+
+
+def jt_lifted(idxs):
+    """Which of these JT indices boot.c actually DEFINES as `jtN`.
+
+    The label check cannot see a function the port records by its JT name
+    rather than its `LXXXX` offset — hunk 17's enclosing CODE 18 `L003a` is
+    lifted as `jt860`, so the label grep found only an unrelated `case 5:`
+    comment. The JT export the hunk sits under is the stronger signal there.
+    """
+    txt = _src_text()
+    return [n for n in idxs
+            if re.search(rf"^static\s+[^;]*\bjt{n}\s*\(", txt, re.M)]
 
 
 def show(h, ctx):
@@ -375,9 +433,17 @@ def show(h, ctx):
           f"(1.0 @ {la.addr_at(i1):#06x}, 1.2 @ {lb.addr_at(j1):#06x})")
     jt = jt_exports(seg, la.addr_at(max(0, i1 - 40)), la.addr_at(i1))
     if jt:
-        print(f"    JT exports at/above the site: {jt}")
-    for line in in_boot_c(lbl):
+        lifted = jt_lifted(jt)
+        note = f"  (lifted in boot.c: {lifted})" if lifted else ""
+        print(f"    JT exports at/above the site: {jt}{note}")
+    hits, wrong, confirmed = in_boot_c(lbl, seg)
+    for line in hits:
         print(f"    boot.c: {line[:150]}")
+    if not confirmed and hits:
+        print(f"    NOTE: no boot.c hit names CODE {seg} — the matches above "
+              f"are bare call sites, not proof this function is lifted.")
+    for line in wrong:
+        print(f"    IGNORE (other segment, same offset): {line[:120]}")
     print(f"--- 1.0 {os.path.basename(la.path)}")
     for k in range(max(0, i1 - ctx), min(len(la.rows), i2 + ctx)):
         mark = ">>" if i1 <= k < i2 else "  "
@@ -462,7 +528,17 @@ def main(argv=None):
     print("  # | seg | 1.0 label | tag     | 1.0 insn | 1.2 insn | lifted in boot.c")
     for n, seg, tag, i1, i2, j1, j2, la, lb in hs:
         lbl = la.label_at(i1 if i1 < len(la.rows) else len(la.rows) - 1)
-        hit = "yes" if in_boot_c(lbl) else "-"
+        hits, wrong, confirmed = in_boot_c(lbl, seg)
+        jtl = jt_lifted(jt_exports(seg, la.addr_at(max(0, i1 - 40)),
+                                   la.addr_at(i1)))
+        if confirmed:
+            hit = "yes"
+        elif jtl:
+            hit = "jt%d" % jtl[0]              # lifted under its JT name
+        elif hits:
+            hit = "?"                          # name hits, none for this seg
+        else:
+            hit = "-"
         print(f" {n:2d} | {seg:3d} | {lbl:>9} | {tag:7} | {i2 - i1:8d} | "
               f"{j2 - j1:8d} | {hit}")
     return 0
