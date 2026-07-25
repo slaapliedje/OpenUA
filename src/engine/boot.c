@@ -20846,6 +20846,18 @@ static short  jt1125(short kind, long p1, long p2)
 		return (ev.modifiers & cmdKey) ? (short)2 : (short)1;
 	}
 	case mouseDown:
+#ifdef FRUA_CLICKDIAG
+		/* TaskList #84: WHICH of the eight jt1125(7, ...) call sites takes
+		 * the mouseDown? Log the return address and map it to a symbol
+		 * afterwards — one edit instead of tagging every call site. */
+		dbg_file_num("jt1125 mouseDown, kind ", (long)kind);
+		/* Relocation-independent: the offset from jt1125's own entry to
+		 * the caller's return address. Add it to jt1125's LINK address
+		 * from objdump to name the caller. */
+		dbg_file_num("   caller off from jt1125 ",
+		    (long)((char *)__builtin_return_address(0)
+		           - (char *)(void *)&jt1125));
+#endif
 		if ((kind & 2) == 0) {          /* mouseDown mask bit */
 			*out1 = 0;
 			*out2 = 0;
@@ -25204,14 +25216,30 @@ static short l2d3e(void)
 		 * item; the hover loop below already uses (mouse_y, mouse_x). */
 		short cy = mouse_y, cx = mouse_x;
 		unsigned char *hr = (unsigned char *)g_a5_9254;
+#ifdef FRUA_CLICKDIAG
+		/* TaskList #84: the click DOES reach here (Phase 1 handles it and
+		 * returns before Phase 2, which is why the Phase-2 counter read
+		 * zero). Log the click point and every item's position + hit so we
+		 * can see WHICH gate rejects it. */
+		dbg_file_num("P1CLICK cy ", (long)cy);
+		dbg_file_num("   cx ", (long)cx);
+#endif
 		for (i = 0; i < count; i++) {
 			short iy = *(short *)(hr + 16);
 			dlitem_method_t hm = *(dlitem_method_t *)hr;
 			/* Positioned items hit-test through their own method
 			 * (jt137 msg 2: the Mac's scaled rect; disabled items —
-			 * rec[28] bits 0/1 — reject themselves). */
-			if (iy >= 8000 && hm != NULL
-			 && hm(hr, (short)2, cy, cx) != 0) {
+			 * rec[28] bits 0/1 — reject themselves). Evaluated ONCE:
+			 * the diagnostic must not call the method a second time. */
+			short hit = (iy >= 8000 && hm != NULL)
+			          ? hm(hr, (short)2, cy, cx) : 0;
+#ifdef FRUA_CLICKDIAG
+			dbg_file_num("   item iy ", (long)iy);
+			dbg_file_num("      ix ", (long)*(short *)(hr + 18));
+			dbg_file_num("      has method ", (long)(hm != NULL));
+			dbg_file_num("      hit ", (long)hit);
+#endif
+			if (hit != 0) {
 				/* Shape-5 list/grid cell — the Hall roster AND every jt169
 				 * List Manager dialog (coin trade, Load Saved Game, Select a
 				 * Design) are ONE shape-5 cell whose rec[4] handler (jt156 /

@@ -228,17 +228,30 @@ Two more measurements pin the shape of it:
 post-mortem was itself wrong. The stash works: 3 pushed, 3 popped in a temple-bar
 run. It restores events the pop was destroying and the Mac never destroys.
 
-It does not by itself make clicks land, and the reason is now precise rather than
-mysterious:
+**IT DOES make clicks land** — verified end to end on the temple verb bar. My
+first reading of this run said otherwise, and was wrong for the third time in
+the same investigation: the Phase-2 counter I was watching NEVER RUNS for a
+click, because `l2d3e` handles clicks in a Phase-1 block that returns early.
+Measuring the right place shows:
+
+    P1CLICK cy 190  cx 28
+       item iy 0     ix 0     has method 1  hit 0    <- unpositioned, skipped
+       item iy 8094  ix 8003  has method 1  hit 1    <- HIT
+
+and the screen confirms it: the verb bar rebuilt from
+`Heal | Donate | View | Pool | Leave` to `Heal | View | Exit`. Before the stash
+the click never arrived at all.
+
+Two notes on the machinery that remain true:
 
 - Two of the three pops are keyDowns, and `jt1125` correctly returns 0 for them.
   `l2d3e` passes `kind = 7`, `7 & (keyDownMask|autoKeyMask)` is 0, so keys are
   masked off BY DESIGN — on the Mac they flow through the `-818`/`-820` pending
   path, not as poll events. That is faithful, not a bug.
-- The third is the mouseDown, which `kind = 7` does admit (`7 & 2`). But
-  `l2d3e` never logged it, so one of the **seven other `jt1125(7, ...)` call
-  sites** took it first. That is the remaining question, and it is a different
-  gap from the one the stash closes.
+- The mouseDown reaches `l2d3e` itself. Resolving the caller return address
+  confirmed it (`_l2d3e + 68`; `l3198` is inlined at -O2, so the frame belongs
+  to `l2d3e`). The earlier "one of seven other callers took it" was an artefact
+  of the same misplaced counter.
 
 Regression-checked before landing: main menu, Training Hall and play entry all
 BYTE-IDENTICAL to their pre-change captures, Return still advances the event
