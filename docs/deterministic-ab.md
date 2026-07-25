@@ -148,12 +148,12 @@ Two things worth carrying forward:
 
 ## Promotion status of the ported 1.2 fixes
 
-Twelve of the 33 are **observed firing** (ON vs OFF produce different measured
+Sixteen of the 33 are **observed firing** (ON vs OFF produce different measured
 state, same seed). Four cannot fire at all and that is a finding, not a gap.
 The rest each need a specific situation, listed so the next pass does not have
 to re-derive it.
 
-### Observed firing (12)
+### Observed firing (16)
 
 | hunks | situation | evidence |
 |---|---|---|
@@ -164,6 +164,7 @@ to re-derive it.
 | 15 | same module, 2 monsters so round 2 arrives | `BLEED SUPPRESSED, status stays 5` (ON) vs `bleed tick mc[16] 5` (OFF) |
 | 27, 28 | authored TEMPLE.DSN, `-DFRUA_TMPDIAG` | at the live jt933 call: raw `1677721600` vs swapped `100` — BOTH from one run |
 | 9 | Monster Editor, BASILISK (id 42): Strength 10 -> 18 and % 0 -> 50, then Ok | the SAVED `MONST042.dat` differs in exactly **two** bytes across all 450: `[113]` 18 (ON) vs 10 (OFF), `[125]` 50 (ON) vs 0 (OFF) |
+| 19-22 | authored SHOPPIC.DSN (`tools/mk_bigpic_design.py --shop`), Items -> Sell, `-DFRUA_ITMDIAG` | `jt893 ENTRY saved -22281` is **1** in both, then `in-browser` / loop-top / `jt182 confirm sees -22281` are **0 0 0** (ON) vs **1 1 1** (OFF) |
 | 17 | authored NOPERMA.DSN with **monster 42 (BASILISK)**, `-DFRUA_CBTPLAY -DFRUA_NPDIAG` | same gaze, same seed: `final-status` **5** (ON) vs **7** (OFF) on `subject BARBARUS side 0`; ON the party walks on at 1 HP, OFF the screen reads *"The monsters rejoice, for the party has been destroyed!"* |
 | 16 | authored caster (`tools/mk_caster_chr.py`), Hall -> View -> Spells | the picker's command bar reads **`Exit`** (ON) vs **blank** (OFF); `-24126` `0 FF ..` vs the stale `1 'S' 7 'E'`; `l2184("Exit") -> "Exit"` vs `""` |
 
@@ -188,6 +189,62 @@ spell picker headless" below.
 Hunk 17 is the most CONSEQUENTIAL of the set — the only one where the two
 builds end the session differently. Full recipe below; the short version is
 that the whole no-permadeath family (1, 15, 17) now fires in a single run.
+
+### Reaching an Items-browser prompt with the flag live (hunks 19-22)
+
+Three conditions, and the third is the one that ate two runs:
+
+1. **`-22281` must be 1 on `jt893` entry.** `l442e` sets it for any event whose
+   picture id is >= 240 — a bigpic backdrop (`boot.c` ~45211).
+   `tools/mk_bigpic_design.py` authors that.
+2. **Do not step.** `l085e` clears the flag on every move (~45676), and the
+   tactical-combat setup clears it too (~46687, ~49124) — which is why it can
+   never come from a fight. Open the browser standing on the entry cell.
+3. **The arm matters as much as the flag.** Outside a vault (`-27990 != 10`)
+   `l11a8` offers arm **4**, not arm 3 — so the visible `Drop` button IS the
+   trade/give arm, the one arm 1.0 ALREADY suppressed. A run through it gives
+   `confirm sees 0` on both builds. That is a correct negative control, not a
+   dead hunk, and it is easy to misread as one.
+
+Use the `--shop` variant: `jt183` puts the play mode at 1, and `l11a8` then also
+offers arms 7 (`Sell` -> `jt189`) and 8 (`Id` -> `jt190`). Both raise `jt159`
+confirms 1.0 never suppressed.
+
+```sh
+python3 tools/mk_bigpic_design.py data/work/gamedata --current --shop
+rm -f src/engine/boot.o
+make EXTRA_CFLAGS='-DFRUA_ITMDIAG -DFRUA_RNGSEED=12345'
+D=.claude/skills/run-falcon-port/driver.sh
+env -u DISPLAY FALCON_TOS=/usr/share/hatari/tos404.img $D start
+env -u DISPLAY PLAY_STEP_DELAY=5 $D beginplay      # -> the shop, bigpic up
+env -u DISPLAY $D key v                            # View Character
+env -u DISPLAY $D key i                            # Items -> jt893
+env -u DISPLAY $D click 150 141                    # an item row  (REQUIRED first)
+env -u DISPLAY $D click 480 439                    # Sell
+```
+
+    ON   jt893 ENTRY saved -22281 1 / in-browser 0 / loop top 0, 0 / confirm sees 0
+    OFF  jt893 ENTRY saved -22281 1 / in-browser 1 / loop top 1, 1 / confirm sees 1
+
+The OFF build is the real 1.0 SHAPE, not just the fix deleted: entry save+clear
+and exit restore removed (19, 22) AND the per-case pair put back inside case 4
+(20, 21). That is what makes the case-4 negative control meaningful.
+
+**What the flag actually does, and the honest limit of this measurement.**
+`jt182` passes it to `l23b4`, where it gates a per-iteration animation block
+(`jt46(3, 3, arg_lo, -24205)` + `jt80`) — so 1.0 left combat sprite animation
+running behind Items-browser prompts. That block is itself gated on
+`g_a5_-24321 > 0 && g_a5_-24206 >= 1`, i.e. an animation being staged, and the
+shop stages none. So the two frames here are **pixel-identical** (compared: 0
+differing pixels) and the divergence is purely in state. A VISIBLE
+demonstration still needs a bigpic-prompt context with an animation loaded.
+
+Two more traps:
+
+- **Click an item row before the verb.** The verb click alone does nothing —
+  no log line, no reaction — which reads exactly like a dead button.
+- **Keyboard does not drive the browser bar at all.** `key d` for Drop is
+  inert; these are DLItem buttons and want the injected click #84 restored.
 
 ### The no-permadeath family, and the monster that completes it (hunk 17)
 
@@ -379,17 +436,15 @@ already has `rec[113+2i] == rec[112+2i]`, so loading one and pressing Ok makes
 the fix write back the bytes that were already there. Verified on all four of
 HEIRS' records and on stock BASILISK. The divergence has to come from an edit.
 
-### Needs a situation (16)
+### Needs a situation (14)
 
 | hunks | the situation still to construct |
 |---|---|
-| 19–22 | **UI reachable since #84** — the Items button now activates (`P1CLICK cy 191 cx 31 -> hit 1`, `jt893 ENTRY`) and the browser renders in full: "Ready Item", the inventory list, and the `Rdy \| Use \| Drop \| Halve \| Join \| Exit` bar. What is still missing is the STATE: `jt893 ENTRY saved -22281 0`, so the hoisted save+clear has nothing to suppress. `-22281` is set to 1 at `boot.c` ~45204 (an event path that loads a bigpic) and ~90842/90853 (the PIC layer), but the tactical-combat setup CLEARS it (~46522, "the battle flags"). So the browser must be entered from a bigpic-prompt context, not from inside a fight. |
 | 3, 5, 6 | a prompt containing a digit. Author a STRG string with a digit plus a `~` marker and watch `l2184`'s word extraction. |
 | 31 | a chained event pair where the first sets `-4943` (`ev[12]&4`, passage `ev[10]&0x20`, combat `ev[7]&0x20`) and the second would inherit it. Authorable. |
 | 29 | an animated passage followed by a chained event. Authorable. |
 | 13 | the editor's test-play Hall — and the obvious route is a DEAD END. `l07dc` picks the Hall only in its `else`: `if (g_a5_-18485 != 0) { jt582(); ... } else { jt918(1); }`, and `jt918` is `l0aae`'s sole caller. So a non-zero `-18485` at play entry means the Hall is never reached — the flag has to go non-zero AFTER `jt918`'s loop is already running. `l30d4` (the spell-memorization sub-editor) is not it: it sets 5 on entry and restores 0 on exit. The one writer that leaves it set is `l3236` case 7 (CODE 11 @0x3348, the GEO editor's tool command — 1, then 2 when `jt318` agrees), so the situation is: enter the editor from `jt918`, issue that command, and see whether the loop re-enters `l0aae`. |
 | 18 | a spell that routes through `jt822` (hook id 137, the explosion burst) with victims. |
-| 19–22 | a prompt inside the Items browser (`jt893`). |
 | 7 | the `L3f80` picker modal. |
 | 10, 11 | delete a monster from a design folder. |
 | 14 | a party wipe with a summoned creature still on the combatant list. |
@@ -518,6 +573,10 @@ ON/OFF pair.
   instead of hoping the dice cooperate. Note it walks `-27928`, which is the
   whole combatant list, not just the party (the same fact that makes hunk 14
   matter). Release-guarded.
+- **`tools/mk_bigpic_design.py`** — authors a module whose entry cell raises a
+  BIGPIC prompt, so `-22281` is live when the Items browser opens (hunks 19-22).
+  `--shop` is the variant that offers the Sell / Id arms and actually diverges;
+  the plain message variant reaches only arm 4, the negative control.
 - **`tools/mk_caster_chr.py`** — authors a Magic-User with memorized spells into
   the design's saved-character pool, so the spell screens are reachable at all.
   NOT usable as a combat party member (see the hunk-17 traps above).

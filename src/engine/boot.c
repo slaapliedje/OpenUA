@@ -95878,6 +95878,11 @@ static void jt893(unsigned char *out)
 		long           it, tmp;
 		int            reach;
 
+#ifdef FRUA_ITMDIAG
+		dbg_file_num("  browser loop top -22281 ",
+		             (long)(unsigned char)g_a5_byte(-22281));
+#endif
+
 		if (*(long *)(chr + 8) == 0)
 			goto botcheck;
 
@@ -96012,6 +96017,10 @@ static void jt893(unsigned char *out)
 				break;
 			case 3: {                             /* L29ca — drop / vault */
 				short need;
+#ifdef FRUA_ITMDIAG
+				dbg_file_num("  case 3 (drop) entry -22281 ",
+				             (long)(unsigned char)g_a5_byte(-22281));
+#endif
 				if (!l23d2_c19(item)) {
 					choice = (unsigned char)-1;
 					break;

@@ -40,10 +40,10 @@ streams**; CODE 17 changes only in operands (see below).
 | 16 | 16 | `L50cc` | insert | 0 | 3 | `l4faa` | ✅ ported | l4faa default arm: jt179(0) — init the slot table l2184 reads instead of inheriting a stale one. **OBSERVED FIRING** |
 | 17 | 18 | `L003a` | insert | 0 | 13 | jt860 | ✅ ported | jt860: honour the design's no-permadeath flag — status 6/7/8 downgrades to 5. **OBSERVED FIRING** |
 | 18 | 18 | `L61d4` | replace | 1 | 1 | `jt822` | ✅ ported | jt822: the effect-148 VALUE word 0 -> 1 (magnitude, one per victim) |
-| 19 | 19 | `L25ce` | insert | 0 | 2 | yes | ✅ ported | jt893: hoist the -22281 save+clear to entry |
-| 20 | 19 | `L2c20` | delete | 2 | 0 | yes | ✅ ported | jt893: 1.0 per-case save+clear deleted |
-| 21 | 19 | `L2c20` | delete | 1 | 0 | yes | ✅ ported | jt893: 1.0 per-case restore deleted |
-| 22 | 19 | `L2d74` | insert | 0 | 1 | `jt893` | ✅ ported | jt893: restore at the single exit |
+| 19 | 19 | `L25ce` | insert | 0 | 2 | yes | ✅ ported | jt893: hoist the -22281 save+clear to entry. **OBSERVED FIRING** |
+| 20 | 19 | `L2c20` | delete | 2 | 0 | yes | ✅ ported | jt893: 1.0 per-case save+clear deleted. **OBSERVED FIRING** |
+| 21 | 19 | `L2c20` | delete | 1 | 0 | yes | ✅ ported | jt893: 1.0 per-case restore deleted. **OBSERVED FIRING** |
+| 22 | 19 | `L2d74` | insert | 0 | 1 | `jt893` | ✅ ported | jt893: restore at the single exit. **OBSERVED FIRING** |
 | 23 | 20 | `L00c4` | delete | 18 | 0 | `l0098` | ✅ ported | l0098: the OTHER half of the tolower fix — deletes 1.0's `A-Z` pre-test; already covered by the A-Z-only implementation |
 | 24 | 20 | `L18e2` | insert | 0 | 7 | `l159a` | ✅ ported | l159a combat entry: `ev[12]` bit5 forces the starting range (`rec[56]`) to 0 |
 | 25 | 20 | `L24e6` | insert | 0 | 2 | `l216a` | ⛔ blocked | byte-swap `ev[8]` before the money compare; `l216a` IS lifted but its "generous donation" block is a deferred sub-flow (`l026e_c20`/`l4218` stubs) |
@@ -123,7 +123,34 @@ Two corrections to the 2026-07-24 entry that stood here:
   run to record 13, whose bit5 is clear. The event-byte count (11 of HEIRS' 175
   combat events affected) was unaffected; only the cell attribution was wrong.
 
-**Promotion status: 12 of 33 observed firing, 4 established as unable to fire.**
+**Promotion status: 16 of 33 observed firing, 4 established as unable to fire.**
+
+**Hunks 19-22 are OBSERVED FIRING (2026-07-25)** — four at once, since they are
+one 1.2 change split across four diff sites. Authored SHOPPIC.DSN
+(`tools/mk_bigpic_design.py --shop`): a shop event with a bigpic backdrop, so
+`l442e` leaves `-22281` set and `jt183` puts the play mode at 1. Then
+View -> Items -> click an item row -> Sell:
+
+    ON   jt893 ENTRY saved -22281 1 / in-browser 0 / loop top 0, 0 / confirm sees 0
+    OFF  jt893 ENTRY saved -22281 1 / in-browser 1 / loop top 1, 1 / confirm sees 1
+
+The OFF build reconstructs 1.0's SHAPE rather than just deleting the fix: entry
+save+clear and exit restore removed (19, 22), per-case pair restored inside
+case 4 (20, 21).
+
+**The arm matters as much as the flag, and that cost two runs.** Outside a vault
+`l11a8` offers arm 4, not arm 3 — so the browser's visible `Drop` button is the
+trade/give arm, the one arm 1.0 ALREADY suppressed. Running through it gives
+`confirm sees 0` on both builds, which reads like a dead hunk and is actually a
+correct negative control. The shop's Sell (arm 7, `jt189`) and Id (arm 8,
+`jt190`) are the arms 1.0 left unsuppressed.
+
+**What the flag does:** `jt182` hands it to `l23b4`, which uses it to gate a
+per-iteration animation block — 1.0 kept combat sprite animation running behind
+Items-browser prompts. That block additionally needs a staged animation
+(`-24321 > 0 && -24206 >= 1`), which the shop has none of, so the two frames
+here are pixel-identical and the divergence is state-only. A visible
+demonstration still wants a bigpic prompt with an animation loaded.
 
 **Hunk 17 is OBSERVED FIRING (2026-07-25)** — and it is the most consequential
 of the set: the two builds end the session differently. NOPERMA.DSN built with
