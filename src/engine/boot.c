@@ -27400,6 +27400,39 @@ static int l0aae(void)
 			jt444(i, (short)(*flags[i] != 0 ? 24 : 16), 0, 0);
 	}
 
+	/* ★ Mac 1.2 FIX (ADR-0018), oracle hunk 13 at CODE 12 L0d3e (16
+	 * inserted instructions @0x0d46). After a RESUMED SAVED GAME, force the
+	 * roster-management and save/load verbs enabled whatever the flag walk
+	 * above decided.
+	 *
+	 * `-18485` is the play-loop mode byte: 0 = fresh "new game", non-zero =
+	 * resumed saved game (l07dc's own doc; the fresh-entry path at CODE 6
+	 * explicitly clears it as "not the editor"). The `-14440..-14429`
+	 * cluster the loop reads is computed for the fresh-start case, so on a
+	 * resume 1.0 could leave the Hall showing a menu where the player could
+	 * not Save, Load, Add or Remove anyone — the exact verbs a resumed
+	 * session needs. cmd 16 SETS rec[28] bit 0 (enabled), the same command
+	 * the loop uses for its enabled arm.
+	 *
+	 * The three calls cover, by the slot mapping pinned in #82:
+	 *   0-1  Create Character, Delete Character
+	 *   6-9  Add Character, Remove Character, Load Saved Game,
+	 *        Save Current Game
+	 *   11   Exit From Play
+	 * Notably NOT 2-5 (Modify / Train / Human Change Class / View) and not
+	 * 10 (Begin Adventuring) — those keep their computed state.
+	 *
+	 * Callees resolved by (segment, offset), never by index: CODE 3+0x30ba
+	 * is the port's `l30ba(start, end, cmd)` range walker and CODE 3+0x3056
+	 * its single-item sibling `jt444`. 1.2's table numbers them JT[445] and
+	 * JT[443]; 1.0's numbers them JT[446] and JT[444]; the port's `jt445` is
+	 * an unrelated CODE 3+0x294e stub. */
+	if (g_a5_byte(-18485) != 0) {
+		l30ba((short)0, (short)1, (short)16);
+		l30ba((short)6, (short)9, (short)16);
+		jt444((short)11, (short)16, 0, 0);
+	}
+
 	l2c60(1);                            /* real DLItem paint walker (jt449 is a stub) */
 	(void)jt112(0);
 	(void)jt117();
@@ -52663,12 +52696,34 @@ static void l102a(unsigned char *done)
 		unsigned char *m = (unsigned char *)(uintptr_t)member;
 		jt868(19, &member);
 		jt879(member, 0, 1);
+		/* ★ Mac 1.2 FIX (ADR-0018), oracle hunk 15 at CODE 13 L105c (5
+		 * inserted instructions @0x108a). The no-permadeath flag also
+		 * stops the per-round BLEED-OUT.
+		 *
+		 * This is the third site in the same family — hunk 17 covers the
+		 * explicit-status route (jt860), hunk 1 the damage route (jt39),
+		 * and this one the clock. A status-5 (dying) character ticks
+		 * mc[16] once per round here and converts to status 6 (dead for
+		 * good) at >9, so without this guard a design that declared no
+		 * permadeath still lost anyone left dying for ten rounds — the
+		 * two other fixes funnel characters INTO status 5 precisely so
+		 * l33d8 can revive them at 1 HP, and this is what stopped that
+		 * from working.
+		 *
+		 * PORT-SAFETY: mc is dereferenced unguarded by the Mac; keep the
+		 * existing behaviour but treat a NULL game record as "flag not
+		 * set". */
 		if (m[94] == 5) {
-			unsigned char *mc = (unsigned char *)(uintptr_t)
-			    (*(long *)(uintptr_t)(m + 64));
-			mc[16]++;
-			if (mc[16] > 9)
-				m[94] = 6;             /* dead */
+			const unsigned char *hdr = (const unsigned char *)
+			    (uintptr_t)g_a5_long(-28006);
+
+			if (hdr == NULL || hdr[29] == 0) {
+				unsigned char *mc = (unsigned char *)(uintptr_t)
+				    (*(long *)(uintptr_t)(m + 64));
+				mc[16]++;
+				if (mc[16] > 9)
+					m[94] = 6;     /* dead */
+			}
 		}
 	}
 
@@ -60396,7 +60451,16 @@ static void jt822(long rec_l, long node, short flag)
 		if (jt41(ent_l, 118, &out) != 0)		/* protected */
 			goto next;
 		jt503(ent_l, 1, g_a5_long(-14676));
-		jt876(rec_l, 148, 0, 255, 0);
+		/* ★ Mac 1.2 FIX (ADR-0018), oracle hunk 18 at CODE 18 L61d4
+		 * (@0x6252): the effect's VALUE word goes 0 -> 1.
+		 *
+		 * jt876 stamps `node[2] = value`, so 1.0 appended effect kind 148
+		 * with magnitude 0 — an effect present on the list but carrying
+		 * nothing for the readers that scale by its value. 1.2 gives it
+		 * magnitude 1, which is one per victim, matching the loop that
+		 * accumulates it. (The faithful oddity noted above stands: the
+		 * jt876 target is `rec`, the SOURCE, not the victim.) */
+		jt876(rec_l, 148, 1, 255, 0);
  next:
 		g_a5_byte(-22307)++;
 	}
@@ -65702,6 +65766,26 @@ static short l4faa(short mode, short *sel)
 		break;
 	default:                                /* 0 / 5 / 7 */
 		w101 = -1;
+		/* ★ Mac 1.2 FIX (ADR-0018), oracle hunk 16 at CODE 16 L50cc (3
+		 * inserted instructions @0x50d2): initialise the slot-index
+		 * table for this arm too.
+		 *
+		 * Every other arm above already calls jt179 (all of them with 1,
+		 * two entries); the default arm called nothing, so the -24126
+		 * table kept whatever the PREVIOUS menu left in it. That table is
+		 * exactly what l2184 reads to decide which prompt word belongs to
+		 * which slot (`g_a5_-24126[out_idx * 2] == iter_char`), so a
+		 * stale table made this one-verb "Exit" prompt extract the wrong
+		 * word — the same subsystem as the CODE 7 hunks 3/5/6, and the
+		 * reason to port them together.
+		 *
+		 * The argument is 0, not 1: jt179 fills the table with 0xFF then
+		 * writes indices 0..count, so 0 means the single entry this arm
+		 * actually has. Callee identity by (segment, offset): the asm
+		 * calls CODE 7+0x11ee, which 1.2's permuted table numbers
+		 * JT[166] and 1.0's numbers JT[179] — the port's `jt166` is an
+		 * unrelated menu-mode setter. */
+		jt179(0);
 		jt384(buf1, (const char *)(uintptr_t)g_a5_long(-13952));
 		jt384(buf2, ua_strs_at(0x5308) /* "Exit" */);
 		break;
@@ -83819,8 +83903,22 @@ static short l36e0_c10(short id, short arttype)
 			src24 = jt1012(jt468((short)24), (short)0) + 8;
 			jt406(clutbuf + 96, (void *)(uintptr_t)(src24 + 96), (short)672);
 			jt461((short)24);
+			/* ★ Mac 1.2 FIX (ADR-0018), oracle hunk 8 at CODE 10
+			 * L38ba (@0x3912): the fill value goes 0 -> 1.
+			 *
+			 * The line above has just filled all 768 bytes of
+			 * clutbuf with 1, so filling this 432-byte window with 1
+			 * makes the whole arttype==2 special case a NO-OP — which
+			 * is the point. 1.0 punched a 432-byte hole of zeroes
+			 * into the middle of an otherwise all-ones buffer for
+			 * this one art type; 1.2 stops doing that, leaving
+			 * arttype 2 with the same buffer every other type gets.
+			 *
+			 * Kept as an explicit call rather than deleted, because
+			 * that is what 1.2 does — the instruction is still there
+			 * with a different immediate. */
 			if ((unsigned char)arttype == 2)
-				jt399(clutbuf + 96, (short)432, (short)0);
+				jt399(clutbuf + 96, (short)432, (short)1);
 		}
 		jt1069((short)0, (short)256, clutbuf, (short)0, (long)0);
 		jt1066();
@@ -99849,7 +99947,22 @@ static void l1374(void)
 		1,2,4,5,6,8,9,10,12,13,14,15,16,17,19,20,21,23,24,25,
 		28,29,32,33,34,35,36,37,38,39,41,42,45,46,49,50,54,55,
 		56,57,61,62,63,68,69,71,74,75,78,89,92,93,98,115,119,
-		121,122,123,126,172
+		121,122,123,126,172,
+		/* ★ Mac 1.2 FIX (ADR-0018), oracle hunk 34 at CODE 21 L13f6:
+		 * effect id 73 joins the DISPLAY whitelist, so an active effect
+		 * 73 now shows on the party's spell-effects screen instead of
+		 * being silently omitted. Appended out of ascending order
+		 * because that is where 1.2 puts it — the cascade tests 73 after
+		 * 172, i.e. it was tacked on the end.
+		 *
+		 * The hunk's reported position is an ALIGNMENT ARTEFACT: it
+		 * points at the `#1` test as "4 inserted instructions", but this
+		 * whole function is a 60-deep cascade of identical
+		 * moveq/moveb/cmpiw/beqw quads, so difflib can place the insert
+		 * anywhere in the repeat. Extracting every `cmpiw` operand from
+		 * both listings shows the chains are identical for 60 tests and
+		 * 1.2 simply has a 61st. Compare the SET, not the position. */
+		73
 	};
 	long           list = 0, tail;
 	long           m, sel_node = 0;

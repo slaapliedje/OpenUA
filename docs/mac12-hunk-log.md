@@ -29,17 +29,17 @@ streams**; CODE 17 changes only in operands (see below).
 | 5 | 7 | `L21b6` | delete | 18 | 0 | `l2184` | ✅ ported | l2184 boundary test 1: drop the digit alternative |
 | 6 | 7 | `L22a8` | replace | 19 | 1 | `l2184` | ✅ ported | l2184 boundary test 2 (scan to end of word): same; dead in the asm, live in the port |
 | 7 | 7 | `L3f80` | replace | 1 | 1 | yes | ✅ ported | l2ebc key-mode arg 0 -> 1 (boot.c ~95700) |
-| 8 | 10 | `L38ba` | replace | 1 | 1 | - | ⬜ open |  |
+| 8 | 10 | `L38ba` | replace | 1 | 1 | `l36e0_c10` | ✅ ported | jt399 fill 0 -> 1: the arttype==2 CLUT hole becomes a no-op |
 | 9 | 10 | `L611c` | insert | 0 | 21 | yes | ✅ ported | l611c: sync each ability's CURRENT byte from its PERMANENT byte before the save |
 | 10 | 10 | `L6238` | replace | 1 | 1 | yes | ✅ ported | l6238: build the path forwards (clear + 2x jt431) instead of jt436's in-place dir prefix |
 | 11 | 10 | `L6238` | replace | 1 | 5 | yes | ✅ ported | l6238: the second jt431 join (same change as hunk 10) |
-| 12 | 12 | `L071c` | replace | 1 | 2 | - | ⬜ open |  |
-| 13 | 12 | `L0d3e` | insert | 0 | 16 | - | ⬜ open |  |
+| 12 | 12 | `L071c` | replace | 1 | 2 | n/a | 🚫 artefact | DISASSEMBLY DESYNC: an inline dispatch table after `jsr JT[1]` decoded as instructions. Both listings are garbage here — not a comparable change |
+| 13 | 12 | `L0d3e` | insert | 0 | 16 | `l0aae` | ✅ ported | Training Hall: after a RESUMED save, force-enable Create/Delete/Add/Remove/Load/Save/Exit |
 | 14 | 12 | `L3426` | replace | 1 | 5 | `l33d8` | ✅ ported | l33d8 pass 2: skip SUMMONED combatants (`mc[21]==1`) so a conjured creature cannot mask a party wipe |
-| 15 | 13 | `L105c` | insert | 0 | 5 | - | ⬜ open |  |
-| 16 | 16 | `L50cc` | insert | 0 | 3 | - | ⬜ open |  |
+| 15 | 13 | `L105c` | insert | 0 | 5 | `l102a` | ✅ ported | l102a: no-permadeath also stops the per-round BLEED-OUT (dying -> dead at >9) |
+| 16 | 16 | `L50cc` | insert | 0 | 3 | `l4faa` | ✅ ported | l4faa default arm: jt179(0) — init the slot table l2184 reads instead of inheriting a stale one |
 | 17 | 18 | `L003a` | insert | 0 | 13 | jt860 | ✅ ported | jt860: honour the design's no-permadeath flag — status 6/7/8 downgrades to 5 |
-| 18 | 18 | `L61d4` | replace | 1 | 1 | - | ⬜ open |  |
+| 18 | 18 | `L61d4` | replace | 1 | 1 | `jt822` | ✅ ported | jt822: the effect-148 VALUE word 0 -> 1 (magnitude, one per victim) |
 | 19 | 19 | `L25ce` | insert | 0 | 2 | yes | ✅ ported | jt893: hoist the -22281 save+clear to entry |
 | 20 | 19 | `L2c20` | delete | 2 | 0 | yes | ✅ ported | jt893: 1.0 per-case save+clear deleted |
 | 21 | 19 | `L2c20` | delete | 1 | 0 | yes | ✅ ported | jt893: 1.0 per-case restore deleted |
@@ -55,13 +55,15 @@ streams**; CODE 17 changes only in operands (see below).
 | 31 | 20 | `L70d4` | insert | 0 | 1 | `l709e` | ✅ ported | l709e: clear `-4943` per event so the deferred re-trigger flag cannot leak across a chain |
 | 32 | 20 | `L76c4` | replace | 3 | 1 | `l709e` | ➖ churn | codegen only: `moveq`+`moveb`+`tstw` -> `tstb`. Same test, no semantic change |
 | 33 | 20 | `L76fa` | delete | 1 | 0 | `l709e` | ✅ ported | l709e: drop the tail `-4943` clear, redundant once hunk 31 clears at the loop top |
-| 34 | 21 | `L13f6` | insert | 0 | 4 | - | ⬜ open |  |
+| 34 | 21 | `L13f6` | insert | 0 | 4 | `l1374` | ✅ ported | l1374: effect id 73 joins the spell-effects DISPLAY whitelist (position is an artefact) |
 | 35 | 21 | `L3af2` | delete | 20 | 0 | yes | ✅ ported | l3af2: DELETE 1.0's silent clamp — the half that ARMS hunks 36-38. **OBSERVED FIRING** |
 | 36 | 21 | `L4816` | insert | 0 | 8 | yes | ✅ ported | jt955 case 3: overland bounds guard #1 + the refusal message |
 | 37 | 21 | `L4816` | insert | 0 | 5 | yes | ✅ ported | jt955 case 3: overland bounds guard #2 (out of range == blocked) |
 | 38 | 21 | `L4874` | insert | 0 | 8 | `jt955` | ✅ ported | jt955 case 3: the second guard's tail |
 
-### Ported so far (27 of 38, +2 churn)
+### Ported: 33 of 38 — the structural pass is COMPLETE
+
+2 churn (4, 32), 1 artefact (12), 2 blocked (25, 26). Nothing else is open.
 
 | hunks | function | fix |
 |---|---|---|
@@ -86,6 +88,13 @@ streams**; CODE 17 changes only in operands (see below).
 | 33 | `l709e` (CODE 20 `L76fa`) | drop the tail `clrb -4943`. Companion to hunk 31, which moved that clear to the top of the loop body — with it there this one is redundant (every iteration would clear twice). **Unlike hunk 35 this deletion arms nothing:** the loop-back chain at 0x7708 does test `-4943`, but the `tstb -4942; beqw L70d4` immediately above always branches (`-4942` was cleared four instructions earlier), so that test is unreachable in BOTH releases. Also corrects hunk 31's note, which claimed 1.0's tail clear sits inside `if (-4945 == 0)`: the guard at 0x76a6 is `tstb -4945; bnes L76fa`, so L76fa — the clear — is the JOIN both paths reach and is unconditional. The leak hunk 31 fixes is across CALLS (nothing cleared the flag on entry), not across chained events within one call |
 
 | 3, 5, 6 | `l1a0c` + `l2184` (CODE 7) | **digits stop being word boundaries** in both prompt splitters — one coherent CODE 7 fix, and the same "digits are not letters" family as hunk 23's tolower correction. 1.0's boundary test is `isupper(c) \|\| isdigit(c)`; 1.2 deletes every digit clause, leaving `JT[408]`/isupper alone. Measured, not inferred: `l2184` goes from four `cmpib #48/#57` compares to **zero** (the four `cmpib #65/#90` survive), `l1a0c` from two to **zero** with its single JT[408] intact. Why it matters: `l2184` picks the Nth boundary-delimited word by index, so a digit acting as a boundary injects a spurious word and shifts every later index — any prompt containing a number ("1st level", "2 gold") extracted the wrong words from that point on. `l1a0c` is worse: it terminates each word IN PLACE by overwriting the boundary char with NUL (`*(p - 1) = 0`), so a digit boundary CORRUPTED the caller's prompt buffer, chopping "1st" into "" + "st". Hunk 6's site was already inert in the asm (1.0 reaches its digit test only when isupper is true, and nothing is both, so it always fell through) — 1.2 deletes the dead branch, 19 instructions down to 1 — but it was NOT inert in the port, which had written the two clauses as a plain `\|\|`. Verified live: the `View \| Take \| Pool \| Share \| Exit` bar and `Press Return to continue.` still render with correct boxed accelerators |
+
+| 13 | `l0aae` (CODE 12 `L0d3e`) | after a **resumed saved game**, force the roster-management and save/load verbs enabled whatever the flag walk decided. `-18485` is the play-loop mode byte (0 = fresh "new game", non-zero = resumed); the `-14440..-14429` cluster the enable loop reads is computed for the fresh-start case, so on a resume 1.0 could leave the Hall showing a menu where you could not Save, Load, Add or Remove anyone — exactly the verbs a resumed session needs. cmd 16 SETS rec[28] bit 0, the same command the loop's enabled arm uses. By the #82 slot mapping the three calls cover 0-1 (Create, Delete), 6-9 (Add, Remove, Load Saved Game, Save Current Game) and 11 (Exit From Play) — pointedly NOT 2-5 (Modify/Train/Human Change Class/View) nor 10 (Begin Adventuring). Callees by (segment, offset): CODE 3+0x30ba = the port's `l30ba(start,end,cmd)`, CODE 3+0x3056 = `jt444`; 1.2 numbers them JT[445]/JT[443], 1.0 numbers them JT[446]/JT[444], and the port's `jt445` is an unrelated CODE 3+0x294e stub |
+| 15 | `l102a` (CODE 13 `L105c`) | the no-permadeath flag also stops the per-round **bleed-out** — the third and most consequential site in that family. A status-5 (dying) character ticks `mc[16]` once per combat round here and converts to status 6 (dead for good) at >9. Hunks 17 and 1 funnel characters INTO status 5 precisely so `l33d8` can revive them at 1 HP; this is what stopped that from working, so a design declaring no permadeath still lost anyone left dying for ten rounds |
+| 16 | `l4faa` (CODE 16 `L50cc`) | call `jt179(0)` in the default arm. Every other arm already initialised the `-24126` slot-index table; the default arm did not, so it inherited whatever the PREVIOUS menu left there — and that table is exactly what `l2184` reads to decide which prompt word belongs to which slot, so the one-verb "Exit" prompt could extract the wrong word. Same subsystem as the CODE 7 hunks 3/5/6, which is the reason to port them together. The argument is 0 because `jt179` writes indices 0..count and this arm has a single entry |
+| 18 | `jt822` (CODE 18 `L61d4`) | the effect-148 VALUE word goes 0 -> 1. `jt876` stamps `node[2] = value`, so 1.0 appended the effect with magnitude 0 — present on the list but carrying nothing for readers that scale by it; 1.2 makes it one per victim, matching the accumulating loop. (The pre-existing faithful oddity stands: jt876's target is `rec`, the SOURCE, not the victim.) |
+| 34 | `l1374` (CODE 21 `L13f6`) | effect id **73** joins the spell-effects DISPLAY whitelist, so an active effect 73 now shows on the party's effects screen instead of being silently omitted. Appended out of ascending order because that is where 1.2 puts it (the cascade tests 73 after 172 — tacked on the end). **The hunk's position is an alignment artefact:** it points at the `#1` test as "4 inserted instructions", but the function is a 60-deep cascade of identical `moveq/moveb/cmpiw/beqw` quads, so difflib can place the insert anywhere in the repeat. Extracting every `cmpiw` operand from both listings shows 60 identical tests and a 61st in 1.2 — compare the SET, not the position |
+| 8 | `l36e0_c10` (CODE 10 `L38ba`) | the `jt399` fill value goes 0 -> 1, which makes the whole `arttype == 2` special case a **no-op**: the line above has just filled all 768 bytes of `clutbuf` with 1, so 1.0 was punching a 432-byte hole of zeroes into the middle of an otherwise all-ones buffer for this one art type and 1.2 stops. Kept as an explicit call rather than deleted, because that is what 1.2 does — same instruction, different immediate |
 
 Verified: same-harness before/after frames are byte-identical on the walk, camp,
 Magic, chargen and map-editor paths (AE=0), i.e. no regression.
@@ -144,6 +153,29 @@ observed-firing — each needs its own situation (a design under test, a prompt
 inside the Items browser, that one picker, a monster edited then saved). The
 harness now exists to promote them one at a time; see ADR-0018.
 
+
+### Phantom hunks: where the differ cannot be trusted
+
+Two of the 38 turned out not to be changes at all. Both are worth knowing before
+chasing a hunk that will not make sense.
+
+**Hunk 12 — disassembly desync (a whole class).** CODE 12 @0x0730 is
+`jsr %a5@(42) -> CODE 1+0x130 (JT[1])`, and from 0x0734 the listing degenerates
+into `orib #18,%d4`, `.short 0x004e`, `orib #83,%ccr`. That is an INLINE
+DISPATCH TABLE being decoded as instructions — the THINK C pattern CLAUDE.md
+documents for JT[3], here after its JT[1] sibling. Both listings are garbage in
+that region, and 1.2's table entries differ because the segment's other changes
+shifted the offsets, so the aligner reports a hunk. There is nothing to port.
+Tell-tale: implausible mnemonics (`orib` into `%ccr`, bare `.short`) in the
+hunk's own context. Check for a `jsr %a5@(42)` / `%a5@(58)` just above.
+
+**Hunk 34 — insertion point inside a repeat.** `l1374` is a 60-deep cascade of
+identical `moveq/moveb/cmpiw/beqw` quads, and difflib may place an insertion
+anywhere within a repeat, so the hunk pointed at the FIRST test. Extracting
+every `cmpiw` operand from both listings showed 60 identical tests plus a 61st
+in 1.2 (`73`). **In a repetitive region, compare the SET of operands, not the
+reported position.** The same reasoning retired hunk 6's "19 instructions
+changed" to "a dead branch deleted".
 
 ### `--triage`: the enclosing FUNCTION, not the nearest label
 
