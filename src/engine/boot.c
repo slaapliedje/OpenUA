@@ -31262,8 +31262,9 @@ static int jt556(long rec_l)
  *      preview/test mode, g_a5_-22269).
  *   3. For each of the 7 class slots rec[157+i] the character holds
  *      (level > 0): test the AD&D racial level limit (switch on the race
- *      rec[88], keyed to the prime-requisite ability rec[113]=STR /
- *      rec[115]=INT) and the hard cap 40; if not capped and the XP for
+ *      rec[88], keyed to the prime-requisite ability — rec[112]=STR /
+ *      rec[114]=INT since the Mac 1.2 fix below; 1.0 read the working
+ *      bytes rec[113]/rec[115]) and the hard cap 40; if not capped and the XP for
  *      level+1 (jt26) is met, mark the class trainable (bit g_a5_-23023[i])
  *      and track the just-below-next-level XP (xpAfter).
  *   4. Two "best class" passes (faithful: the Mac runs both — the first with
@@ -31330,6 +31331,31 @@ static void jt557(void)
 	maxIdx    = 0;
 
 	for (i = 0; i <= 6; i++) {                      /* L6d6a..L70ec */
+		/* ★ Mac 1.2 FIX (ADR-0018), oracle: the 13 CODE 17 operand
+		 * changes at L6dcc/L6dfe/L6e28/L6e58/L6e7a/L6eac/L6ed6/L6f58/
+		 * L6f80/L6fa2/L6fd4/L6ffe/L702e — all inside this switch, which
+		 * is JT[557]'s copy of the AD&D racial level-limit table (an elf
+		 * fighter caps at 5/6/7 by strength, and so on).
+		 *
+		 * 1.0 gates those limits on rec[113]/rec[115] — the WORKING
+		 * ability bytes. 1.2 reads rec[112]/rec[114], the BASE scores
+		 * (`moveb %a0@(113)` -> `%a0@(112)`, 9 sites, and (115) ->
+		 * (114), 4 sites; docs/char-record-layout.md documents the
+		 * base/working pairing at rec[112 + i*2] / rec[113 + i*2]).
+		 *
+		 * It matters because the working score is temporary: a
+		 * strength-drained fighter would hit a LOWER racial cap than
+		 * their race allows, and one standing in a temporary boost could
+		 * train past their real cap — and since training permanently
+		 * raises the level, that exploit sticks after the boost expires.
+		 * A racial limit is a property of the natural score.
+		 *
+		 * Cached into locals rather than re-read at each of the 13 sites
+		 * as the asm does; the record cannot change inside the switch,
+		 * and `rec` itself is already cached at function entry. */
+		unsigned char baseStr = rec[112];
+		unsigned char baseInt = rec[114];
+
 		if (rec[157 + i] == 0)
 			continue;
 		haveMask += g_a5_byte(-23023 + (long)i);
@@ -31340,13 +31366,13 @@ static void jt557(void)
 		case 0:                                 /* L6e28 */
 			if (i == 2) {
 				if (curLvl == 7
-				 || (curLvl == 6 && rec[113] == 17)
-				 || (curLvl == 5 && rec[113] < 17))
+				 || (curLvl == 6 && baseStr == 17)
+				 || (curLvl == 5 && baseStr < 17))
 					atLimit = 1;
 			} else if (i == 5) {
 				if (curLvl == 11
-				 || (curLvl == 9  && rec[115] < 17)
-				 || (curLvl == 10 && rec[115] == 17))
+				 || (curLvl == 9  && baseInt < 17)
+				 || (curLvl == 10 && baseInt == 17))
 					atLimit = 1;
 			}
 			break;
@@ -31357,28 +31383,28 @@ static void jt557(void)
 			}
 			if (i == 2 || i == 4) {
 				if (curLvl == 8
-				 || (curLvl == 7 && rec[113] == 17)
-				 || (curLvl == 6 && rec[113] < 17))
+				 || (curLvl == 7 && baseStr == 17)
+				 || (curLvl == 6 && baseStr < 17))
 					atLimit = 1;
 			} else if (i == 5) {
 				if (curLvl == 8
-				 || (curLvl == 7 && rec[115] == 17)
-				 || (curLvl == 6 && rec[115] < 17))
+				 || (curLvl == 7 && baseInt == 17)
+				 || (curLvl == 6 && baseInt < 17))
 					atLimit = 1;
 			}
 			break;
 		case 2:                                 /* L6dcc */
 			if (i == 2) {
 				if (curLvl == 9
-				 || (curLvl == 8 && rec[113] == 17)
-				 || (curLvl == 7 && rec[113] < 17))
+				 || (curLvl == 8 && baseStr == 17)
+				 || (curLvl == 7 && baseStr < 17))
 					atLimit = 1;
 			}
 			break;
 		case 3:                                 /* L6ed6 */
 			if (i == 2) {
 				if (curLvl == 6
-				 || (curLvl == 5 && rec[113] < 18))
+				 || (curLvl == 5 && baseStr < 18))
 					atLimit = 1;
 			}
 			if (i == 0) {
@@ -31389,8 +31415,8 @@ static void jt557(void)
 		case 4:                                 /* L6ffe */
 			if (i == 2) {
 				if (curLvl == 6
-				 || (curLvl == 5 && rec[113] == 17)
-				 || (curLvl == 4 && rec[113] < 17))
+				 || (curLvl == 5 && baseStr == 17)
+				 || (curLvl == 4 && baseStr < 17))
 					atLimit = 1;
 			}
 			break;

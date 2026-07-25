@@ -92,7 +92,7 @@ are byte-identical between the releases, so a change there would be real.
 | CODE 17 | 13 | **a systematic record-field correction** — see below |
 | CODE 7, 12, 18, 19 | 1 each | CODE 7 is `cmpib #57` -> `cmpib #90`, i.e. a `'9'` -> `'Z'` character-range bound near `L21e6` |
 
-### The CODE 17 cluster (chargen) — analysed, not ported
+### The CODE 17 cluster — ✅ PORTED (13 sites)
 
 Thirteen sites across a run of small predicates (`L6dcc`, `L6dfe`, `L6e28`,
 `L6e58`, `L6e7a`, `L6eac`, `L6ed6`, `L6f58`, …) change
@@ -104,11 +104,26 @@ current** one. So 1.2 switches these checks from the current score to the base
 score: a character temporarily drained or boosted no longer passes or fails a
 chargen check it should not.
 
-**Why it is not ported yet:** none of these labels exists in our tree
-(`grep -c l6dcc src/engine/boot.c` -> 0, and they are not JT exports, so they
-are `jsr %pc@` helpers the lift folded into larger functions). Porting needs
-each site matched to its C equivalent first — worth doing, because reading the
-wrong ability byte is exactly the class of bug that hides for years.
+**Resolved:** those labels are not functions at all — they are branch labels
+inside ONE function, `CODE 17+0x6cd2` = **JT[557] = `jt557`**, the Training
+handler. The 13 sites are its copy of the AD&D racial level-limit table (switch
+on race `rec[88]`, per class slot), and our lift has the identical chain at
+`boot.c` ~31350-31400 with exactly 9 reads of `rec[113]` and 4 of `rec[115]` —
+matching the asm site counts. Ported by reading the BASE bytes into `baseStr` /
+`baseInt` at the top of the loop.
+
+Why it matters: the working score is temporary. A strength-drained fighter would
+hit a lower racial cap than their race allows; one standing in a temporary boost
+could train *past* their real cap — and since training permanently raises the
+level, that exploit outlives the boost.
+
+**Caveat, and it is a big one: this fix cannot fire in the port today.**
+`jt557` has **no caller** — `grep -n 'jt557 *('` finds nothing but its own
+definition, and clicking "Train Character" in the Training Hall (verified live,
+with a party seated) does nothing at all: no picker, no message, no state change.
+The Mac dispatches JT[557] from `CODE 10+0x5cec` and `CODE 12+0x0f68`; neither
+call was wired during the lift. So the ported fix is correct and inert until
+task #78 wires the menu. See the function audit §3.
 
 ## Not yet analysed
 

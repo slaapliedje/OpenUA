@@ -29,8 +29,20 @@ The 4 "missing" are not gaps either (superseded Toolbox printing paths, an
 uncalled deferred arm, and the Mac Package Manager, which has no Falcon
 counterpart).
 
-**So there is no structural work left to find with these tools.** The remaining
-risk is entirely behavioural, which is what §2 is for.
+**So there is no structural work left to find with these tools** — but note the
+word *tools*. A third blind spot showed up later in the session, beyond the PROBE
+bodies `--stubs` counts and the empty switch arms `--arms` counts: **a fully
+lifted body that nothing calls.** `jt557` (Training, 289 lines) is real,
+faithful, classified `REAL`, counted "done" by `jt_progress.py` — and dead,
+because the menu dispatch was never wired (§3). Neither audit tool models
+reachability, so "1201/1206 done" and an inert menu item are not in conflict.
+
+A proper "lifted but unwired" pass is worth building and is *not* a grep:
+`parse_funcs` returns forward declarations as well as definitions, and a first
+attempt that deduped on the wrong one flagged `jt183` and `jt957` — both
+verified working above — as uncalled. Any number produced that way is unusable;
+`jt557` is solid only because its zero call sites were confirmed by hand AND by
+driving the button.
 
 ## 2. Verified live this session
 
@@ -62,7 +74,7 @@ missing is a live run. This is the list to work from, not a stub list.
 
 | Path | Function | Why it is still open |
 |---|---|---|
-| Character **training** | `jt557`, 264 lines | Driven this session and did **not** appear on screen — needs the hall's row selection first, which the harness did not manage. Unknown whether it works. |
+| Character **training** | `jt557`, 289 lines | **NOT UNVERIFIED — INERT.** Re-driven with a party seated: pressing `t` does nothing, and clicking "Train Character" changes only the cursor pixels (AE=1412, i.e. no state change). `grep -n 'jt557 *('` finds **no caller**: the body is fully lifted but nothing invokes it. The Mac dispatches JT[557] from `CODE 10+0x5cec` and `CODE 12+0x0f68`; neither was wired. Tracked in #78. |
 | Spell **memorize / cast / scribe** with a real caster | `l06d6` 30, `l0bc6` 83, `l0df2` 165, `l1374` 66 | Only exercised with a Fighter in the party, so every list was legitimately empty. Needs a Magic-User seated. |
 | **Inn / tavern** events | `l398a` 34, `l4f9a` | Never driven; no HEIRS cell reached that fires them. |
 | **Event / NPC editors** | `jt263` NPC block, event editor | Deferred scope (ADR-0008), never driven. |
