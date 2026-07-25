@@ -165,6 +165,91 @@ def operand_hunks():
 
 LINKW = re.compile(r"linkw %fp,#(-?\d+)")
 FPSLOT = re.compile(r"%fp@\(\s*(-?\d+)\s*\)")
+# dis68k annotates every jump-table call: `jsr %a5@(802)  ; -> CODE 6+0x43c4  (JT[96])`
+JTCALL = re.compile(r"jsr %a5@\(\s*\d+\s*\).*\(JT\[\s*(\d+)\]\)")
+
+
+def call_target_changes():
+    """Calls whose TARGET JT ENTRY changed — not just its slot number.
+
+    A third blind spot, found via hunks 25/26. `--operands` normalises
+    `%a5@(positive)` to "%a5@(JT)" because 1.2 removed one jump-table entry and
+    every slot above it shifts by 8 — but that also erases a change of WHICH
+    entry is called. In hunks 25/26 the 1.0 code calls JT[96] and 1.2 calls
+    JT[99]; as raw operands (802 vs 826) that is indistinguishable from
+    renumbering, and the mnemonics are both `jsr`, so neither existing pass
+    reports it.
+
+    Comparing JT INDICES does not work, and the failed attempt is worth
+    recording. "One entry removed, so an index shifts by 0 or 1" gives 3651
+    hits — all false. 1.2 RESTRUCTURED the table (entries added as well as
+    removed), so the same function moves several indices: `entry_jt96` is
+    CODE 6+0x43c4 in 1.0 and the identical export is JT[99] at CODE 6+0x43d2 in
+    1.2. Nor does comparing the target's CODE SEGMENT help — the table is
+    grouped by segment, so an index shift usually stays inside the same run
+    (1195 of 1207 indices keep their segment).
+
+    What works is target FUNCTION IDENTITY, robust to both index and offset
+    movement: identify a target by its RANK among its segment's exported
+    offsets. 1.0's JT[96] is the k-th export of CODE 6; if 1.2's JT[99] is also
+    the k-th, it is the same function and the call was not retargeted.
+    """
+    def table(path):
+        by_idx, per_seg = {}, {}
+        p = os.path.join(path, "jumptable.txt")
+        if not os.path.exists(p):
+            return None, None
+        for line in open(p):
+            m = re.match(r"\s*JT\[\s*(\d+)\]\s+\S+\s+CODE\s+(\d+)\+(0x[0-9a-f]+)",
+                         line)
+            if m:
+                idx, seg, off = int(m.group(1)), int(m.group(2)), int(m.group(3), 16)
+                by_idx[idx] = (seg, off)
+                per_seg.setdefault(seg, set()).add(off)
+        rank = {}
+        for seg, offs in per_seg.items():
+            for r, off in enumerate(sorted(offs)):
+                rank[(seg, off)] = r
+        return by_idx, rank
+
+    ta, ra_ = table(DIS_10)
+    tb, rb_ = table(DIS_12)
+    if ta is None or tb is None:
+        return []
+
+    def ident(tbl, rank, idx):
+        t = tbl.get(idx)
+        return None if t is None else (t[0], rank.get(t))
+
+    out = []
+    for seg, pa, pb in segments():
+        la, lb = Listing(pa), Listing(pb)
+        sm = difflib.SequenceMatcher(None, la.ops, lb.ops, autojunk=False)
+        for tag, i1, i2, j1, j2 in sm.get_opcodes():
+            if tag != "equal":
+                continue
+            for k in range(i2 - i1):
+                rowa, rowb = la.rows[i1 + k], lb.rows[j1 + k]
+                ma, mb = JTCALL.search(rowa[2]), JTCALL.search(rowb[2])
+                if not (ma and mb):
+                    continue
+                ia, ib = int(ma.group(1)), int(mb.group(1))
+                tgta, tgtb = ta.get(ia), tb.get(ib)
+                if tgta is None or tgtb is None:
+                    continue
+                # Identical (segment, offset) => same function, whatever the
+                # index did. This alone kills 9 of the 10 hits the rank test
+                # produced on its own: 1.2 changed CODE 3's export SET, so a
+                # rank shifts even for functions that never moved.
+                if tgta == tgtb:
+                    continue
+                ida = ident(ta, ra_, ia)
+                idb = ident(tb, rb_, ib)
+                if ida is None or idb is None or ida == idb:
+                    continue
+                out.append((seg, rowa[1], rowa[0], rowb[0], ia, ib,
+                            rowa[2].strip(), rowb[2].strip()))
+    return out
 
 
 def frame_slot_changes():
@@ -311,6 +396,9 @@ def main(argv=None):
     ap.add_argument("--seg", type=int, help="show every hunk in a segment")
     ap.add_argument("--operands", action="store_true",
                     help="instructions that differ only in a meaningful operand")
+    ap.add_argument("--calltargets", action="store_true",
+                    help="calls whose target JT ENTRY changed (invisible to "
+                         "--operands, which treats JT slots as noise)")
     ap.add_argument("--frameslots", action="store_true",
                     help="frame-slot changes, split into real fixes (frame size "
                          "unchanged) vs renumbering churn (frame grew)")
@@ -321,6 +409,18 @@ def main(argv=None):
     for d in (DIS_10, DIS_12):
         if not os.path.isdir(d):
             sys.exit(f"{d} missing — see docs/mac-release.md 'The 1.2 oracle'")
+
+    if args.calltargets:
+        rows = call_target_changes()
+        print("%d calls retargeted to a DIFFERENT jump-table entry" % len(rows))
+        print("   Identity = target (segment, offset), falling back to rank\n"
+              "   among the segment's exports. Expect the occasional false\n"
+              "   positive where 1.2 changed a segment's export set.\n")
+        for seg, lbl, aa, ab, ia, ib, ta, tb in rows:
+            print("CODE %-2d near %-9s  JT[%d] -> JT[%d]" % (seg, lbl, ia, ib))
+            print("   1.0 @%#06x  %s" % (aa, ta))
+            print("   1.2 @%#06x  %s" % (ab, tb))
+        return 0
 
     if args.frameslots:
         interesting, churn = frame_slot_changes()

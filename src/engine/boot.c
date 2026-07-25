@@ -48970,27 +48970,38 @@ static void jt484(char *ins, char *target, short pos)
  * option (jt155 / jt481), and bumps the option count (*nopts) and the running
  * marker index (-27914). l026e_c20 uses *nopts as the valid-selection range.
  *
- * ★ Mac 1.2 FIX (ADR-0018), oracle: the CODE 20 operand change at 1.0 @0x011e
- * -> 1.2 @0x00ee, `cmpib #57` -> `cmpib #90`, with its partner at 1.0 @0x0106
- * `cmpib #48` -> 1.2 @0x00d6 `cmpib #65`. The whole range moves: 1.0 tested
- * '0'..'9', 1.2 tests 'A'..'Z'.
+ * ★ Mac 1.2 FIX (ADR-0018). TWO oracle changes, ONE fix: hunk 23 (an
+ * 18-instruction DELETE at 1.0 @0x00c4..0x00f2) plus the operand change at
+ * 1.0 @0x0106/@0x011e (`cmpib #48`/`#57` -> 1.2 @0x00d6/@0x00ee `#65`/`#90`).
  *
- * The matched byte gets `addiw #32` — tolower(). So 1.0's range was simply
- * WRONG: adding 32 to a digit does not lower-case anything, it maps '0'..'9'
- * (48..57) onto 'P'..'Y' (80..89), and no letter was ever lower-cased. 1.2
- * corrects the range so it lower-cases letters and leaves digits alone.
+ * 1.0's control flow — three branches, all converging on the `addiw #32`
+ * block at L0124:
+ *
+ *     @0x00c4  if (c >= 'A' && c <= 'Z') goto L0124;   // hunk 23 deletes this
+ *     @0x0106  if (c <  '0') goto L0152;               // skip
+ *     @0x011e  if (c >  '9') goto L0152;               // skip
+ *     L0124:   c += 32;
+ *
+ * i.e. `if ((c in A-Z) || (c in 0-9)) c += 32;`. 1.2 deletes the A-Z pre-test
+ * and retargets the digit range to A-Z, leaving `if (c in A-Z) c += 32;`.
+ *
+ * `addiw #32` is tolower(), so the digit half was simply wrong — adding 32 to
+ * a digit maps '0'..'9' (48..57) onto 'P'..'Y' (80..89). 1.2 keeps the
+ * lower-casing and drops the digit mangling.
+ *
+ * The port was FAITHFUL to 1.0 here: it had both clauses, and its old comment
+ * ("lowercases A-Z (and shifts 0-9 by +32, as the Mac does)") was accurate.
+ * An earlier version of this note said the port had "added" the A-Z clause and
+ * was patching around the corruption — wrong. The A-Z test is 1.0's own, at
+ * exactly the address hunk 23 deletes; I had read the digit test at 0x0106
+ * without spotting the guard above it.
  *
  * Scope, measured rather than assumed: the corruption is real but currently
  * UNEXERCISED. STRG's 6-bit alphabet does encode digits (codes 48..57), yet
  * across every design on hand — HEIRS, BEOWOLF, GIANTS, TUTORIAL, the Game39/
  * 40 set — 406 strings carry a '~'/'^' option marker and NOT ONE contains a
  * digit. So this changes no observable output today; it removes a latent
- * corruption that a design using a digit in a prompt would hit.
- *
- * The port had 1.0's digit clause AND an added A-Z clause (its old comment
- * read "lowercases A-Z (and shifts 0-9 by +32, as the Mac does)"), i.e. it
- * reproduced the corruption while patching around it. Dropping the digit
- * clause is both the 1.2 behaviour and the correct one. */
+ * corruption that a design using a digit in a prompt would hit. */
 static void l0098(char *str, unsigned char *nopts)
 {
 	unsigned char w4buf[4]   = {0};   /* fp@-4  : 2-byte copy of -5236 */

@@ -198,7 +198,7 @@ With both forks disassembled side by side, the delta is no longer a guess:
 | Segments with an **identical instruction stream** | — | **12 of 22 changed** | only operands/addresses moved |
 | `DATA` (initialised A5 image) | 12,694 B | 12,694 B | **BYTE-IDENTICAL** |
 | `DREL` (A5 relocations) | 2,052 B | 2,052 B | **BYTE-IDENTICAL** |
-| Jump table (`CODE 0`) | 1208 entries | 1207 entries | 1.2 = 1.0 with **exactly one entry removed** |
+| Jump table (`CODE 0`) | 1208 entries | 1207 entries | **RESTRUCTURED, not "one entry removed"** — see the correction below |
 | `STRS` | 29,148 B / 2145 | 29,220 B / 2147 | 94.9% of entries at an identical offset |
 | **Real code change** | — | **32 instruction hunks in 10 segments** | 1–15 instructions each |
 
@@ -275,12 +275,33 @@ not worth doing. What survives and what does not:
 - **The STRS map is a tool re-run**, not manual work
   (`strs_dos_probe.py --emit-map` against the 1.2 fork), plus regenerated
   offsets for `rsrc_from_dos.py`'s 37 authored strings.
-- **The jump table costs a scripted renumber.** One entry is removed, so
-  `jtN` above the removal point becomes `jtN-1`. The removal point is
-  ambiguous within a run of same-segment entries (indices ~374–489); the first
-  observable divergence is index 489, and everything below ~374 is provably
-  unchanged. ~719 of 1208 indices shift, touching most of our 1,161 distinct
-  `jt` names.
+- **The jump table is a PERMUTATION, not a scripted renumber.** This was the
+  most wrong claim in the original write-up. It said "one entry is removed, so
+  `jtN` above the removal point becomes `jtN-1`", with the first divergence at
+  index 489 and everything below ~374 provably unchanged. Measured properly
+  (2026-07-25) by matching each entry's TARGET inside the 12
+  instruction-identical segments — where offsets cannot move, so target
+  identity is exact:
+
+  | | |
+  |---|---:|
+  | indices whose target is unchanged | 118 |
+  | indices whose target MOVED | **465** |
+  | index deltas observed | −34 … +10, **not** a uniform −1 |
+  | lowest moved index | **254**, not 489 |
+  | port `jtN` names affected (lower bound) | **439** of 1,161 |
+
+  `−1` is merely the commonest delta (304 of 465); the rest sit at −34, −24,
+  −19, −17, −15, −7, −6, −5, −3, −2, +1, +2, +4, +5, +6, +7, +8, +10. And
+  `254 → 256`, `255 → 254`, `256 → 255` is a genuine three-way permutation, so
+  entries were ADDED as well as removed. The 439 figure is a lower bound: it
+  counts only the stable segments, because in the 10 changed ones offsets move
+  too and matching needs instruction alignment first.
+
+  Consequence: a retarget cannot be done with a `jtN -> jtN-1` sweep above a
+  cut point. It needs a derived target-matching map, and the map is only exact
+  where the segment is unchanged. Still mechanical, but not a one-liner — which
+  pushes Option A further away, not closer.
 - **The `lXXXX` helpers are the real grind.** 858 helpers keyed to
   `(CODE, offset)`, and offsets moved in 22 of 23 segments — 7,628 references
   plus `docs/lxxxx-jt-aliases.md` and ~22,277 doc mentions. Mechanical, wide,
