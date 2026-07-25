@@ -29071,7 +29071,18 @@ static int  jt159(const char *prompt, short b);
  * Everything past the window-open JT[103] stays PROBE-only; what the
  * lifts below buy is the call ordering, not the painted result. */
 /* JT[165] (CODE 7+0x15c2) — the n'th node of a linked list (next
- * pointer at +0); 0 when the list is shorter. Full lift. */
+ * pointer at +0); 0 when the list is shorter. Full lift.
+ *
+ * UNCALLED, deliberately (`tools/reach_audit.py --uncalled`). Its two Mac
+ * call sites are both "resolve the list widget's selected INDEX back to a
+ * node": CODE 12 @0x1414 in L12a0 (Add) and @0x1746 in L15e2 (Delete), each
+ * `jt165(idx, head)` right after the jt169 list returns. The port's jt169
+ * lift already hands back the selected node through its `&entry` out-param
+ * alongside `&idx`, so both sites hold the node before jt165 could compute
+ * it and the call would be a redundant re-walk. Kept because it is a
+ * faithful 6-line lift and any future caller that only has an index wants
+ * exactly this. */
+static int  jt165(short id, long ctx) __attribute__((unused));
 static int  jt165(short id, long ctx)
 {
 	short i = 0;
@@ -30444,7 +30455,21 @@ static void l08ba(const char *name, void *bucket)
 
 /* jt587 (CODE 15 + 0x08e8) — (re)initialise a 398-byte party-pool slot: zero it
  * (jt399), optionally load the saved roster into it (mode g_a5_-22733 == 1 ->
- * l08ba), then recompute derived stats (jt21) + refresh (jt910). */
+ * l08ba), then recompute derived stats (jt21) + refresh (jt910).
+ *
+ * UNCALLED, deliberately and with scar tissue (`reach_audit.py --uncalled`).
+ * Its single Mac call site is CODE 12 @0x1430 in L12a0 (Add Character), and
+ * the port CANNOT take it: the port's saved characters are flat 512-byte
+ * cg_pool dumps rather than the Mac's .cch stream l08ba walks, and the port
+ * models party members as nodes INSIDE cg_pool, which a freshly allocated
+ * g_a5_-22212 slot can never be. Calling it anyway WEDGED the Add picker —
+ * it zeroed 398 bytes over the list node and spun jt987's cold-disk retry
+ * forever. l12a0 therefore substitutes a cg_pool lookup and takes only
+ * jt587's TAIL (jt21 + jt910) at the Mac's own point in the sequence; the
+ * long comment at that call site has the full account. Wiring the real thing
+ * means migrating save_roster to jt578/.cch first (ADR-0003). */
+static void jt587(void *dst, void *bucket, short a, short b)
+    __attribute__((unused));
 static void jt587(void *dst, void *bucket, short a, short b)
 {
 	(void)a; (void)b;                                /* fp@16/fp@18 unused by the body */

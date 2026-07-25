@@ -37,12 +37,47 @@ faithful, classified `REAL`, counted "done" by `jt_progress.py` — and dead,
 because the menu dispatch was never wired (§3). Neither audit tool models
 reachability, so "1201/1206 done" and an inert menu item are not in conflict.
 
-A proper "lifted but unwired" pass is worth building and is *not* a grep:
-`parse_funcs` returns forward declarations as well as definitions, and a first
-attempt that deduped on the wrong one flagged `jt183` and `jt957` — both
-verified working above — as uncalled. Any number produced that way is unusable;
-`jt557` is solid only because its zero call sites were confirmed by hand AND by
-driving the button.
+**That pass now exists: `tools/reach_audit.py` (built 2026-07-25).** It was
+indeed not a grep — successive naive versions reported 641, 115, 187, 96 and
+then 0 uncalled bodies on the same tree, every number wrong. The traps, all now
+pinned by `tests/test_reach_audit.py` (13 cases):
+
+- a **forward declaration** is not a call site — counting it is exactly how
+  `jt557` hid, and deduping on the declaration instead of the definition
+  flagged the working `jt183` / `jt957`;
+- a name in a **comment** or inside `PROBE("jtN")` is not a call site (house
+  style names `jtNNN` in prose constantly, so this dominates);
+- a call from a **non-`static`** function IS a call site — collecting callers
+  only from `static` definitions (`stub_audit`'s `FUNC_RE` is anchored on
+  `^static`) is what produced 96, falsely condemning `l07dc` (the phase-6 play
+  loop calls it), `jt919`, `jt931`, `jt989`;
+- a function's **own signature line** is not a call to itself. When `{` sits on
+  its own line the signature falls outside the `[open..close]` body range, so
+  every function looked called and the audit reported **0 findings** — the
+  failure mode that makes such a tool worse than useless.
+
+Validated against ground truth rather than trusted: run over `boot.c` at
+`acb844f1` (before the wiring commit) it reports `jt557` uncalled; at HEAD it
+does not.
+
+It runs three passes, because "unreachable" has three distinct shapes here —
+and the third was found the same day, so this is not hypothetical:
+
+| pass | shape | instance |
+|---|---|---|
+| `--uncalled` | no call site at all | `jt557` (the trainer, #78) |
+| `--gated` | called, but behind an A5 flag the port pins to constant 0 | `jt556` (Human Change Class, #82) |
+| `--harness` | called only inside `#ifdef FRUA_*` | none at HEAD |
+
+`--gated` self-verifies against the disassembly: a pin is only a defect if the
+**Mac** stores a non-zero there. Of 8 pinned slots, 7 are `clr`-only on the Mac
+too (faithful), and the 8th (`-1314`, Color QuickDraw present) is a deliberate
+platform constant, recorded in the tool's `TRIAGED_PINS` with its reason so
+nobody re-derives it.
+
+**Baseline at HEAD: 0 findings in all three passes** — 41 uncalled bodies all
+carry `__attribute__((unused))`, and the two that did not (`jt165`, `jt587`) are
+now annotated with why (below).
 
 ## 2. Verified live this session
 
@@ -79,6 +114,8 @@ missing is a live run. This is the list to work from, not a stub list.
 | **Inn / tavern** events | `l398a` 34, `l4f9a` | Never driven; no HEIRS cell reached that fires them. |
 | **Event / NPC editors** | `jt263` NPC block, event editor | Deferred scope (ADR-0008), never driven. |
 | Alt / Fix camp arms | `l2d7e` 52, `l038a` 7 | Bar entries seen, arms not exercised. |
+| `jt587` — faithful Add-Character loader | `jt587`, CODE 15 +0x08e8 | **Deliberately not called, and the only entry here that is a real capability gap rather than an undriven path.** Its Mac call site (CODE 12 @0x1430 in `L12a0`) cannot be taken: the port's saved characters are flat 512-byte `cg_pool` dumps, not the Mac's `.cch` stream `l08ba` walks, and the port models party members as nodes *inside* `cg_pool`, which a fresh `-22212` slot never is. Calling it anyway wedged the Add picker (zeroed 398 bytes over the list node, spun `jt987`'s cold-disk retry). `l12a0` substitutes a `cg_pool` lookup plus jt587's **tail** (`jt21` + `jt910`) at the Mac's own point in the sequence. Closing it means migrating `save_roster` to `jt578`/`.cch`; the reconciled reader `l08ba_c15` already exists, unused. |
+| `jt165` — n'th list node | `jt165`, CODE 7 +0x15c2 | Not a gap. Both Mac call sites (`L12a0` @0x1414, `L15e2` @0x1746) resolve the list widget's selected *index* back to a node; the port's `jt169` lift already returns the node via its `&entry` out-param, so the call would be a redundant re-walk. Annotated `__attribute__((unused))`. |
 | ~~Training's **guild class mask**~~ | `jt557` L7324 gate | **RESOLVED 2026-07-24 — there was never a missing writer. The mask was 0 because I was entering the hall the wrong way.** `guildMask = g_a5_28006[48]` is written by the **Training-Hall event** (`CODE 20 @0x2d32` = `l2d32`, `rec[48] = ev[8]`), which the port has lifted faithfully and which was already wired into `l709e` case 6. Every earlier trace entered the hall from the **main menu** (`jt918(1)` from `l07dc`), where no hall event has run and `[48] == 0` is the *correct* value — so "we don't train that class here" was the honest answer to "which classes does this nonexistent guild train?". Driving the real event (HEIRS `GEO008` cell(col=24,row=6), "SIR FTUCIS, TRAINING MASTER OF THE ROAD GUARDS" → "Does the party want to train?" → Yes) gives `[48] = 61`, exactly the event's `ev[8]`, and the verdict is right. Do **not** force `0xFF` at our call site — that is the trainer UI's behaviour (`CODE 17 @0x2840`, `CODE 10 @0x5cbe`), not this arm's. **Lesson: before hunting for a missing writer, check that the caller was reached the way the Mac reaches it.** |
 | ~~Hall menu **enable flags** + slot mapping~~ | `L0aae`/`L0df6`/`L0e98`, CODE 12 | **RESOLVED 2026-07-24 (#82) — the cluster is now a straight transcription and the port's three compensating swaps are gone.** One index runs the whole menu: install position = enable slot (`-14440 + i`) = `JT[3]` dispatch case. Proof: all twelve case bodies test exactly `-14440 + their own case number`. **The trap** — `JT[452]` is variadic and C pushes right-to-left, so within each 4-item group the *last* item in the asm is the *first* argument. Reading top-down reverses each group, which is where the port's "Train/Create, Add/View and Remove/Change-Class are label-crossed on the Mac" theory came from. There is no crossing. True order: 0 Create, 1 Delete, 2 Modify, 3 Train, 4 Human Change Class, 5 View, 6 Add, 7 Remove, 8 Load, 9 Save, 10 Begin, 11 Exit. Four independent confirmations: each body calls the JT its label implies (`0→JT[574]` create, `3→JT[557]` train, `4→JT[556]` class, `7→JT[584]` remove, `9→JT[585]` save); the STRS label offsets come out strictly ascending; `-14434`'s ">5 members" clear lands on Add, exactly where `#100` had moved it empirically; and the cluster reproduces the live BasiliskII enable set for **all 12** items (always = Create/Delete/Add/Load/Exit, roster-gated = Modify/View/Remove/Save/Begin, mask-gated = Train + Change Class). `-14440` and `-14429` are never written by any CODE segment — DATA seeds, `a5_scalars.c` has `-14440 = 1`; verified live (Create is enabled on an empty roster). Verified in-game: empty roster shows exactly the five always-on items; Add opens the pool picker; Create opens PICK RACE/CLASS; View opens `jt904`'s sheet; in a real hall Train and Change Class both light up (`-14436 = -14437`) and Change Class opens "Pick New Class" — a path that was permanently dead with `-14433` pinned to 0. |
 | ~~`jt101` alerts never survive a repaint~~ | — | **RETRACTED — this was my measurement error, not a bug.** `jt101` paints correctly and dwells: `l4bac` waits `jt476(-17518[gameRec[18]])`, and with text speed 4 that is 1000 ticks. Sampling frames at t=0/1/2/4 s after a Train click shows "we don't train that class here" on screen at t=0 and t=1 and gone by t=2. My earlier "no output" reading came from a single screenshot taken 7 s after the click — after the dwell had expired. Nothing to fix. |
