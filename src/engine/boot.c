@@ -31516,6 +31516,16 @@ static void jt557(void)
 		*(long *)(rec + 68) = xpAfter;
 
 #ifdef FRUA_HALLDIAG
+	{
+		const unsigned char *gr = (const unsigned char *)g_a5_28006;
+		dbg_file_num("game rec -28006 ", (long)(uintptr_t)gr);
+		if (gr) {
+			dbg_file_num("   [18] text speed ", (long)gr[18]);
+			dbg_file_num("   [48] guild mask ", (long)gr[48]);
+			dbg_file_num("   dwell -17518[speed] ",
+			    (long)(short)g_a5_word(-17518 + (long)gr[18] * 2));
+		}
+	}
 	dbg_file_num("jt557 haveMask ", (long)haveMask);
 	dbg_file_num("   trainMask ", (long)trainMask);
 	dbg_file_num("   guildMask ", (long)guildMask);
