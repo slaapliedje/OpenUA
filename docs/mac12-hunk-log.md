@@ -24,10 +24,10 @@ streams**; CODE 17 changes only in operands (see below).
 |--:|--:|---|---|--:|--:|---|---|---|
 | 1 | 6 | `L25c0` | insert | 0 | 5 | jt39 | ✅ ported | jt39: no-permadeath skips BOTH status-6 arms — hunk 17's fix on the damage route |
 | 2 | 6 | `L4e3a` | replace | 1 | 1 | `l4d98` | ✅ ported | l4d98: clear the -22222 SLOT (`pea`), not the object it points at (`movel`) |
-| 3 | 7 | `L1a66` | delete | 11 | 0 | - | ⬜ open |  |
-| 4 | 7 | `L1ace` | replace | 1 | 1 | - | ⬜ open |  |
-| 5 | 7 | `L21b6` | delete | 18 | 0 | - | ⬜ open |  |
-| 6 | 7 | `L22a8` | replace | 19 | 1 | - | ⬜ open |  |
+| 3 | 7 | `L1a66` | delete | 11 | 0 | `l1a0c` | ✅ ported | l1a0c: a digit no longer ends a word — only isupper does |
+| 4 | 7 | `L1ace` | replace | 1 | 1 | `l1a0c` | ➖ churn | `beqw` -> `beqs`: branch width, shrunk by hunk 3's deletion |
+| 5 | 7 | `L21b6` | delete | 18 | 0 | `l2184` | ✅ ported | l2184 boundary test 1: drop the digit alternative |
+| 6 | 7 | `L22a8` | replace | 19 | 1 | `l2184` | ✅ ported | l2184 boundary test 2 (scan to end of word): same; dead in the asm, live in the port |
 | 7 | 7 | `L3f80` | replace | 1 | 1 | yes | ✅ ported | l2ebc key-mode arg 0 -> 1 (boot.c ~95700) |
 | 8 | 10 | `L38ba` | replace | 1 | 1 | - | ⬜ open |  |
 | 9 | 10 | `L611c` | insert | 0 | 21 | yes | ✅ ported | l611c: sync each ability's CURRENT byte from its PERMANENT byte before the save |
@@ -61,7 +61,7 @@ streams**; CODE 17 changes only in operands (see below).
 | 37 | 21 | `L4816` | insert | 0 | 5 | yes | ✅ ported | jt955 case 3: overland bounds guard #2 (out of range == blocked) |
 | 38 | 21 | `L4874` | insert | 0 | 8 | `jt955` | ✅ ported | jt955 case 3: the second guard's tail |
 
-### Ported so far (24 of 38, +1 churn)
+### Ported so far (27 of 38, +2 churn)
 
 | hunks | function | fix |
 |---|---|---|
@@ -84,6 +84,8 @@ streams**; CODE 17 changes only in operands (see below).
 | 1 | `jt39` (CODE 6 `L25c0`) | honour no-permadeath on the DAMAGE route — hunk 17's fix from the other side. When `hdr[29]` is set, 1.2 branches past BOTH status-6 ("destroyed") outcomes — `over > 9` massive overkill, and `dealt == 0 && rec[94] == 1` — straight to the `over > 0` arm, which lands on status 5, the one `l33d8` revives at 1 HP. Hunk 17 plugs the explicit-status route (a spell naming 6/7/8); this plugs damage promoting a character to destroyed on its own. **The branch target re-tests `over`** (`tstw %fp@(-2); blss L2616`), so jumping there cannot mislabel a survivor — worth stating because the insert sits at the JOIN of the would-die and survives branches and so runs on both. `hdr[29]` is per-combat, set from the combat event's `ev[12] & 0x40` (`boot.c` ~48861) and cleared after the fight; **19 such combats exist** across the fan modules on hand (Game40 x9, Game39 x4, G39INST/G39RAW x2 each, Curse, GAME39), so both hunks are reachable — just not in HEIRS |
 | 29 | `l2e42` (CODE 20 `L3114`) | set `-4942` ("transition done") once the animated passage has finished walking the party. That is l709e's chain-control flag: its loop breaks on `-4945 == 0 \|\| -4942 != 0` and the tail latches it into `-4941`; other movement handlers already set it. `l2e42` physically relocates the party over `ev[6]` frames, so without this the event chain kept running with the pre-move context and could fire follow-on events resolved against the cell the party had just left |
 | 33 | `l709e` (CODE 20 `L76fa`) | drop the tail `clrb -4943`. Companion to hunk 31, which moved that clear to the top of the loop body — with it there this one is redundant (every iteration would clear twice). **Unlike hunk 35 this deletion arms nothing:** the loop-back chain at 0x7708 does test `-4943`, but the `tstb -4942; beqw L70d4` immediately above always branches (`-4942` was cleared four instructions earlier), so that test is unreachable in BOTH releases. Also corrects hunk 31's note, which claimed 1.0's tail clear sits inside `if (-4945 == 0)`: the guard at 0x76a6 is `tstb -4945; bnes L76fa`, so L76fa — the clear — is the JOIN both paths reach and is unconditional. The leak hunk 31 fixes is across CALLS (nothing cleared the flag on entry), not across chained events within one call |
+
+| 3, 5, 6 | `l1a0c` + `l2184` (CODE 7) | **digits stop being word boundaries** in both prompt splitters — one coherent CODE 7 fix, and the same "digits are not letters" family as hunk 23's tolower correction. 1.0's boundary test is `isupper(c) \|\| isdigit(c)`; 1.2 deletes every digit clause, leaving `JT[408]`/isupper alone. Measured, not inferred: `l2184` goes from four `cmpib #48/#57` compares to **zero** (the four `cmpib #65/#90` survive), `l1a0c` from two to **zero** with its single JT[408] intact. Why it matters: `l2184` picks the Nth boundary-delimited word by index, so a digit acting as a boundary injects a spurious word and shifts every later index — any prompt containing a number ("1st level", "2 gold") extracted the wrong words from that point on. `l1a0c` is worse: it terminates each word IN PLACE by overwriting the boundary char with NUL (`*(p - 1) = 0`), so a digit boundary CORRUPTED the caller's prompt buffer, chopping "1st" into "" + "st". Hunk 6's site was already inert in the asm (1.0 reaches its digit test only when isupper is true, and nothing is both, so it always fell through) — 1.2 deletes the dead branch, 19 instructions down to 1 — but it was NOT inert in the port, which had written the two clauses as a plain `\|\|`. Verified live: the `View \| Take \| Pool \| Share \| Exit` bar and `Press Return to continue.` still render with correct boxed accelerators |
 
 Verified: same-harness before/after frames are byte-identical on the walk, camp,
 Magic, chargen and map-editor paths (AE=0), i.e. no regression.
@@ -306,14 +308,25 @@ alphabet does encode digits (codes 48..57), yet across every design on hand
 option marker and **not one** contains a digit. So this changes no observable
 output today — it removes a latent corruption a digit-using prompt would hit.
 
-**CODE 7 `l2184`, 1.0 @0x2212 -> 1.2 @0x21c2**: 1.0's word-start test is
-`(c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')`; 1.2 raises the second
-clause's upper bound to `'Z'`, making the effective predicate the contiguous
-`'0'..'Z'` and subsuming the first clause. Net delta: the seven characters
-between `'9'` and `'A'` — `:;<=>?@` — now also start a word. Ported faithfully
-but flagged as odd: unlike the CODE 20 change this is not obviously the intent
-rather than a sloppy widening. Verified no regression on `jt904`'s record sheet
-(the screen `l2184` feeds), which renders identically.
+**CODE 7 `l2184`, 1.0 @0x2212 -> 1.2 @0x21c2 — ⚠️ THIS READING WAS WRONG, see
+hunks 3/5/6.** It said 1.2 raises the digit clause's upper bound to `'Z'`,
+making the predicate the contiguous `'0'..'Z'` and adding `:;<=>?@` as word
+starts — and even flagged that result as "odd". It was an **alignment
+artefact**: 1.2 deletes 1.0's digit block entirely, so the instruction sitting
+at that offset in 1.2 belongs to the surviving A-Z test, and the operand pass
+paired 1.0's `'9'` bound with 1.2's `'Z'` bound from an unrelated compare.
+
+The operand pass compares instructions that align BY MNEMONIC. After a
+deletion the alignment shifts, so two same-mnemonic instructions from different
+tests can be paired and reported as an operand change. The docstring's warning
+about reading an insert hunk's operands applies to the operand pass in reverse:
+**check that an operand "change" is not the shadow of a nearby deletion.**
+
+The real change is a plain removal, measured rather than inferred: 1.0's
+`l2184` holds FOUR `cmpib #48/#57` ('0'/'9') compares and four `cmpib #65/#90`
+('A'/'Z'); 1.2 holds **zero** digit compares and the same four alpha ones. The
+`"odd"` `:;<=>?@` behaviour never existed in either release — the port
+introduced it, and it is now gone. See hunks 3, 5, 6 below.
 
 ### The CODE 17 cluster — ✅ PORTED (13 sites)
 

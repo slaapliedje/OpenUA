@@ -62883,21 +62883,34 @@ static void l2184(const char *src)
 
 	while (src_idx < len) {
 		ch = (unsigned char)src[src_idx];
-		/* ★ Mac 1.2 FIX (ADR-0018), oracle: CODE 7 1.0 @0x2212 -> 1.2
-		 * @0x21c2, `cmpib #57` -> `cmpib #90`. 1.0's word-start test is
-		 * `(c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')` (the A-Z
-		 * half at 0x21c8/0x21e0, the digit half at 0x21f8/0x2212); 1.2
-		 * raises the second clause's upper bound to 'Z', so the
-		 * effective predicate becomes the CONTIGUOUS range '0'..'Z' —
-		 * the first clause is then subsumed.
+		/* ★ Mac 1.2 FIX (ADR-0018), oracle hunk 5 at CODE 7 L21b6 (18
+		 * deleted instructions). A word starts at an UPPERCASE letter
+		 * only — 1.2 deletes the digit alternative outright.
 		 *
-		 * Net behavioural delta: the seven characters between '9' and
-		 * 'A' — `:;<=>?@` — now also start a word. Faithful to 1.2, but
-		 * flagged as odd: unlike the CODE 20 tolower range (a plain
-		 * off-by-range bug), it is not obvious this was the intent
-		 * rather than a sloppy widening. It only matters for prompts
-		 * containing that punctuation at a word start. */
-		if (ch < '0' || ch > 'Z') {
+		 * CORRECTION to what stood here. This used to read the change as
+		 * `cmpib #57` -> `cmpib #90`, i.e. 1.2 widening the digit
+		 * clause's upper bound to 'Z' and so making the predicate the
+		 * contiguous range '0'..'Z'. That was an ALIGNMENT ARTEFACT of
+		 * the operand pass: with 1.0's whole digit block deleted, the
+		 * instruction sitting at that offset in 1.2 belongs to the
+		 * surviving A-Z test, so the differ paired 1.0's '9' bound with
+		 * 1.2's 'Z' bound from an unrelated compare. The note even
+		 * flagged the result as "odd" — it was wrong.
+		 *
+		 * Measured instead of inferred: in 1.0's l2184 there are FOUR
+		 * `cmpib #48/#57` ('0'/'9') compares and four `cmpib #65/#90`
+		 * ('A'/'Z'); in 1.2 there are ZERO digit compares and the same
+		 * four alpha ones. Every digit test is gone, from both of this
+		 * function's two boundary tests.
+		 *
+		 * Why it matters: l2184 picks the Nth boundary-delimited word by
+		 * index (`g_a5_-24126[out_idx*2] == iter_char`). A digit that
+		 * counts as a boundary injects a spurious extra word and shifts
+		 * every later word's index, so any prompt containing a number
+		 * ("1st level", "2 gold") extracted the WRONG words from that
+		 * point on. 1.0's `:;<=>?@` behaviour the old note worried about
+		 * never existed. */
+		if (ch < 'A' || ch > 'Z') {              /* jt408 = isupper */
 			src_idx++;
 			continue;
 		}
@@ -62920,8 +62933,20 @@ static void l2184(const char *src)
 			while (src_idx < len) {
 				unsigned char c2 = (unsigned char)src[src_idx];
 
-				if ((c2 >= 'A' && c2 <= 'Z')
-				    || (c2 >= '0' && c2 <= '9'))
+				/* ★ Mac 1.2 hunk 6 at CODE 7 L22a8 — l2184's
+				 * SECOND boundary test, the scan to end of word.
+				 * The digit alternative goes here too (see the
+				 * outer test above for the measurement).
+				 *
+				 * In the asm this one was already inert: 1.0
+				 * reaches its digit test only when isupper(c) is
+				 * TRUE, and no character is both, so the test
+				 * always failed and fell through to the same
+				 * place. 1.2 deletes the dead branch and inverts
+				 * the condition — 19 instructions down to 1.
+				 * Here it is not inert, because the port wrote
+				 * the two clauses as a plain `||`. */
+				if (c2 >= 'A' && c2 <= 'Z')
 					break;
 				src_idx++;
 			}
@@ -63038,8 +63063,24 @@ static short l1a0c(const char *prompt, void *buf)
 				break;
 			if (l466a((short)(unsigned char)*p))
 				break;
-			if (*p >= '0' && *p <= '9')
-				break;
+			/* ★ Mac 1.2 FIX (ADR-0018), oracle hunk 3 at CODE 7
+			 * L1a66 (11 deleted instructions): the digit
+			 * alternative is deleted, leaving only the
+			 * `JT[408]`/l466a isupper test above as a word
+			 * boundary. Same change as hunks 5/6 make to l2184's
+			 * two tests — one coherent CODE 7 fix, and the same
+			 * "digits are not letters" family as hunk 23's tolower
+			 * correction in CODE 20.
+			 *
+			 * Measured: 1.0's l1a0c holds two `cmpib #48/#57`
+			 * compares and one JT[408] call; 1.2 holds ZERO digit
+			 * compares and the same single JT[408].
+			 *
+			 * l1a0c terminates each word IN PLACE by overwriting
+			 * the boundary character with NUL (`*(p - 1) = 0`), so
+			 * a digit wrongly treated as a boundary did not merely
+			 * mis-split — it CORRUPTED the caller's prompt buffer,
+			 * chopping "1st" into "" + "st" and losing the digit. */
 		}
 
 		if (at_flag != 0) {
