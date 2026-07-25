@@ -29040,6 +29040,16 @@ static int l0f1a(short a)
 	PROBE("jt918/case0 L0f1a");
 	if (g_a5_14440 == 0)
 		return 0;
+#ifdef FRUA_HALLFREE
+	/* HARNESS (make EXTRA_CFLAGS+=-DFRUA_HALLFREE): raise the Mac's own
+	 * free-training bypass so jt557 takes its SUCCESS branch regardless of
+	 * XP or purse. -22730 is not an invention — the trainer UI at CODE 17
+	 * +0x2840 raises the same flag, and jt557 already honours it at the
+	 * affordability check, the trainable-mask test and the guild gate. The
+	 * only headless way to exercise the "will become" preview / jt159
+	 * confirm / level-bump tail without hand-editing a .CHR. Never ship. */
+	g_a5_22730 = 1;
+#endif
 	jt557();                             /* JT[557] — the faithful trainer */
 	g_a5_27946 = 0;
 	return 0;
@@ -31320,6 +31330,16 @@ static void jt557(void)
 	void          *iter;
 
 	PROBE("jt557");
+
+	/* PORT guard: the Mac reads rec[94] with no NULL check, so with no
+	 * character selected (-27932 == 0) it dereferences address 94 — legal
+	 * (if meaningless) in the Mac's flat low memory, a fault or garbage on
+	 * a 68030 with the TOS vectors there. The enable gate on the caller's
+	 * side should keep us out of here, but the Mac's own slot-0 seed is an
+	 * unconditional 1, so do not rely on it. */
+	if (rec == NULL)
+		return;
+
 #ifdef FRUA_HALLDIAG
 	dbg_file_num("jt557 enter, rec ", (long)(uintptr_t)rec);
 	if (rec) {
@@ -91874,11 +91894,37 @@ static int jt918(short a)
 		 * The Mac keys this off the current character pointer (-27932);
 		 * the port keys off the active-party list head (-27928), which
 		 * cg_party_relink clears to 0 on an empty roster — the same
-		 * discriminant and robust to a stale -27932. This supersedes the
-		 * L0df6/L0e98 reading + the gameRecord[48] interim: the faithful
-		 * Create/Remove [48] gate is unliftable until the design header
-		 * populates [48], and for a loaded design its result is "enabled"
-		 * either way, so it does not affect the observable behavior. */
+		 * discriminant and robust to a stale -27932.
+		 *
+		 * The Mac's own cluster init, for the record (CODE 12
+		 * 0x0df6..0x0ec6). Slot i is menu-item i's enable byte, painted
+		 * by the L0d10 loop as jt444(i, nonzero ? 24 : 16):
+		 *
+		 *   L0df6  (-27932 != 0, a character is selected)
+		 *     -14439 = 1;  -14438 = 1;
+		 *     -14437 = (gameRec[48] != 0 || -22730 != 0);   // 0x0e14..0x0e2e
+		 *     -14436 = -14437;
+		 *     -14435 = 1;  -14434 = 1;
+		 *     if (active party members > 5) -14434 = 0;     // 0x0e44..0x0e7a
+		 *     -14433 = 1;  -14432 = 1;  -14431 = 1;  -14430 = 1;
+		 *   L0e98  (-27932 == 0, fresh)
+		 *     -14439 = 1;  -14438 = -14437 = -14436 = -14435 = 0;
+		 *     -14434 = 1;  -14433 = 0;  -14432 = 1;
+		 *     -14431 = -14430 = 0;
+		 *   -14440 and -14429 are never written by ANY CODE segment —
+		 *     they hold their DATA seeds (see a5_scalars.c: -14440 = 1).
+		 *
+		 * So the gameRecord[48] gate is NOT "unliftable" (this comment
+		 * used to claim it was): it is the fully determinate predicate
+		 * above, and l2d32 populates [48] from the Training-Hall event's
+		 * ev[8] on the way in. What is still unresolved is the slot ->
+		 * displayed-item MAPPING: a literal transcription onto the port's
+		 * labels would disable Create and Add on an empty roster, which
+		 * would make a fresh design unstartable, and it contradicts the
+		 * live BasiliskII enable set above. The Mac decouples the painted
+		 * order from the case dispatch (the #100 note below); until that
+		 * mapping is pinned down, the empirical set wins and the values
+		 * below stay port-authored. */
 		{
 			short party = (g_a5_long(-27928) != 0) ? 1 : 0;
 
@@ -91893,17 +91939,38 @@ static int jt918(short a)
 			if (g_a5_27932 != 0)
 				l02dc(g_a5_27932);   /* repaint the roster grid */
 
-			/* Train Character — ENABLED as of 2026-07-24. It was
-			 * pinned to 0 with the rationale "no eligibility gate
-			 * lifted yet"; that gate IS jt557, which has since been
-			 * lifted in full (the AD&D racial level-limit switch, the
-			 * guild class mask, the jt26 XP thresholds and the
-			 * affordability check), so the reason no longer holds. The
-			 * item's refusal messages ("we only train conscious
-			 * people", "Training costs %s platinum") only make sense
-			 * if the player can reach them, so gate it on the roster
-			 * like the other character-scoped items. */
-			g_a5_14440 = (unsigned char)party; /* Train Character    */
+			/* Train Character. Gated on "does THIS hall train?" —
+			 * the Mac's own guild-mask predicate from 0x0e14..0x0e2e,
+			 * applied here to the Train slot.
+			 *
+			 * This is a port DECISION, not a transcription, and the
+			 * reason is the slot->item mapping noted above: the Mac
+			 * leaves slot 0 at its DATA seed (1), yet the live Mac
+			 * greys Train out in the pre-adventure hall, so slot 0 is
+			 * evidently not the painted Train item there. Given the
+			 * port cannot copy the constant, the predicate to pick is
+			 * the one the Mac already uses to decide whether a hall
+			 * offers its guild services at all.
+			 *
+			 * It reproduces both observed behaviours: the
+			 * pre-adventure hall (reached from the main menu, no
+			 * Training-Hall event has run, gameRec[48] == 0) greys
+			 * Train, matching BasiliskII; an in-dungeon Training Hall
+			 * (l2d32 wrote rec[48] = ev[8] before jt918(1)) offers it.
+			 * It also means jt557 can never run against a zero mask,
+			 * which is what made it answer "we don't train that class
+			 * here" for every character regardless of class (#78).
+			 *
+			 * -22730 is the Mac's own bypass in the same expression
+			 * (the trainer UI raises it); jt557 honours it too. */
+			{
+				const unsigned char *gr =
+				    (const unsigned char *)g_a5_28006;
+				short trains = (gr != NULL && gr[48] != 0)
+				            || g_a5_22730 != 0;
+
+				g_a5_14440 = (unsigned char)(party && trains);
+			}
 			g_a5_14439 = (unsigned char)party; /* Modify Character   */
 			g_a5_14438 = 1;                    /* Delete Character   */
 			g_a5_14437 = 1;                    /* Create Character   */
