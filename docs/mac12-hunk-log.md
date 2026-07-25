@@ -31,8 +31,8 @@ streams**; CODE 17 changes only in operands (see below).
 | 7 | 7 | `L3f80` | replace | 1 | 1 | yes | ✅ ported | l2ebc key-mode arg 0 -> 1 (boot.c ~95700) |
 | 8 | 10 | `L38ba` | replace | 1 | 1 | - | ⬜ open |  |
 | 9 | 10 | `L611c` | insert | 0 | 21 | yes | ⬜ open |  |
-| 10 | 10 | `L6238` | replace | 1 | 1 | yes | ⬜ open | clears the -202 path buffer before the join, and swaps JT[436] (3 args) for JT[431] (2) |
-| 11 | 10 | `L6238` | replace | 1 | 5 | yes | ⬜ open | second JT[431] join replacing the 1.0 single call |
+| 10 | 10 | `L6238` | replace | 1 | 1 | yes | ✅ ported | l6238: build the path forwards (clear + 2x jt431) instead of jt436's in-place dir prefix |
+| 11 | 10 | `L6238` | replace | 1 | 5 | yes | ✅ ported | l6238: the second jt431 join (same change as hunk 10) |
 | 12 | 12 | `L071c` | replace | 1 | 2 | - | ⬜ open |  |
 | 13 | 12 | `L0d3e` | insert | 0 | 16 | - | ⬜ open |  |
 | 14 | 12 | `L3426` | replace | 1 | 5 | - | ⬜ open |  |
@@ -61,7 +61,7 @@ streams**; CODE 17 changes only in operands (see below).
 | 37 | 21 | `L4816` | insert | 0 | 5 | yes | ✅ ported | jt955 case 3: overland bounds guard #2 (out of range == blocked) |
 | 38 | 21 | `L4874` | insert | 0 | 8 | yes | ✅ ported | jt955 case 3: the second guard's tail |
 
-### Ported so far (9 of 38)
+### Ported so far (11 of 38)
 
 | hunks | function | fix |
 |---|---|---|
@@ -69,6 +69,7 @@ streams**; CODE 17 changes only in operands (see below).
 | 30 | `l5676` (CODE 20 `L57a0`) | say "Transfer module ends testing!" before a type-11 transfer tears down a test-play session, instead of vanishing silently |
 | 19–22 | `jt893` (CODE 19 `L25ce`) | the in-combat flag `-22281` is suppressed across the WHOLE Items browser (save+clear at entry, restore at exit) rather than only around the trade/give confirm |
 | 7 | the `L3f80` picker (CODE 7) | the modal key-mode argument to `l2ebc` goes 0 -> 1, enabling `l23b4`'s `arg_lo != 0` arm |
+| 10, 11 | `l6238` (CODE 10 `L6238`) | build the delete path FORWARDS — clear the buffer, `jt431` the design dir, `jt431` the leaf — instead of `jt436`'s in-place directory prefix, which has to slide the existing contents up inside a fixed 202-byte buffer. 1.2 also grew the frame 16 bytes for a separate leaf buffer. `l419e` right below already used the two-append idiom, so 1.2 is making `l6238` consistent with the rest of CODE 10 |
 
 Verified: same-harness before/after frames are byte-identical on the walk, camp,
 Magic, chargen and map-editor paths (AE=0), i.e. no regression. None of the four
@@ -88,9 +89,36 @@ are byte-identical between the releases, so a change there would be real.
 | segment | count | what it looks like |
 |---|--:|---|
 | CODE 21 | 61 | not yet analysed |
-| CODE 20 | 15 | not yet analysed |
+| CODE 20 | 15 | one is now analysed + ✅ PORTED: the `l0098` tolower range — see below |
 | CODE 17 | 13 | **a systematic record-field correction** — see below |
-| CODE 7, 12, 18, 19 | 1 each | CODE 7 is `cmpib #57` -> `cmpib #90`, i.e. a `'9'` -> `'Z'` character-range bound near `L21e6` |
+| CODE 7, 12, 18, 19 | 1 each | CODE 7 is `cmpib #57` -> `cmpib #90`, a `'9'` -> `'Z'` bound near `L21e6` — ✅ PORTED, see below |
+
+### The two character-range changes — ✅ PORTED
+
+Both are `cmpib #57` -> `cmpib #90`, and they are NOT the same fix.
+
+**CODE 20 `l0098`, 1.0 @0x011e -> 1.2 @0x00ee** (with its partner `cmpib #48`
+-> `cmpib #65` at 1.0 @0x0106): the whole range moves from `'0'..'9'` to
+`'A'..'Z'`. The matched byte gets `addiw #32` — `tolower()` — so 1.0's range was
+simply wrong: adding 32 to a digit maps `'0'..'9'` (48..57) onto `'P'..'Y'`
+(80..89) and lower-cases no letter at all. 1.2 fixes the range. The port had
+1.0's digit clause *plus* an added `A-Z` clause, i.e. it reproduced the
+corruption and patched around it; the digit clause is now gone.
+
+*Measured scope:* the corruption is real but **unexercised**. STRG's 6-bit
+alphabet does encode digits (codes 48..57), yet across every design on hand
+(HEIRS, BEOWOLF, GIANTS, TUTORIAL, Game39/40) **406** strings carry a `~`/`^`
+option marker and **not one** contains a digit. So this changes no observable
+output today — it removes a latent corruption a digit-using prompt would hit.
+
+**CODE 7 `l2184`, 1.0 @0x2212 -> 1.2 @0x21c2**: 1.0's word-start test is
+`(c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')`; 1.2 raises the second
+clause's upper bound to `'Z'`, making the effective predicate the contiguous
+`'0'..'Z'` and subsuming the first clause. Net delta: the seven characters
+between `'9'` and `'A'` — `:;<=>?@` — now also start a word. Ported faithfully
+but flagged as odd: unlike the CODE 20 change this is not obviously the intent
+rather than a sloppy widening. Verified no regression on `jt904`'s record sheet
+(the screen `l2184` feeds), which renders identically.
 
 ### The CODE 17 cluster — ✅ PORTED (13 sites)
 

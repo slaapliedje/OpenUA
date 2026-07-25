@@ -48896,11 +48896,32 @@ static void jt484(char *ins, char *target, short pos)
 }
 
 /* L0098 (CODE 20 + 0x0098) — parse the encounter prompt string for its menu
- * options. Walks `str`: lowercases A-Z (and shifts 0-9 by +32, as the Mac
- * does), and for each '~'/'^' option marker splices in the marker templates
- * (-5236 / -5234) via jt484, records the option (jt155 / jt481), and bumps the
- * option count (*nopts) and the running marker index (-27914). l026e_c20 uses
- * *nopts as the valid-selection range. */
+ * options. Walks `str`: lowercases A-Z, and for each '~'/'^' option marker
+ * splices in the marker templates (-5236 / -5234) via jt484, records the
+ * option (jt155 / jt481), and bumps the option count (*nopts) and the running
+ * marker index (-27914). l026e_c20 uses *nopts as the valid-selection range.
+ *
+ * ★ Mac 1.2 FIX (ADR-0018), oracle: the CODE 20 operand change at 1.0 @0x011e
+ * -> 1.2 @0x00ee, `cmpib #57` -> `cmpib #90`, with its partner at 1.0 @0x0106
+ * `cmpib #48` -> 1.2 @0x00d6 `cmpib #65`. The whole range moves: 1.0 tested
+ * '0'..'9', 1.2 tests 'A'..'Z'.
+ *
+ * The matched byte gets `addiw #32` — tolower(). So 1.0's range was simply
+ * WRONG: adding 32 to a digit does not lower-case anything, it maps '0'..'9'
+ * (48..57) onto 'P'..'Y' (80..89), and no letter was ever lower-cased. 1.2
+ * corrects the range so it lower-cases letters and leaves digits alone.
+ *
+ * Scope, measured rather than assumed: the corruption is real but currently
+ * UNEXERCISED. STRG's 6-bit alphabet does encode digits (codes 48..57), yet
+ * across every design on hand — HEIRS, BEOWOLF, GIANTS, TUTORIAL, the Game39/
+ * 40 set — 406 strings carry a '~'/'^' option marker and NOT ONE contains a
+ * digit. So this changes no observable output today; it removes a latent
+ * corruption that a design using a digit in a prompt would hit.
+ *
+ * The port had 1.0's digit clause AND an added A-Z clause (its old comment
+ * read "lowercases A-Z (and shifts 0-9 by +32, as the Mac does)"), i.e. it
+ * reproduced the corruption while patching around it. Dropping the digit
+ * clause is both the 1.2 behaviour and the correct one. */
 static void l0098(char *str, unsigned char *nopts)
 {
 	unsigned char w4buf[4]   = {0};   /* fp@-4  : 2-byte copy of -5236 */
@@ -48917,7 +48938,7 @@ static void l0098(char *str, unsigned char *nopts)
 	for (i = 0; i < jt483(str); i++) {
 		unsigned char c = (unsigned char)str[i];
 
-		if ((c >= 65 && c <= 90) || (c >= 48 && c <= 57))
+		if (c >= 65 && c <= 90)                 /* 'A'..'Z' -> tolower */
 			str[i] = (char)(str[i] + 32);
 
 		if ((unsigned char)str[i] == 126 || (unsigned char)str[i] == 94) {
@@ -62601,8 +62622,21 @@ static void l2184(const char *src)
 
 	while (src_idx < len) {
 		ch = (unsigned char)src[src_idx];
-		if ((ch < 'A' || ch > 'Z')
-		    && (ch < '0' || ch > '9')) {
+		/* ★ Mac 1.2 FIX (ADR-0018), oracle: CODE 7 1.0 @0x2212 -> 1.2
+		 * @0x21c2, `cmpib #57` -> `cmpib #90`. 1.0's word-start test is
+		 * `(c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')` (the A-Z
+		 * half at 0x21c8/0x21e0, the digit half at 0x21f8/0x2212); 1.2
+		 * raises the second clause's upper bound to 'Z', so the
+		 * effective predicate becomes the CONTIGUOUS range '0'..'Z' —
+		 * the first clause is then subsumed.
+		 *
+		 * Net behavioural delta: the seven characters between '9' and
+		 * 'A' — `:;<=>?@` — now also start a word. Faithful to 1.2, but
+		 * flagged as odd: unlike the CODE 20 tolower range (a plain
+		 * off-by-range bug), it is not obvious this was the intent
+		 * rather than a sloppy widening. It only matters for prompts
+		 * containing that punctuation at a word start. */
+		if (ch < '0' || ch > 'Z') {
 			src_idx++;
 			continue;
 		}
@@ -81884,20 +81918,48 @@ static void l26de(short icon)
 }
 
 /* L6238 (CODE 10+0x6238) — delete monster #id's exported "MONST%03d.dat"
- * scratch file: build the leaf name (jt394), prefix the design directory
- * (jt436), FSDelete it (jt416). On a clean delete (>= 0) with the record
+ * scratch file: build the leaf name (jt394), join it under the design
+ * directory, FSDelete it (jt416). On a clean delete (>= 0) with the record
  * still resident (l6028), copy its name field (record + 96) into `dst` and
- * return 1; otherwise 0. Leaf. */
+ * return 1; otherwise 0. Leaf.
+ *
+ * ★ Mac 1.2 FIX (ADR-0018), oracle hunks 10 + 11 (one change in two pieces,
+ * CODE 10 1.0 @0x625a/@0x626a -> 1.2 @0x62a2/@0x62b4).
+ *
+ * 1.0 sprintf'd the leaf into its ONE 202-byte buffer and then prefixed the
+ * design directory in place:
+ *
+ *     jt394(buf, "MONST%03d.dat", id);
+ *     jt436(buf, &g_a5_-31336, 1);        // shift buf right, insert the dir
+ *
+ * 1.2 grew the frame by 16 bytes for a second buffer and builds the path
+ * forwards instead — clear, append the directory, append the leaf:
+ *
+ *     jt394(leaf, "MONST%03d.dat", id);
+ *     full[0] = 0;
+ *     jt431(full, &g_a5_-31336);
+ *     jt431(full, leaf);
+ *
+ * jt436's in-place prefix has to slide the existing contents up to make room,
+ * which is exactly the operation that runs off the end of a fixed buffer when
+ * the design directory is long. The two-append form never overlaps its own
+ * source and destination. Note l419e directly below ALREADY builds its path
+ * with two jt431 concats — 1.2 is making l6238 consistent with the idiom the
+ * rest of CODE 10 already used, which is a good sign this was a real report
+ * rather than a cleanup. */
 static short l6238(short id, long dst) __attribute__((unused));
 static short l6238(short id, long dst)
 {
+	char  leaf[16];                 /* 1.2's added fp@(-218) slot */
 	char  buf[202];
 	short ok = 0;
 
 	PROBE("L6238");
-	jt394(buf, ua_strs_at(0x3002) /* "MONST%03d.dat" */,
+	jt394(leaf, ua_strs_at(0x3002) /* "MONST%03d.dat" */,
 	      (unsigned)(unsigned char)id);
-	jt436(buf, &g_a5_31336, (short)1);
+	buf[0] = '\0';
+	jt431(buf, &g_a5_31336);        /* design-dir prefix */
+	jt431(buf, leaf);               /* then the leaf name */
 	if (jt416(buf) >= 0 && l6028((short)(unsigned char)id) != 0) {
 		char *rec = (char *)(uintptr_t)
 		            *(long *)((char *)(uintptr_t)g_a5_long(-11718) + 10);
