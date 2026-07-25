@@ -1043,6 +1043,45 @@ Net: the DOS-only reconstruction of the *static* A5 world is complete and
 proven. What is left is (a) port-authoring the #71 residue, (b) the #73 runtime
 compass effect, and (c) exercising the untested deep paths.
 
+**CLOSED 2026-07-24 (#67, commits 3bd348d8 + this one) — the three remaining
+items above are done, and the last one paid off exactly as the ADR predicted.**
+
+(a) and (b) closed as #71 and #73. (c) — "combat, chargen, shops, the editor
+remain untested" — is now measured, on the Falcon, replay-ON control vs
+Mac-free subject driven with an identical key stream (harness recipe in
+`docs/a5-residue-accounting.md`). Combat went first (#74/#75). The rest:
+
+| path | result |
+|---|---|
+| Skull Crag shop — merchant, stock + prices, POOL, exit | byte-identical |
+| Temple of Tymora — greeting, services, exit | byte-identical |
+| Map editor — module picker, 3D preview, map, compass, Wd/Ht | byte-identical |
+| Training Hall, race/class picker, icon picker, save prompt, saved roster | byte-identical |
+| Char-gen sheet | **DIVERGED** — Level 1 / age 10 vs level 6 / age 26 |
+
+The divergence was the per-class XP threshold table (A5-30212, 32-bit longs)
+and the racial age/HP quads (A5-30780, `short base; char dice; char sides`)
+reaching the residue because #68's pass only modelled 16-bit word swapping.
+Both are verbatim in the user's CKIT.EXE under the byte orders their element
+types imply, so they ship as positions like everything else —
+`A4_DOS_SWAP32` and `A4_DOS_SWAP16_Q`. Residue: 1,958 B → 1,121 B.
+
+**The lesson, which is the ADR's own lesson one level down again:** the
+reconstruction was "complete and proven" against every screen anyone had
+driven, and stayed wrong on the first screen nobody had. Coverage claims here
+are only as good as the deepest path actually exercised, and the failure is
+always a plausible wrong value rather than a crash — a level-1 fighter looks
+like a game rule, not a bug. Before extending the Mac-free claim to a path
+(chargen was the last big one; character *training*, spell learning and the
+event/NPC editors are still undriven), drive it against a control.
+
+Also worth stating because it inverts a natural instinct: **probe CKIT.EXE
+before authoring**. Both of #67's tables read as textbook authoring
+candidates — AD&D rules, not Mac platform trivia — and both were sitting in
+the player's own binary all along. Authoring them would have worked and been
+the wrong call: source that must stay correct forever, in place of a position
+table that verifies itself.
+
 **Why an ADR:** it fixes the end-state that a large grind (#67) will be measured
 against, and records *why* two tempting shortcuts are closed — dropping the
 replay (measured: breaks the interactive layer) and retargeting to Mac 1.2

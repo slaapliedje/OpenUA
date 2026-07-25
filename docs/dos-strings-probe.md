@@ -20,8 +20,10 @@ compilers for different CPUs, so it was entirely possible their string pools
 could not be reconciled at all — in which case DOS-independence dies regardless
 of any A5 work. So it was settled first.
 
-For (1), see task #67 and the `FRUA_NO_REPLAY` knob in `src/main.c`: the A5
-world is load-bearing and cannot simply be dropped. That remains the real cost.
+For (1), see task #67: the A5 world is load-bearing and cannot simply be
+dropped — but it is now **reconstructed** rather than replayed (relocation
+tables + `a5_scalars.c` + DOS positions map). Closed 2026-07-24; see ADR-0017's
+closing note and `docs/a5-residue-accounting.md`.
 
 ## Method
 
@@ -154,8 +156,9 @@ extracting from unverified offsets.
 **Settles:** the string half of DOS-independence is viable. The risk that killed
 the plan outright is gone.
 
-**Does not settle:** the A5 world (#67) — still the substantial grind, and
-unaffected by this result.
+**Did not settle:** the A5 world (#67) — the substantial grind, unaffected by
+this result. It was finished separately on 2026-07-24 (ADR-0017 closing note),
+so a player now needs the DOS **or** the Mac release, as ADR-0017 set out.
 
 ## Does retargeting the lift to Mac 1.2 help? No.
 
