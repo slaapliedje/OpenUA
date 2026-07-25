@@ -46660,6 +46660,15 @@ static void  l5676(void *ev_v, short type)
 		goto invalid;
 
 	if (g_a5_byte(-18485) != 0 && t == 11) {               /* 57ac early reload */
+		/* ★ Mac 1.2 FIX (ADR-0018), oracle hunk 30 at CODE 20 L57a0.
+		 * A type-11 module TRANSFER while a design is being test-played
+		 * ends the test session — 1.0 just tears the screen down with no
+		 * explanation, which reads as a crash to the designer. 1.2 says
+		 * so first (`jt101(msg, 11, 0)`, i.e. 1.2's JT[91] = our JT[101]
+		 * = CODE 6+0x4b40; CODE 6 grew 14 bytes, which is the whole of
+		 * the 0x4b40 -> 0x4b4e drift). Literal for the same reason as
+		 * the overland refusal in jt955. */
+		jt101("Transfer module ends testing!", 11, 0);
 		g_a5_byte(-27982) = 1;
 		return;
 	}
@@ -48132,6 +48141,19 @@ static void l3eec(void)
 	}
 }
 
+/* Is the pending OVERLAND step off the map? (Mac 1.2 fix, ADR-0018.)
+ *
+ * g_a5_-4904 / g_a5_-4903 are the candidate cell the move logic has just
+ * computed; the overland is 38 rows x 15 columns, so 37 and 14 are the last
+ * valid indices. Mac 1.0 omits this test — see jt955 case 3. Unsigned, as the
+ * 1.2 asm has it (zero-extending `moveb` then `cmpiw`/`bhis`), so a wrapped
+ * 0xff coordinate fails the test instead of passing as -1. */
+static int ov_step_out_of_bounds(void)
+{
+	return (unsigned char)g_a5_byte(-4904) > 37u
+	    || (unsigned char)g_a5_byte(-4903) > 14u;
+}
+
 /* JT[955] (CODE 21+0x453c) — the play forward-move handler proper.
  * Runs after every play-loop command (the Mac's CODE 20+0x4cc0 tail):
  * remembers the pre-move cell, then per -27990 either the DUNGEON arm
@@ -48159,15 +48181,45 @@ static void jt955(void)
 		short zone, sid;
 
 		l3af2();
-		zone = jt197((short)(signed char)g_a5_byte(-4904),
-		             (short)(signed char)g_a5_byte(-4903));
-		sid = jt1180(*(const short *)(const void *)
-		             (ds + (long)zone * 2 + 272));
-		jt232((void *)(uintptr_t)g_a5_long(-13034), sid,
-		      (char *)&g_a5_byte(-5213));
+		/* ★ Mac 1.2 FIX (ADR-0018), oracle hunks 36–38 at CODE 21
+		 * L4816/L4874. 1.0 walks off the edge of the overland map: it
+		 * feeds the candidate cell straight into jt197/jt210 without
+		 * range-checking it, so a step at the border indexes the HDR
+		 * and the wall-art table out of bounds. 1.2 bounds-checks the
+		 * candidate at BOTH use sites against the overland dimensions
+		 * (38 rows x 15 cols -> max 37 / 14) and, when it fails, puts
+		 * the refusal message in the -5213 buffer and takes the
+		 * ordinary blocked path (1.2's L4916 == 1.0's L4902).
+		 *
+		 * The compare is UNSIGNED in the asm (`moveb` zero-extend then
+		 * `cmpiw #37` + `bhis`), which is why this reads the globals
+		 * unsigned rather than reusing the `(signed char)` casts below.
+		 *
+		 * The message is a C literal: the Mac 1.0 STRS pool the port
+		 * loads has no slot for it (1.2 appends two strings), so there
+		 * is nothing to read it from. It is UI diagnostic text of the
+		 * same class as the 37 port-authored strings in
+		 * tools/rsrc_from_dos.py — and it is in the user's own DOS
+		 * CKIT.EXE too, DOS 1.2 having shipped the fix first. */
+		if (ov_step_out_of_bounds()) {
+			jt384((char *)&g_a5_byte(-5213),
+			      "There is no way to go in that direction.");
+		} else {
+			zone = jt197((short)(signed char)g_a5_byte(-4904),
+			             (short)(signed char)g_a5_byte(-4903));
+			sid = jt1180(*(const short *)(const void *)
+			             (ds + (long)zone * 2 + 272));
+			jt232((void *)(uintptr_t)g_a5_long(-13034), sid,
+			      (char *)&g_a5_byte(-5213));
+		}
 		has_str = (unsigned char)(g_a5_byte(-5213) != 0);
-		t = jt210((short)rec[37], (short)rec[38],
-		          (short)(unsigned char)g_a5_byte(-12286));
+		/* 1.2's second guard: an out-of-range candidate is simply
+		 * blocked — jt210 is not consulted at all (short-circuit keeps
+		 * that call order faithful). */
+		t = ov_step_out_of_bounds()
+		    ? (short)1
+		    : jt210((short)rec[37], (short)rec[38],
+		            (short)(unsigned char)g_a5_byte(-12286));
 		if ((t & 0xff) != 0) {          /* L4902 — blocked */
 			if (has_str) {
 				jt20();

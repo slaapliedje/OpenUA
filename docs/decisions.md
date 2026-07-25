@@ -1113,3 +1113,60 @@ replay (measured: breaks the interactive layer) and retargeting to Mac 1.2
 across platforms). Both would otherwise be re-proposed on plausible-sounding
 reasoning. It also pins Falcon as the convergence target so cross-platform
 symptoms are not chased before the reference platform is correct.
+
+---
+
+## ADR-0018 — Mac 1.2's bug fixes are cherry-picked into the 1.0 lift; the port is 1.0 + 1.2 fixes
+
+**Status:** ratified 2026-07-24. Implements ADR-0017 decision 7 (1.2 as a
+per-function oracle) rather than superseding it. Changes the port's *observable
+behaviour* away from Mac 1.0 in a bounded, itemised way.
+
+**Context.** The Mac 1.2 fork was found unextracted in
+`data/unlimited_adventures.sit` and staged (`docs/mac-release.md`), which made
+the delta measurable for the first time. It is small and surgical:
+
+- `DATA` and `DREL` are **byte-identical** — the A5 world does not move at all.
+- The jump table loses exactly one entry (1208 -> 1207).
+- 12 of 22 changed CODE segments have **identical instruction streams**; the
+  real delta is **38 instruction hunks in 10 segments**, 1–20 instructions each
+  (`tools/mac12_diff.py --list`).
+
+So the choice is not "retarget or stay" — it is "port 38 small fixes, or
+knowingly ship known bugs". A retarget would buy the same 38 hunks at the price
+of renumbering every `jtN` above the removed entry and re-keying 858 `lXXXX`
+helpers across 7,628 references (`docs/function-audit-2026-07-24.md` §5).
+
+**Decision.**
+
+1. **Port the 1.2 hunks into the 1.0 lift, one at a time**, each carrying a `★
+   Mac 1.2 FIX (ADR-0018)` comment naming the oracle hunk and the CODE/label so
+   the change is auditable against `tools/mac12_diff.py`.
+2. **The port's target stays Mac 1.0.** Addresses, `jtNNN` indices, `lXXXX`
+   names, the A5 offsets and both position maps remain 1.0's. 1.2 is read, never
+   retargeted to.
+3. **This is a deliberate divergence from 1.0 and is stated as such**, not
+   presented as faithfulness. `docs/decompilation.md`'s "faithful lift" standard
+   still governs *how* each hunk is transcribed; ADR-0018 governs *which
+   version* is the reference for behaviour. Where the two conflict, 1.2 wins and
+   the comment says so.
+4. **Strings 1.2 added are port-authored C literals.** The Mac 1.0 STRS pool the
+   port loads has no slot for them (1.2 appends two entries), so there is nothing
+   to read them from; they are UI diagnostics of the same class as the 37
+   port-authored strings in `tools/rsrc_from_dos.py`, and DOS 1.2 — which the
+   player may own — shipped both first.
+5. **No build flag.** A behaviour-altering flag would mean nobody gets the fix
+   and would violate the release policy (`make release` refuses such flags). The
+   fixes are unconditional.
+
+**Why an ADR:** every other behavioural question in this project is settled by
+"what does Mac 1.0 do", and a future reader finding the port printing a message
+Mac 1.0 never printed would reasonably call it a bug. This is the entry that
+says it is not.
+
+**Caveat worth keeping.** The two user-visible hunks are verified by reading both
+disassemblies; the fix they implement is *bounds checking* and a *diagnostic*,
+so neither is easy to exercise on demand (the overland guard needs a party at a
+map edge, the transfer message needs a design being test-played). They are
+transcription-verified, not yet observed firing — recorded in the hunk log rather
+than claimed as live-tested.

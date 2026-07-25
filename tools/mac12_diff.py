@@ -1,0 +1,247 @@
+#!/usr/bin/env python3
+"""Mac 1.0 vs Mac 1.2 oracle differ — locate the 1.2 bug fixes, function by function.
+
+ADR-0017 decision 7 keeps Mac 1.2 as a per-function *oracle* rather than a
+retarget: when chasing a bug, diff that one function 1.0 vs 1.2 and port just
+the fix. This is the tool that makes that practical.
+
+**Never diff these forks byte-wise.** 1.2 removes one jump-table entry
+(1208 -> 1207), so every `jsr %a5@(...)` operand above it shifts and 22 of 23
+CODE segments "differ" without a single instruction changing — 11,872 bytes of
+pure noise. This tool compares MNEMONIC streams with operands dropped, which
+reduces the whole release to 32 real hunks in 10 segments (see
+docs/function-audit-2026-07-24.md §5).
+
+Inputs are the two disassembly trees:
+
+    python3 tools/dis68k.py data/work/UnlimitedAdventures.rfork
+    python3 tools/dis68k.py data/work/UnlimitedAdventures-1.2.rfork \
+            --out data/work/disasm-1.2
+
+Usage:
+    mac12_diff.py --list                 # the hunk table
+    mac12_diff.py --hunk 12 [-C 14]      # one hunk, both sides, in context
+    mac12_diff.py --seg 21               # every hunk in one segment
+"""
+import argparse
+import difflib
+import os
+import re
+import subprocess
+import sys
+
+DIS_10 = "data/work/disasm"
+DIS_12 = "data/work/disasm-1.2"
+SRC = "src/engine/boot.c"
+
+# `  4816:  4ebaf2da              jsr %pc@(L3af2)`
+#
+# The hex blob is ONE contiguous field of arbitrary length, and the mnemonic may
+# start with '.' (`.short` for words objdump won't decode). Two earlier attempts
+# at this regex were both wrong and both produced plausible-looking hunk counts:
+# `(?:[0-9a-f]{2,4}\s+)+` cannot consume an 8-digit word like `d06effe8`, so
+# every long-form instruction vanished; making that group optional was worse,
+# because then a hex word beginning a..f (`b0280020`) matched the MNEMONIC
+# group. Anchor the blob as one field and require whitespace before the
+# mnemonic.
+INSN = re.compile(r"^\s*([0-9a-f]{4,8}):\s+([0-9a-f]+(?:\s+[0-9a-f]+)*)\s+"
+                  r"(\.?[a-z][a-z0-9._]*)(\s.*)?$")
+LABEL = re.compile(r"^(L[0-9a-f]{4,8}|entry_jt\d+)\b")
+
+
+class Listing:
+    """One CODE_NN.s listing, as a mnemonic stream plus per-instruction context."""
+
+    def __init__(self, path):
+        self.path = path
+        self.ops = []        # mnemonic per instruction
+        self.rows = []       # (addr, label, full source line)
+        label = "(head)"
+        for raw in open(path, errors="replace"):
+            m_lbl = LABEL.match(raw)
+            if m_lbl:
+                label = m_lbl.group(1)
+            m = INSN.match(raw)
+            if m:
+                self.ops.append(m.group(3))
+                self.rows.append((int(m.group(1), 16), label, raw.rstrip()))
+
+    def label_at(self, i):
+        return self.rows[i][1] if 0 <= i < len(self.rows) else "(end)"
+
+    def addr_at(self, i):
+        return self.rows[i][0] if 0 <= i < len(self.rows) else -1
+
+
+def segments():
+    for i in range(1, 23):
+        a = os.path.join(DIS_10, f"CODE_{i:02d}.s")
+        b = os.path.join(DIS_12, f"CODE_{i:02d}.s")
+        if os.path.exists(a) and os.path.exists(b):
+            yield i, a, b
+
+
+def hunks():
+    """[(n, seg, tag, a_lo, a_hi, b_lo, b_hi, la, lb, Listing_a, Listing_b)]"""
+    out, n = [], 0
+    for seg, pa, pb in segments():
+        la, lb = Listing(pa), Listing(pb)
+        if la.ops == lb.ops:
+            continue
+        sm = difflib.SequenceMatcher(None, la.ops, lb.ops, autojunk=False)
+        for tag, i1, i2, j1, j2 in sm.get_opcodes():
+            if tag == "equal":
+                continue
+            n += 1
+            out.append((n, seg, tag, i1, i2, j1, j2, la, lb))
+    return out
+
+
+# Operand noise that MUST be normalised away before an operand-level compare.
+# Everything here moves for structural reasons, not because SSI changed anything:
+#   - `%a5@(7610)` — a POSITIVE A5 displacement is a jump-table slot, and 1.2
+#     removed one entry, so every slot above it shifts by 8. (A NEGATIVE A5
+#     displacement is an A5-world global; DATA/DREL are byte-identical between
+#     the releases, so those are meaningful and are NOT normalised.)
+#   - `L1a2c` / `0x1a2c` — branch targets and CREL-relocated absolutes shift
+#     with segment layout.
+_NOISE = (
+    (re.compile(r"%a5@\(\s*\d+\s*\)"), "%a5@(JT)"),
+    (re.compile(r"\b0x[0-9a-f]+\b"), "ABS"),
+    (re.compile(r"\bL[0-9a-f]{4,8}\b"), "LBL"),
+    (re.compile(r";.*$"), ""),          # the annotation comment
+)
+
+
+def norm_operands(text):
+    for pat, rep in _NOISE:
+        text = pat.sub(rep, text)
+    return " ".join(text.split())
+
+
+def operand_hunks():
+    """Instructions that align by mnemonic but whose MEANINGFUL operands differ.
+
+    The mnemonic-stream compare is deliberately blind to operands, which is what
+    makes it immune to relocation noise — but it is equally blind to a fix that
+    only changes an operand. Both of 1.2's frame-slot corrections
+    (`%fp@(-24)` -> `%fp@(-20)`) live here, so this pass is not optional.
+    """
+    out = []
+    for seg, pa, pb in segments():
+        la, lb = Listing(pa), Listing(pb)
+        sm = difflib.SequenceMatcher(None, la.ops, lb.ops, autojunk=False)
+        for tag, i1, i2, j1, j2 in sm.get_opcodes():
+            if tag != "equal":
+                continue
+            for k in range(i2 - i1):
+                ra, rb = la.rows[i1 + k], lb.rows[j1 + k]
+                ta = norm_operands(ra[2].split(None, 2)[-1])
+                tb = norm_operands(rb[2].split(None, 2)[-1])
+                if ta != tb:
+                    out.append((seg, ra[1], ra[0], rb[0], ra[2].strip(),
+                                rb[2].strip()))
+    return out
+
+
+def jt_exports(seg, lo, hi):
+    """JT indices whose entry point falls in [lo, hi] of this segment."""
+    path = os.path.join(DIS_10, "jumptable.txt")
+    if not os.path.exists(path):
+        return []
+    hits = []
+    for line in open(path):
+        m = re.match(r"\s*JT\[\s*(\d+)\]\s+\S+\s+CODE\s+(\d+)\+(0x[0-9a-f]+)",
+                     line)
+        if m and int(m.group(2)) == seg and lo <= int(m.group(3), 16) <= hi:
+            hits.append(int(m.group(1)))
+    return hits
+
+
+def in_boot_c(label):
+    """Where boot.c mentions this CODE-local label (either spelling)."""
+    if not os.path.exists(SRC) or not label.startswith("L"):
+        return []
+    off = label[1:]
+    pat = rf"\b[lL]{off}\b"
+    try:
+        out = subprocess.run(["grep", "-nE", pat, SRC], capture_output=True,
+                             text=True).stdout.splitlines()
+    except OSError:
+        return []
+    return out[:6]
+
+
+def show(h, ctx):
+    n, seg, tag, i1, i2, j1, j2, la, lb = h
+    lbl = la.label_at(i1 if i1 < len(la.rows) else len(la.rows) - 1)
+    print(f"=== hunk {n}: CODE {seg}  {tag}  "
+          f"1.0 {i2 - i1} insn -> 1.2 {j2 - j1} insn")
+    print(f"    enclosing 1.0 label: {lbl} "
+          f"(1.0 @ {la.addr_at(i1):#06x}, 1.2 @ {lb.addr_at(j1):#06x})")
+    jt = jt_exports(seg, la.addr_at(max(0, i1 - 40)), la.addr_at(i1))
+    if jt:
+        print(f"    JT exports at/above the site: {jt}")
+    for line in in_boot_c(lbl):
+        print(f"    boot.c: {line[:150]}")
+    print(f"--- 1.0 {os.path.basename(la.path)}")
+    for k in range(max(0, i1 - ctx), min(len(la.rows), i2 + ctx)):
+        mark = ">>" if i1 <= k < i2 else "  "
+        print(f" {mark} {la.rows[k][2]}")
+    print(f"+++ 1.2 {os.path.basename(lb.path)}")
+    for k in range(max(0, j1 - ctx), min(len(lb.rows), j2 + ctx)):
+        mark = ">>" if j1 <= k < j2 else "  "
+        print(f" {mark} {lb.rows[k][2]}")
+    print()
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--list", action="store_true", help="summary table")
+    ap.add_argument("--hunk", type=int, help="show one hunk in context")
+    ap.add_argument("--seg", type=int, help="show every hunk in a segment")
+    ap.add_argument("--operands", action="store_true",
+                    help="instructions that differ only in a meaningful operand")
+    ap.add_argument("-C", "--context", type=int, default=10,
+                    help="instructions of context (default 10)")
+    args = ap.parse_args(argv)
+
+    for d in (DIS_10, DIS_12):
+        if not os.path.isdir(d):
+            sys.exit(f"{d} missing — see docs/mac-release.md 'The 1.2 oracle'")
+
+    if args.operands:
+        ops = operand_hunks()
+        print(f"{len(ops)} operand-only changes "
+              f"(mnemonics align; relocation/JT noise normalised away)\n")
+        for seg, lbl, aa, ab, ta, tb in ops:
+            print(f"CODE {seg:2d}  near {lbl:>9}")
+            print(f"   1.0 @{aa:#06x}  {ta}")
+            print(f"   1.2 @{ab:#06x}  {tb}")
+        return 0
+
+    hs = hunks()
+    if args.hunk:
+        for h in hs:
+            if h[0] == args.hunk:
+                show(h, args.context)
+                return 0
+        sys.exit(f"no hunk {args.hunk} (have 1..{len(hs)})")
+    if args.seg:
+        for h in hs:
+            if h[1] == args.seg:
+                show(h, args.context)
+        return 0
+
+    print(f"{len(hs)} changed instruction hunks\n")
+    print("  # | seg | 1.0 label | tag     | 1.0 insn | 1.2 insn | lifted in boot.c")
+    for n, seg, tag, i1, i2, j1, j2, la, lb in hs:
+        lbl = la.label_at(i1 if i1 < len(la.rows) else len(la.rows) - 1)
+        hit = "yes" if in_boot_c(lbl) else "-"
+        print(f" {n:2d} | {seg:3d} | {lbl:>9} | {tag:7} | {i2 - i1:8d} | "
+              f"{j2 - j1:8d} | {hit}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
