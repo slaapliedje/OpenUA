@@ -20606,6 +20606,12 @@ static void l731e(short arg)
 	 * a single pump. For arg=2 (jt1132's mode) exits when -903 is
 	 * set. Default loops with refreshed mask. */
 	while (l6804() == 0 || EventAvail(mask, &ev)) {
+#ifdef FRUA_CLICKDIAG
+		/* The Mac guards the l725c call on NOT-frontmost (see the body
+		 * sketch above); the port calls it unconditionally. Log which
+		 * case we are in when the loop body runs. */
+		dbg_file_num("l731e body, l6804(front?) ", (long)l6804());
+#endif
 		l66e8(&ev);
 #ifdef FRUA_CLICKDIAG
 		/* TaskList #84: does THIS pump consume the events l2d3e never
@@ -20695,6 +20701,39 @@ static short jt1118(void)
  * input — clicks and keys from the host flow into the menu
  * system. Previously the loop spun forever because every poll
  * returned 0. */
+/* ---- pump -> poll handoff (TaskList #84, attempt 2) ---------------------
+ * The Mac's L725c pop is faithful (asm-verified: L731e's loop body calls it
+ * unconditionally, exactly as the port does). So on the Mac the DISPATCH
+ * HANDLERS are what feed JT[1125] — L6dd0 for keys, L690e for the mouse,
+ * into the g_a5_904/912/910 buffer. The port's handlers are deferred and its
+ * jt1125 reads WaitNextEvent instead, so the pop simply loses the event.
+ * Stash what l725c takes and let jt1125 drain it. Counters at BOTH ends this
+ * time — attempt 1 was reverted without knowing which end failed. */
+#define EVFIFO_N 8
+static EventRecord g_evfifo[EVFIFO_N];
+static short       g_evfifo_head, g_evfifo_tail;
+static long        g_evfifo_pushed, g_evfifo_popped, g_evfifo_dropped;
+
+static void evfifo_push(const EventRecord *ev)
+{
+	short nx = (short)((g_evfifo_tail + 1) % EVFIFO_N);
+
+	if (nx == g_evfifo_head) { g_evfifo_dropped++; return; }
+	g_evfifo[g_evfifo_tail] = *ev;
+	g_evfifo_tail = nx;
+	g_evfifo_pushed++;
+}
+
+static int evfifo_pop(EventRecord *out)
+{
+	if (g_evfifo_head == g_evfifo_tail)
+		return 0;
+	*out = g_evfifo[g_evfifo_head];
+	g_evfifo_head = (short)((g_evfifo_head + 1) % EVFIFO_N);
+	g_evfifo_popped++;
+	return 1;
+}
+
 short g_event_was_click;   /* set by jt1125: 1 if the last event was a click */
 
 static signed char jt391(short ch);     /* isalpha — defined below (CODE 3) */
@@ -20712,7 +20751,8 @@ static short  jt1125(short kind, long p1, long p2)
 	/* Drain the pump's stash first (TaskList #84); only poll the shim queue
 	 * when it is empty. The short-circuit keeps the no-stash path bit-for-bit
 	 * the same call it always was. */
-	if (!WaitNextEvent(everyEvent, &ev, 1, NULL)) {
+	if (!evfifo_pop(&ev)
+	 && !WaitNextEvent(everyEvent, &ev, 1, NULL)) {
 		*out1 = 0;
 		*out2 = 0;
 		/* PORT BUG (found 2026-07-25): g_event_was_click was assigned only
@@ -21045,9 +21085,24 @@ static void l725c(short mask)
 	EventRecord ev;
 
 	PROBE("L725c");
-	if (!WaitNextEvent(mask, &ev, 1, NULL))
+	if (!WaitNextEvent(mask, &ev, 1, NULL)) {
+#ifdef FRUA_CLICKDIAG
+		{ static long nmiss; if ((++nmiss % 500) == 1)
+			dbg_file_num("l725c WNE miss, mask ", (long)mask); }
+#endif
 		return;
+	}
+#ifdef FRUA_CLICKDIAG
+	/* THE destructive pop (TaskList #84). Instrument here, not on l731e's
+	 * EventAvail peek — the peek is what misled attempt 1. */
+	dbg_file_num("l725c ATE ev.what ", (long)ev.what);
+	dbg_file_num("   mask ", (long)mask);
+	dbg_file_num("   fifo pushed/popped ",
+	    g_evfifo_pushed * 1000L + g_evfifo_popped);
+#endif
 	g_a5_word(-2592) = ev.what;
+	if (ev.what == keyDown || ev.what == autoKey || ev.what == mouseDown)
+		evfifo_push(&ev);
 
 	switch (ev.what) {
 	case 6:                                    /* updateEvt */

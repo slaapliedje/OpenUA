@@ -223,8 +223,33 @@ Two more measurements pin the shape of it:
 - On the MAIN MENU `l2d3e` does receive events (`key 1`). So the starvation is
   specific to contexts where `l23b4`'s loop calls the pump first.
 
-**Attempt 1 (reverted): stash in `l725c`, drain in `jt1125`.** It was inert, and
-the reason is a trap worth recording. My `l731e PUMPED` log fires on the
+**Attempt 2 (landed): stash in `l725c`, drain in `jt1125`.** Same idea as attempt
+1, but this time with counters at BOTH ends — which is how I learned attempt 1's
+post-mortem was itself wrong. The stash works: 3 pushed, 3 popped in a temple-bar
+run. It restores events the pop was destroying and the Mac never destroys.
+
+It does not by itself make clicks land, and the reason is now precise rather than
+mysterious:
+
+- Two of the three pops are keyDowns, and `jt1125` correctly returns 0 for them.
+  `l2d3e` passes `kind = 7`, `7 & (keyDownMask|autoKeyMask)` is 0, so keys are
+  masked off BY DESIGN — on the Mac they flow through the `-818`/`-820` pending
+  path, not as poll events. That is faithful, not a bug.
+- The third is the mouseDown, which `kind = 7` does admit (`7 & 2`). But
+  `l2d3e` never logged it, so one of the **seven other `jt1125(7, ...)` call
+  sites** took it first. That is the remaining question, and it is a different
+  gap from the one the stash closes.
+
+Regression-checked before landing: main menu, Training Hall and play entry all
+BYTE-IDENTICAL to their pre-change captures, Return still advances the event
+chain, 371 tests pass.
+
+**A correction to attempt 1's post-mortem.** I recorded that the push "never
+fired" because `l725c`'s masked `WaitNextEvent` never took the events. Wrong on
+both counts: `l725c` demonstrably eats them (`l725c ATE ev.what 3`) and the push
+did fire. What actually happened is that I never instrumented either end, so
+"l2d3e still sees nothing" got attributed to the nearest plausible story. The
+underlying lesson from that write-up survives and is still the right one: My `l731e PUMPED` log fires on the
 `EventAvail(mask, &ev)` PEEK in the while condition — which is non-destructive.
 The actual pop happens one level down in `l725c`, which runs its OWN
 `WaitNextEvent(mask, ...)` with a MASK that `l731e` narrows
