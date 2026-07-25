@@ -5592,8 +5592,35 @@ static long jt1143(void)
 	unsigned long t;
 
 	PROBE("jt1143");
+#ifdef FRUA_RNGSEED
+	/* HARNESS (make EXTRA_CFLAGS+=-DFRUA_RNGSEED=12345): pin the RNG so two
+	 * runs are bit-comparable.
+	 *
+	 * This is the ONLY entropy source in the engine. g_a5_-4902 is the single
+	 * LCG state (`state = state * 0x6d25 + 1`, jt1083), every roll routes
+	 * through jt485/jt870/ua_rand into it, and there is no libc rand()/srand()
+	 * anywhere in src/, compat/ or platform/. So fixing this return value
+	 * makes the whole dice/encounter stream reproducible from app init.
+	 *
+	 * Why it exists: without it an A/B screenshot diff cannot distinguish a
+	 * code change from RNG divergence between two boots. That is exactly what
+	 * made the hunk-24 A/B inconclusive — the combat map was identical but the
+	 * highlighted combatant differed (OGRE 22 HP vs GNOLL 10 HP), which is
+	 * initiative RNG, not the fix. It also replaces the older parity recipe's
+	 * workaround of measuring a noise floor (AE 868 on the chargen sheet) and
+	 * cropping to deterministic rows.
+	 *
+	 * Other TickCount() readers remain live: they are timing (caret blink,
+	 * scroll repeat, sleep deadlines) plus the g_a5_-130 tick ORIGIN, which is
+	 * only ever read as a difference. Those affect WHEN a frame settles, not
+	 * what it contains — see docs/deterministic-ab.md for the measured
+	 * residual. Never ship; `make release` rejects behaviour flags. */
+	(void)t;
+	return (long)(FRUA_RNGSEED);
+#else
 	GetDateTime(&t);
 	return (long)(t ^ (unsigned long)TickCount());
+#endif
 }
 
 /* JT[870] (CODE 18 + 0x15f4, 95 sites) — "count d item" dice roll.
@@ -48734,6 +48761,16 @@ static void l159a(void *ev_v, short f)
 		rec[56] = 0;
 	if (rec[56] < rec[55])                     /* clamp the bearing to the wall depth */
 		rec[55] = rec[56];
+#ifdef FRUA_CBTDIAG
+	/* HARNESS (make EXTRA_CFLAGS+=-DFRUA_CBTDIAG): the starting-range state
+	 * hunk 24 touches, so its effect can be read off DBG.LOG rather than
+	 * inferred from pixels. */
+	dbg_file_num("l159a ev[12] ", (long)ev[12]);
+	dbg_file_num("   ev[12]&0x20 ", (long)(ev[12] & 0x20));
+	dbg_file_num("   ev[14] range bits ", (long)((ev[14] & 0x60) >> 5));
+	dbg_file_num("   rec[56] start range ", (long)rec[56]);
+	dbg_file_num("   rec[55] depth ", (long)rec[55]);
+#endif
 
 	jt131(4);
 	jt176();

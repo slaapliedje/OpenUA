@@ -36,6 +36,18 @@
 #ifdef FRUA_SHIM_DEMO
 #error "FRUA_SHIM_DEMO in a RELEASE build: that runs the Toolbox demo, not the game."
 #endif
+/* Added 2026-07-25. These three had been shipping-unguarded; each alters what
+ * the game does, so each belongs here by this header's own rule. */
+#ifdef FRUA_RNGSEED
+#error "FRUA_RNGSEED in a RELEASE build: the RNG would be pinned, so every player gets identical dice, initiative and encounter rolls forever. It exists only for the deterministic A/B harness (docs/deterministic-ab.md)."
+#endif
+#ifdef FRUA_HALLFREE
+#error "FRUA_HALLFREE in a RELEASE build: training would be free and would ignore the XP requirement (it raises the Mac's own -22730 bypass)."
+#endif
+#if defined(FRUA_ENTRY_LEVEL) || defined(FRUA_ENTRY_ROW) \
+ || defined(FRUA_ENTRY_COL) || defined(FRUA_ENTRY_FACING)
+#error "FRUA_ENTRY_* in a RELEASE build: the party would be teleported to a hard-coded cell on every play entry, ignoring the design's start area."
+#endif
 
 #endif /* FRUA_RELEASE */
 #endif /* FRUA_RELEASE_GUARD_H */

@@ -78,16 +78,34 @@ streams**; CODE 17 changes only in operands (see below).
 Verified: same-harness before/after frames are byte-identical on the walk, camp,
 Magic, chargen and map-editor paths (AE=0), i.e. no regression.
 
-**On "observed firing" — still not achieved, including for hunk 24.** Hunk 24 is
-the first with reachable data (HEIRS `GEO011` ev12), and driving that cell does
-reach combat correctly ("OGRES AND THEIR SMALLER ALLIES ATTACK!" → the tactical
-map, OGRE 22 HP / AC 5). An A/B against a build with the one line disabled
-differs (AE=1012) — but that is **not** evidence the fix fired: the map geometry
-is identical in both runs and only the highlighted combatant changes (OGRE 22 HP
-vs GNOLL 10 HP / Halberd), which reads as initiative RNG between two separate
-boots, not as a placement change. A clean demonstration needs a deterministic
-seed; until then hunk 24 counts as ported-and-non-regressing, not
-observed-firing. The same caveat covers the rest; see ADR-0018.
+**Hunk 24 is OBSERVED FIRING (2026-07-25) — the first one.** The deterministic
+A/B harness (`-DFRUA_RNGSEED`, `docs/deterministic-ab.md`) settled it. HEIRS
+`GEO011` event **44** (`ev[12] = 0x20`, bit5 set; range bits 2), reached at
+cell(col=5, row=17) of area 11:
+
+| | `rec[56]` start range | `rec[55]` depth |
+|---|---:|---:|
+| hunk 24 ON | **0** | **0** |
+| hunk 24 OFF | 2 | 2 |
+
+Pixels: **AE 60696**. ON, BARBARUS stands on the tactical map adjacent to three
+Driders with the party command bar up; OFF, the party is off-screen at range 2
+and the Driders take the first round — "Composite Long Bow", "DRIDER is
+Unaffected", `Spell: Mirror Image`. 1.0 ignored the designer's "start adjacent"
+flag, so a melee ambush played as a ranged shooting gallery.
+
+Two corrections to the 2026-07-24 entry that stood here:
+- its AE=1012 was **pure RNG**, not the fix — with the seed pinned the same
+  comparison gives AE=0;
+- it named the wrong cell. `special = event index + 1`
+  (`docs/geo-format.md`), so comparing the special byte to the index sent the
+  run to record 13, whose bit5 is clear. The event-byte count (11 of HEIRS' 175
+  combat events affected) was unaffected; only the cell attribution was wrong.
+
+The other ported fixes remain ported-and-non-regressing rather than
+observed-firing — each needs its own situation (a party at a map edge, a design
+under test, a prompt inside the Items browser, that one picker). The harness now
+exists to promote them one at a time; see ADR-0018.
 
 
 ### Blocked on a prerequisite lift — hunks 25, 26 (CODE 20 `L24e6`)
