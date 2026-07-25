@@ -945,6 +945,30 @@ absolute. Three things were measured on 2026-07-20 rather than assumed:
    re-derived, 22 of 23 CODE segments changed) would churn a working port for
    benefits nobody has demonstrated.
 
+   **Amended 2026-07-24, both directions.** The 1.2 fork was found unextracted in
+   `data/unlimited_adventures.sit` and is now staged
+   (`docs/mac-release.md` "The 1.2 oracle"), so this decision's oracle is a
+   capability rather than an aspiration. Measuring the delta made the decision
+   *more* right for *different* reasons than stated above:
+
+   - "22 of 23 CODE segments changed" is byte-level noise. 1.2 removes one
+     jump-table entry, shifting every `jsr %a5@(…)` operand above it. Comparing
+     mnemonic streams, **12 of the 22 changed segments are instruction-identical**
+     and the whole release is **32 hunks of 1–15 instructions in 10 segments**.
+   - `DATA` and `DREL` are **byte-identical** between 1.0 and 1.2, so the retarget
+     cost this ADR feared for the A5 world is *zero* — `a4_map.c`, the DOS scalar
+     positions map and `a5_scalars.c` would all carry over untouched.
+   - What a retarget would actually cost is pure churn: renumbering `jtN` above
+     the removed entry and re-keying 858 `lXXXX` helpers whose `(CODE, offset)`
+     pairs moved, across 7,628 code references and ~22,277 doc mentions.
+
+   Since the payload is 32 individually-portable hunks and the A5 world does not
+   move, cherry-picking is strictly better than retargeting — which is what this
+   decision already said. Both user-visible 1.2 messages are located: CODE 21
+   `L4816` (the OVERLAND arm of JT[955], already lifted at `boot.c:48155`) and
+   CODE 20 `L57a0`. Porting either is a deliberate divergence from 1.0's
+   behaviour and wants its own ADR.
+
 **Convergence and testing happen on the Falcon first.** It is the primary
 target, the furthest along, the fastest, and it does not hang. Every
 A5-reconstruction milestone is proven there before any bitplane machine sees

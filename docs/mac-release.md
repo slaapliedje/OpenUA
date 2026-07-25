@@ -55,6 +55,39 @@ The `Unlimited Adventures ƒ` folder:
 | `TUTORIAL.DSN`         | The tutorial design (with its own `SAVE/` folder).    |
 | `Art`                  | MacPaint / PICT source art.                           |
 
+## The 1.2 oracle (added 2026-07-24)
+
+`data/` holds **two** StuffIt archives and they are different releases:
+
+| archive | contents | version |
+|---|---|---|
+| `Unlimited_Adventures_disks.sit` | three DiskCopy 4.2 floppy images (the pipeline above) | **1.0** |
+| `unlimited_adventures.sit` | an *installed* "SSI Unlimited Adventures Folder" | **1.2** |
+
+The second one is the Mac 1.2 build ADR-0017 decision 7 wants as a per-function
+oracle. It needs no DiskCopy/DiskDoubler pass — the folder is already unpacked
+inside it:
+
+```sh
+unar -o data/work/mac12 data/unlimited_adventures.sit
+python3 tools/appledouble.py \
+  "data/work/mac12/SSI Unlimited Adventures Folder/Unlimited Adventuresƒ/Unlimited Adventures.rsrc" \
+  --fork resource -o data/work/UnlimitedAdventures-1.2.rfork
+python3 tools/dis68k.py data/work/UnlimitedAdventures-1.2.rfork --out data/work/disasm-1.2
+```
+
+`Version 1.2    February 28,1994`, 633,145-byte fork, app dated 1994-03-02,
+`sha256 c9673b14cb426aa10e5ab79a9a72f20ffa8510b5cbc606384c8679763edc6ad1` on the
+AppleDouble `.rsrc`. It is a **build-time input only** — never a player
+requirement (ADR-0017 decision 1), and like everything under `data/` it is not
+committed.
+
+Diffing it against 1.0 is what produced the 32-hunk delta in
+`docs/function-audit-2026-07-24.md` §5. Note that a raw byte diff is useless
+here: 1.2 removes one jump-table entry, which shifts every `jsr %a5@(…)` operand
+above it and makes 22 of 23 segments "differ" without a single instruction
+changing. Compare mnemonic streams with operands dropped.
+
 ## The decompilation target
 
 The application's **resource fork** is the 68k program. Pull the raw fork out

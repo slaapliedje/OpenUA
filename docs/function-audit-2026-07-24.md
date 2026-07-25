@@ -95,13 +95,26 @@ quoting any number.
 |---|---|---|
 | `data/work/UnlimitedAdventures.rfork` (lift target) | Mac **1.0** | `Version 1.0       April 27,1993` |
 | `data/frua-mac/joined/…`, `data/work/frua.rsrc`, `~/minivmac/frua-clean.dsk` | Mac **1.0** | same |
+| `data/unlimited_adventures.sit` → `data/work/UnlimitedAdventures-1.2.rfork` | Mac **1.2** | `Version 1.2    February 28,1994` |
 | `data/dos-frua/CKIT.EXE` (GOG/Steam) | DOS **1.2** | `Version 1.2        June 28,1993` |
 
-**There is no Mac 1.2 anywhere on this machine.** The 2026-07-20 measurement in
-`docs/dos-strings-probe.md` (2147 STRS entries; "22 of 23 CODE segments
-changed") was made against a fork that is no longer present, so *those specific
-figures are currently unreproducible* and should be read as provenance, not as
-something you can re-check today.
+**We do have Mac 1.2** — it was inside `data/unlimited_adventures.sit` (a StuffIt
+5 archive of an *installed* "SSI Unlimited Adventures Folder", not floppy
+images), unextracted. Staged 2026-07-24:
+
+```sh
+unar -o data/work/mac12 data/unlimited_adventures.sit
+python3 tools/appledouble.py \
+  "data/work/mac12/SSI Unlimited Adventures Folder/Unlimited Adventuresƒ/Unlimited Adventures.rsrc" \
+  --fork resource -o data/work/UnlimitedAdventures-1.2.rfork
+python3 tools/dis68k.py data/work/UnlimitedAdventures-1.2.rfork --out data/work/disasm-1.2
+```
+
+633,145 bytes, `sha256 c9673b14…6ad1` on the AppleDouble `.rsrc`, app dated
+1994-03-02. The 2026-07-20 string figures **reproduce exactly** against it
+(2147 entries, 2070 recovered / 96.4%, 40 substring-only, 37 absent, vs 1.0's
+2145 / 2068), so ADR-0017's oracle is now a capability rather than an
+intention.
 
 ### The finding that changes the answer
 
@@ -122,6 +135,51 @@ DOS line eight months before Mac 1.2 shipped. Nothing about them requires a Mac
 into a wall silently recentres, per the `l1908` blocked-step lift in #77.
 Printing them would be a deliberate 1.0 divergence and wants an ADR.)
 
+### The measured 1.0 → 1.2 delta (this is the important part)
+
+With both forks disassembled side by side, the delta is no longer a guess:
+
+| | Mac 1.0 | Mac 1.2 | |
+|---|---|---|---|
+| `CODE` segments | 23 / 564,850 B | 23 / 564,984 B | **+134 bytes total** |
+| Segments byte-identical | — | **1 of 23** | (CODE 1) |
+| Segments with an **identical instruction stream** | — | **12 of 22 changed** | only operands/addresses moved |
+| `DATA` (initialised A5 image) | 12,694 B | 12,694 B | **BYTE-IDENTICAL** |
+| `DREL` (A5 relocations) | 2,052 B | 2,052 B | **BYTE-IDENTICAL** |
+| Jump table (`CODE 0`) | 1208 entries | 1207 entries | 1.2 = 1.0 with **exactly one entry removed** |
+| `STRS` | 29,148 B / 2145 | 29,220 B / 2147 | 94.9% of entries at an identical offset |
+| **Real code change** | — | **32 instruction hunks in 10 segments** | 1–15 instructions each |
+
+The often-repeated "22 of 23 CODE segments changed" is true at the byte level and
+badly misleading: removing one jump-table entry shifts every `jsr %a5@(…)`
+operand above it, which rewrites thousands of bytes without changing a single
+instruction. Comparing *mnemonic streams* instead — operands dropped, so
+relocation noise cannot masquerade as change — the entire release is **32 hunks**:
+
+| segment | hunks | segment | hunks |
+|---|---:|---|---:|
+| CODE 20 | 8 | CODE 12, 18, 19 | 2 each |
+| CODE 21 | 6 | CODE 6, 13, 16 | 1 each |
+| CODE 7 | 5 | CODE 1,2,3,4,5,8,9,11,14,15,17,22 | **0** |
+| CODE 10 | 4 | | |
+
+**And both new messages are locatable.** 1.2 references them at:
+
+- `CODE 21 + 0x484c` → `"There is no way to go in that direction."` — inside the
+  hunk cluster at **CODE 21 `L4816`**, which is the **OVERLAND arm of JT[955]**
+  and is already in our tree (`boot.c:48155`, `case 3: /* L4816 — OVERLAND */`).
+  1.2 adds ~8 instructions there.
+- `CODE 20 + 0x57c0` → `"Transfer module ends testing!"` — the hunk at **CODE 20
+  `L57a0`** (a 2-instruction insertion).
+
+So the two known fixes are ~10 instructions at two sites in functions we
+already have, and the other 30 hunks are the previously "unknown" 1.2 bug
+fixes — now an enumerable worklist rather than a mystery. Several look like
+exactly the kind of thing a bug-fix release contains: a `bras` → `beqs` (an
+unconditional branch becoming conditional, CODE 12 `L3426`) and two
+stack-slot corrections (`%fp@(-24)` → `%fp@(-20)` in CODE 19, `%fp@(-7)` →
+`%fp@(-9)` in CODE 10).
+
 ### What a retarget would actually cost
 
 Everything in the port is keyed to Mac 1.0 addresses. Measured:
@@ -136,37 +194,57 @@ Everything in the port is keyed to Mac 1.0 addresses. Measured:
 | `jtNNN` / `lXXXX` mentions across `docs/` | 22,277 |
 | The lift itself | 99,393 lines of C over 555,170 bytes of 1.0 CODE |
 
-**Option A — retarget to Mac 1.2.** The jump table reorganises (reported
-1208 → 1207 from index 13), so *every* `jtNNN` index shifts, every `lXXXX`
-(CODE, offset) pair moves, the DATA/DREL layout changes (invalidating
-`a4_map.c`, the DOS scalar positions map and the authored-scalar offsets), and
-the STRS pool grows by two entries so every pool offset in the string map moves
-with it. That is a re-derivation of essentially all of the project's mechanical
-work, for a release that is **eight months further from DOS 1.2** than the
-current target. Verdict: **no** — this is ADR-0017 decision 7, and the evidence
-above strengthens rather than weakens it.
+**Option A — retarget to Mac 1.2.** Cheaper than previously believed, and still
+not worth doing. What survives and what does not:
+
+- **The A5 world needs NO work.** `DATA` and `DREL` are byte-identical, so
+  `a4_map.c`'s 1,016 A4 slots, the DOS scalar positions map, `a5_scalars.c`'s
+  authored offsets and all 1,227 A5 offsets in the code carry over unchanged.
+  This was the largest line item in the earlier estimate and it is now zero.
+- **The STRS map is a tool re-run**, not manual work
+  (`strs_dos_probe.py --emit-map` against the 1.2 fork), plus regenerated
+  offsets for `rsrc_from_dos.py`'s 37 authored strings.
+- **The jump table costs a scripted renumber.** One entry is removed, so
+  `jtN` above the removal point becomes `jtN-1`. The removal point is
+  ambiguous within a run of same-segment entries (indices ~374–489); the first
+  observable divergence is index 489, and everything below ~374 is provably
+  unchanged. ~719 of 1208 indices shift, touching most of our 1,161 distinct
+  `jt` names.
+- **The `lXXXX` helpers are the real grind.** 858 helpers keyed to
+  `(CODE, offset)`, and offsets moved in 22 of 23 segments — 7,628 references
+  plus `docs/lxxxx-jt-aliases.md` and ~22,277 doc mentions. Mechanical, wide,
+  and entirely churn.
+
+For that you get 32 hunks of behaviour, all of which can be taken individually
+(Option C) without moving a single address. And the target would sit **eight
+months further from DOS 1.2** than 1.0 does. Verdict: **no** — ADR-0017
+decision 7 stands, now for measured reasons rather than an over-estimate.
 
 **Option B — port from DOS 1.2 instead.** DOS 1.2 is x86. This is not a
 retarget, it is a different project: it discards the 68k lift, `dis68k`, the
 Mac Toolbox shim (ADR-0003) and every `jt`/`l` identity, in exchange for
 removing a *build-time* input the player never sees. Verdict: **no**.
 
-**Option C — keep 1.0, take fixes individually.** Unchanged recommendation, with
-one correction: the two known fixes need **no Mac 1.2 at all**, because their
-text is in the player's own DOS binary. The work is engine-side (a pool slot
-plus the code path that prints it) and is measured in hours, not months. A Mac
-1.2 fork is only worth acquiring as a **per-function oracle** when chasing a
-specific bug — and we do not currently have one, so "keep 1.2 as an oracle" is
-at present an intention rather than a capability.
+**Option C — keep 1.0, take fixes individually. RECOMMENDED.** Now fully
+supported: we have the 1.2 fork, both disassemblies, and a located 32-hunk
+worklist. Each hunk is 1–15 instructions in a function we have already lifted,
+so porting one is an afternoon's read-and-patch with the two listings side by
+side. The two user-visible ones are known exactly (CODE 21 `L4816`, CODE 20
+`L57a0`), and their text is in the player's own DOS binary as well as in 1.2.
+
+One judgement call remains, unchanged by any of this: printing "There is no way
+to go in that direction." is a **deliberate divergence from 1.0**, whose
+blocked-step behaviour (silent recentre, the `l1908` lift in #77) the port
+currently reproduces faithfully. That wants an ADR, not a quiet patch.
 
 ### Effort summary
 
 | Option | Effort | Buys |
 |---|---|---|
-| A: retarget to Mac 1.2 | months; re-derives ~all address-keyed work | 2 known messages + unknown fixes |
-| B: port from DOS 1.2 | restart the decompilation | removes a build-time-only Mac dependency |
-| C: cherry-pick into the 1.0 lift | hours per fix | the same 2 messages, from DOS data |
-| C′: acquire + archive a Mac 1.2 fork | one-off acquisition | the oracle ADR-0017 assumes we have |
+| A: retarget to Mac 1.2 | weeks of pure churn — jump-table renumber + 858 `lXXXX` re-keys over 7.6k references; A5 world and DATA/DREL cost nothing | the same 32 hunks Option C gets for free |
+| B: port from DOS 1.2 | restart the decompilation (x86) | removes a build-time-only Mac dependency |
+| C: cherry-pick individual hunks | ~an afternoon each, 32 known sites | exactly the 1.2 behaviour, no address churn |
+| C′: acquire + archive a Mac 1.2 fork | **DONE 2026-07-24** — it was in `data/unlimited_adventures.sit` | the oracle ADR-0017 assumes we have |
 
 ## 6. Bottom line
 
@@ -174,5 +252,11 @@ The engine is **structurally complete** — 1201/1206 JT done, no deferred switc
 arms, no real live gaps — and broadly **verified live**, including the paths that
 were open this morning (chargen, shop, temple, editor) and now camp/rest/save/load.
 What is left is a short, specific list of undriven paths (§3), not a lift
-backlog. On versions: stay on Mac 1.0; the only 1.2 content anyone has named is
-already in the DOS data the player supplies.
+backlog.
+
+On versions: **stay on Mac 1.0.** The 1.2 fork turned up unextracted in
+`data/unlimited_adventures.sit` and is now staged, which settles the question
+rather than deferring it: 1.2 is a 32-hunk bug-fix release over an
+**byte-identical A5 world**, so its fixes can be cherry-picked into the 1.0 lift
+one at a time with no address churn at all. A retarget would buy the same 32
+hunks in exchange for renumbering the jump table and re-keying 858 helpers.

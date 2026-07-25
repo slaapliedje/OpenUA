@@ -109,19 +109,22 @@ python3 tools/strs_dos_probe.py <rfork> <CKIT.EXE> --from-rfork --emit-map strs_
 Deriving the map still needs a Mac fork once, on the developer side. It is the
 *player* who is freed from needing one.
 
-### Provenance caveat on the Mac 1.2 figures (added 2026-07-24)
+### The Mac 1.2 fork — where it is (updated 2026-07-24)
 
-The Mac 1.2 row in the table above, and the "22 of 23 CODE segments changed"
-note further down, were measured on 2026-07-20 against a Mac 1.2 fork that is
-**no longer on disk** — the only Mac source now present is 1.0 (`April 27,1993`,
-in `data/work/UnlimitedAdventures.rfork`, `data/frua-mac/`, and
-`~/minivmac/frua-clean.dsk`). Treat those numbers as recorded history, not as
-something re-checkable today, and see `docs/function-audit-2026-07-24.md` §5.
+The Mac 1.2 figures below were briefly thought unreproducible: no 1.2 fork was
+staged under `data/`. It was in fact sitting unextracted inside
+`data/unlimited_adventures.sit` (a StuffIt 5 archive of an *installed* folder,
+distinct from `Unlimited_Adventures_disks.sit`, which is 1.0's floppy images).
+Staged as `data/work/UnlimitedAdventures-1.2.rfork` — see `docs/mac-release.md`
+"The 1.2 oracle" for the three commands.
 
-That audit also found something this page missed: **DOS 1.2 already carries both
-"Mac 1.2-only" strings** ("Transfer module ends testing!", "There is no way to
-go in that direction."). The fixes travelled the DOS line eight months before
-Mac 1.2 shipped, so the known 1.2 delta needs no Mac 1.2 fork at all.
+Re-run against it, the numbers reproduce exactly: **2147 entries, 2070
+recovered (96.4%), 40 substring-only, 37 absent** — the same 96.4% and the same
+gap profile as 1.0's 2145 / 2068. And DOS 1.2 already carries both
+"Mac 1.2-only" strings ("Transfer module ends testing!", "There is no way to go
+in that direction."), which travelled the DOS line eight months before Mac 1.2
+shipped. The measured code delta is in
+`docs/function-audit-2026-07-24.md` §5.
 
 ### Which `CKIT.EXE` these offsets are derived against
 
