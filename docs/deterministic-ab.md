@@ -148,12 +148,12 @@ Two things worth carrying forward:
 
 ## Promotion status of the ported 1.2 fixes
 
-Ten of the 33 are **observed firing** (ON vs OFF produce different measured
+Eleven of the 33 are **observed firing** (ON vs OFF produce different measured
 state, same seed). Four cannot fire at all and that is a finding, not a gap.
 The rest each need a specific situation, listed so the next pass does not have
 to re-derive it.
 
-### Observed firing (10)
+### Observed firing (11)
 
 | hunks | situation | evidence |
 |---|---|---|
@@ -164,6 +164,7 @@ to re-derive it.
 | 15 | same module, 2 monsters so round 2 arrives | `BLEED SUPPRESSED, status stays 5` (ON) vs `bleed tick mc[16] 5` (OFF) |
 | 27, 28 | authored TEMPLE.DSN, `-DFRUA_TMPDIAG` | at the live jt933 call: raw `1677721600` vs swapped `100` — BOTH from one run |
 | 9 | Monster Editor, BASILISK (id 42): Strength 10 -> 18 and % 0 -> 50, then Ok | the SAVED `MONST042.dat` differs in exactly **two** bytes across all 450: `[113]` 18 (ON) vs 10 (OFF), `[125]` 50 (ON) vs 0 (OFF) |
+| 16 | authored caster (`tools/mk_caster_chr.py`), Hall -> View -> Spells | the picker's command bar reads **`Exit`** (ON) vs **blank** (OFF); `-24126` `0 FF ..` vs the stale `1 'S' 7 'E'`; `l2184("Exit") -> "Exit"` vs `""` |
 
 Hunk 9 is the strongest evidence of the set, because the observable is a FILE
 rather than a log line: two full runs of the same click script, byte-diffed,
@@ -176,6 +177,68 @@ editor writes the PERMANENT byte and 1.0 saved the record with the CURRENT byte
 still holding the loaded value.
 
 The recipe is in "Reaching the Monster Editor headless" below.
+
+Hunk 16 is the only one so far whose divergence is visible on SCREEN rather
+than in state: a whole-frame pixel diff of the two runs differs in exactly one
+region, x 24..103 / y 428..449 — the command-bar button — and nowhere else.
+1.0's spell picker simply has no `Exit` button. The recipe is in "Reaching the
+spell picker headless" below.
+
+### Reaching the spell picker headless (the hunk-16 recipe)
+
+Two things have to be true at once, and the second is the one that is easy to
+miss:
+
+1. **A caster with memorized spells.** The synthetic boot roster is fighters
+   with an empty `rec[198..338]`, so `jt904`'s `cond1` is false, the sheet
+   offers no `Spells` verb, and `jt595` is unreachable. `tools/mk_caster_chr.py`
+   writes a Magic-User into the pool — a 398-byte `.CHR`, which is exactly the
+   record with empty inventory and spell-book chains.
+2. **No inventory on that caster.** This is what makes the bug observable.
+   `jt904` builds its command bar with `jt155`, which writes each verb's index
+   into `-24126[i*2]`. With items the first call is `jt155(0)` and the stale
+   `[0]` is 0 — the same value `jt179(0)` would write, so the fix changes
+   nothing. Without items the first call is `jt155(1)`, `[0]` is 1, and 1.0
+   carries that into the picker.
+
+```sh
+python3 tools/mk_caster_chr.py data/work/gamedata     # -> CHAR0004.CHR, MERLIN
+make EXTRA_CFLAGS='-DFRUA_SPLDIAG'
+D=.claude/skills/run-falcon-port/driver.sh
+env -u DISPLAY FALCON_TOS=/usr/share/hatari/tos404.img $D start
+env -u DISPLAY $D key p                       # Play the Game -> Training Hall
+env -u DISPLAY $D key a                       # Add Character -> the pool list
+env -u DISPLAY $D key Down Down Down Down     # -> MERLIN (row 4)
+env -u DISPLAY $D shots /tmp/sel.png          # CONFIRM the highlight (see below)
+env -u DISPLAY $D key Return                  # add
+env -u DISPLAY $D key Escape                  # back to the Hall
+env -u DISPLAY $D key v                       # View Character -> jt904
+env -u DISPLAY $D key s                       # Spells -> jt595(0,0) -> l4faa
+```
+
+Then read `l4faa DEFAULT arm` in `DBG.LOG` for the before/after table and
+`l2184 -> ->` for the extracted verb word.
+
+Traps:
+
+- **Verify the add-list highlight before pressing Return.** One run lost all
+  four `Down` keys — the list is still building and the engine drains keys
+  typed during the build — so `Return` added row 0 (BARBARUS, a fighter WITH
+  items) and the whole A/B silently measured the wrong character. The symptom
+  is `jt904 items? 1 / cond1 0` in the log. A screenshot between the arrows and
+  the Return costs one second and catches it.
+- **The list order is the pool order**, and the pool is whatever `CHAR*.CHR`
+  the gamedata dir holds — not a fixed set. Check it in the screenshot rather
+  than assuming row 4.
+- **`save_roster` rewrites every `.CHR` during the run** (and deletes files for
+  slots past the pool count). Restore the roster between A/B runs or the second
+  run starts from a different party.
+- **Spell ids are game-data indices, not ours.** Against the stock tables
+  1..8 are cleric level 1, **9..21 are mage level 1**, 22.. cleric level 2.
+  `l4e2c` drops anything the character's class cannot cast, and if that leaves
+  the list empty `jt595` returns BEFORE `l4faa` — no arm runs, nothing to
+  measure. The `FRUA_SPLDIAG` probe in `jt597` prints each id's class, level
+  and castable verdict, which is how the 9..21 band was measured.
 
 Hunk 1's run carries its own negative control: a second hit in the SAME run with
 `over 6` gives status 5 either way, so the divergence is specific to the
@@ -241,17 +304,16 @@ already has `rec[113+2i] == rec[112+2i]`, so loading one and pressing Ok makes
 the fix write back the bytes that were already there. Verified on all four of
 HEIRS' records and on stock BASILISK. The divergence has to come from an edit.
 
-### Needs a situation (18)
+### Needs a situation (17)
 
 | hunks | the situation still to construct |
 |---|---|
-| 17 | a spell naming status 6/7/8 in a no-permadeath fight — `jt612` ("is slain") or `jt615`. Needs a caster; the seeded party is a fighter. |
+| 17 | a spell naming status 6/7/8 in a no-permadeath fight — `jt612` ("is slain") or `jt615`. The caster half is SOLVED: `tools/mk_caster_chr.py` puts a Magic-User with memorized spells in the pool (see the hunk-16 recipe). What is left is getting that caster into a NOPERMA fight and casting. |
 | 19–22 | **UI reachable since #84** — the Items button now activates (`P1CLICK cy 191 cx 31 -> hit 1`, `jt893 ENTRY`) and the browser renders in full: "Ready Item", the inventory list, and the `Rdy \| Use \| Drop \| Halve \| Join \| Exit` bar. What is still missing is the STATE: `jt893 ENTRY saved -22281 0`, so the hoisted save+clear has nothing to suppress. `-22281` is set to 1 at `boot.c` ~45204 (an event path that loads a bigpic) and ~90842/90853 (the PIC layer), but the tactical-combat setup CLEARS it (~46522, "the battle flags"). So the browser must be entered from a bigpic-prompt context, not from inside a fight. |
 | 3, 5, 6 | a prompt containing a digit. Author a STRG string with a digit plus a `~` marker and watch `l2184`'s word extraction. |
 | 31 | a chained event pair where the first sets `-4943` (`ev[12]&4`, passage `ev[10]&0x20`, combat `ev[7]&0x20`) and the second would inherit it. Authorable. |
 | 29 | an animated passage followed by a chained event. Authorable. |
-| 13 | the editor's test-play Hall (`-18485` = 5, set by `l30d4`). |
-| 16 | the `l4faa` picker in mode 0/5/7 after a different menu has left the `-24126` table dirty. |
+| 13 | the editor's test-play Hall — and the obvious route is a DEAD END. `l07dc` picks the Hall only in its `else`: `if (g_a5_-18485 != 0) { jt582(); ... } else { jt918(1); }`, and `jt918` is `l0aae`'s sole caller. So a non-zero `-18485` at play entry means the Hall is never reached — the flag has to go non-zero AFTER `jt918`'s loop is already running. `l30d4` (the spell-memorization sub-editor) is not it: it sets 5 on entry and restores 0 on exit. The one writer that leaves it set is `l3236` case 7 (CODE 11 @0x3348, the GEO editor's tool command — 1, then 2 when `jt318` agrees), so the situation is: enter the editor from `jt918`, issue that command, and see whether the loop re-enters `l0aae`. |
 | 18 | a spell that routes through `jt822` (hook id 137, the explosion burst) with victims. |
 | 19–22 | a prompt inside the Items browser (`jt893`). |
 | 7 | the `L3f80` picker modal. |

@@ -63154,6 +63154,12 @@ static unsigned char jt519(long key)
  * not shorts. That matches THINK C's compact code-gen — single
  * byte ops save bytes. Carried over literally to keep the
  * comparisons against g_a5_-24126[i*2] (also byte) typed-clean. */
+#ifdef FRUA_SPLDIAG
+/* Armed by l4faa's default arm (hunk 16) so the picker's own command-bar
+ * pass is the only l2184 call that logs — it runs on every roster row
+ * otherwise. */
+static short g_spldiag_words;
+#endif
 static void l2184(const char *src)
 {
 	unsigned char  len;
@@ -63255,6 +63261,14 @@ static void l2184(const char *src)
 		out_idx++;
 		iter_char++;
 	}
+
+#ifdef FRUA_SPLDIAG
+	if (g_spldiag_words > 0) {
+		g_spldiag_words--;
+		dbg_file_str("l2184 src  ", src);
+		dbg_file_str("l2184 -> ->", (const char *)g_a5_buf(-13000));
+	}
+#endif
 
 	{
 		unsigned char len2 = (unsigned char)jt483(
@@ -65795,6 +65809,16 @@ static unsigned char jt597(short code)
 
 			if (s == 0)
 				continue;
+#ifdef FRUA_SPLDIAG
+			dbg_file_num("jt597(0) slot spell ", (long)s);
+			dbg_file_num("   def class ",
+			             (long)defs[(long)(s & 0x7f) * 16 + 0]);
+			dbg_file_num("   def level ",
+			             (long)defs[(long)(s & 0x7f) * 16 + 1]);
+			dbg_file_num("   castable  ",
+			             (long)l4e2c((long)(uintptr_t)actor,
+			                         (short)(s & 0x7f), 0));
+#endif
 			if (!l4e2c((long)(uintptr_t)actor,
 			           (short)(s & 0x7f), 0))
 				continue;
@@ -66013,9 +66037,27 @@ static short l4faa(short mode, short *sel)
 		 * calls CODE 7+0x11ee, which 1.2's permuted table numbers
 		 * JT[166] and 1.0's numbers JT[179] — the port's `jt166` is an
 		 * unrelated menu-mode setter. */
+#ifdef FRUA_SPLDIAG
+		{
+			short k;
+			dbg_file_num("l4faa DEFAULT arm, mode ", (long)mode);
+			for (k = 0; k < 8; k++)
+				dbg_file_num("  -24126 in  ",
+				             (long)g_a5_24126[k]);
+		}
+#endif
 		jt179(0);
 		jt384(buf1, (const char *)(uintptr_t)g_a5_long(-13952));
 		jt384(buf2, ua_strs_at(0x5308) /* "Exit" */);
+#ifdef FRUA_SPLDIAG
+		{
+			short k;
+			for (k = 0; k < 8; k++)
+				dbg_file_num("  -24126 out ",
+				             (long)g_a5_24126[k]);
+			g_spldiag_words = 4;
+		}
+#endif
 		break;
 	}
 	if ((unsigned char)mode == 2) {
@@ -91036,6 +91078,12 @@ static void jt904(unsigned char *out_done)
 			}
 		}
 
+#ifdef FRUA_SPLDIAG
+		dbg_file_num("jt904 items? ",
+		             (long)(base != NULL && *(long *)(base + 8) != 0));
+		dbg_file_num("jt904 cond1  ", (long)cond1);
+		dbg_file_num("jt904 cond2  ", (long)cond2);
+#endif
 		if (base != NULL && *(long *)(base + 8) != 0)
 			jt155((short)0, &status1);
 		if (cond1)

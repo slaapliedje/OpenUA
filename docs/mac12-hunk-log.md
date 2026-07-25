@@ -37,7 +37,7 @@ streams**; CODE 17 changes only in operands (see below).
 | 13 | 12 | `L0d3e` | insert | 0 | 16 | `l0aae` | ✅ ported | Training Hall: after a RESUMED save, force-enable Create/Delete/Add/Remove/Load/Save/Exit |
 | 14 | 12 | `L3426` | replace | 1 | 5 | `l33d8` | ✅ ported | l33d8 pass 2: skip SUMMONED combatants (`mc[21]==1`) so a conjured creature cannot mask a party wipe |
 | 15 | 13 | `L105c` | insert | 0 | 5 | `l102a` | ✅ ported | l102a: no-permadeath also stops the per-round BLEED-OUT (dying -> dead at >9) |
-| 16 | 16 | `L50cc` | insert | 0 | 3 | `l4faa` | ✅ ported | l4faa default arm: jt179(0) — init the slot table l2184 reads instead of inheriting a stale one |
+| 16 | 16 | `L50cc` | insert | 0 | 3 | `l4faa` | ✅ ported | l4faa default arm: jt179(0) — init the slot table l2184 reads instead of inheriting a stale one. **OBSERVED FIRING** |
 | 17 | 18 | `L003a` | insert | 0 | 13 | jt860 | ✅ ported | jt860: honour the design's no-permadeath flag — status 6/7/8 downgrades to 5 |
 | 18 | 18 | `L61d4` | replace | 1 | 1 | `jt822` | ✅ ported | jt822: the effect-148 VALUE word 0 -> 1 (magnitude, one per victim) |
 | 19 | 19 | `L25ce` | insert | 0 | 2 | yes | ✅ ported | jt893: hoist the -22281 save+clear to entry |
@@ -123,7 +123,34 @@ Two corrections to the 2026-07-24 entry that stood here:
   run to record 13, whose bit5 is clear. The event-byte count (11 of HEIRS' 175
   combat events affected) was unaffected; only the cell attribution was wrong.
 
-**Promotion status: 10 of 33 observed firing, 4 established as unable to fire.**
+**Promotion status: 11 of 33 observed firing, 4 established as unable to fire.**
+
+**Hunk 16 is OBSERVED FIRING (2026-07-25)** — and it is the only promotion so
+far whose divergence is visible on SCREEN. Authored a Magic-User with memorized
+spells (`tools/mk_caster_chr.py`), added them in the Training Hall, then
+View -> Spells: `jt904` -> `jt595(0, 0)` -> `l4faa` mode 0, the default arm.
+
+    ON   -24126 in  1 'S' 7 'E' FF ...    out  0 FF FF FF FF ...
+         l2184 src "Exit"  ->  "Exit"
+    OFF  -24126 in  1 'S' 7 'E' FF ...    out  1 'S' 7 'E' FF ...
+         l2184 src "Exit"  ->  ""
+
+**The 1.0 build's spell picker has no `Exit` button.** A whole-frame pixel diff
+of the two runs differs in exactly one region — x 24..103, y 428..449, the
+command-bar button — and is identical everywhere else.
+
+The chain is short once the state is right. `jt904` builds its command bar with
+`jt155`, which writes each verb's index into `-24126[i*2]`; `l4faa`'s default arm
+was the one arm that never re-initialised that table, so it inherited the View
+bar's mapping. `l2184` then extracts the Nth boundary-delimited word of the verb
+line by matching `-24126[out_idx*2] == iter_char`: with `[0] == 1` the sole
+uppercase letter of `"Exit"` sits at `iter_char 0`, matches nothing, and
+`-13000` stays empty.
+
+That last step is also why the setup needs a caster with **no inventory**. With
+items, `jt904`'s first `jt155` call is `jt155(0)` and the stale `[0]` is already
+0 — the same value `jt179(0)` writes — so the fix is a no-op and the A/B reads
+as a dead hunk. The recipe and its traps are in `docs/deterministic-ab.md`.
 
 **Hunk 9 is OBSERVED FIRING (2026-07-25)** — the first promotion through the
 editor UI, and the cleanest evidence of the set because the observable is a
