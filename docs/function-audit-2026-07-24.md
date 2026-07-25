@@ -158,10 +158,10 @@ relocation noise cannot masquerade as change — the entire release is **32 hunk
 
 | segment | hunks | segment | hunks |
 |---|---:|---|---:|
-| CODE 20 | 8 | CODE 12, 18, 19 | 2 each |
-| CODE 21 | 6 | CODE 6, 13, 16 | 1 each |
-| CODE 7 | 5 | CODE 1,2,3,4,5,8,9,11,14,15,17,22 | **0** |
-| CODE 10 | 4 | | |
+| CODE 20 | 11 | CODE 12 | 3 |
+| CODE 21 | 5 | CODE 6, 19 | 2 / 4 |
+| CODE 7 | 5 | CODE 13, 16, 18 | 1–2 each |
+| CODE 10 | 4 | CODE 1,2,3,4,5,8,9,11,14,15,17,22 | **0** |
 
 **And both new messages are locatable.** 1.2 references them at:
 
@@ -173,8 +173,12 @@ relocation noise cannot masquerade as change — the entire release is **32 hunk
   `L57a0`** (a 2-instruction insertion).
 
 So the two known fixes are ~10 instructions at two sites in functions we
-already have, and the other 30 hunks are the previously "unknown" 1.2 bug
-fixes — now an enumerable worklist rather than a mystery. Several look like
+already have, and the other 34 hunks are the previously "unknown" 1.2 bug
+fixes — now an enumerable worklist rather than a mystery, tracked hunk by hunk
+in `docs/mac12-hunk-log.md`. **Correction:** the count in this section was first
+published as 32 from a throwaway parser that mis-tokenised the listings; a
+correctly-anchored mnemonic compare (`tools/mac12_diff.py`) gives 38 structural
+hunks plus 93 operand-only changes. Several look like
 exactly the kind of thing a bug-fix release contains: a `bras` → `beqs` (an
 unconditional branch becoming conditional, CODE 12 `L3426`) and two
 stack-slot corrections (`%fp@(-24)` → `%fp@(-20)` in CODE 19, `%fp@(-7)` →

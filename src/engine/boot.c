@@ -94854,8 +94854,20 @@ static void jt893(unsigned char *out)
 	unsigned char  f3     = 1;             /* fp@(-3):  sheet-redraw flag  */
 	unsigned char  choice = (unsigned char)-1; /* fp@(-2): picked arm      */
 	unsigned char  f22    = 1;             /* fp@(-22) <-> -24140          */
+	unsigned char  saved22281;             /* 1.2: fp@(-27)                */
 
 	PROBE("jt893");
+
+	/* ★ Mac 1.2 FIX (ADR-0018), oracle hunks 19-22 at CODE 19 L25ce/L2c20.
+	 * -22281 is the in-combat flag the modal prompts read (see jt182's
+	 * fourth argument). 1.0 suppresses it only around the trade/give
+	 * confirm inside case 4; 1.2 hoists the save+clear to the browser's
+	 * entry (0x25fe) and the restore to its single exit (0x2d6e), so
+	 * EVERY prompt raised anywhere in the Items browser behaves as
+	 * out-of-combat, not just that one. Deleting the per-case pair is
+	 * part of the same 1.2 change. */
+	saved22281 = g_a5_byte(-22281);
+	g_a5_byte(-22281) = 0;
 
 	/* L2d50 — loop while not exited (choice!=9), no transfer (*out==0),
 	 * and the char still holds items (rec[193]). */
@@ -95062,7 +95074,6 @@ static void jt893(unsigned char *out)
 				break;
 			}
 			case 4: {                             /* L2c20 — trade / give */
-				unsigned char saved;
 				if (!l23d2_c19(item)) {
 					choice = (unsigned char)-1;
 					break;
@@ -95073,13 +95084,12 @@ static void jt893(unsigned char *out)
 				          (const char *)(uintptr_t)g_a5_long(-14336),
 				          (const char *)(itp + 5),
 				          (const char *)(uintptr_t)g_a5_long(-14332)), 0);
-				saved = g_a5_byte(-22281);
-				g_a5_byte(-22281) = 0;
+				/* (1.2 dropped the local -22281 save/clear/restore
+				 * here — it now spans the whole browser.) */
 				if (jt159((const char *)(uintptr_t)g_a5_long(-14428), 0)) {
 					jt30((long)(uintptr_t)chr, item);
 					redraw = 1;
 				}
-				g_a5_byte(-22281) = saved;
 				jt103(1, 21, 38, 22);
 				break;
 			}
@@ -95109,6 +95119,8 @@ botcheck:                                             /* L2d3c */
 		if ((unsigned char)chr[193] != savedCount)
 			redraw = 1;
 	}
+
+	g_a5_byte(-22281) = saved22281;        /* 1.2 @0x2d6e, before unlk */
 }
 
 /* JT[583] (CODE 15 + 0x1c92) — load the per-level vault file (Vault<c>.DAT,
@@ -95695,10 +95707,15 @@ static void jt183(void)
 			}
 		}
 
-		/* L3f80 — run the dialog. */
+		/* L3f80 — run the dialog.
+		 * ★ Mac 1.2 FIX (ADR-0018), oracle hunk 7 at CODE 7 L3f80: the
+		 * modal's key-mode argument goes 0 -> 1 (`clrw %sp@-` becomes
+		 * `movew #1,%sp@-`), so l2ebc passes 1 rather than 0 into
+		 * l23b4's `arg_lo` and the loop's arg_lo != 0 arm now runs.
+		 * 1.0 opened this picker in the mode that ignores it. */
 		g_a5_byte(-24140) = hilite;
 		choice = l2ebc(g_a5_long(-13952), g_a5_long(-13736),
-		               (short)1, (short)0);
+		               (short)1, (short)1);
 		hilite = g_a5_byte(-24140);
 
 		if (g_a5_byte(-24139)) {

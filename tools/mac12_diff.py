@@ -105,10 +105,15 @@ def hunks():
 #     the releases, so those are meaningful and are NOT normalised.)
 #   - `L1a2c` / `0x1a2c` — branch targets and CREL-relocated absolutes shift
 #     with segment layout.
+#   - `%fp@(-6)` — a frame slot. Several 1.2 functions gained a local, which
+#     renumbers every slot below it: 229 differences of which ~all were this.
+#     The port uses named C locals, so frame layout carries no meaning here.
 _NOISE = (
     (re.compile(r"%a5@\(\s*\d+\s*\)"), "%a5@(JT)"),
+    (re.compile(r"%fp@\(\s*-?\d+\s*\)"), "%fp@(F)"),
     (re.compile(r"\b0x[0-9a-f]+\b"), "ABS"),
     (re.compile(r"\bL[0-9a-f]{4,8}\b"), "LBL"),
+    (re.compile(r"linkw %fp,#-?\d+"), "linkw %fp,#F"),
     (re.compile(r";.*$"), ""),          # the annotation comment
 )
 
