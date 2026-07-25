@@ -20607,6 +20607,18 @@ static void l731e(short arg)
 	 * set. Default loops with refreshed mask. */
 	while (l6804() == 0 || EventAvail(mask, &ev)) {
 		l66e8(&ev);
+#ifdef FRUA_CLICKDIAG
+		/* TaskList #84: does THIS pump consume the events l2d3e never
+		 * sees? l731e runs from jt1118, which l23b4's loop calls via
+		 * jt1085 on every iteration — before l2d3e's own read. */
+		if (ev.what != 0) {
+			static long n731;
+
+			n731++;
+			dbg_file_num("l731e PUMPED ev.what ", (long)ev.what);
+			dbg_file_num("   pump total ", n731);
+		}
+#endif
 		l725c(mask);
 		if (arg == (short)3 && g_a5_byte(-820) != 0)
 			return;         /* 0x7388 tstb -820; bne exit — the tstb
@@ -25260,6 +25272,53 @@ static short l2d3e(void)
 			break;
 		rec += DLITEM_BYTES;
 	}
+#ifdef FRUA_CLICKDIAG
+	/* TaskList #84: why do clicks activate some DLItem buttons and not
+	 * others? Report, per click, how many items exist, how many carry a
+	 * method pointer at all (Phase 2 can only hit-test items that do), and
+	 * which index — if any — the hit-test matched. */
+	{
+		static long n_calls, n_events, n_clicks;
+
+		n_calls++;
+		if (key != 0)
+			n_events++;
+		if (g_event_was_click)
+			n_clicks++;
+		/* Heartbeat: proves whether l2d3e is even the reader on this
+		 * screen, and how many events/clicks it has ever seen. Without
+		 * this the "no click" result is ambiguous between "l2d3e never
+		 * ran" and "l2d3e ran but saw nothing" — the first CLICKDIAG
+		 * only logged on a click and so could not tell them apart. */
+		if ((n_calls % 400) == 1) {
+			dbg_file_num("l2d3e calls ", n_calls);
+			dbg_file_num("   events seen ", n_events);
+			dbg_file_num("   clicks seen ", n_clicks);
+		}
+		if (key != 0) {
+			dbg_file_num("l2d3e EVENT key ", (long)key);
+			dbg_file_num("   was_click ", (long)g_event_was_click);
+			dbg_file_num("   y ", (long)mouse_y);
+			dbg_file_num("   x ", (long)mouse_x);
+		}
+	}
+	if (g_event_was_click) {
+		short          k, with_method = 0;
+		unsigned char *r2 = (unsigned char *)g_a5_9254;
+
+		for (k = 0; k < count; k++) {
+			if (*(dlitem_method_t *)r2 != NULL)
+				with_method++;
+			r2 += DLITEM_BYTES;
+		}
+		dbg_file_num("CLICK y ", (long)mouse_y);
+		dbg_file_num("   x ", (long)mouse_x);
+		dbg_file_num("   dlitems ", (long)count);
+		dbg_file_num("   with method ", (long)with_method);
+		dbg_file_num("   hit idx (==count means MISS) ", (long)i);
+		dbg_file_num("   menu mode -13018 ", (long)g_a5_13018);
+	}
+#endif
 
 	/* Phase 3 — action fire: if we have an event AND a hit, invoke
 	 * method(rec, 3, ...) then method(rec, 4, ...). Bit 4 of

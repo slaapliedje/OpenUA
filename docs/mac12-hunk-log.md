@@ -123,7 +123,21 @@ Two corrections to the 2026-07-24 entry that stood here:
   run to record 13, whose bit5 is clear. The event-byte count (11 of HEIRS' 175
   combat events affected) was unaffected; only the cell attribution was wrong.
 
-**Promotion status: 7 of 33 observed firing, 4 established as unable to fire.**
+**Promotion status: 9 of 33 observed firing, 4 established as unable to fire.**
+
+**Hunks 27/28 are OBSERVED FIRING (2026-07-25).** `tools/mk_temple_design.py`
+authors a type-9 temple event whose bytes 8..11 read **100** little-endian and
+**1,677,721,600** big-endian, so the two interpretations cannot be confused. At
+the live `jt933` call site, one run logs both:
+
+    l216a raw *(long*)(ev+8)  1677721600     <- what Mac 1.0 passes
+       swapped (passed)              100     <- what 1.2 passes
+
+No ON/OFF pair was needed: the diagnostic reads out the 1.0 value and the 1.2
+value from the SAME live event record, which is stronger evidence than two runs.
+Every one of the 192 type-9 events in the fan modules stores `01 00 00 00` there,
+so in the wild 1.0 reads 1 as 16,777,216 — off by 2^24 in the direction that makes
+any threshold unsatisfiable.
 
 **Hunk 15 is OBSERVED FIRING (2026-07-25).** Same authored NOPERMA.DSN, but with
 TWO monsters instead of six groups of 31 — the first attempt's 186 monsters each
