@@ -123,7 +123,19 @@ Two corrections to the 2026-07-24 entry that stood here:
   run to record 13, whose bit5 is clear. The event-byte count (11 of HEIRS' 175
   combat events affected) was unaffected; only the cell attribution was wrong.
 
-**Promotion status: 6 of 33 observed firing, 4 established as unable to fire.**
+**Promotion status: 7 of 33 observed firing, 4 established as unable to fire.**
+
+**Hunk 15 is OBSERVED FIRING (2026-07-25).** Same authored NOPERMA.DSN, but with
+TWO monsters instead of six groups of 31 — the first attempt's 186 monsters each
+take an animated turn on a 16 MHz 030, so a single round outlasted any sane
+timeout and the run looked like a stall. With two, round 2 arrives:
+
+| | `l102a` with a dying member (`hdr29 1`) |
+|---|---|
+| ON (1.2) | **BLEED SUPPRESSED, status stays 5** |
+| OFF (1.0) | **bleed tick mc[16] 5** |
+
+More monsters is not a faster death — it is a slower round.
 The full table — what each remaining fix needs, and why 8 / 33 / 34 / 23 cannot
 be promoted at all — lives in `docs/deterministic-ab.md`. Summary: 24, 35, 36,
 37, 38 and 1 are measured ON-vs-OFF; hunk 8 is a no-op by construction, 33 has

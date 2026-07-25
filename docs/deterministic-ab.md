@@ -153,7 +153,7 @@ state, same seed). Four cannot fire at all and that is a finding, not a gap.
 The rest each need a specific situation, listed so the next pass does not have
 to re-derive it.
 
-### Observed firing (6)
+### Observed firing (7)
 
 | hunks | situation | evidence |
 |---|---|---|
@@ -161,6 +161,7 @@ to re-derive it.
 | 35 | overland row 37 facing 2 | `cand-row` 38 raw vs 37 clamped, `oob` 1 vs 0 |
 | 36, 37, 38 | same overland step | `has_str` 1, `msg[0]` 84 (`'T'`), `blocked t` 1 — vs all zero in bounds |
 | 1 | authored NOPERMA.DSN, `-DFRUA_PARTYHP=1` | `over 10` -> status **5** (ON) vs **6** (OFF) |
+| 15 | same module, 2 monsters so round 2 arrives | `BLEED SUPPRESSED, status stays 5` (ON) vs `bleed tick mc[16] 5` (OFF) |
 
 Hunk 1's run carries its own negative control: a second hit in the SAME run with
 `over 6` gives status 5 either way, so the divergence is specific to the
@@ -175,13 +176,13 @@ Hunk 1's run carries its own negative control: a second hit in the SAME run with
 | 34 | **Nothing produces effect 73.** The whitelist entry is real, but no `jt876` call anywhere in the port applies kind 73 (the kinds used are 255/0/97/55/105/8/62/31/15/12/95/7...). Unreachable until an effect-73 producer is lifted or a design supplies one. |
 | 23 | **No data in the wild.** Needs an option string carrying a digit; across every design on hand 406 strings have a `~`/`^` marker and not one contains a digit. Authorable, but nothing shipped exercises it. |
 
-### Needs a situation (23)
+### Needs a situation (21)
 
 | hunks | the situation still to construct |
 |---|---|
-| 15 | a combat ROUND must elapse with a member at status 5. `l102a` is round bookkeeping; the authored fight stalls after the first party turn, so rounds never advance. Needs the fight driven past round 1 (FRUA_CBTPLAY issues one command). |
 | 17 | a spell naming status 6/7/8 in a no-permadeath fight — `jt612` ("is slain") or `jt615`. Needs a caster; the seeded party is a fighter. |
-| 27, 28 | a type-9 temple event. 192 exist in the fan modules, all with `01 00 00 00` at bytes 8..11 — teleport onto one with `FRUA_ENTRY_*` and log the value jt933 receives. |
+| 27, 28 | **ATTEMPTED, blocked on UI activation.** `tools/mk_temple_design.py` authors a temple event whose bytes 8..11 read 100 little-endian / 1,677,721,600 big-endian, and the event fires correctly (priest portrait + probe text + the `Heal \| Donate \| View \| Pool \| Take \| Share \| Leave` bar). But `jt933` is reached ONLY from `l216a`'s case 0/1 — the two arms that leave `acted` clear, i.e. Heal and Donate — and neither keyboard accelerators, Return, nor injected clicks selected them. |
+| 19–22 | **ATTEMPTED, blocked on the same thing.** Reached the in-combat View sheet (which correctly shows `Platinum 100` and an `Items \| Drop \| Exit` bar, three buttons instead of the two outside combat) with `-22281` live. The injected click lands ON "Items" — the cursor is visibly over it in the screenshot — and does not activate it. |
 | 3, 5, 6 | a prompt containing a digit. Author a STRG string with a digit plus a `~` marker and watch `l2184`'s word extraction. |
 | 31 | a chained event pair where the first sets `-4943` (`ev[12]&4`, passage `ev[10]&0x20`, combat `ev[7]&0x20`) and the second would inherit it. Authorable. |
 | 29 | an animated passage followed by a chained event. Authorable. |
@@ -195,6 +196,25 @@ Hunk 1's run carries its own negative control: a second hit in the SAME run with
 | 14 | a party wipe with a summoned creature still on the combatant list. |
 | 30 | a type-11 transfer during a test-play session. |
 | 2 | reading the clobbered FC object or the dangling `-22222` pointer — no clean observable; likely only ever visible as corruption. |
+
+### The blocker for the UI-navigation group
+
+Both attempts above failed the same way, and it is worth naming because it gates
+a whole cluster: **specific DLItem buttons do not activate from injected clicks
+on these screens.** The cursor is demonstrably positioned over the target (see
+the screenshot for hunks 19-22), the surrounding screen is correct, and nothing
+happens. Keyboard accelerators do not reach them either — on the temple bar,
+`h`/`d`/`v`/`t` and Return all left the menu up.
+
+This is not the general mouse-injection problem: clicks DO work elsewhere (the
+combat `Done` button and the `View` verb both responded in the same session, which
+is how the View sheet was reached at all). Something about these particular
+items — the l216a verb bar and the character sheet's Items button — differs.
+
+Hunks needing this resolved before they can be promoted: **9** (Monster Editor),
+**13** (editor test-play Hall), **16** (the l4faa picker), **19-22** (Items
+browser), **27/28** (temple). That is 8 of the remaining 21 — the single highest
+-value harness fix available, worth more than any individual hunk.
 
 ### Machinery added for this
 

@@ -24,19 +24,24 @@ from dsn import Design, _walled_room, _hook          # noqa: E402
 from geo import EVENT_SIZE                            # noqa: E402
 
 
-def noperma_design(name="NOPERMA", monster_id=1, flag=True):
+def noperma_design(name="NOPERMA", monster_id=1, flag=True, count=2):
     """One walled room; the party's entry cell fires a no-permadeath combat.
 
     `flag=False` builds the identical module with bit 6 CLEAR — the A/B control,
     so the two runs differ in exactly one bit of one event byte.
+
+    KEEP `count` SMALL. The first version of this used six groups of 31 (the
+    format's maximum) on the theory that more monsters = a faster party death.
+    The opposite happened: every one of the 186 takes an animated turn on a
+    16 MHz 030, so a single round outlasted any sane headless timeout and the
+    run looked like a stall. Two monsters plus -DFRUA_PARTYHP=1 kills the party
+    in round 1 and lets round 2 actually arrive, which is what the l102a
+    bleed-out (hunk 15) needs.
     """
     a5 = _walled_room(entry=(3, 3), facing=0)
     a5.strg_write(["", "No-permadeath test chamber."])
 
-    # Six groups of 31 -- the format's maximum (count is 5 bits, 6 slots), so
-    # the party is guaranteed to lose rather than us hoping it does.
-    groups = [(monster_id, 31)] * 6
-    a5.set_combat(0, groups)
+    a5.set_combat(0, [(monster_id, count)])
 
     # ev[12] is group 2's count byte; its HIGH bits are config flags. Bit 5
     # (0x20) is hunk 24's "start adjacent"; bit 6 (0x40) is the one the combat

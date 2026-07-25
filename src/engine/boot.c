@@ -37489,6 +37489,9 @@ static int    jt159(const char *prompt, short b)
 	}
 #endif
 	jt179(1);
+#ifdef FRUA_ITMDIAG
+	dbg_file_num("jt182 confirm sees -22281 ", (long)(unsigned char)g_a5_22281);
+#endif
 	r = jt182(prompt, (long)(uintptr_t)"Yes No", 1, g_a5_22281);
 	return (r == 0) ? 1 : 0;
 }
@@ -95604,6 +95607,13 @@ static void jt893(unsigned char *out)
 	 * part of the same 1.2 change. */
 	saved22281 = g_a5_byte(-22281);
 	g_a5_byte(-22281) = 0;
+#ifdef FRUA_ITMDIAG
+	/* Hunks 19-22: 1.2 suppresses -22281 across the WHOLE browser. This logs
+	 * the value on entry (what 1.0 would have left live) and the suppressed
+	 * value the prompts now see. */
+	dbg_file_num("jt893 ENTRY saved -22281 ", (long)saved22281);
+	dbg_file_num("   in-browser -22281 ", (long)(unsigned char)g_a5_byte(-22281));
+#endif
 
 	/* L2d50 — loop while not exited (choice!=9), no transfer (*out==0),
 	 * and the char still holds items (rec[193]). */
@@ -98083,6 +98093,14 @@ static short l216a(void *ev_v)
 			 * memsets a synthetic 20-byte subrec and sets only
 			 * [0]/[4]/[5]/[6]/[7], so the long is 0 there and
 			 * jt1199(0) == 0. */
+#ifdef FRUA_TMPDIAG
+			/* Hunks 27/28: what jt933 actually receives. The raw
+			 * read is the 1.0 value, the swapped one is 1.2's. */
+			dbg_file_num("l216a raw *(long*)(ev+8) ",
+			    *(long *)(ev + 8));
+			dbg_file_num("   swapped (passed) ",
+			    jt1199(*(long *)(ev + 8)));
+#endif
 			if (jt933((long)(uintptr_t)ev, (short)exit_arm,
 			          jt1199(*(long *)(ev + 8)),
 			          (short)(ev[12] != 0 ? 1 : 0)))        /* 0x26f2 */
