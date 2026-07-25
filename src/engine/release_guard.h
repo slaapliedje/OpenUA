@@ -44,6 +44,9 @@
 #ifdef FRUA_HALLFREE
 #error "FRUA_HALLFREE in a RELEASE build: training would be free and would ignore the XP requirement (it raises the Mac's own -22730 bypass)."
 #endif
+#ifdef FRUA_PARTYHP
+#error "FRUA_PARTYHP in a RELEASE build: every party member's HP would be clamped at combat entry. It exists only to drive a fight to a deterministic death (docs/deterministic-ab.md)."
+#endif
 #if defined(FRUA_ENTRY_LEVEL) || defined(FRUA_ENTRY_ROW) \
  || defined(FRUA_ENTRY_COL) || defined(FRUA_ENTRY_FACING)
 #error "FRUA_ENTRY_* in a RELEASE build: the party would be teleported to a hard-coded cell on every play entry, ignoring the design's start area."

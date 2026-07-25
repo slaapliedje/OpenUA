@@ -146,6 +146,77 @@ Two things worth carrying forward:
   class of mistake as the `"A battle begins..."` positive control. Log the
   input you think you set (`cur-row`), not just the output.
 
+## Promotion status of the ported 1.2 fixes
+
+Six of the 33 are **observed firing** (ON vs OFF produce different measured
+state, same seed). Four cannot fire at all and that is a finding, not a gap.
+The rest each need a specific situation, listed so the next pass does not have
+to re-derive it.
+
+### Observed firing (6)
+
+| hunks | situation | evidence |
+|---|---|---|
+| 24 | HEIRS GEO011 ev44, cell(5,17) area 11 | `rec[56]` 0 vs 2; AE 60696 |
+| 35 | overland row 37 facing 2 | `cand-row` 38 raw vs 37 clamped, `oob` 1 vs 0 |
+| 36, 37, 38 | same overland step | `has_str` 1, `msg[0]` 84 (`'T'`), `blocked t` 1 — vs all zero in bounds |
+| 1 | authored NOPERMA.DSN, `-DFRUA_PARTYHP=1` | `over 10` -> status **5** (ON) vs **6** (OFF) |
+
+Hunk 1's run carries its own negative control: a second hit in the SAME run with
+`over 6` gives status 5 either way, so the divergence is specific to the
+`over > 9` overkill branch rather than a blanket change.
+
+### Cannot fire — established, not outstanding (4)
+
+| hunk | why |
+|---|---|
+| 8 | **No-op by construction.** The line above fills all 768 bytes of `clutbuf` with 1, so 1.2's `jt399(clutbuf+96, 432, 1)` writes the value already there. 1.0's `0` punched a hole; 1.2 stops. There is no state to diff. |
+| 33 | **No observable effect.** It deletes a `-4943` clear made redundant by hunk 31's clear at the loop top. `l709e` is the only reader of `-4943` anywhere, so the sole difference is the value left after it returns, which nothing looks at. |
+| 34 | **Nothing produces effect 73.** The whitelist entry is real, but no `jt876` call anywhere in the port applies kind 73 (the kinds used are 255/0/97/55/105/8/62/31/15/12/95/7...). Unreachable until an effect-73 producer is lifted or a design supplies one. |
+| 23 | **No data in the wild.** Needs an option string carrying a digit; across every design on hand 406 strings have a `~`/`^` marker and not one contains a digit. Authorable, but nothing shipped exercises it. |
+
+### Needs a situation (23)
+
+| hunks | the situation still to construct |
+|---|---|
+| 15 | a combat ROUND must elapse with a member at status 5. `l102a` is round bookkeeping; the authored fight stalls after the first party turn, so rounds never advance. Needs the fight driven past round 1 (FRUA_CBTPLAY issues one command). |
+| 17 | a spell naming status 6/7/8 in a no-permadeath fight — `jt612` ("is slain") or `jt615`. Needs a caster; the seeded party is a fighter. |
+| 27, 28 | a type-9 temple event. 192 exist in the fan modules, all with `01 00 00 00` at bytes 8..11 — teleport onto one with `FRUA_ENTRY_*` and log the value jt933 receives. |
+| 3, 5, 6 | a prompt containing a digit. Author a STRG string with a digit plus a `~` marker and watch `l2184`'s word extraction. |
+| 31 | a chained event pair where the first sets `-4943` (`ev[12]&4`, passage `ev[10]&0x20`, combat `ev[7]&0x20`) and the second would inherit it. Authorable. |
+| 29 | an animated passage followed by a chained event. Authorable. |
+| 9 | the Monster Editor: edit an ability, save, re-read `rec[113+2i]`. Mouse-driven; clicks do inject. |
+| 13 | the editor's test-play Hall (`-18485` = 5, set by `l30d4`). |
+| 16 | the `l4faa` picker in mode 0/5/7 after a different menu has left the `-24126` table dirty. |
+| 18 | a spell that routes through `jt822` (hook id 137, the explosion burst) with victims. |
+| 19–22 | a prompt inside the Items browser (`jt893`). |
+| 7 | the `L3f80` picker modal. |
+| 10, 11 | delete a monster from a design folder. |
+| 14 | a party wipe with a summoned creature still on the combatant list. |
+| 30 | a type-11 transfer during a test-play session. |
+| 2 | reading the clobbered FC object or the dangling `-22222` pointer — no clean observable; likely only ever visible as corruption. |
+
+### Machinery added for this
+
+- **`tools/mk_noperma_design.py`** — authors `NOPERMA.DSN`: one room whose entry
+  cell fires a combat with `ev[12]` bit 6 (no-permadeath) and bit 5 (start
+  adjacent) set, six groups of 31. `--noflag` builds the bit-6-clear control, so
+  two runs differ in one bit of one event byte. No shipped design sets bit 6 on
+  the HEIRS path, so the family was unreachable without this.
+- **`-DFRUA_PARTYHP=<n>`** — clamps every combatant's current HP at combat
+  entry, so a fight reaches the dying/destroyed branches deterministically
+  instead of hoping the dice cooperate. Note it walks `-27928`, which is the
+  whole combatant list, not just the party (the same fact that makes hunk 14
+  matter). Release-guarded.
+- **`-DFRUA_NPDIAG`** — logs the flag seed at combat entry and the decision at
+  all three no-permadeath sites. **`-DFRUA_OVDIAG`** now also logs the overland
+  refusal string and blocked flag, which is what promoted 36–38.
+
+**Tuning the threshold is legitimate and worth recording:** `FRUA_PARTYHP=2`
+gave `over 9` — one short of the `over > 9` branch, so ON and OFF agreed and the
+run proved nothing. `=1` gave `over 10` and the divergence appeared. When a fix
+guards a threshold, aim the harness at the threshold.
+
 ## Cell → event: the off-by-one
 
 `docs/geo-format.md` states it (`special = event index + 1`) and it is easy to
@@ -162,7 +233,7 @@ attributions were wrong.
 
 ## Never ship
 
-`FRUA_RNGSEED`, `FRUA_HALLFREE` and the `FRUA_ENTRY_*` family are
+`FRUA_RNGSEED`, `FRUA_HALLFREE`, `FRUA_PARTYHP` and the `FRUA_ENTRY_*` family are
 behaviour-altering build flags and `make release` rejects them
 (`src/engine/release_guard.h`).
 

@@ -27401,18 +27401,24 @@ static int l0aae(void)
 	}
 
 	/* ★ Mac 1.2 FIX (ADR-0018), oracle hunk 13 at CODE 12 L0d3e (16
-	 * inserted instructions @0x0d46). After a RESUMED SAVED GAME, force the
+	 * inserted instructions @0x0d46). In the EDITOR, force the
 	 * roster-management and save/load verbs enabled whatever the flag walk
 	 * above decided.
 	 *
-	 * `-18485` is the play-loop mode byte: 0 = fresh "new game", non-zero =
-	 * resumed saved game (l07dc's own doc; the fresh-entry path at CODE 6
-	 * explicitly clears it as "not the editor"). The `-14440..-14429`
-	 * cluster the loop reads is computed for the fresh-start case, so on a
-	 * resume 1.0 could leave the Hall showing a menu where the player could
-	 * not Save, Load, Add or Remove anyone — the exact verbs a resumed
-	 * session needs. cmd 16 SETS rec[28] bit 0 (enabled), the same command
-	 * the loop uses for its enabled arm.
+	 * `-18485` is the editor/design-mode byte. The writers pin it: `l30d4`
+	 * sets it to 5 with the comment "design/edit mode", the CODE 6
+	 * fresh-entry path clears it as "not the editor", and the editor
+	 * dispatch's case 7 sets 1 (then 2 when jt318 agrees). CORRECTION to
+	 * what stood here: I first wrote this as "resumed saved game", quoting
+	 * l07dc's doc comment — but that comment is the loose one and no writer
+	 * supports it. It is the editor flag.
+	 *
+	 * That makes the fix read better than the wrong version did. The
+	 * `-14440..-14429` cluster the loop reads is computed for ordinary play,
+	 * so in the editor's test-play 1.0 could present a Hall with no way to
+	 * Create, Delete, Add, Remove, Save or Load — precisely the roster
+	 * control a designer testing a module needs. cmd 16 SETS rec[28] bit 0
+	 * (enabled), the same command the loop's enabled arm uses.
 	 *
 	 * The three calls cover, by the slot mapping pinned in #82:
 	 *   0-1  Create Character, Delete Character
@@ -48515,6 +48521,13 @@ static void jt955(void)
 		    ? (short)1
 		    : jt210((short)rec[37], (short)rec[38],
 		            (short)(unsigned char)g_a5_byte(-12286));
+#ifdef FRUA_OVDIAG
+		/* Hunks 36-38's own effect, as state: whether the refusal string
+		 * landed in -5213 and whether the step took the blocked path. */
+		dbg_file_num("   has_str(-5213 set) ", (long)has_str);
+		dbg_file_num("   blocked t ", (long)(t & 0xff));
+		dbg_file_num("   msg[0] ", (long)(unsigned char)g_a5_byte(-5213));
+#endif
 		if ((t & 0xff) != 0) {          /* L4902 — blocked */
 			if (has_str) {
 				jt20();
@@ -48892,6 +48905,30 @@ static void l159a(void *ev_v, short f)
 	l10a0(ev);
 	l1176();
 	rec[29] = (unsigned char)((ev[12] & 0x40) ? 1 : 0);
+#ifdef FRUA_NPDIAG
+	dbg_file_num("COMBAT ENTRY ev[12] ", (long)ev[12]);
+	dbg_file_num("   hdr[29] seeded ", (long)rec[29]);
+#endif
+#ifdef FRUA_PARTYHP
+	/* Harness only (docs/deterministic-ab.md): clamp every party member's
+	 * CURRENT hit points at combat entry, so a fight can be driven to a
+	 * death deterministically instead of hoping the dice cooperate. Needed
+	 * to reach the dying/destroyed branches the Mac 1.2 no-permadeath family
+	 * (hunks 1 / 15 / 17) guards — the seeded party's 78 HP outlasts any
+	 * monster the event format can field. rec[395] is current HP (jt39's
+	 * subject), rec[129] the max. */
+	{
+		long cur;
+
+		for (cur = g_a5_long(-27928); cur != 0;
+		     cur = *(long *)(uintptr_t)cur) {
+			unsigned char *pm = (unsigned char *)(uintptr_t)cur;
+
+			pm[395] = (unsigned char)(FRUA_PARTYHP);
+			dbg_file_num("PARTYHP clamp -> ", (long)pm[395]);
+		}
+	}
+#endif
 	g_a5_byte(-22634) = (unsigned char)(((ev[18] & 0x20) >> 2)
 	                                  | ((ev[16] & 0xe0) >> 5));
 	rec[27] = (unsigned char)(ev[7] & 0x7f);
@@ -49599,6 +49636,12 @@ static void jt39(void *rec_v, short dmg)
 
 		no_perma = (unsigned char)(hdr != NULL && hdr[29] != 0);
 	}
+#ifdef FRUA_NPDIAG
+	dbg_file_num("jt39 no_perma ", (long)no_perma);
+	dbg_file_num("   over ", (long)over);
+	dbg_file_num("   dealt ", (long)dealt);
+	dbg_file_num("   status-in ", (long)rec[94]);
+#endif
 	if (!no_perma && (unsigned short)over > 9) /* L25e2 — massive overkill */
 		rec[94] = 6;                       /* destroyed */
 	else if (!no_perma && dealt == 0 && rec[94] == 1)
@@ -49614,6 +49657,9 @@ static void jt39(void *rec_v, short dmg)
 		rec[94] = 4;
 	}
 
+#ifdef FRUA_NPDIAG
+	dbg_file_num("   status-out ", (long)rec[94]);
+#endif
 	/* L262a — active (status 0/1) commits the new HP; otherwise tear down
 	 * the combat state (leave combat, zero HP, drop the per-type count). */
 	status = (short)rec[94];
@@ -52717,13 +52763,25 @@ static void l102a(unsigned char *done)
 			const unsigned char *hdr = (const unsigned char *)
 			    (uintptr_t)g_a5_long(-28006);
 
+#ifdef FRUA_NPDIAG
+			dbg_file_num("l102a dying member, hdr29 ",
+			    (long)(hdr != NULL ? hdr[29] : -1));
+#endif
 			if (hdr == NULL || hdr[29] == 0) {
 				unsigned char *mc = (unsigned char *)(uintptr_t)
 				    (*(long *)(uintptr_t)(m + 64));
 				mc[16]++;
+#ifdef FRUA_NPDIAG
+				dbg_file_num("   bleed tick mc[16] ", (long)mc[16]);
+#endif
 				if (mc[16] > 9)
 					m[94] = 6;     /* dead */
 			}
+#ifdef FRUA_NPDIAG
+			else
+				dbg_file_num("   BLEED SUPPRESSED, status stays ",
+				    (long)m[94]);
+#endif
 		}
 	}
 
@@ -55923,6 +55981,11 @@ static void jt860(long rec_l, short status, long msg)
 		if (hdr != NULL && hdr[29] != 0
 		    && (st == 6 || st == 7 || st == 8))
 			status = 5;
+#ifdef FRUA_NPDIAG
+		dbg_file_num("jt860 req-status ", (long)st);
+		dbg_file_num("   hdr29 ", (long)(hdr != NULL ? hdr[29] : -1));
+		dbg_file_num("   final-status ", (long)status);
+#endif
 	}
 	rec[94]  = (unsigned char)status;
 	rec[382] = 0;

@@ -123,6 +123,38 @@ Two corrections to the 2026-07-24 entry that stood here:
   run to record 13, whose bit5 is clear. The event-byte count (11 of HEIRS' 175
   combat events affected) was unaffected; only the cell attribution was wrong.
 
+**Promotion status: 6 of 33 observed firing, 4 established as unable to fire.**
+The full table — what each remaining fix needs, and why 8 / 33 / 34 / 23 cannot
+be promoted at all — lives in `docs/deterministic-ab.md`. Summary: 24, 35, 36,
+37, 38 and 1 are measured ON-vs-OFF; hunk 8 is a no-op by construction, 33 has
+no reader after `l709e`, nothing in the port applies effect 73 (34), and no
+shipped design has a digit in an option string (23).
+
+**Hunk 1 is OBSERVED FIRING (2026-07-25).** It needed a situation no shipped
+design provides, so the situation was authored: `tools/mk_noperma_design.py`
+builds a room whose entry cell fires a combat with `ev[12]` bit 6 (the byte the
+combat entry copies into `hdr[29]`) and bit 5 set, plus `-DFRUA_PARTYHP=1` to
+clamp HP so the fight reaches the overkill branch. Same seed:
+
+| | `no_perma` | `over` | `status-out` |
+|---|---:|---:|---|
+| hunk 1 ON (1.2) | 1 | 10 | **5** — dying, revivable |
+| hunk 1 OFF (1.0) | 0 | 10 | **6** — destroyed |
+
+The run carries its own negative control: a second hit with `over 6` gives
+status 5 either way, so the divergence belongs to the `over > 9` branch and is
+not a blanket change. Two details worth keeping — the guard applies to ANY
+combatant, not just party members (the measured death was a kobold), and
+`FRUA_PARTYHP=2` gave `over 9`, one short of the branch, so the first run proved
+nothing. **When a fix guards a threshold, aim the harness at the threshold.**
+
+**Hunks 36-38 are OBSERVED FIRING (2026-07-25)** — the same overland step that
+promoted 35, read one level deeper. At the map edge: `has_str` 1 (the refusal
+string reached -5213), `msg[0]` 84 = `'T'` of "There is no way to go in that
+direction.", `blocked t` 1 with `jt210` never consulted. One cell in bounds:
+all three zero. That is precisely what the three hunks do — guard, message,
+blocked path.
+
 **Hunk 35 is OBSERVED FIRING (2026-07-25) — the second one, and it arms three
 more.** The party-at-a-map-edge situation the note below used to call
 outstanding turned out to be cheap to reach: `g_a5_18878 <= 4` routes play into
