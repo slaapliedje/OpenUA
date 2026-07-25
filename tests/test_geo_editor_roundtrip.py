@@ -40,7 +40,7 @@ def test_editor_edit_save_reload_persists():
     survived — the round-trip the in-engine editor performs on FILE -> Save
     then re-open."""
     g = Geo.blank(15, 38)                 # OVERLAND-01-sized area (WD 15 HT 38)
-    g.set_entry_point(0, x=2, y=3, facing=1)
+    g.set_entry_point(0, row=2, col=3, facing=1)
 
     # "PLACE / BLOCK" tool: drop walls on a few cells (edge 0 = north wall).
     walls = {(1, 1): (0x10, 0, 0, 0),
@@ -60,7 +60,7 @@ def test_editor_edit_save_reload_persists():
 
     # every edit persisted
     assert g2.width == 15 and g2.height == 38
-    assert g2.entry_point(0) == (2, 3, 1)          # (x, y, facing)
+    assert g2.entry_point(0) == (2, 3, 1)          # (row, col, facing)
     for (c, r), w in walls.items():
         assert tuple(g2.cell(c, r)[0:4]) == w, (c, r)
     assert g2.event_type(7) == 2

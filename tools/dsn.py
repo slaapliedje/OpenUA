@@ -114,7 +114,7 @@ def _walled_room(w=8, h=8, entry=(3, 3), facing=0):
                                     0x10 if c == w - 1 else 0,
                                     0x10 if r == h - 1 else 0,
                                     0x10 if c == 0 else 0))
-    g.set_entry_point(0, x=entry[0], y=entry[1], facing=facing)
+    g.set_entry_point(0, row=entry[0], col=entry[1], facing=facing)
     return g
 
 

@@ -56,13 +56,13 @@ def test_version_and_dims_fields():
 
 def test_entry_point_roundtrip():
     g = Geo.blank(16, 16)
-    g.set_entry_point(0, x=5, y=7, facing=3)
-    g.set_entry_point(2, x=1, y=2, facing=6)
+    g.set_entry_point(0, row=5, col=7, facing=3)
+    g.set_entry_point(2, row=1, col=2, facing=6)
     g = Geo.parse(g.build())
     assert g.entry_point(0) == (5, 7, 3)
     assert g.entry_point(2) == (1, 2, 6)
     # facing is masked to 3 bits and doesn't disturb neighbours
-    g.set_entry_point(0, x=5, y=7, facing=0xFF)
+    g.set_entry_point(0, row=5, col=7, facing=0xFF)
     assert g.entry_point(0)[2] == 7
 
 

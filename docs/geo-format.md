@@ -47,8 +47,16 @@ etc.) not yet individually mapped; for a bare walkable area they can stay zero.
 
 **Party start.** `l0bbc` places the party from entry point `g_a5_-18488` (the
 Game-Settings "AT ENTRY POINT" value): `st = ds + entry*4`, then
-`X = st[15]`, `Y = st[14]`, `facing = st[16] & 7`. So entry 0's record lives at
+`st[15]`, `st[14]`, `facing = st[16] & 7`. So entry 0's record lives at
 `ds[14..16]`, entry 1 at `ds[18..20]`, and so on (4-byte stride).
+
+**`st[15]` is the ROW and `st[14]` is the COL**, in the same terms as the MAP
+section below — the asm's own globals are named X/Y, which is where the
+confusion comes from. HEIRS' GEO005 settles it: entry 0 reads `(10, 8)`, and
+the caravan message that fires the moment you arrive is hooked on
+`cell(col=8, row=10)`; `cell(col=10, row=8)` has no event at all. The in-game
+coordinate readout prints row,col to match. `Geo.entry_point()` returns them in
+that order and `set_entry_point(idx, row=, col=, facing=)` takes them that way.
 
 ## MAP — design-state[290..]
 
@@ -336,7 +344,7 @@ A `.DSN` design folder becomes playable with just two files (`tools/dsn.py`):
 from dsn import Design
 from geo import Geo
 g = Geo.blank(8, 8)
-g.set_entry_point(0, x=3, y=3, facing=0)
+g.set_entry_point(0, row=3, col=3, facing=0)
 # ... set walls / events / strings ...
 d = Design("MYMOD", title="My Module")
 d.start_area = 5              # a dungeon
@@ -355,7 +363,7 @@ the party and event text.
 ```python
 from geo import Geo
 g = Geo.blank(width=8, height=8)      # zeroed HDR/MAP/ENCR/STRG, version 106
-g.set_entry_point(0, x=1, y=1, facing=0)
+g.set_entry_point(0, row=1, col=1, facing=0)
 g.set_cell(col=1, row=1, walls=(0x10, 0, 0, 0))   # a wall on edge 0
 open("GEO001.DAT", "wb").write(g.build())          # exactly 12962 bytes
 ```

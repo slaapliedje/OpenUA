@@ -136,15 +136,24 @@ class Geo:
 
     def entry_point(self, idx):
         """Party start for entry `idx` (the Game-Settings 'entry point' value):
-        the 4-byte record based at ds[idx*4]; returns (x, y, facing).
-        Mirrors l0bbc: st=ds+idx*4; X=st[15], Y=st[14], facing=st[16]&7."""
+        the 4-byte record based at ds[idx*4]; returns (row, col, facing).
+        Mirrors l0bbc: st=ds+idx*4; st[15], st[14], facing=st[16]&7.
+
+        ROW FIRST, and in the same terms `cell(col, row)` uses — l0bbc's two
+        globals are named X/Y in the asm but st[15] is the coordinate `cell`
+        calls `row`. Verified against HEIRS' GEO005: its entry 0 reads
+        (10, 8), and the caravan message event that fires on arrival lives on
+        `cell(col=8, row=10)`, not on `cell(col=10, row=8)` (no event at all).
+        The in-game HUD prints the pair in this order too. Passing them the
+        other way round silently starts the party somewhere else — a
+        cell-shaped bug that looks like a design problem."""
         base = idx * 4
         return (self.hdr[base + 15], self.hdr[base + 14], self.hdr[base + 16] & 7)
 
-    def set_entry_point(self, idx, x, y, facing):
+    def set_entry_point(self, idx, row, col, facing):
         base = idx * 4
-        self.hdr[base + 14] = y & 0xff
-        self.hdr[base + 15] = x & 0xff
+        self.hdr[base + 14] = col & 0xff
+        self.hdr[base + 15] = row & 0xff
         self.hdr[base + 16] = (self.hdr[base + 16] & ~7) | (facing & 7)
 
     def zone_rule(self, zone):
@@ -782,7 +791,7 @@ def main(argv):
     g = Geo.parse(open(argv[0], "rb").read())
     print("GEO %s: version=%d  %dx%d = %d cells"
           % (argv[0], g.version, g.width, g.height, g.width * g.height))
-    print("entry 0 (x,y,facing):", g.entry_point(0))
+    print("entry 0 (row,col,facing):", g.entry_point(0))
     specials = [(c, r, g.cell_special(c, r))
                 for c in range(g.width) for r in range(g.height)
                 if g.cell_special(c, r)]
