@@ -14,6 +14,14 @@ fixes guard. Pair it with -DFRUA_CBTPLAY (auto party turn) and
 -DFRUA_RNGSEED (reproducible dice); see docs/deterministic-ab.md.
 
     python3 tools/mk_noperma_design.py data/work/gamedata --current
+    python3 tools/mk_noperma_design.py data/work/gamedata --current --monster 42
+
+The monster matters. The default (id 1) is a weak thing that only ever deals
+damage, which reaches hunk 1 (jt39's overkill branch) and hunk 15 (the bleed
+clock) but never hunk 17 — nothing about a plain hit names a status. Monster
+**42, the BASILISK**, has the petrifying gaze: it calls jt860 with status 7 on
+a party member, which is the explicit-status route hunk 17 guards. That is how
+17 was promoted, with no caster involved at all. See docs/deterministic-ab.md.
 """
 import os
 import sys
@@ -68,10 +76,14 @@ def main(argv):
     base = argv[0]
     flag = "--noflag" not in argv
     name = "NOPERMA" if flag else "NOPERMB"
-    d = noperma_design(name, flag=flag)
+    monster_id = 1
+    if "--monster" in argv:
+        monster_id = int(argv[argv.index("--monster") + 1])
+    d = noperma_design(name, monster_id=monster_id, flag=flag)
     folder = d.write(base, make_current=("--current" in argv))
     ev = d.areas[5].event(0)
     print("wrote", folder)
+    print("  monster id %d x2" % monster_id)
     print("  event 0: type=%d ev[12]=0x%02x  (bit5 adjacent=%d, bit6 noperma=%d)"
           % (d.areas[5].event_type(0), ev[12],
              (ev[12] >> 5) & 1, (ev[12] >> 6) & 1))

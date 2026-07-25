@@ -56148,8 +56148,11 @@ static void jt860(long rec_l, short status, long msg)
 			status = 5;
 #ifdef FRUA_NPDIAG
 		dbg_file_num("jt860 req-status ", (long)st);
+		dbg_file_str("   subject ", (const char *)&rec[96]);
+		dbg_file_num("   side ", (long)rec[95]);   /* cbtplay's aside: 0 = party */
 		dbg_file_num("   hdr29 ", (long)(hdr != NULL ? hdr[29] : -1));
 		dbg_file_num("   final-status ", (long)status);
+		dbg_file_num("   rec[94] before ", (long)rec[94]);
 #endif
 	}
 	rec[94]  = (unsigned char)status;
@@ -65799,6 +65802,35 @@ static unsigned char jt597(short code)
 	short          i;                                       /* fp-4 */
 
 	PROBE("jt597");
+#ifdef FRUA_SPLDIAG
+	/* One-shot dump of the whole -16906 spell-def table. The spell id IS
+	 * the effect index (jt547 hands it straight to jt599 -> the -24066
+	 * UA_FX table), so this is also the map from a spell to the handler
+	 * that will run. Fields: [0] class, [1] level, [6]&15 targeting mode,
+	 * [11] 0 = camp-only, [12]/3 cast time (0 = instant). */
+	{
+		static int dumped;
+		if (!dumped) {
+			short id;
+			dumped = 1;
+			for (id = 1; id <= 137; id++) {
+				const unsigned char *d = defs + (long)id * 16;
+				long np = *(long *)(void *)
+				          (&g_a5_byte(-17446) + (long)id * 4);
+				if (d[0] == 0 && d[1] == 0 && np == 0)
+					continue;
+				dbg_file_num("spell id ", (long)id);
+				dbg_file_str("   name  ",
+				             np ? (const char *)(uintptr_t)np : "?");
+				dbg_file_num("   class ", (long)d[0]);
+				dbg_file_num("   level ", (long)d[1]);
+				dbg_file_num("   mode  ", (long)(d[6] & 15));
+				dbg_file_num("   incbt ", (long)d[11]);
+				dbg_file_num("   ctime ", (long)(d[12] / 3));
+			}
+		}
+	}
+#endif
 	g_a5_long(-6454) = 0;
 	l5f4e(&g_a5_byte(-6450), (short)147);
 

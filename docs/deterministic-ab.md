@@ -148,12 +148,12 @@ Two things worth carrying forward:
 
 ## Promotion status of the ported 1.2 fixes
 
-Eleven of the 33 are **observed firing** (ON vs OFF produce different measured
+Twelve of the 33 are **observed firing** (ON vs OFF produce different measured
 state, same seed). Four cannot fire at all and that is a finding, not a gap.
 The rest each need a specific situation, listed so the next pass does not have
 to re-derive it.
 
-### Observed firing (11)
+### Observed firing (12)
 
 | hunks | situation | evidence |
 |---|---|---|
@@ -164,6 +164,7 @@ to re-derive it.
 | 15 | same module, 2 monsters so round 2 arrives | `BLEED SUPPRESSED, status stays 5` (ON) vs `bleed tick mc[16] 5` (OFF) |
 | 27, 28 | authored TEMPLE.DSN, `-DFRUA_TMPDIAG` | at the live jt933 call: raw `1677721600` vs swapped `100` — BOTH from one run |
 | 9 | Monster Editor, BASILISK (id 42): Strength 10 -> 18 and % 0 -> 50, then Ok | the SAVED `MONST042.dat` differs in exactly **two** bytes across all 450: `[113]` 18 (ON) vs 10 (OFF), `[125]` 50 (ON) vs 0 (OFF) |
+| 17 | authored NOPERMA.DSN with **monster 42 (BASILISK)**, `-DFRUA_CBTPLAY -DFRUA_NPDIAG` | same gaze, same seed: `final-status` **5** (ON) vs **7** (OFF) on `subject BARBARUS side 0`; ON the party walks on at 1 HP, OFF the screen reads *"The monsters rejoice, for the party has been destroyed!"* |
 | 16 | authored caster (`tools/mk_caster_chr.py`), Hall -> View -> Spells | the picker's command bar reads **`Exit`** (ON) vs **blank** (OFF); `-24126` `0 FF ..` vs the stale `1 'S' 7 'E'`; `l2184("Exit") -> "Exit"` vs `""` |
 
 Hunk 9 is the strongest evidence of the set, because the observable is a FILE
@@ -183,6 +184,80 @@ than in state: a whole-frame pixel diff of the two runs differs in exactly one
 region, x 24..103 / y 428..449 — the command-bar button — and nowhere else.
 1.0's spell picker simply has no `Exit` button. The recipe is in "Reaching the
 spell picker headless" below.
+
+Hunk 17 is the most CONSEQUENTIAL of the set — the only one where the two
+builds end the session differently. Full recipe below; the short version is
+that the whole no-permadeath family (1, 15, 17) now fires in a single run.
+
+### The no-permadeath family, and the monster that completes it (hunk 17)
+
+The blocker recorded here for months was "needs a caster" — hunk 17 fires from
+`jt860` with status 6/7/8, and the routes named in the hunk log are spells
+(`jt612` slays with 6, `jt615` with 8). That premise was WRONG, and chasing it
+cost most of a session:
+
+- The lethal spells do not fit the auto-turn's spell filter. Measured off the
+  stock table with the `FRUA_SPLDIAG` dump: 111 Disintegrate and 114 Flesh to
+  Stone are single-target but carry a cast time; 110 Death Spell and 125 Power
+  Word Kill are instant but area-mode. `cbtplay_pick_spell` wants instant AND
+  single-target (the Magic-Missile shape), so it picks none of them. Forcing one
+  needs a new harness flag.
+- **A MONSTER gets there with no caster at all.** Monster **42, the BASILISK**,
+  has the petrifying gaze — `jt842` (hook 203) calls `jt860(target, 7, "is
+  turned to stone")` on a party member. Build the module with `--monster 42` and
+  the situation constructs itself.
+
+```sh
+python3 tools/mk_noperma_design.py data/work/gamedata --current --monster 42
+rm -f src/engine/boot.o
+make EXTRA_CFLAGS='-DFRUA_CBTPLAY -DFRUA_RNGSEED=12345 -DFRUA_NPDIAG'
+D=.claude/skills/run-falcon-port/driver.sh
+env -u DISPLAY FALCON_TOS=/usr/share/hatari/tos404.img $D start
+env -u DISPLAY PLAY_STEP_DELAY=5 $D beginplay
+```
+
+One run, three hunks, everything upstream byte-identical across ON and OFF
+(`dealt 23`, `target hp 28`, `attack dir 0`):
+
+    ON   jt39 no_perma 1 ...                      <- hunk 1  (damage route)
+         jt860 req-status 7
+            subject BARBARUS   side 0
+            hdr29 1
+            final-status 5                        <- hunk 17 (status route)
+         l102a dying member, hdr29 1
+            BLEED SUPPRESSED, status stays 5      <- hunk 15 (the clock)
+
+    OFF  jt860 req-status 7
+            subject BARBARUS   side 0
+            hdr29 1
+            final-status 7
+         (no l102a line at all -- nobody is dying, he is stone)
+
+And the two screens are not comparable, they are opposite outcomes:
+
+| | after the fight |
+|---|---|
+| 1.2 (ON) | BARBARUS is back in the roster at **1 HP** — `l33d8` revived the status-5 character — and play continues |
+| 1.0 (OFF) | **"The monsters rejoice, for the party has been destroyed!"** — game over |
+
+In a module that explicitly declared characters never die permanently. That is
+the hole 1.2 plugs, demonstrated end to end rather than argued from the asm.
+
+Two traps, one of which ate a run:
+
+- **An authored `.CHR` caster is not combat-ready.** With `mk_caster_chr.py`'s
+  MERLIN as the ONLY party member, combat entered (`COMBAT ENTRY ev[12] 96 /
+  hdr[29] seeded 1`) and then fell straight back to the walk view with no party
+  turn and no `cbtplay:` line at all. The record is synthetic and zero-filled,
+  so its combat-side fields are not what the fight loop expects. Isolated by
+  control: the SAME module with the stock party fights normally, with monster
+  id 1 as well as 42 — so it is the character record, not the monster and not
+  the design. Use the stock party for combat work; the authored caster is for
+  the out-of-combat spell screens (the hunk-16 recipe).
+- **Do not read the monster id as the cause of an empty fight.** That was the
+  first hypothesis here and it was wrong; the one-run control above is what
+  settled it. The monster id chooses which hunks are REACHABLE (only 42 reaches
+  17), not whether the fight happens.
 
 ### Reaching the spell picker headless (the hunk-16 recipe)
 
@@ -304,11 +379,10 @@ already has `rec[113+2i] == rec[112+2i]`, so loading one and pressing Ok makes
 the fix write back the bytes that were already there. Verified on all four of
 HEIRS' records and on stock BASILISK. The divergence has to come from an edit.
 
-### Needs a situation (17)
+### Needs a situation (16)
 
 | hunks | the situation still to construct |
 |---|---|
-| 17 | a spell naming status 6/7/8 in a no-permadeath fight — `jt612` ("is slain") or `jt615`. The caster half is SOLVED: `tools/mk_caster_chr.py` puts a Magic-User with memorized spells in the pool (see the hunk-16 recipe). What is left is getting that caster into a NOPERMA fight and casting. |
 | 19–22 | **UI reachable since #84** — the Items button now activates (`P1CLICK cy 191 cx 31 -> hit 1`, `jt893 ENTRY`) and the browser renders in full: "Ready Item", the inventory list, and the `Rdy \| Use \| Drop \| Halve \| Join \| Exit` bar. What is still missing is the STATE: `jt893 ENTRY saved -22281 0`, so the hoisted save+clear has nothing to suppress. `-22281` is set to 1 at `boot.c` ~45204 (an event path that loads a bigpic) and ~90842/90853 (the PIC layer), but the tactical-combat setup CLEARS it (~46522, "the battle flags"). So the browser must be entered from a bigpic-prompt context, not from inside a fight. |
 | 3, 5, 6 | a prompt containing a digit. Author a STRG string with a digit plus a `~` marker and watch `l2184`'s word extraction. |
 | 31 | a chained event pair where the first sets `-4943` (`ev[12]&4`, passage `ev[10]&0x20`, combat `ev[7]&0x20`) and the second would inherit it. Authorable. |
@@ -434,16 +508,27 @@ ON/OFF pair.
 
 - **`tools/mk_noperma_design.py`** — authors `NOPERMA.DSN`: one room whose entry
   cell fires a combat with `ev[12]` bit 6 (no-permadeath) and bit 5 (start
-  adjacent) set, six groups of 31. `--noflag` builds the bit-6-clear control, so
-  two runs differ in one bit of one event byte. No shipped design sets bit 6 on
+  adjacent) set. `--noflag` builds the bit-6-clear control, so two runs differ
+  in one bit of one event byte. `--monster <id>` picks the opposition: the
+  default 1 only ever deals damage (hunks 1 and 15), **42 (BASILISK)** adds the
+  petrifying gaze that reaches hunk 17. No shipped design sets bit 6 on
   the HEIRS path, so the family was unreachable without this.
 - **`-DFRUA_PARTYHP=<n>`** — clamps every combatant's current HP at combat
   entry, so a fight reaches the dying/destroyed branches deterministically
   instead of hoping the dice cooperate. Note it walks `-27928`, which is the
   whole combatant list, not just the party (the same fact that makes hunk 14
   matter). Release-guarded.
+- **`tools/mk_caster_chr.py`** — authors a Magic-User with memorized spells into
+  the design's saved-character pool, so the spell screens are reachable at all.
+  NOT usable as a combat party member (see the hunk-17 traps above).
+- **`-DFRUA_SPLDIAG`** — dumps the whole `-16906` spell table once (id, name,
+  class, level, targeting mode, in-combat flag, cast time). The spell id IS the
+  effect index — `jt547` hands it straight to `jt599` and the `-24066` UA_FX
+  table — so this doubles as the map from a spell to the handler it runs. It
+  also logs `l4faa`'s slot table and `l2184`'s word extraction (hunk 16).
 - **`-DFRUA_NPDIAG`** — logs the flag seed at combat entry and the decision at
-  all three no-permadeath sites. **`-DFRUA_OVDIAG`** now also logs the overland
+  all three no-permadeath sites; the `jt860` site also names the subject and its
+  side, which is what proved hunk 17 lands on a PARTY member and not a monster. **`-DFRUA_OVDIAG`** now also logs the overland
   refusal string and blocked flag, which is what promoted 36–38.
 
 **Tuning the threshold is legitimate and worth recording:** `FRUA_PARTYHP=2`

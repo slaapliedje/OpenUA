@@ -38,7 +38,7 @@ streams**; CODE 17 changes only in operands (see below).
 | 14 | 12 | `L3426` | replace | 1 | 5 | `l33d8` | ✅ ported | l33d8 pass 2: skip SUMMONED combatants (`mc[21]==1`) so a conjured creature cannot mask a party wipe |
 | 15 | 13 | `L105c` | insert | 0 | 5 | `l102a` | ✅ ported | l102a: no-permadeath also stops the per-round BLEED-OUT (dying -> dead at >9) |
 | 16 | 16 | `L50cc` | insert | 0 | 3 | `l4faa` | ✅ ported | l4faa default arm: jt179(0) — init the slot table l2184 reads instead of inheriting a stale one. **OBSERVED FIRING** |
-| 17 | 18 | `L003a` | insert | 0 | 13 | jt860 | ✅ ported | jt860: honour the design's no-permadeath flag — status 6/7/8 downgrades to 5 |
+| 17 | 18 | `L003a` | insert | 0 | 13 | jt860 | ✅ ported | jt860: honour the design's no-permadeath flag — status 6/7/8 downgrades to 5. **OBSERVED FIRING** |
 | 18 | 18 | `L61d4` | replace | 1 | 1 | `jt822` | ✅ ported | jt822: the effect-148 VALUE word 0 -> 1 (magnitude, one per victim) |
 | 19 | 19 | `L25ce` | insert | 0 | 2 | yes | ✅ ported | jt893: hoist the -22281 save+clear to entry |
 | 20 | 19 | `L2c20` | delete | 2 | 0 | yes | ✅ ported | jt893: 1.0 per-case save+clear deleted |
@@ -123,7 +123,40 @@ Two corrections to the 2026-07-24 entry that stood here:
   run to record 13, whose bit5 is clear. The event-byte count (11 of HEIRS' 175
   combat events affected) was unaffected; only the cell attribution was wrong.
 
-**Promotion status: 11 of 33 observed firing, 4 established as unable to fire.**
+**Promotion status: 12 of 33 observed firing, 4 established as unable to fire.**
+
+**Hunk 17 is OBSERVED FIRING (2026-07-25)** — and it is the most consequential
+of the set: the two builds end the session differently. NOPERMA.DSN built with
+`--monster 42`, so the opposition is a BASILISK whose petrifying gaze calls
+`jt860(target, 7)` on a party member. Same seed, everything upstream identical
+(`dealt 23`, `target hp 28`, `attack dir 0`):
+
+    ON   jt860 req-status 7 / subject BARBARUS / side 0 / hdr29 1
+         -> final-status 5,  then l102a "BLEED SUPPRESSED, status stays 5"
+    OFF  jt860 req-status 7 / subject BARBARUS / side 0 / hdr29 1
+         -> final-status 7,  and no l102a line at all (he is stone, not dying)
+
+1.2 leaves BARBARUS in the roster at **1 HP** — `l33d8` revives the status-5
+character — and play continues. 1.0 prints **"The monsters rejoice, for the
+party has been destroyed!"** and the session is over, in a module that
+explicitly declared characters never die permanently. The `subject`/`side`
+diagnostic is what makes this airtight: the record is a PARTY member, not a
+monster, so this is the feature working as designed and not an incidental
+side effect on the enemy side.
+
+The same run also fires hunks **1** (`jt39 no_perma 1`) and **15** (the bleed
+clock), so all three members of the family are now demonstrated together —
+which is the right way to read them, since 1 and 17 funnel characters INTO
+status 5 precisely so 15 and `l33d8` can bring them back.
+
+**The recorded blocker was wrong and cost most of a session.** "Needs a caster"
+came from this log's own note that `jt612`/`jt615` are the reachable routes. A
+caster is not needed at all — a monster gets there. And the caster route would
+not have worked as assumed anyway: measured off the stock spell table, no
+lethal spell fits the auto-turn's picker (111/114 are single-target but have a
+cast time; 110/125 are instant but area-mode), so it would have needed a new
+harness flag on top. Traps and the one-run control that settled the "empty
+fight" red herring are in `docs/deterministic-ab.md`.
 
 **Hunk 16 is OBSERVED FIRING (2026-07-25)** — and it is the only promotion so
 far whose divergence is visible on SCREEN. Authored a Magic-User with memorized

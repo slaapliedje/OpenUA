@@ -47,6 +47,9 @@
 #ifdef FRUA_PARTYHP
 #error "FRUA_PARTYHP in a RELEASE build: every party member's HP would be clamped at combat entry. It exists only to drive a fight to a deterministic death (docs/deterministic-ab.md)."
 #endif
+#ifdef FRUA_CBTPLAY
+#error "FRUA_CBTPLAY in a RELEASE build: the party would play its own combat turns, ignoring the player. It is the headless combat auto-turn harness (#74)."
+#endif
 #if defined(FRUA_ENTRY_LEVEL) || defined(FRUA_ENTRY_ROW) \
  || defined(FRUA_ENTRY_COL) || defined(FRUA_ENTRY_FACING)
 #error "FRUA_ENTRY_* in a RELEASE build: the party would be teleported to a hard-coded cell on every play entry, ignoring the design's start area."
