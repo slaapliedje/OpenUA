@@ -109,6 +109,20 @@ python3 tools/strs_dos_probe.py <rfork> <CKIT.EXE> --from-rfork --emit-map strs_
 Deriving the map still needs a Mac fork once, on the developer side. It is the
 *player* who is freed from needing one.
 
+### Provenance caveat on the Mac 1.2 figures (added 2026-07-24)
+
+The Mac 1.2 row in the table above, and the "22 of 23 CODE segments changed"
+note further down, were measured on 2026-07-20 against a Mac 1.2 fork that is
+**no longer on disk** — the only Mac source now present is 1.0 (`April 27,1993`,
+in `data/work/UnlimitedAdventures.rfork`, `data/frua-mac/`, and
+`~/minivmac/frua-clean.dsk`). Treat those numbers as recorded history, not as
+something re-checkable today, and see `docs/function-audit-2026-07-24.md` §5.
+
+That audit also found something this page missed: **DOS 1.2 already carries both
+"Mac 1.2-only" strings** ("Transfer module ends testing!", "There is no way to
+go in that direction."). The fixes travelled the DOS line eight months before
+Mac 1.2 shipped, so the known 1.2 delta needs no Mac 1.2 fork at all.
+
 ### Which `CKIT.EXE` these offsets are derived against
 
 An offset table is only valid for the exact build it was derived from, so the

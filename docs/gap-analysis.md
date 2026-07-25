@@ -1,3 +1,8 @@
+> ⚠️ **STALE — 2026-06-20. Superseded by `docs/function-audit-2026-07-24.md`.**
+> Every function this page calls a stub classifies REAL today, and combat, the
+> camp/magic screens, the event handlers and both save/load pickers are verified
+> live. Kept for its handler-by-handler reasoning, which is still good history.
+
 # Functionality gap analysis — path to a finished port (2026-06-20)
 
 A PLAY-FLOW view (what the player experiences) of what's lifted+wired vs

@@ -23,7 +23,7 @@ MISSING count no longer over-reports alias-lifted entries. List them with
 `python3 tools/jt_progress.py --aliases`. The hand `ALIAS_LIFTED` map only
 needs the *non*-address aliases (trap-glue→shim, renamed thunks).
 
-**1206 distinct JT entries are called.** Overall: 1201 done (1072 lifted, 54 noop, 75 alias), 2 stub, 0 stand-in, 3 missing.
+**1206 distinct JT entries are called.** Overall: 1201 done (1072 lifted, 54 noop, 75 alias), 1 stub, 0 stand-in, 4 missing.
 
 ## Progress by chunk (50 most-called at a time)
 
@@ -47,13 +47,13 @@ unit. Rank ranges are absolute (legacy band N == rank (N-1)*100+1 .. N*100).
 | 13 | 601–650 | **50/50** | 44 | 6 | 0 | 0 | 0 |
 | 14 | 651–700 | **50/50** | 47 | 3 | 0 | 0 | 0 |
 | 15 | 701–750 | **49/50** | 39 | 10 | 0 | 0 | 1 |
-| 16 | 751–800 | **48/50** | 41 | 7 | 0 | 0 | 2 |
+| 16 | 751–800 | **47/50** | 40 | 7 | 0 | 0 | 3 |
 | 17 | 801–850 | **50/50** | 49 | 1 | 0 | 0 | 0 |
 | 18 | 851–900 | **50/50** | 50 | 0 | 0 | 0 | 0 |
 | 19 | 901–950 | **50/50** | 48 | 2 | 0 | 0 | 0 |
 | 20 | 951–1000 | **50/50** | 47 | 3 | 0 | 0 | 0 |
 | 21 | 1001–1050 | **50/50** | 49 | 1 | 0 | 0 | 0 |
-| 22 | 1051–1100 | **49/50** | 40 | 9 | 1 | 0 | 0 |
+| 22 | 1051–1100 | **50/50** | 41 | 9 | 0 | 0 | 0 |
 | 23 | 1101–1150 | **49/50** | 39 | 10 | 1 | 0 | 0 |
 | 24 | 1151–1200 | **50/50** | 40 | 10 | 0 | 0 | 0 |
 | 25 | 1201–1206 | **6/6** | 5 | 1 | 0 | 0 | 0 |
@@ -69,7 +69,7 @@ left; cross-reference the chunk table to see how load-bearing they are.
 |-----:|--------:|-----:|-----:|--------:|--------:|--------:|-----------|
 | CODE 1 | 9 | 9 | 0 | 0 | 0 | **0** | boot / A5 init / entry |
 | CODE 2 | 14 | 14 | 0 | 0 | 0 | **0** | design EDITOR — event/zone/map-step editing (Step Event, Rest in Zone, Chain, col/row cursor) — AUTHORING, not the play path |
-| CODE 3 | 116 | 113 | 0 | 0 | 3 | **3** | Mac Toolbox shim (QuickDraw / Dialog / Event / Menu) |
+| CODE 3 | 116 | 112 | 0 | 0 | 4 | **4** | Mac Toolbox shim (QuickDraw / Dialog / Event / Menu) |
 | CODE 4 | 117 | 117 | 0 | 0 | 0 | **0** | display low-level: QuickDraw/blit math, scroll-blit (jt1126), coord scale (jt1135), idle-paint (jt1134), input map (jt1125), byte-swap (jt1180/99) — MOSTLY SUPERSEDED by the VIDEL display HAL |
 | CODE 5 | 129 | 128 | 1 | 0 | 0 | **1** | the CORE runtime library — called by EVERY segment: string/number format, the error dialog (jt1084), low-level helpers (CODE 4's main consumer) |
 | CODE 6 | 125 | 125 | 0 | 0 | 0 | **0** | file-group cache + GLIB art + resource manager |
@@ -87,14 +87,14 @@ left; cross-reference the chunk table to see how load-bearing they are.
 | CODE 18 | 171 | 171 | 0 | 0 | 0 | **0** | combat engine (jt610 / jt856 / l4d98 / l709e) |
 | CODE 19 | 35 | 35 | 0 | 0 | 0 | **0** | character sheet + party container (jt886 / jt904 / jt910) |
 | CODE 20 | 14 | 14 | 0 | 0 | 0 | **0** | ENCOUNTER / combat narration + event text — 'A battle begins', 'is hit FOR N points of Damage', 'dies', wish/genie events; the l709e event dispatch (in-game, combat path #115) |
-| CODE 21 | 9 | 8 | 1 | 0 | 0 | **1** | SPELL MEMORIZATION + scroll scribing — the camp spell-prep screen (memorize/scribe, Cleric/Druid/Magic-User lists, 'already knows that spell') — NOT the command bar (was mislabeled) |
+| CODE 21 | 9 | 9 | 0 | 0 | 0 | **0** | SPELL MEMORIZATION + scroll scribing — the camp spell-prep screen (memorize/scribe, Cleric/Druid/Magic-User lists, 'already knows that spell') — NOT the command bar (was mislabeled) |
 | CODE 22 | 51 | 51 | 0 | 0 | 0 | **0** | main menu + design select + editor tools (jt315 / jt290 / jt327) |
 
 ## Local lXXXX leaf stubs (non-JT PROBE-only helpers)
 
-CODE-local helpers still PROBE-only in boot.c (11 found). These don't appear in the JT scoreboard above but gate the entries that call them.
+CODE-local helpers still PROBE-only in boot.c (13 found). These don't appear in the JT scoreboard above but gate the entries that call them.
 
-> `l5ac0`  `l24aa`  `l7de0`  `l4350`  `l7abe`  `l341a`  `l4e8a`  `l1240`  `l0ee6`  `l501e`  `l0370`
+> `l5ac0`  `l24aa`  `l7de0`  `l4350`  `l7abe`  `l4932`  `l493a`  `l341a`  `l4e8a`  `l1240`  `l0ee6`  `l501e`  `l0370`
 
 ## Band 1 detail (rank 1–100)
 
@@ -335,7 +335,7 @@ Top 5 of 5 pending (stub+standin+missing), by call count:
 
 - jt426 (1 calls, CODE 3) — missing — SUPERSEDED — Mac indexed-catalog OPEN; only caller is jt990, which the port reimplements over GEMDOS Fsfirst. Dead on the port.
 - jt432 (1 calls, CODE 3) — missing — SUPERSEDED — Mac catalog READ-NEXT; only caller is jt991, which the port reimplements over GEMDOS Fsnext. Dead on the port.
+- jt442 (1 calls, CODE 3) — missing
 - jt458 (1 calls, CODE 3) — missing — SUPERSEDED — volume/drive enumeration; only caller is jt12 (the Mac boot mega-init the port replaces with boot.c). Never reached.
-- jt955 (1 calls, CODE 21) — stub
 - jt1064 (1 calls, CODE 5) — stub
 

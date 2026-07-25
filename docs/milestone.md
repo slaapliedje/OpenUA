@@ -1,3 +1,7 @@
+> ⚠️ **COUNTS STALE — snapshot 2026-06-26. See `docs/function-audit-2026-07-24.md`
+> for measured current numbers** (1201/1206 JT done, boot.c 99.4k lines, 358
+> tests). The structure of this burn-down is still useful; the figures are not.
+
 # MILESTONE — FRUA Falcon030/TT030 port
 
 > Living tracker of what is **accomplished** and what is **left to do**.
