@@ -50,9 +50,9 @@ streams**; CODE 17 changes only in operands (see below).
 | 26 | 20 | `L24e6` | replace | 1 | 1 | `l216a` | ⛔ blocked | the compare rearranged to suit hunk 25 |
 | 27 | 20 | `L26de` | insert | 0 | 4 | `l216a` | ✅ ported | l216a: byte-swap the 4-byte `ev[8]` before jt933 (`jt1199`) |
 | 28 | 20 | `L26de` | delete | 1 | 0 | `l216a` | ✅ ported | the bookkeeping half of 27 (a reload dropped); no separate content |
-| 29 | 20 | `L3114` | insert | 0 | 2 | `l2e42` | ✅ ported | l2e42: set -4942 ("transition done") once the animated passage has moved the party |
+| 29 | 20 | `L3114` | insert | 0 | 2 | `l2e42` | ✅ ported **OBSERVED FIRING** | l2e42: set -4942 ("transition done") once the animated passage has moved the party |
 | 30 | 20 | `L57a0` | insert | 0 | 5 | yes | ✅ ported | l5676: "Transfer module ends testing!" before the test-play teardown |
-| 31 | 20 | `L70d4` | insert | 0 | 1 | `l709e` | ✅ ported | l709e: clear `-4943` per event so the deferred re-trigger flag cannot leak across a chain |
+| 31 | 20 | `L70d4` | insert | 0 | 1 | `l709e` | ✅ ported | l709e: clear `-4943` per event so the deferred re-trigger flag cannot leak across CALLS (needs hunk 30's test-play situation) |
 | 32 | 20 | `L76c4` | replace | 3 | 1 | `l709e` | ➖ churn | codegen only: `moveq`+`moveb`+`tstw` -> `tstb`. Same test, no semantic change |
 | 33 | 20 | `L76fa` | delete | 1 | 0 | `l709e` | ✅ ported | l709e: drop the tail `-4943` clear, redundant once hunk 31 clears at the loop top |
 | 34 | 21 | `L13f6` | insert | 0 | 4 | `l1374` | ✅ ported | l1374: effect id 73 joins the spell-effects DISPLAY whitelist (position is an artefact). **OBSERVED FIRING** |
@@ -72,7 +72,7 @@ streams**; CODE 17 changes only in operands (see below).
 | 19–22 | `jt893` (CODE 19 `L25ce`) | the in-combat flag `-22281` is suppressed across the WHOLE Items browser (save+clear at entry, restore at exit) rather than only around the trade/give confirm |
 | 7 | the `L3f80` picker (CODE 7) | the modal key-mode argument to `l2ebc` goes 0 -> 1, enabling `l23b4`'s `arg_lo != 0` arm |
 | 23 | `l0098` (CODE 20 `L00c4`) | the OTHER half of the tolower fix, and it corrects the story. 1.0 has an `A-Z` pre-test at 0x00c4 that ALSO jumps to the `+32` block, so 1.0 is `if ((c in A-Z) \|\| (c in 0-9)) c += 32;` — the port was faithful all along, and an earlier note here wrongly accused it of "adding" the A-Z clause. 1.2 deletes that pre-test AND retargets the digit range to A-Z; the A-Z-only implementation already covers both, so this hunk needed no further code |
-| 31 | `l709e` (CODE 20 `L70d4`) | clear `-4943` at the START of every event. 1.0 clears it only in the `L76a6` tail, and that clear sits INSIDE `if (-4945 == 0)` — so when an event chains (`-4945 != 0`) the clear is skipped and the deferred re-trigger flag survives into the next event, where the `-4942 && -4943` test can re-scan the party's cell on the strength of a previous event's request. **Read the operands, not the hunk position:** the diff points at 1.2's `clrb -4945` as the insert, but 1.0 already has that (@0x70de); both instructions are `clrb`, so the aligner paired the wrong ones. The genuinely new instruction is `clrb -4943` |
+| 31 | `l709e` (CODE 20 `L70d4`) | clear `-4943` at the START of every event. 1.0 clears it only in the tail at `L76fa`. **CORRECTED:** that clear is NOT inside `if (-4945 == 0)` — the guard at `0x76a6` is `tstb -4945; bnes L76fa`, so `L76fa` is the join both paths reach. It IS inside `if (-27982 == 0)`, so the leak is across CALLS, not across chained events within one call: an event that both sets `-4943` and leaves `-27982` raised skips the tail entirely, and the flag survives into the next `l709e`, where the `-4942 && -4943` test can re-scan the party's cell on the strength of a previous call's request. The only handler that does both is `l5676`'s test-play transfer — hunk 30's site. **Read the operands, not the hunk position:** the diff points at 1.2's `clrb -4945` as the insert, but 1.0 already has that (@0x70de); both instructions are `clrb`, so the aligner paired the wrong ones. The genuinely new instruction is `clrb -4943` |
 | 24 | `l159a` combat entry (CODE 20 `L18e2`) | `ev[12]` bit5 now forces `rec[56]` (the starting range from `ev[14]` bits5–6) to 0, and the existing clamp drags `rec[55]` to 0 with it — the fight starts adjacent whatever range the designer picked. Measured, not guessed: 1.0 reads `ev[12]` bit5 at exactly ONE site (CODE 20 @0x4668, gating a `jt221`+`jt938` view refresh for type-1 events) and 1.2 reads it at two, so the flag was already live and 1.2 gives it an additional effect. **This is the first ported fix with reachable data in the shipped designs:** 11 of HEIRS' 175 combat events have bit5 set with a non-zero starting range (`GEO011` ev12 at cell(col=18,row=16) is one), and 31 such events exist across all designs on hand |
 | 14 | `l33d8` (CODE 12 `L3426`) | pass 2 of the post-fight outcome resolver now SKIPS summoned combatants. 1.0 `bras L347a` -> 1.2 `braw L34c2` (the branch outgrew its 8-bit displacement) plus 4 inserted instructions testing `node[64]->[21] == 1` and branching to the ADVANCE label — a `continue`. Pass 1 and the main pass already stop at the first summoned entry; pass 2 was the one place scanning unfiltered. It matters because `found` + the design's `hdr[29]` no-permadeath flag CLEARS `-27982`, the "party destroyed" flag: in 1.0 a summoned creature sitting in status 3/4/5 (fled/dead/petrified) or carrying `rec[382]` satisfied `found` on its own, so a party that had actually been wiped could come out not registered as destroyed — on the strength of a monster it had conjured |
 | 10, 11 | `l6238` (CODE 10 `L6238`) | build the delete path FORWARDS — clear the buffer, `jt431` the design dir, `jt431` the leaf — instead of `jt436`'s in-place directory prefix, which has to slide the existing contents up inside a fixed 202-byte buffer. 1.2 also grew the frame 16 bytes for a separate leaf buffer. `l419e` right below already used the two-append idiom, so 1.2 is making `l6238` consistent with the rest of CODE 10 |
@@ -123,7 +123,32 @@ Two corrections to the 2026-07-24 entry that stood here:
   run to record 13, whose bit5 is clear. The event-byte count (11 of HEIRS' 175
   combat events affected) was unaffected; only the cell attribution was wrong.
 
-**Promotion status: 22 of 33 observed firing, 2 established as unable to fire.**
+**Promotion status: 23 of 33 observed firing, 2 established as unable to fire.**
+
+**Hunk 29 is OBSERVED FIRING (2026-07-25)** — and it is the first one measured
+in BOTH directions off a single inserted line. `l2e42`'s trailing
+`-4942 = 1` is read twice by `l709e`'s tail, in opposite senses, so the same
+fix suppresses one behaviour and enables another:
+
+| variant | tail test | 1.2 | 1.0 |
+|---|---|---|---|
+| `MOVETEST.DSN` | `if (-18484 && -4942 == 0) idx = ev[3]` | chain suppressed | `THE CHAIN FIRED` |
+| `MOVERESC.DSN` | `if (-4942 && -4943) idx = jt201(row, col)` | `THE DESTINATION EVENT FIRED` | nothing |
+
+Both frames show a message box with `Press Return to continue.` in one build
+and the bare walk view in the other, so this is a screen-visible divergence,
+not a state-only one. `tools/mk_movetest_design.py` builds both; the recipe and
+the two authoring traps (facing 0 walks along COLUMNS, and the re-scan needs
+`ev[7] & 0x20` as well) are in `docs/deterministic-ab.md`.
+
+**This also pins down hunk 31, which turns out to share hunk 30's situation.**
+`-4943` has exactly three setters and 1.0 clears it in `l709e`'s tail — inside
+`if (-27982 == 0)`. So the flag only escapes a call when ONE event both sets it
+and leaves `-27982` raised, and the only handler that does that is `l5676`'s
+early return at `0x57ac`: a type-11 transfer while test-playing (`-18485 != 0`),
+which is hunk 30's own site. The "chained event pair" this log previously
+suggested for 31 cannot work — the first iteration's tail clears the flag before
+the second event ever sees it.
 
 **Hunks 3, 5, 6 and 23 are OBSERVED FIRING (2026-07-25)** — four at once, and
 each one isolated with its own A/B. They are a single "digits are not letters"

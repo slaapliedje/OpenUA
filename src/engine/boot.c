@@ -4529,6 +4529,19 @@ static void  l709e(short a)
 		}
 
 		/* L7662 — convergence + auto-chain (runs whether or not dispatched). */
+#ifdef FRUA_MOVDIAG
+		/* Hunk 29's two observables, both decided in this block. Log the
+		 * inputs BEFORE either arm runs, so an ON/OFF pair reads as a
+		 * straight diff of the -4942 column. */
+		dbg_file_num("l709e tail: event type ", (long)ev[0]);
+		dbg_file_num("   -4945 (chain pending) ", (long)(unsigned char)g_a5_byte(-4945));
+		dbg_file_num("   -4942 (transition done) ", (long)(unsigned char)g_a5_byte(-4942));
+		dbg_file_num("   -4943 (deferred re-trigger) ", (long)(unsigned char)g_a5_byte(-4943));
+		dbg_file_num("   -18484 (auto-chain enable) ", (long)(unsigned char)g_a5_byte(-18484));
+		dbg_file_num("   ev[3] (chain link) ", (long)ev[3]);
+		dbg_file_num("   party row ", (long)(signed char)g_a5_byte(-12288));
+		dbg_file_num("   party col ", (long)(signed char)g_a5_byte(-12287));
+#endif
 		if (g_a5_byte(-27982) == 0) {
 			if (g_a5_byte(-4945) == 0) {                     /* L766a */
 				idx = 0;
@@ -4537,6 +4550,9 @@ static void  l709e(short a)
 				if (idx & 0xff) {
 					g_a5_byte(-4945) = 1;
 					if (fp2) g_a5_byte(-5214) = 1;
+#ifdef FRUA_MOVDIAG
+					dbg_file_num("   -> AUTO-CHAIN to event ", (long)(idx & 0xff));
+#endif
 				}
 			}
 			if (g_a5_byte(-4945) == 0) {                     /* L76a6 */
@@ -4550,6 +4566,10 @@ static void  l709e(short a)
 					idx = jt201((short)(signed char)g_a5_byte(-12288),
 						    (short)(signed char)g_a5_byte(-12287));
 					if (idx & 0xff) g_a5_byte(-4945) = 1;
+#ifdef FRUA_MOVDIAG
+					dbg_file_num("   -> RE-SCAN landed cell, event ",
+					             (long)(idx & 0xff));
+#endif
 				}
 				/* ★ Mac 1.2 FIX (ADR-0018), oracle hunk 33 at CODE 20
 				 * L76fa: the tail `clrb -4943` is DELETED. It is the
@@ -48872,6 +48892,14 @@ static void l2e42(void *ev_v)
 	 * pre-move context and could fire follow-on events resolved against the
 	 * cell the party had just left. 1.2 stops the chain at the move. */
 	g_a5_byte(-4942) = 1;
+#ifdef FRUA_MOVDIAG
+	dbg_file_num("l2e42 done: frames ", (long)ev[6]);
+	dbg_file_num("   ev[7] ", (long)ev[7]);
+	dbg_file_num("   -4943 from ev[7]&0x20 ", (long)(unsigned char)g_a5_byte(-4943));
+	dbg_file_num("   -4942 on exit ", (long)(unsigned char)g_a5_byte(-4942));
+	dbg_file_num("   party row ", (long)(signed char)g_a5_byte(-12288));
+	dbg_file_num("   party col ", (long)(signed char)g_a5_byte(-12287));
+#endif
 }
 
 /* L3ac6 (CODE 20 + 0x3ac6) — the play-sounds event (l709e case 17). Faithful

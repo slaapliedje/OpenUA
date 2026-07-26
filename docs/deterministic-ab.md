@@ -148,12 +148,12 @@ Two things worth carrying forward:
 
 ## Promotion status of the ported 1.2 fixes
 
-Twenty-two of the 33 are **observed firing** (ON vs OFF produce different measured
-state, same seed). Two cannot fire at all and that is a finding, not a gap.
-The rest each need a specific situation, listed so the next pass does not have
-to re-derive it.
+Twenty-three of the 33 are **observed firing** (ON vs OFF produce different
+measured state, same seed). Two cannot fire at all and that is a finding, not a
+gap. The rest each need a specific situation, listed so the next pass does not
+have to re-derive it.
 
-### Observed firing (22)
+### Observed firing (23)
 
 | hunks | situation | evidence |
 |---|---|---|
@@ -170,6 +170,7 @@ to re-derive it.
 | 19-22 | authored SHOPPIC.DSN (`tools/mk_bigpic_design.py --shop`), Items -> Sell, `-DFRUA_ITMDIAG` | `jt893 ENTRY saved -22281` is **1** in both, then `in-browser` / loop-top / `jt182 confirm sees -22281` are **0 0 0** (ON) vs **1 1 1** (OFF) |
 | 17 | authored NOPERMA.DSN with **monster 42 (BASILISK)**, `-DFRUA_CBTPLAY -DFRUA_NPDIAG` | same gaze, same seed: `final-status` **5** (ON) vs **7** (OFF) on `subject BARBARUS side 0`; ON the party walks on at 1 HP, OFF the screen reads *"The monsters rejoice, for the party has been destroyed!"* |
 | 16 | authored caster (`tools/mk_caster_chr.py`), Hall -> View -> Spells | the picker's command bar reads **`Exit`** (ON) vs **blank** (OFF); `-24126` `0 FF ..` vs the stale `1 'S' 7 'E'`; `l2184("Exit") -> "Exit"` vs `""` |
+| 29 | authored MOVETEST.DSN / MOVERESC.DSN (`tools/mk_movetest_design.py`), `-DFRUA_MOVDIAG` | **two** A/Bs off one line, diverging in OPPOSITE directions: the auto-chain variant prints *"THE CHAIN FIRED"* (OFF) vs nothing (ON); the `--rescan` variant prints *"THE DESTINATION EVENT FIRED"* (ON) vs nothing (OFF) |
 
 Hunk 9 is the strongest evidence of the set, because the observable is a FILE
 rather than a log line: two full runs of the same click script, byte-diffed,
@@ -192,6 +193,74 @@ spell picker headless" below.
 Hunk 17 is the most CONSEQUENTIAL of the set — the only one where the two
 builds end the session differently. Full recipe below; the short version is
 that the whole no-permadeath family (1, 15, 17) now fires in a single run.
+
+### An animated passage that ends the chain (hunk 29)
+
+Hunk 29 appends one store to `l2e42`, the type-12 "scripted movement" handler
+that walks the party across the map over `ev[6]` animated frames:
+
+```c
+g_a5_byte(-4942) = 1;        /* transition done */
+```
+
+`-4942` is `l709e`'s chain-control flag, and the event loop's tail reads it
+**twice, in opposite senses** — which is why one line gives two A/Bs that
+diverge in opposite directions. Both are authorable, and
+`tools/mk_movetest_design.py` builds one module for each:
+
+| | tail test | 1.2 (fix ON) | 1.0 (fix OFF) |
+|---|---|---|---|
+| default | `if (-18484 && -4942 == 0) idx = ev[3]` | chain SUPPRESSED | `ev[3]` fires |
+| `--rescan` | `if (-4942 && -4943) idx = jt201(row, col)` | landed cell RE-SCANNED | nothing |
+
+```sh
+python3 tools/mk_movetest_design.py data/work/gamedata --current            # chain
+python3 tools/mk_movetest_design.py data/work/gamedata --current --rescan   # re-scan
+make EXTRA_CFLAGS='-DFRUA_MOVDIAG -DFRUA_RNGSEED=12345'
+```
+
+then `driver.sh start` and the five `beginplay` keys (`p a Return Escape b`).
+**Do not use `driver.sh beginplay` itself here** — it ends with a `Right`/`Left`
+view nudge, and either key dismisses the message box that IS the observable.
+
+Measured, from `DBG.LOG` (the `-4942` column is the whole diff):
+
+```
+              ON                                OFF
+  -4942 on exit          1                        0
+  -4943 (ev[7] & 0x20)  32                       32     (--rescan)
+  ev[3] (chain link)     2                        2     (default)
+  -> RE-SCAN landed cell, event 3      -> AUTO-CHAIN to event 2
+```
+
+and on screen: OFF shows `THE CHAIN FIRED - EVENT 2 RAN AFTER THE MOVE.` over
+`Press Return to continue.`; ON shows the bare walk view. The `--rescan` pair is
+the same two frames with the roles swapped.
+
+Two traps, both measured rather than assumed:
+
+- **Facing 0 decrements the COLUMN, not the row.** `jt201` indexes
+  `height*col + row` and takes its arguments as `jt201(-12288, -12287)` =
+  `(row, col)`. The party started at `(col 3, row 3)` and two frames put it at
+  `(col 1, row 3)`. `_walled_room` names edge 0 "N" and hangs it off `row == 0`,
+  so the perimeter wall is not even on the axis this walk travels. Hook the
+  destination event to the wrong cell and `--rescan` measures nothing at all —
+  `jt201` just returns 0 and the run looks like the fix is dead.
+- The re-scan needs BOTH flags, and `-4943` comes from the event's own
+  `ev[7] & 0x20`. Leave that bit clear (the default variant does) and only the
+  auto-chain half is in play.
+
+**Hunks 30 and 31 share one situation, and it is not this one.** `-4943` is set
+by exactly three handlers (`l5676`'s `ev[12] & 4`, `l3cd6`'s `ev[10] & 0x20`,
+`l2e42`'s `ev[7] & 0x20`), and 1.0 clears it in `l709e`'s tail — which is inside
+`if (-27982 == 0)`. So the flag can only leak out of a call when the SAME event
+both sets `-4943` and leaves `-27982` raised, and the one handler that does that
+is `l5676`'s early return at `0x57ac`: a **type-11 transfer while test-playing a
+design** (`-18485 != 0`), which is hunk 30's site. Chaining a later
+`-27982`-raising event (e.g. a type-16 variable event with `ev[4] & 16`) does
+NOT work — the earlier iteration's tail has already cleared the flag. Reaching
+test-play once therefore gets hunk 30 (its message is on screen) and arms
+hunk 31 for the next `l709e` call.
 
 ### A prompt with a digit (hunks 3, 5, 6, 23)
 
@@ -618,12 +687,11 @@ already has `rec[113+2i] == rec[112+2i]`, so loading one and pressing Ok makes
 the fix write back the bytes that were already there. Verified on all four of
 HEIRS' records and on stock BASILISK. The divergence has to come from an edit.
 
-### Needs a situation (9)
+### Needs a situation (8)
 
 | hunks | the situation still to construct |
 |---|---|
-| 31 | a chained event pair where the first sets `-4943` (`ev[12]&4`, passage `ev[10]&0x20`, combat `ev[7]&0x20`) and the second would inherit it. Authorable. |
-| 29 | an animated passage followed by a chained event. Authorable. |
+| 31 | **the same situation as hunk 30**, and nothing cheaper. `-4943` can only survive a call when one event both sets it and leaves `-27982` raised, which is `l5676`'s test-play transfer. A chained pair does NOT work: the first iteration's tail clears the flag before the second sees it. Worked out in full under "An animated passage that ends the chain (hunk 29)" above. |
 | 13 | the editor's test-play Hall — and the obvious route is a DEAD END. `l07dc` picks the Hall only in its `else`: `if (g_a5_-18485 != 0) { jt582(); ... } else { jt918(1); }`, and `jt918` is `l0aae`'s sole caller. So a non-zero `-18485` at play entry means the Hall is never reached — the flag has to go non-zero AFTER `jt918`'s loop is already running. `l30d4` (the spell-memorization sub-editor) is not it: it sets 5 on entry and restores 0 on exit. The one writer that leaves it set is `l3236` case 7 (CODE 11 @0x3348, the GEO editor's tool command — 1, then 2 when `jt318` agrees), so the situation is: enter the editor from `jt918`, issue that command, and see whether the loop re-enters `l0aae`. |
 | 7 | the `L3f80` picker modal. |
 | 10, 11 | delete a monster from a design folder. |
@@ -769,6 +837,16 @@ ON/OFF pair.
   installed? actor carrying it? the two data-driven producers? is the `l77a0`
   override `jt820`?), `jt820`'s item->bearer mirror, and `jt822`'s entry,
   victims and resulting effect-148 node value.
+- **`tools/mk_movetest_design.py`** — authors a module whose entry cell fires a
+  type-12 scripted-movement event (hunk 29). Default builds the auto-chain
+  variant (`ev[3]` links to a message); `--rescan` sets `ev[7] & 0x20`, clears
+  `ev[3]` and hooks the message to the cell the walk lands on. The two variants
+  diverge in OPPOSITE directions, which is the point.
+- **`-DFRUA_MOVDIAG`** — logs `l2e42`'s exit state (frames, `ev[7]`, `-4943`,
+  `-4942`, the party cell) and `l709e`'s whole tail decision (`-4945`, `-4942`,
+  `-4943`, `-18484`, `ev[3]`, the cell) plus which arm won — `AUTO-CHAIN to
+  event N` or `RE-SCAN landed cell, event N`. Reading the party cell here is
+  what caught the facing-0-moves-along-columns trap.
 - **`-DFRUA_NPDIAG`** — logs the flag seed at combat entry and the decision at
   all three no-permadeath sites; the `jt860` site also names the subject and its
   side, which is what proved hunk 17 lands on a PARTY member and not a monster. **`-DFRUA_OVDIAG`** now also logs the overland
