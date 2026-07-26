@@ -32,6 +32,10 @@ name.)
   git-ignored, the lifted C in `src/engine/` is the committed work (ADR-0009).
 - **Art libraries resolve design-first, root-fallback**; a module's replacement
   art lives in its `.DSN` and never overwrites the base game (ADR-0011).
+- **The bitplane machines render natively in planes**, not through the Mac's
+  chunky surface — writers stamp bitplanes at draw time and the present is a
+  page flip (ADR-0016). Shipping on ST/STE and Amiga ECS; Falcon/TT (VIDEL) and
+  Amiga RTG stay chunky by design, and AGA has not been ported yet.
 
 ## Source material
 
@@ -75,11 +79,20 @@ call XBIOS/TOS directly — go through the shim or the HAL.
 ## Build / test
 
 ```sh
-make            # build frua.prg (soft-float — runs on Falcon030 and TT030)
-make FPU=1      # FPU-required TT030 variant
-make run        # boot in Hatari (Falcon mode)
-make test       # host-side pytest suite over tools/ (tests/, synthetic data)
+make              # build frua.prg (soft-float — runs on Falcon030 and TT030)
+make FPU=1        # FPU-required TT030 variant
+make CPU68K=68000 # bare-68000 ST/STE build — NATIVE PLANAR (see below)
+make run          # boot in Hatari (Falcon mode)
+make test         # host-side pytest suite over tools/ (tests/, synthetic data)
 ```
+
+`CPU68K=68000` implies **`-DFRUA_PLANAR`** (ADR-0016): the low-end bitplane
+build stamps planes at draw time and page-flips instead of running a
+chunky→planar conversion each present. This is what the ST/STE and Amiga ECS
+zips ship, so the build you boot in an emulator is the build that ships —
+verified byte-identical to the `release-ste` / `release-amiga-ecs` output.
+`make CPU68K=68000 PLANAR=0` restores the chunky path for A/B comparison.
+020 builds (Falcon/TT, Amiga AGA/RTG) are unaffected and stay chunky.
 
 ## Toolchain flags (non-negotiable)
 

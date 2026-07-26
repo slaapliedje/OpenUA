@@ -1,6 +1,16 @@
 # Native planar rendering plan (ADR-0016)
 
-Branch: `planar-native`. Goal: the bitplane machines (ST/STe, Amiga ECS/OCS)
+> **STATUS 2026-07-26 — DONE AND SHIPPING; this file is now a working log, not a
+> plan.** The draw-time plane path is the default on `CPU68K=68000` and ships in
+> the ST/STE and Amiga ECS zips. For current state read the **2026-07-26 ADR-0016
+> status update in `docs/decisions.md`** — start there, not here. What follows is
+> the exploration that got there, including several conclusions later overturned
+> (most importantly the Phase-0 "native writers are not worth it" verdict, which
+> the new-ink re-quant trigger routed around). Read it for the measurements and
+> the dead ends; do not read it for what the code does today. Work landed on the
+> `planar-native` branch, retired 2026-07-26 — `main` carries all of it.
+
+Goal: the bitplane machines (ST/STe, Amiga ECS/OCS)
 render **natively in planar bitplanes** — no per-present chunky→planar (c2p).
 Falcon/TT keep the shared chunky path (VIDEL is 8bpp; they have the headroom).
 

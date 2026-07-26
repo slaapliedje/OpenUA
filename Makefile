@@ -68,7 +68,12 @@ INCLUDE := -Isrc -Icompat/include -Iplatform/include
 # was redistributable but was not. `make release` cleans first so it was
 # safe, but the ad-hoc command documented in docs/redistributable-binary.md
 # was not. Found by audit 2026-07-20.
-BUILDSTAMP := $(MACHINE)-$(or $(CPU68K),default)-$(or $(FPU),nofpu)-$(or $(NOEMBED),embed)-$(words $(EXTRA_CFLAGS))$(firstword $(EXTRA_CFLAGS))
+# PLANAR is in the stamp for the same reason CPU68K is: it is a compile-time
+# -D that reaches ~45 sites across quickdraw.c and the two bitplane backends,
+# so a PLANAR=0 rebuild over a default 68000 build would relink stamped-plane
+# objects against a chunky present path. Added when FRUA_PLANAR became the
+# 68000 default (see the CFLAGS block below).
+BUILDSTAMP := $(MACHINE)-$(or $(CPU68K),default)-$(or $(FPU),nofpu)-$(or $(NOEMBED),embed)-planar$(or $(PLANAR),1)-$(words $(EXTRA_CFLAGS))$(firstword $(EXTRA_CFLAGS))
 ifneq ($(shell cat .machine 2>/dev/null),$(BUILDSTAMP))
 $(shell find src compat platform -name '*.o' -delete 2>/dev/null; \
         find src compat platform -name '*.d' -delete 2>/dev/null; \
@@ -98,6 +103,34 @@ OBJ  += src/convert/artconv.o
 DEP  := $(OBJ:.o=.d)
 
 CFLAGS += $(INCLUDE)
+
+# ADR-0016 B4: the DRAW-TIME plane path is the DEFAULT on 68000 builds.
+#
+# CPU68K=68000 is exactly the low-end bitplane set — the Atari ST/STE zip and
+# the Amiga ECS/OCS zip — and both have shipped -DFRUA_PLANAR since 0.5.0 /
+# 0.5.1. Until now the flag lived only in the release recipes, so a plain
+# `make CPU68K=68000` (every dev build, every emulator soak, CI) compiled the
+# CHUNKY path: the binary under test was not the binary that ships. Making it
+# the default closes that gap — the thing you boot in Hatari/amiberry is the
+# thing in the zip.
+#
+# Safe on the other backends this 68000 binary can land on at runtime. The
+# draw-time target is REGISTERED by the active display backend (planar.c
+# dsp_planar_draw_target); VIDEL/TT-low/AGA/RTG never register, so the shim
+# writers see dt = 0 and skip the plane stamp, leaving the chunky path exactly
+# as it was. That is already how the shipped ST zip behaves when it boots on a
+# Falcon or TT.
+#
+#   make CPU68K=68000 PLANAR=0    opt out (the pre-0.5.0 chunky + c2p path)
+#
+# 020+ builds (Falcon/TT VIDEL, Amiga AGA/RTG) are chunky-native by ADR-0016
+# and are NOT affected.
+ifeq ($(CPU68K),68000)
+ifneq ($(PLANAR),0)
+CFLAGS += -DFRUA_PLANAR
+endif
+endif
+
 CFLAGS += $(EXTRA_CFLAGS)
 LDFLAGS += $(EXTRA_LDFLAGS)
 
@@ -764,6 +797,10 @@ release-amiga:
 # difference between frozen-feeling and playable input on a 7 MHz 68000.
 # Soaked on amiberry (menu -> add character -> Begin Adventuring -> dungeon
 # event, A600-class 68000 ECS config) 2026-07-23.
+# CPU68K=68000 now supplies -DFRUA_PLANAR by default; it stays spelled out here
+# on purpose, so the release is pinned to the plane path no matter what the
+# default becomes (and so `PLANAR=0` cannot quietly ship a chunky zip). GCC
+# ignores the identical redefinition.
 release-amiga-ecs:
 	$(MAKE) test
 	$(MAKE) clean
@@ -781,7 +818,9 @@ release-amiga-ecs:
 # c2p is gone from the present path. Proven byte-identical to the c2p output
 # (the b4dt audits: 64000/64000 owned, 0 mismatches) and soak-verified across
 # menu/hall/dungeon/events under autoplay. Falcon/TT (VIDEL/TT-low) and the
-# Amiga builds keep their default paths; FRUA_PLANAR_DIAG never ships.
+# AGA/RTG Amiga build keep their chunky paths; FRUA_PLANAR_DIAG never ships.
+# As with release-amiga-ecs, CPU68K=68000 now defines FRUA_PLANAR by default
+# and the explicit -D here is the deliberate pin.
 release-ste:
 	$(MAKE) test
 	$(MAKE) clean

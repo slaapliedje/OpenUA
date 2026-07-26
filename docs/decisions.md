@@ -819,6 +819,13 @@ later if ever needed, but they are not blocked on this work.
 
 ### ADR-0016 status update (2026-07-19) — ST/StE perf (#41) closed at Phase-0
 
+> **⚠ SUPERSEDED by the 2026-07-26 update at the end of this ADR.** This section
+> concludes that the native-writer end-state was abandoned. It was not: the third
+> wall below was routed around three days later and the draw-time plane path now
+> **ships** on both bitplane targets. The three walls were real and the reasoning
+> here is worth keeping — it is *why* the eventual solution had the shape it did —
+> but do not read this section as current state.
+
 The ST/StE performance goal that motivated this ADR (#41) is **closed with its
 wins banked at "Phase-0"**; the full native-writer conversion is **not** pursued
 further. What landed on `planar-native` and is verified on the STE:
@@ -871,6 +878,69 @@ dungeon walk untouched) — an accepted trade for tear-free rendering. Reconcile
 a within-scene palette change takes the register-only `st_repalette` (both pages' planes stay
 valid, no both-pages c2p); only a genuine re-band pays it. Verified on the STE (menu + dungeon
 render correctly, gold roster intact).
+
+### ADR-0016 status update (2026-07-26) — the end-state LANDED and is now the 68000 DEFAULT
+
+**Supersedes the 2026-07-19 update above.** That section closed the native-writer
+pursuit at Phase-0 against three measured walls. Wall 3 — the remap bootstrap —
+turned out to be soluble, and the end-state it was blocking is now shipping.
+
+**What broke the deadlock.** The wall was circular: draw-time writers need the
+palette remap *before* they draw, but a good remap needs the drawn frame's
+histogram. Remap-from-CLUT was tried and measured a clear quality regression, so
+the conclusion was "draw-time can't bootstrap". The resolution was to stop trying
+to make the first frame perfect and instead **detect when it wasn't**: the
+**new-ink re-quant trigger** counts converted pixels carrying an index the last
+quantise never saw (post-re-band ink riding the nearest-luma fallback — the
+invisible-gold-roster bug) and schedules a re-quant when four or more appear in a
+present. The chunky surface stays as the bridge for anything a writer does not
+own, so draw order is never reconstructed — the thing walls 1 and 2 said was
+impossible is simply not attempted. Walls 1 and 2 stand as stated; the end-state
+did not require beating them.
+
+**What ships.** The draw-time plane path (`FRUA_PLANAR`):
+
+- **Writers stamp planes as they draw** — `DrawChar`, pattern and solid fills,
+  `CopyBits`, the software cursor, and the GLIB chrome blitter via an
+  immediate-c2p bridge. Audited at **64000/64000 pixels owned, 0 mismatches**.
+- **Presents skip writer-owned rows** and span-bridge the rest, then page-flip.
+  The batch full-frame c2p is out of the steady-state present path.
+- **Self-healing ownership** (#41): a bridged row *is* `remap[chunky]` by
+  construction, so it claims itself. Coverage holes heal after one conversion.
+  Measured A/B over identical autoplay windows: the hot message-text band went
+  from ~400 conversions to zero, and steady diffed presents went from
+  conv 7 / skip 0 to conv 0 / skip 31–193 — the row-skip had never fired in play
+  before that fix.
+- **Promoted to the release recipes**: `release-ste` at 0.5.0-beta,
+  `release-amiga-ecs` at 0.5.1-beta.
+
+**Now the default for `CPU68K=68000`** (this change). Until today the flag lived
+only in the release recipes, so a plain `make CPU68K=68000` — every dev build,
+every Hatari/amiberry soak, CI — compiled the *chunky* path. The binary under
+test was not the binary that shipped, which is precisely the arrangement that
+lets a regression reach a zip unseen. `PLANAR=0` restores the chunky path for
+A/B work, and `PLANAR` is in the build stamp so switching it purges objects.
+Verified: `make CPU68K=68000` with the release flags is **byte-identical** to the
+same build with `-DFRUA_PLANAR` spelled out, so the default reproduces the
+shipped ST binary exactly. The release recipes keep the explicit `-D` as a pin.
+
+**What is still chunky, and why.** Falcon/TT (VIDEL 8bpp) and Amiga RTG are
+chunky-native — the ADR always exempted them. **Amiga AGA is the one gap**: it is
+a bitplane machine that still pays the c2p tax and never received the draw-time
+path, mitigated only by having an 020 to pay it with. The draw-time hook is
+format-agnostic (`DC_PUT` resolves to `planar_put_amiga` at compile time) and
+`display_ecs.c` is the worked example, so this is a port rather than a design
+problem. Left open deliberately, not overlooked.
+
+The draw-time target is **registered by the active backend**, so a 68000 binary
+that boots on a Falcon, TT, or AGA machine finds no registration, sees `dt = 0`,
+and runs the chunky path unchanged. That is how the shipped ST zip already
+behaves on non-ST Atari hardware.
+
+**Remaining, optional:** drop the chunky surface entirely so a present is a pure
+flip. The payoff is now marginal — transitions and re-bands are the cost floor,
+and the steady state already skips. Open bug in this path: **#61**, an occasional
+STe clipping/redraw glitch suspected of being page-flip-related.
 
 ---
 
