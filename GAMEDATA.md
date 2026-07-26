@@ -61,11 +61,18 @@ folder. Then:
    ```sh
    python3 tools/appledouble.py "…/Unlimited Adventures.rsrc" \
        --fork resource -o UnlimitedAdventures.rfork
-   python3 tools/rsrcpack.py UnlimitedAdventures.rfork -o frua.rsc
+   python3 tools/rsrcpack.py UnlimitedAdventures.rfork --exclude CODE -o frua.rsc
    ```
 
    (If you copied the application out of an emulator as a raw resource fork,
    skip the first step and feed the fork straight to `rsrcpack.py`.)
+
+   `--exclude CODE` drops the 23 `CODE` segments — the original Macintosh 68k
+   program. OpenUA runs its own code and never reads them, and they are about
+   90% of the fork, so the archive comes out roughly 67 KB instead of 620 KB.
+   Leaving them in also works; it just wastes the space. This does **not** make
+   `frua.rsc` redistributable — the strings, font, palette and data tables that
+   remain are still copyrighted, which is why you build it yourself.
 4. **`start.dat`** — the boot marker naming the current design:
 
    ```sh

@@ -57,6 +57,7 @@ def main(argv):
 
     fork_path = None
     out_path = "frua.rsc"
+    exclude = set()
     i = 0
     while i < len(argv):
         arg = argv[i]
@@ -65,6 +66,12 @@ def main(argv):
             if i >= len(argv):
                 sys.exit("rsrcpack: -o needs an argument")
             out_path = argv[i]
+        elif arg in ("-x", "--exclude"):
+            i += 1
+            if i >= len(argv):
+                sys.exit("rsrcpack: --exclude needs a 4-char type")
+            exclude.add(argv[i].encode("mac-roman").ljust(4)[:4]
+                        .decode("mac-roman"))
         elif arg.startswith("-"):
             sys.exit(f"rsrcpack: unknown option {arg!r}")
         elif fork_path is None:
@@ -76,10 +83,25 @@ def main(argv):
         sys.exit("rsrcpack: no resource fork given")
 
     rf = ResourceFork.from_file(fork_path)
-    archive = build_archive(rf.resources)
+    resources = rf.resources
+    if exclude:
+        # Drop whole resource types the runtime never reads. Chiefly 'CODE':
+        # the port executes its OWN lifted C, so the original 68k CODE segments
+        # (~90% of the fork) are dead weight in the runtime archive AND make
+        # frua.rsc a full copy of the Mac program. Excluding them leaves only
+        # the data resources the engine actually loads (DATA/DREL, clut, FONT,
+        # STRS, dialog/menu templates) — a much smaller, non-executable blob.
+        # The disassembly workflow reads the .rfork directly, not frua.rsc, so
+        # nothing offline depends on CODE being here either.
+        dropped = [r for r in resources if r.type in exclude]
+        resources = [r for r in resources if r.type not in exclude]
+        drop_bytes = sum(len(r.data) for r in dropped)
+        print(f"  excluded {len(dropped)} resource(s) of type "
+              f"{sorted(exclude)} ({drop_bytes} bytes)")
+    archive = build_archive(resources)
     with open(out_path, "wb") as f:
         f.write(archive)
-    print(f"  {len(rf.resources)} resources -> {out_path} "
+    print(f"  {len(resources)} resources -> {out_path} "
           f"({len(archive)} bytes)")
 
 

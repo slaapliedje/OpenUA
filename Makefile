@@ -201,9 +201,13 @@ $(TARGET): $(OBJ)
 # lives under data/work/ (gitignored); the generated archive is
 # gitignored too.
 RFORK ?= data/work/UnlimitedAdventures.rfork
+# --exclude CODE: the port runs its own lifted C, so the original 68k CODE
+# segments (~90% of the fork) are never read at runtime. Dropping them shrinks
+# frua.rsc ~10x and stops it from being a full copy of the Mac program — it
+# becomes just the data resources the engine loads.
 frua.rsc: $(RFORK) tools/rsrcpack.py
 	@if [ -f "$<" ]; then \
-		python3 tools/rsrcpack.py $< -o $@; \
+		python3 tools/rsrcpack.py $< --exclude CODE -o $@; \
 	else \
 		echo "  frua.rsc: $< not found; skipping (engine runs with no resources)"; \
 	fi
