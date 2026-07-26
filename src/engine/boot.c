@@ -66058,9 +66058,13 @@ static void l5900(short scribing, short gate12)
  * Memory: the 141 memorized slots, unused bit7 excluded), 5 (to
  * Memorize: bit7 set) and 1 (in Grimoire: the 126 grimoire bits +
  * a free slot at the class/level row rec[355 + class*9 + level-1])
- * are faithful full lifts; the scroll/scribe arms (2/3/4/6/7/12,
- * the L5726/L5cd8 family) are deferred TODO stubs for the camp
- * flows. The tail inserts a level-header node (text = the -6864
+ * are faithful full lifts, as are the scroll/scribe arms (2/3/4/6/
+ * 7/12, the L5726/L5900 family). This comment used to call the
+ * scribe arms "deferred TODO stubs"; that was stale — l5726 and
+ * l5900 are both full lifts, and arms 1/3/5/6 were all OBSERVED
+ * driving their camp screens on 2026-07-26 (task #79: SPELLS IN
+ * GRIMOIRE, SPELLS ON SCROLLS, SPELLS TO MEMORIZE, SPELLS TO
+ * SCRIBE). The tail inserts a level-header node (text = the -6864
  * level name, flag +4 = 1) at the head and before every level
  * increase. Returns 1 when the list is non-empty. */
 static unsigned char jt597(short code)
