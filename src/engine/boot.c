@@ -94179,9 +94179,17 @@ static void l4d98(void)
 	 * left the stale pointer in the slot, while 1.2 nulls the slot.
 	 *
 	 * -22222 is the shared FC/art handle jt204 hands to JT[115], the one
-	 * jt121 blits from and jt124 commits as a palette. So on every
-	 * new-game reset 1.0 both scribbled over 4 bytes of a live resident FC
-	 * object and kept a dangling reference to it.
+	 * jt121 blits from and jt124 commits as a palette. Where it holds a
+	 * live object, 1.0 scribbled over its first 4 bytes and kept a dangling
+	 * reference.
+	 *
+	 * MEASURED 2026-07-25: at the one place the port runs l4d98 (app init,
+	 * before any art is bound) the slot is **0**, so what 1.0 actually does
+	 * here is dereference NULL. With a Mac-faithful jt399 that is a hard
+	 * `Bus Error writing at address $0` on the Atari and the app dies at
+	 * init; 1.2 boots to the menu. On a real Mac low memory is writable, so
+	 * the same instruction silently zeroes the first longword there
+	 * instead — same bug, different blast radius.
 	 *
 	 * Every other clear in this reset block already takes the address of
 	 * its own A5 slot — `l5f4e(&g_a5_byte(-27894), 4)`,
@@ -94193,7 +94201,22 @@ static void l4d98(void)
 	 * The old `!= 0` PORT-SAFETY guard goes with it: it existed only
 	 * because 1.0 dereferenced the slot. There is no deref now, and the
 	 * Mac does this unconditionally. */
+#ifdef FRUA_FCDIAG
+	/* Hunk 2's whole content is WHICH address gets zeroed. Log the slot and
+	 * the first four bytes of whatever it points at, before and after — and
+	 * note that a NULL slot is the interesting case too, because 1.0's form
+	 * would then zero four bytes at address 0. */
+	{
+		long slot = g_a5_22222;
+		dbg_file_num("l4d98 -22222 slot before ", slot);
+		if (slot != 0)
+			dbg_file_num("   *slot before ", *(long *)(uintptr_t)slot);
+	}
+#endif
 	l5f4e(&g_a5_22222, (short)4);
+#ifdef FRUA_FCDIAG
+	dbg_file_num("l4d98 -22222 slot after ", (long)g_a5_22222);
+#endif
 	l36e0(&g_a5_long(-27866), (short)81);
 	l5f4e(&g_a5_byte(-24204), (short)36);
 	l5f4e(&g_a5_byte(-24236), (short)32);

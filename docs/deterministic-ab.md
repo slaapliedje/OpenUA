@@ -148,11 +148,11 @@ Two things worth carrying forward:
 
 ## Promotion status of the ported 1.2 fixes
 
-Twenty-eight of the 33 are **observed firing** (ON vs OFF produce different
-measured state, same seed). Four cannot fire at all and that is a finding, not
-a gap. Exactly one is left, and it has no clean observable by nature.
+**All 33 are accounted for.** Twenty-nine are **observed firing** (ON vs OFF
+produce different measured state, same seed); the other four cannot fire at
+all, and that is a finding rather than a gap.
 
-### Observed firing (28)
+### Observed firing (29)
 
 | hunks | situation | evidence |
 |---|---|---|
@@ -169,6 +169,7 @@ a gap. Exactly one is left, and it has no clean observable by nature.
 | 19-22 | authored SHOPPIC.DSN (`tools/mk_bigpic_design.py --shop`), Items -> Sell, `-DFRUA_ITMDIAG` | `jt893 ENTRY saved -22281` is **1** in both, then `in-browser` / loop-top / `jt182 confirm sees -22281` are **0 0 0** (ON) vs **1 1 1** (OFF) |
 | 17 | authored NOPERMA.DSN with **monster 42 (BASILISK)**, `-DFRUA_CBTPLAY -DFRUA_NPDIAG` | same gaze, same seed: `final-status` **5** (ON) vs **7** (OFF) on `subject BARBARUS side 0`; ON the party walks on at 1 HP, OFF the screen reads *"The monsters rejoice, for the party has been destroyed!"* |
 | 16 | authored caster (`tools/mk_caster_chr.py`), Hall -> View -> Spells | the picker's command bar reads **`Exit`** (ON) vs **blank** (OFF); `-24126` `0 FF ..` vs the stale `1 'S' 7 'E'`; `l2184("Exit") -> "Exit"` vs `""` |
+| 2 | no design needed — app init, with `jt399` restored to its Mac shape (see below) | 1.2 boots to the main menu (`menu: modal up` in 10 s); 1.0 takes a **`Bus Error writing at address $0, PC=$28fde`** at that instruction and dies with a garbage screen. The `-22222` slot is **0** there, so 1.0's form dereferences NULL |
 | 7 | authored SHOPPIC.DSN (`tools/mk_bigpic_design.py --shop --picture 57 --sprite`), `-DFRUA_ANIMDIAG` | at the merchant modal `arg_lo` is **1** vs **0** with every other input identical (`-13018 2`, `-24321 1`, `-24206 7`); the animation block runs **12** times vs **0**, and six timed screenshots differ by up to **12764** px (ON) vs **AE 0** every pair (OFF) — the shopkeeper animates vs sits frozen |
 | 14 | authored NOPERMA.DSN with monster 42, `-DFRUA_CBTPLAY -DFRUA_NPDIAG` and **hunks 1/15/17 at their 1.0 shape** (see below) | BARBARUS petrified at status 7 (`qualifies 0`), two live BASILISKs with `mc21 1` / `[382] 1` (`qualifies 1`): `found` **0** (ON) vs **1** (OFF), so `-27982` ends **1** vs **0**. On screen: *"The monsters rejoice, for the party has been destroyed!"* (ON) vs the walk view with BARBARUS at **0 HP** still in the party (OFF) |
 | 13 | authored TPHALL.DSN (`tools/mk_testplay_design.py --hall`), test-play, step onto a hall cell, answer Yes | the Hall opens with `-18485 = 1` and ALL TWELVE slots computed disabled; ON, the seven the fix names (Create, Delete, Add, Remove, Load, Save, Exit) are live. Hall frames differ by **AE 16844**; the landing and the train prompt are **AE 0** in both runs |
@@ -197,6 +198,48 @@ spell picker headless" below.
 Hunk 17 is the most CONSEQUENTIAL of the set — the only one where the two
 builds end the session differently. Full recipe below; the short version is
 that the whole no-permadeath family (1, 15, 17) now fires in a single run.
+
+### The one that crashes the app (hunk 2)
+
+Hunk 2 is one addressing mode. `l4d98`'s new-game reset clears the shared FC/art
+slot `-22222`, and 1.0 pushed the slot's **contents** (`movel %a5@(-22222)`)
+where 1.2 pushes its **address** (`pea %a5@(-22222)`). The callee is the same
+`l5f4e`/`jt399` "zero `size` bytes at `ptr`", so 1.0 zeroes whatever the slot
+POINTS AT and leaves the pointer; 1.2 nulls the slot.
+
+**Measured: the slot is 0 there.** `l4d98` runs once, at app init, before any
+art is bound (`FRUA_FCDIAG` logs `-22222 slot before 0`). So what 1.0 actually
+does is dereference NULL — not scribble on a live FC object, which is what the
+hunk log had assumed.
+
+That is masked in the shipped port, and the mask is ours, not 1.2's: `jt399`
+carries a `buf == NULL` PORT-SAFETY guard. The Mac's JT[399] does not — CODE 3
+`0x39d2` is `linkw #0; movew %fp@(12),%d1; beqs` — it tests the size word and
+nothing else. Restore that one line to its Mac shape in BOTH builds and the A/B
+is stark:
+
+```sh
+# in jt399: `if (size <= 0) return;`  — the Mac's test, no NULL guard
+make EXTRA_CFLAGS='-DFRUA_FCDIAG -DFRUA_RNGSEED=12345'
+```
+
+| | outcome |
+|---|---|
+| 1.2 (`pea`) | boots normally — `menu: modal up` after 10 s, `slot after 0` logged |
+| 1.0 (`movel`) | **`WARN : Bus Error writing at address $0, PC=$28fde`** — dies at that instruction; `slot after` never prints, and the screen is garbage bands over black |
+
+Address `$0` is byte-identical (`60 2e 04 04`) in both runs, because on the
+Atari the write never lands: ST-RAM below `$800` is supervisor-only and the
+program runs in user mode. On a real Mac 68k low memory IS writable, so the same
+instruction silently zeroes the first longword there instead. Same bug, very
+different blast radius — worth stating rather than claiming "1.0 crashes",
+which is only true on this target.
+
+This also retires the last open question about the port's own guard: it was
+added for exactly this call and the comment in `l4d98` said so. Now it is
+measured, so the guard can stay on its merits (defence in depth for a lift with
+other NULL-capable call sites) rather than as scaffolding for a 1.0 bug the port
+no longer contains.
 
 ### The merchant who stopped moving (hunk 7)
 
@@ -956,12 +999,6 @@ already has `rec[113+2i] == rec[112+2i]`, so loading one and pressing Ok makes
 the fix write back the bytes that were already there. Verified on all four of
 HEIRS' records and on stock BASILISK. The divergence has to come from an edit.
 
-### Needs a situation (1)
-
-| hunks | the situation still to construct |
-|---|---|
-| 2 | reading the clobbered FC object or the dangling `-22222` pointer — no clean observable; likely only ever visible as corruption. |
-
 ### The UI-navigation blocker — ROOT CAUSE FOUND (TaskList #84)
 
 It is not a hit-test problem and not a mouse-injection problem. **Two competing
@@ -1092,6 +1129,13 @@ ON/OFF pair.
   the plain message variant reaches only arm 4, the negative control.
   `--picture <id> --sprite` swaps the bigpic for an animating PIC — hunk 7's
   situation, and the one the 19-22 visible demo would also need.
+- **`-DFRUA_FCDIAG`** — `l4d98`'s `-22222` slot before and after the hunk-2
+  clear, plus the first longword of whatever it points at. Pair it with `jt399`
+  reduced to the Mac's size-only test, or the port's NULL guard hides the whole
+  measurement.
+- **`-DFRUA_PATHDIAG`** — `l6238`'s two inputs and the path it builds, plus a
+  one-shot dump of the design directory from `jt431` (which is the number that
+  decides whether hunks 10/11 could ever matter).
 - **`-DFRUA_ANIMDIAG`** — `l23b4`'s modal entry (`arg_lo`, `-13018`,
   `mode_with_timer`, and the `-24321`/`-24206`/`-24207` animation state), a
   capped log of the frames the animation block actually draws, and `l541a`'s

@@ -23,7 +23,7 @@ streams**; CODE 17 changes only in operands (see below).
 | # | seg | 1.0 label | kind | 1.0 | 1.2 | lifted | status | note |
 |--:|--:|---|---|--:|--:|---|---|---|
 | 1 | 6 | `L25c0` | insert | 0 | 5 | jt39 | ✅ ported | jt39: no-permadeath skips BOTH status-6 arms — hunk 17's fix on the damage route |
-| 2 | 6 | `L4e3a` | replace | 1 | 1 | `l4d98` | ✅ ported | l4d98: clear the -22222 SLOT (`pea`), not the object it points at (`movel`) |
+| 2 | 6 | `L4e3a` | replace | 1 | 1 | `l4d98` | ✅ ported **OBSERVED FIRING** | l4d98: clear the -22222 SLOT (`pea`), not the object it points at (`movel`) |
 | 3 | 7 | `L1a66` | delete | 11 | 0 | `l1a0c` | ✅ ported | l1a0c: a digit no longer ends a word — only isupper does. **OBSERVED FIRING** |
 | 4 | 7 | `L1ace` | replace | 1 | 1 | `l1a0c` | ➖ churn | `beqw` -> `beqs`: branch width, shrunk by hunk 3's deletion |
 | 5 | 7 | `L21b6` | delete | 18 | 0 | `l2184` | ✅ ported | l2184 boundary test 1: drop the digit alternative. **OBSERVED FIRING** |
@@ -123,7 +123,32 @@ Two corrections to the 2026-07-24 entry that stood here:
   run to record 13, whose bit5 is clear. The event-byte count (11 of HEIRS' 175
   combat events affected) was unaffected; only the cell attribution was wrong.
 
-**Promotion status: 28 of 33 observed firing, 4 established as unable to fire, 1 left (hunk 2, no clean observable).**
+**Promotion status: ALL 33 ACCOUNTED FOR — 29 observed firing, 4 established as unable to fire.**
+
+**Hunk 2 is OBSERVED FIRING (2026-07-25), and it is the most consequential of
+the set — 1.0 dereferences NULL at app init.**
+
+One addressing mode: 1.0 pushes the slot's CONTENTS (`movel %a5@(-22222)`),
+1.2 its ADDRESS (`pea %a5@(-22222)`), into the same "zero 4 bytes at ptr".
+
+Measured: at the one place the port runs `l4d98` (app init, before any art is
+bound) the slot is **0**. So 1.0 is not scribbling on a live FC object, which is
+what this log assumed — it is writing through a null pointer.
+
+The port hides that behind `jt399`'s `buf == NULL` PORT-SAFETY guard, and the
+guard is ours: the Mac's JT[399] (CODE 3 `0x39d2`) is
+`linkw #0; movew %fp@(12),%d1; beqs` — the size word and nothing else. Restore
+the Mac's test in BOTH builds and one operand decides whether the app runs:
+
+| | outcome |
+|---|---|
+| 1.2 | boots to the main menu, `menu: modal up` after 10 s |
+| 1.0 | `WARN : Bus Error writing at address $0, PC=$28fde`, dead at init, garbage screen |
+
+Platform nuance worth keeping: `$0` is byte-identical in both runs because the
+write never lands — ST-RAM below `$800` is supervisor-only and the program is in
+user mode. On a real Mac low memory is writable, so the same instruction
+silently zeroes the first longword instead. Same bug, different blast radius.
 
 **Hunks 10 and 11 CANNOT FIRE (2026-07-25) — and the reason this log gave for
 them was factually wrong.** The note below says 1.0's `jt436` "has to slide the
