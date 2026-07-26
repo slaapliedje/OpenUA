@@ -34,7 +34,7 @@ streams**; CODE 17 changes only in operands (see below).
 | 10 | 10 | `L6238` | replace | 1 | 1 | yes | ✅ ported | l6238: build the path forwards (clear + 2x jt431) instead of jt436's in-place dir prefix |
 | 11 | 10 | `L6238` | replace | 1 | 5 | yes | ✅ ported | l6238: the second jt431 join (same change as hunk 10) |
 | 12 | 12 | `L071c` | replace | 1 | 2 | n/a | 🚫 artefact | DISASSEMBLY DESYNC: an inline dispatch table after `jsr JT[1]` decoded as instructions. Both listings are garbage here — not a comparable change |
-| 13 | 12 | `L0d3e` | insert | 0 | 16 | `l0aae` | ✅ ported | Training Hall: after a RESUMED save, force-enable Create/Delete/Add/Remove/Load/Save/Exit |
+| 13 | 12 | `L0d3e` | insert | 0 | 16 | `l0aae` | ✅ ported **OBSERVED FIRING** | Training Hall: after a RESUMED save, force-enable Create/Delete/Add/Remove/Load/Save/Exit |
 | 14 | 12 | `L3426` | replace | 1 | 5 | `l33d8` | ✅ ported | l33d8 pass 2: skip SUMMONED combatants (`mc[21]==1`) so a conjured creature cannot mask a party wipe |
 | 15 | 13 | `L105c` | insert | 0 | 5 | `l102a` | ✅ ported | l102a: no-permadeath also stops the per-round BLEED-OUT (dying -> dead at >9) |
 | 16 | 16 | `L50cc` | insert | 0 | 3 | `l4faa` | ✅ ported | l4faa default arm: jt179(0) — init the slot table l2184 reads instead of inheriting a stale one. **OBSERVED FIRING** |
@@ -123,7 +123,34 @@ Two corrections to the 2026-07-24 entry that stood here:
   run to record 13, whose bit5 is clear. The event-byte count (11 of HEIRS' 175
   combat events affected) was unaffected; only the cell attribution was wrong.
 
-**Promotion status: 25 of 33 observed firing, 2 established as unable to fire.**
+**Promotion status: 26 of 33 observed firing, 2 established as unable to fire.**
+
+**Hunk 13 is OBSERVED FIRING (2026-07-25)** — and it had been filed as a DEAD
+END on reasoning that was correct as far as it went. The fix force-enables the
+Hall's roster verbs when `-18485` is set; `l07dc` picks the Hall only in its
+`-18485 == 0` branch, and `jt918` is `l0aae`'s sole caller, so the fix looked
+like it guarded a branch its own gate excluded.
+
+**`jt918` has a SECOND caller.** `l2d32`, the in-dungeon Training Hall event
+(`l709e` case 6, CODE 20 `0x2d32`), calls `jt918(1)` unconditionally after its
+"Does the party want to train?" prompt, and consults nothing. So in test-play
+the Hall opens with the editor flag still set — hunk 13's exact situation.
+
+`FRUA_TPDIAG` shows all twelve computed enable flags come out DISABLED there:
+
+| | the Hall's twelve buttons |
+|---|---|
+| 1.2 | Create, Delete, Add, Remove, Load, Save and Exit From Play live |
+| 1.0 | **all twelve greyed** — including Exit From Play |
+
+Hall frames differ by AE 16844 with the landing frame and the train prompt both
+at AE 0, so the two runs are pixel-identical up to the moment the fix acts. And
+1.0's bug is worse than "some verbs missing": a designer who answered yes to a
+Training Hall event while test-playing got a menu with no working button at all.
+
+Same lesson as #78, from the other end: a "sole caller" claim is worth a grep.
+`l0aae`'s own comment ("Hall-only — sole caller jt918") is true; the wrong
+assumption was one layer up.
 
 **Hunks 30 and 31 are OBSERVED FIRING (2026-07-25)** — one scripted run, both
 halves of `l5676`'s early return at `0x57ac`, reached by actually TEST-PLAYING a

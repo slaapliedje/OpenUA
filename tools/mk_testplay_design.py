@@ -64,6 +64,10 @@ the leak. The question is once-only so the re-scan it provokes terminates.
 
     python3 tools/mk_testplay_design.py data/work/gamedata --current
 
+`--hall` builds TPHALL.DSN instead: the same test-play scaffolding, but with an
+in-dungeon Training Hall event (type 6) on every cell except the entry. That is
+hunk 13's situation — see hall_design() below for why it is the only way in.
+
 Full driving script in docs/deterministic-ab.md.
 """
 import os
@@ -77,6 +81,51 @@ from geo import EVENT_SIZE                            # noqa: E402
 ENTRY = (3, 3)          # (col, row) — left event-free so normal play can save
 TCELL = (4, 3)          # (col, row) — the transfer, one step FORWARD of ENTRY
                         # every OTHER cell carries the question (see below)
+
+
+HALL_GUILD_MASK = 61    # ev[8] -> rec[48]; 61 is HEIRS' Road Guards, proven
+HALL_PRICE       = 1    # ev[9] -> jt932(1000, ev[9], 1)
+
+
+def _hall_event():
+    """A 20-byte type-6 Training Hall record (l2d32, boot.c ~48967).
+
+    ev[4..5] text id is left 0 on purpose: l2d32 reads it as `*(short *)(ev+4)`,
+    a BIG-endian word on 68k, unlike the little-endian byte pairs every other
+    event type uses — not worth the trap for a flavour line the hard-coded
+    "Does the party want to train?" prompt already covers.
+    """
+    ev = bytearray(EVENT_SIZE)
+    ev[0] = 6
+    ev[8] = HALL_GUILD_MASK
+    ev[9] = HALL_PRICE
+    return bytes(ev)
+
+
+def hall_design(name="TPHALL", size=8):
+    """The hunk-13 variant: a Training Hall event on every cell but the entry.
+
+    Hunk 13 force-enables the Hall's roster verbs when `-18485` is set, and
+    `l07dc` only ever reaches `jt918` (l0aae's caller) in its `-18485 == 0`
+    branch — which is why this looked like a dead end. The way in is
+    **`l2d32`**, the in-dungeon Training Hall event: it calls `jt918(1)`
+    unconditionally, so during test-play the Hall opens with the editor flag
+    still set.
+    """
+    a5 = _walled_room(w=size, h=size, entry=ENTRY, facing=0)
+    a5.strg_write(["", "The guildhall of the test masters."])
+    a5.set_event(0, _hall_event())
+    for c in range(size):
+        for r in range(size):
+            if (c, r) != ENTRY:
+                _hook(a5, c, r, special=1)
+
+    d = Design(name, title="Test-play hall test")
+    d.xp = 15000
+    d.start_area = 5
+    d.start_entry = 1
+    d.add_area(5, a5)
+    return d
 
 
 def testplay_design(name="TPTEST", size=8):
@@ -126,6 +175,17 @@ def main(argv):
         print(__doc__)
         return 2
     base = argv[0]
+    if "--hall" in argv:
+        d = hall_design()
+        folder = d.write(base, make_current=("--current" in argv))
+        a5 = d.areas[5]
+        print("wrote", folder)
+        print("  event 1: type=%d guild mask ev[8]=%d price ev[9]=%d"
+              % (a5.event_type(0), a5.event(0)[8], a5.event(0)[9]))
+        print("  entry (col %d, row %d) event-free; every other cell -> the hall"
+              % ENTRY)
+        return 0
+
     d = testplay_design()
     folder = d.write(base, make_current=("--current" in argv))
     a5 = d.areas[5]

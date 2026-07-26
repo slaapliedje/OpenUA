@@ -148,12 +148,12 @@ Two things worth carrying forward:
 
 ## Promotion status of the ported 1.2 fixes
 
-Twenty-five of the 33 are **observed firing** (ON vs OFF produce different
+Twenty-six of the 33 are **observed firing** (ON vs OFF produce different
 measured state, same seed). Two cannot fire at all and that is a finding, not a
 gap. The rest each need a specific situation, listed so the next pass does not
 have to re-derive it.
 
-### Observed firing (25)
+### Observed firing (26)
 
 | hunks | situation | evidence |
 |---|---|---|
@@ -170,6 +170,7 @@ have to re-derive it.
 | 19-22 | authored SHOPPIC.DSN (`tools/mk_bigpic_design.py --shop`), Items -> Sell, `-DFRUA_ITMDIAG` | `jt893 ENTRY saved -22281` is **1** in both, then `in-browser` / loop-top / `jt182 confirm sees -22281` are **0 0 0** (ON) vs **1 1 1** (OFF) |
 | 17 | authored NOPERMA.DSN with **monster 42 (BASILISK)**, `-DFRUA_CBTPLAY -DFRUA_NPDIAG` | same gaze, same seed: `final-status` **5** (ON) vs **7** (OFF) on `subject BARBARUS side 0`; ON the party walks on at 1 HP, OFF the screen reads *"The monsters rejoice, for the party has been destroyed!"* |
 | 16 | authored caster (`tools/mk_caster_chr.py`), Hall -> View -> Spells | the picker's command bar reads **`Exit`** (ON) vs **blank** (OFF); `-24126` `0 FF ..` vs the stale `1 'S' 7 'E'`; `l2184("Exit") -> "Exit"` vs `""` |
+| 13 | authored TPHALL.DSN (`tools/mk_testplay_design.py --hall`), test-play, step onto a hall cell, answer Yes | the Hall opens with `-18485 = 1` and ALL TWELVE slots computed disabled; ON, the seven the fix names (Create, Delete, Add, Remove, Load, Save, Exit) are live. Hall frames differ by **AE 16844**; the landing and the train prompt are **AE 0** in both runs |
 | 30 | authored TPTEST.DSN (`tools/mk_testplay_design.py`), map editor -> Utilities -> **Test module**, step onto the transfer | same burst position in both runs: the bottom row reads **`Transfer module ends testing!`** (ON) vs the ordinary `Area \| Cast \| View \| ...` command bar (OFF) — 7848 changed pixels vs 224 (the clock) |
 | 31 | the SAME run, second half: Escape -> Done, then step onto a question cell | at the question's `l709e` iteration both builds inherit `-4943 = 4` from the transfer; at the tail it is **0** (ON) vs **4** (OFF), and `-> RE-SCAN landed cell` appears in OFF only |
 | 29 | authored MOVETEST.DSN / MOVERESC.DSN (`tools/mk_movetest_design.py`), `-DFRUA_MOVDIAG` | **two** A/Bs off one line, diverging in OPPOSITE directions: the auto-chain variant prints *"THE CHAIN FIRED"* (OFF) vs nothing (ON); the `--rescan` variant prints *"THE DESTINATION EVENT FIRED"* (ON) vs nothing (OFF) |
@@ -195,6 +196,54 @@ spell picker headless" below.
 Hunk 17 is the most CONSEQUENTIAL of the set — the only one where the two
 builds end the session differently. Full recipe below; the short version is
 that the whole no-permadeath family (1, 15, 17) now fires in a single run.
+
+### The Training Hall the editor could not use (hunk 13)
+
+This one was filed as a **dead end** for two passes, on reasoning that was
+correct as far as it went and still wrong. Hunk 13 force-enables the Hall's
+roster verbs when `-18485` is set; `l07dc` picks the Hall only in its
+`else` branch (`-18485 == 0`), and `jt918` is `l0aae`'s sole caller. So the
+fix appeared to guard a branch its own gate excluded.
+
+**`jt918` has a SECOND caller.** `l2d32`, the in-dungeon Training Hall event
+(`l709e` case 6, CODE 20 `0x2d32`), calls `jt918(1)` unconditionally after its
+"Does the party want to train?" prompt. Nothing there consults `-18485`. So
+during test-play the Hall opens with the editor flag still set, which is
+exactly the state hunk 13 was written for.
+
+The lesson generalises, and it is the same one that resolved #78: **"sole
+caller" claims are worth re-checking against a grep, not against the function's
+own doc comment.** `l0aae`'s comment says "l0aae is Hall-only — sole caller
+jt918" and that is true; it was the layer above, `jt918`, where the assumption
+about a single entry path was wrong.
+
+```sh
+python3 tools/mk_testplay_design.py data/work/gamedata --current --hall
+make EXTRA_CFLAGS='-DFRUA_TPDIAG -DFRUA_RNGSEED=12345'
+# make a normal-play save first (see the test-play recipe below), then:
+env -u DISPLAY $D key e; env -u DISPLAY $D click 58 439    # Edit Modules -> Open
+env -u DISPLAY $D drag 555 67 555 229                      # Utilities -> Test module
+env -u DISPLAY $D key p; env -u DISPLAY $D key a           # test-play, load slot A
+env -u DISPLAY $D key Up                                   # -> "Does the party want to train?"
+env -u DISPLAY $D key y                                    # -> the Hall
+```
+
+Measured. `FRUA_TPDIAG` logs `-18485` and the twelve computed enable flags at
+`l0aae`, and in test-play **all twelve come out disabled**:
+
+| | the Hall's twelve buttons |
+|---|---|
+| 1.2 (ON) | Create, Delete, Add, Remove, Load Saved Game, Save Current Game and Exit From Play are LIVE; Modify / Train / Human Change Class / View / Begin Adventuring stay greyed |
+| 1.0 (OFF) | **every one of the twelve is greyed** |
+
+Hall frames differ by **AE 16844**, and the two controls are as clean as this
+harness gets: the landing frame and the train prompt are **AE 0** — the runs are
+pixel-identical right up to the moment the fix acts.
+
+Worth stating plainly, because it makes the fix more than cosmetic: with 1.0's
+Hall, **Exit From Play is greyed too**. A designer who answered "yes" to a
+Training Hall event while test-playing got a menu with no working button on it
+at all.
 
 ### Reaching TEST-PLAY headless (hunks 30 and 31)
 
@@ -792,11 +841,10 @@ already has `rec[113+2i] == rec[112+2i]`, so loading one and pressing Ok makes
 the fix write back the bytes that were already there. Verified on all four of
 HEIRS' records and on stock BASILISK. The divergence has to come from an edit.
 
-### Needs a situation (6)
+### Needs a situation (5)
 
 | hunks | the situation still to construct |
 |---|---|
-| 13 | the editor's test-play Hall — and the obvious route is a DEAD END. `l07dc` picks the Hall only in its `else`: `if (g_a5_-18485 != 0) { jt582(); ... } else { jt918(1); }`, and `jt918` is `l0aae`'s sole caller. So a non-zero `-18485` at play entry means the Hall is never reached — the flag has to go non-zero AFTER `jt918`'s loop is already running. `l30d4` (the spell-memorization sub-editor) is not it: it sets 5 on entry and restores 0 on exit. The one writer that leaves it set is `l3236` case 7 (CODE 11 @0x3348, the GEO editor's tool command — 1, then 2 when `jt318` agrees), so the situation is: enter the editor from `jt918`, issue that command, and see whether the loop re-enters `l0aae`. **That command is now driven** — it is Utilities -> Test module, the same one hunks 30/31 used; see their recipe. What is left is finding a path that re-enters `l0aae` with the flag still set. |
 | 7 | the `L3f80` picker modal. |
 | 10, 11 | delete a monster from a design folder. |
 | 14 | a party wipe with a summoned creature still on the combatant list. |
@@ -953,12 +1001,15 @@ ON/OFF pair.
 - **`tools/mk_testplay_design.py`** — authors the module hunks 30/31 need: one
   event-free cell for the editor cursor and the normal-play save, one type-11
   transfer with `ev[12]` bit 2 set, and a once-only Yes/No question on every
-  other square.
+  other square. `--hall` builds the hunk-13 variant instead: the same
+  scaffolding with an in-dungeon Training Hall event (type 6, `ev[8]` = the
+  guild mask) on every cell but the entry.
 - **`-DFRUA_TPDIAG`** — the test-play chain: every menu pick as `(group, item)`
   from `jt341` (which is how you calibrate an editor pulldown without guessing
   pixels), `l3236` case 7's `-18485` + editor cursor, `l5676`'s transfer return
-  (`ev[12]`, the `-4943` it leaks, `-27982`), and `l709e`'s per-iteration
-  inherited `-4943` + the `-27982` that gates the whole convergence block.
+  (`ev[12]`, the `-4943` it leaks, `-27982`), `l709e`'s per-iteration inherited
+  `-4943` + the `-27982` that gates the whole convergence block, and `l0aae`'s
+  twelve computed Hall enable flags (hunk 13).
 - **`-DFRUA_NPDIAG`** — logs the flag seed at combat entry and the decision at
   all three no-permadeath sites; the `jt860` site also names the subject and its
   side, which is what proved hunk 17 lands on a PARTY member and not a monster. **`-DFRUA_OVDIAG`** now also logs the overland

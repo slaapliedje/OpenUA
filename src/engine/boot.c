@@ -27592,6 +27592,15 @@ static int l0aae(void)
 		 * retired — jt137's bars ARE the buttons. */
 		for (i = 0; i < 12; i++)
 			jt444(i, (short)(*flags[i] != 0 ? 24 : 16), 0, 0);
+#ifdef FRUA_TPDIAG
+		/* Hunk 13 only bites where the computed walk DISABLED a slot:
+		 * flag != 0 -> cmd 24 -> rec[28] bit 0 clear -> greyed. Log the
+		 * whole cluster so an ON/OFF pair reads as a diff of the seven
+		 * slots the fix forces (0, 1, 6, 7, 8, 9, 11). */
+		dbg_file_num("l0aae hall: -18485 ", (long)(unsigned char)g_a5_byte(-18485));
+		for (i = 0; i < 12; i++)
+			dbg_file_num("   slot disabled? ", (long)(*flags[i] != 0));
+#endif
 	}
 
 	/* ★ Mac 1.2 FIX (ADR-0018), oracle hunk 13 at CODE 12 L0d3e (16
