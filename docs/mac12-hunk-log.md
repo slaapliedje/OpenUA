@@ -789,12 +789,56 @@ below it and accounted for 136 of the raw 229 differences. Negative A5
 displacements are NOT normalised: those are A5-world globals, and `DATA`/`DREL`
 are byte-identical between the releases, so a change there would be real.
 
-| segment | count | what it looks like |
+**ALL 93 ARE NOW ACCOUNTED FOR (2026-07-26).** Ninety-one are shadow or already
+ported; **two were genuine unported fixes** and are ported now — see "The two
+the operand pass actually found" below.
+
+| segment | count | what it is |
 |---|--:|---|
-| CODE 21 | 61 | not yet analysed |
-| CODE 20 | 15 | one is now analysed + ✅ PORTED: the `l0098` tolower range — see below |
-| CODE 17 | 13 | **a systematic record-field correction** — see below |
-| CODE 7, 12, 18, 19 | 1 each | CODE 7 is `cmpib #57` -> `cmpib #90`, a `'9'` -> `'Z'` bound near `L21e6` — ✅ PORTED, see below |
+| CODE 21 | 61 | **all shadow.** 60 near `L13f6` are hunk 34's appended whitelist entry (the chain's `beqs`->`beqw` growth makes the shift accumulate, so the aligner pairs each 1.0 `cmpiw` with the NEXT 1.2 one); 1 near `L4816` is hunks 36/37's inserted bounds guard, whose new `moveb -4904` gets paired with 1.0's `moveb -4903` |
+| CODE 20 | 15 | 2 = hunk 23's tolower range (✅ ported); 1 = hunk 24's insert shadow; 2 = hunks 25/26 (blocked); 8 = hunks 27/28's shadow (the insert pushed the temp from `%d0` to `%d1`); 1 = hunk 31's known mis-pair; **1 = `l3cd6`'s `andiw #32` -> `#64`, GENUINE — ✅ ported 2026-07-26** |
+| CODE 17 | 13 | **a systematic record-field correction** — see below. ✅ ported |
+| CODE 18 | 1 | **GENUINE — ✅ ported 2026-07-26.** `jt868` case 19's third code, `217` -> `226` |
+| CODE 7 | 1 | hunk 3/5/6's shadow — the reading below was wrong, see there |
+| CODE 12 | 1 | hunk 12's disassembly desync (both listings are garbage there) |
+| CODE 19 | 1 | hunks 19-22's `-22281` restructure shadow |
+
+### The two the operand pass actually found — ✅ PORTED 2026-07-26
+
+**CODE 18 `jt868` case 19: code `217` -> `226`** (1.0 @0x0e8e -> 1.2 @0x0eba).
+Case 19 is the PER-ROUND, per-combatant sweep — `l102a` runs
+`jt868(19, &member)` at the top of its member loop — and the two codes sit at
+opposite ends of the regeneration chain:
+
+| hook | fn | what it does |
+|--:|---|---|
+| 217 | `jt845` | grant effect 225, unless already under 225/226 |
+| 225 | `jt853` | grant effect 226 |
+| 226 | `jt854` | **+3 HP**, capped at `rec[129]` |
+
+`l026e` fires a hook only when the actor CARRIES that effect, so 1.0's
+per-round pass could only ever re-run the GRANT stage. **Nothing in any of
+`jt868`'s 24 code lists names 226**, so the heal at the end of the chain was
+never reached and a regenerating creature never regained a hit point. 1.2
+points the per-round sweep at the heal.
+
+Verified exhaustively rather than by eye: of the **183** `l026e` code arguments
+in CODE 18, this is the ONLY one that differs — position 178 and nothing else.
+
+**CODE 20 `l3cd6`: `-4943 = ev[10] & 0x20` -> `& 0x40`** (1.0 @0x3ee8 -> 1.2
+@0x3ee4). 1.0 read the deferred re-trigger flag out of a bit the FACING field
+already owns: the same function's outcome-teleport arm takes its facing from
+`(ev[10] & 0x30) >> 3`, so bits 4 and 5 are the direction. An outcome-teleport
+facing S or W (bit 5 set) therefore also armed `-4943` — and that arm sets
+`-4942` four lines earlier, so `l709e`'s `-4942 && -4943` test fired on the
+strength of a direction. Not a latent overlap: it triggers whenever the arm
+runs. 1.2 moves the flag to a bit nothing else claims.
+
+Neither is observed-firing yet. The situations are authorable and small:
+regeneration needs a monster carrying effect 226 in a fight lasting >1 round;
+the `l3cd6` one needs a type-18/19/20 question whose outcome teleports with
+facing S or W, and the observable is `l709e`'s `-> RE-SCAN landed cell` line
+under `FRUA_MOVDIAG`.
 
 ### The two character-range changes — ✅ PORTED
 
@@ -867,9 +911,24 @@ The Mac dispatches JT[557] from `CODE 10+0x5cec` and `CODE 12+0x0f68`; neither
 call was wired during the lift. So the ported fix is correct and inert until
 task #78 wires the menu. See the function audit §3.
 
-## Not yet analysed
+## Nothing left unanalysed
 
-26 structural hunks (1, 3–6, 8, 9, 12–18, 23–29, 31–35) and 80 operand changes,
-concentrated in CODE 20/21 (the play loop and camp/overland). Each is 1–20
-instructions; `mac12_diff.py --hunk N` prints both sides with the enclosing
-label and any boot.c mentions, which is how the nine above were done.
+This section used to list 26 structural hunks and 80 operand changes as
+outstanding. Both passes are now complete: **38 structural hunks** (33 ported,
+2 churn, 1 disassembly artefact, 2 blocked on a deferred sub-flow) and **93
+operand changes** (91 shadow or already ported, 2 genuine and now ported).
+
+`mac12_diff.py --hunk N` prints both sides with the enclosing label and any
+boot.c mentions; that is how each was done. The four traps the passes taught,
+in the order they cost time:
+
+1. Callee identity is `(segment, offset)`, never the JT index — 1.2's table is
+   permuted and this bit three times.
+2. An operand "change" can be the shadow of a nearby INSERT or DELETE. The
+   aligner matches by mnemonic, so after an edit two same-mnemonic instructions
+   from unrelated tests get paired. 91 of the 93 operand rows are this.
+3. In a repetitive region compare the operand SET, not the reported position.
+   `L13f6`'s 60-deep cascade is the example: extracting every `cmpiw` from both
+   listings turns 60 reported "changes" into one appended entry.
+4. Implausible mnemonics mean the disassembler desynced on an inline dispatch
+   table, not that the code changed.

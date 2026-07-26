@@ -33812,7 +33812,29 @@ static void jt868(short sel, void *arg)
 		l026e_list(arg, c, sizeof c); break; }
 	case 18: { static const unsigned char c[] = {74,39,42,99,178,221};
 		l026e_list(arg, c, sizeof c); break; }
-	case 19: { static const unsigned char c[] = {11,23,217};
+	case 19: { static const unsigned char c[] = {11,23,226};
+		/* ★ Mac 1.2 FIX (ADR-0018), operand pass, CODE 18 1.0 @0x0e8e ->
+		 * 1.2 @0x0eba: the third code goes 217 -> 226. Case 19 is the
+		 * PER-ROUND, per-combatant sweep (l102a runs jt868(19, &member)
+		 * at the top of its member loop), and the two codes sit at
+		 * opposite ends of the regeneration chain:
+		 *
+		 *   hook 217 = jt845  grant effect 225, unless already 225/226
+		 *   hook 225 = jt853  grant effect 226
+		 *   hook 226 = jt854  +3 HP, capped at rec[129]
+		 *
+		 * l026e only fires a hook when the actor CARRIES that effect, so
+		 * 1.0's per-round pass could only ever re-run the GRANT stage —
+		 * nothing in any of jt868's 24 code lists names 226, so the heal
+		 * at the end of the chain was never reached and a regenerating
+		 * creature never regained a hit point. 1.2 points the per-round
+		 * sweep at the heal.
+		 *
+		 * Verified exhaustively rather than by eye: of the 183 l026e code
+		 * arguments in CODE 18, this is the ONLY one that differs between
+		 * the releases (tools/mac12_diff.py --operands reports one CODE 18
+		 * row; extracting all 183 from both listings confirms position 178
+		 * and nothing else). */
 		l026e_list(arg, c, sizeof c); break; }
 	case 20: { static const unsigned char c[] = {50,54};
 		l026e_list(arg, c, sizeof c); break; }
@@ -48031,7 +48053,19 @@ static short l3cd6(void *ev_v, short v)
 		}
 	}
 
-	g_a5_byte(-4943) = (unsigned char)(ev[10] & 0x20);
+	/* ★ Mac 1.2 FIX (ADR-0018), operand pass, CODE 20 1.0 @0x3ee8 ->
+	 * 1.2 @0x3ee4: `andiw #32` becomes `andiw #64`, i.e. the deferred
+	 * re-trigger flag comes from ev[10] bit 6, not bit 5.
+	 *
+	 * 1.0 read it out of a bit the FACING field already owns: case 2's
+	 * teleport above takes its facing from `(ev[10] & 0x30) >> 3`, so bits
+	 * 4 and 5 are the direction. Any outcome-teleport facing S or W (bit 5
+	 * set) therefore also armed `-4943`, and l709e's `-4942 && -4943` test
+	 * would re-scan the party's cell on the strength of a direction. Both
+	 * of those are set on the same path — case 2 sets `-4942` four lines up
+	 * — so this is not a latent overlap, it fires whenever the arm runs.
+	 * 1.2 moves the flag to a bit nothing else claims. */
+	g_a5_byte(-4943) = (unsigned char)(ev[10] & 0x40);
 	return (short)result;
 }
 
