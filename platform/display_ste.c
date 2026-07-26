@@ -1616,10 +1616,21 @@ static void st_prof_hot_dump(void)
 {
 	short y, logs = 0;
 	long  touched = 0;
+	/* #48 follow-up: the per-row dump above is a SAMPLE (count >= 2, first 24
+	 * rows). These are the totals — of every row that converted this window,
+	 * how many did so because no native writer covered it (a coverage hole,
+	 * why bit 0) versus because a direct writer overwrote shim-stamped pixels
+	 * (a stamp mismatch, why bit 1)? That split decides where the remaining
+	 * native-writer work goes: holes mean "convert another writer", mismatches
+	 * mean "an existing writer is being clobbered". */
+	long  why_hole = 0, why_mismatch = 0, why_both = 0;
 
 	for (y = 0; y < ST_H; y++) {
 		if (s_prof_convrow[y] > 0)
 			touched++;
+		if (s_prof_convwhy[y] == 1)      why_hole++;
+		else if (s_prof_convwhy[y] == 2) why_mismatch++;
+		else if (s_prof_convwhy[y] == 3) why_both++;
 		if (s_prof_convrow[y] >= 2 && logs < 24) {
 			logs++;
 			dbg_log_num("b4hot y*100000+why*10000+cnt = ",
@@ -1632,8 +1643,12 @@ static void st_prof_hot_dump(void)
 		}
 	}
 	dbg_log_num("b4hot rows touched = ", touched);
+	dbg_log_num("b4why hole-only rows     = ", why_hole);
+	dbg_log_num("b4why mismatch-only rows = ", why_mismatch);
+	dbg_log_num("b4why both rows          = ", why_both);
 	memset(s_prof_convrow, 0, sizeof s_prof_convrow);
 	memset(s_prof_convwhy, 0, sizeof s_prof_convwhy);
+	memset(s_prof_mmx, 0, sizeof s_prof_mmx);
 }
 #endif
 
@@ -1772,7 +1787,11 @@ static void st_present(void)
 		sp_b30b_done++;
 		st_prof_b30b();
 	}
-	if ((++sp_n & 63) == 0) {
+	/* Window was 64 presents, which a scripted headless drive NEVER reaches
+	 * (a boot + dungeon + short walk produces under 20), so the hot-row and
+	 * why-attribution dumps below had effectively never fired. 16 still
+	 * averages out transition noise but actually reports. */
+	if ((++sp_n & 15) == 0) {
 		dbg_log_num("stprof: presents = ", sp_n);
 		dbg_log_num("stprof: wall ticks = ", TickCount() - sp_wall0);
 		dbg_log_num("stprof: in-present ticks = ", sp_in);

@@ -773,3 +773,84 @@ Then Phase 4 (blitter) and Phase 5 (palette polish, folds in #40) as below.
   verbatim.
 - AGA (256-colour, 8 planes) can adopt the planar leaves later; ECS/ST are the
   priority since they feel the c2p tax most.
+
+### CONVWHY ATTRIBUTION — RAN 2026-07-26 (after #48)
+
+The question this was built to answer: of the rows still paying a chunky→planar
+span, how many are **coverage holes** (no native writer ever stamped them) and
+how many are **stamp mismatches** (a direct writer clobbered shim-stamped
+pixels)? Holes mean "convert another writer"; mismatches mean "an existing
+writer is being overwritten". They imply completely different work.
+
+**First finding: the instrument had never fired.** `st_prof_hot_dump()` was
+gated on a 64-present window, and a scripted headless drive produces under 20
+presents — so in every session to date the hot-row and why dumps emitted
+nothing at all. Window lowered to 16, and per-class totals added (the existing
+per-row dump is a *sample*: threshold count ≥ 2, first 24 rows only).
+
+**Result over a boot → dungeon → 14 step/turn drive, ST/STe planar:**
+
+| class | rows |
+|---|---|
+| coverage HOLE only | 0 |
+| stamp MISMATCH only | 0 |
+| **BOTH, within the same 16-present window** | **200 (all of them)** |
+
+and every mismatch reported its first differing pixel at **x = 0**.
+
+**That is not a writer-coverage story.** A genuine direct-writer clobber starts
+at the writer's own left edge, so mismatches would spread across varying x. x=0
+on all 200 rows means the comparison baseline is wholesale stale — the entire
+surface is being invalidated, repeatedly.
+
+The counters in the same window say why:
+
+    stprof: presents      = 16
+    stprof: rebands       = 11
+    stprof: reband skips  = 0
+
+**Eleven rebands in sixteen presents, and the repalette fast path never once
+took.** Every palette change went to a full re-quantise, which force-fulls and
+resets the ownership epoch — so the draw-time model barely gets two consecutive
+presents in which to own anything. The ~47% of rows still converting are
+overwhelmingly rows whose ownership was thrown away by a reband, not rows
+nobody wrote natively.
+
+**Consequence for #63.** The next lever is NOT "convert more writers" — that
+was the assumption going in and the data does not support it. It is: stop
+rebanding. Two threads, in order:
+  1. Why does the DE-RISK #1 repalette path (scene-stable remap, palette-
+     register-only reload) report **zero** skips here? It exists precisely to
+     absorb palette changes that leave content alone. Either the drive genuinely
+     changes scene 11 times, or the skip predicate is too strict.
+  2. If some rebands are unavoidable, make the epoch reset partial — a reband
+     that only moves a few slots need not invalidate rows whose pixels map to
+     unmoved slots.
+
+CAVEAT: `s_prof_convwhy` accumulates with `|=` across the whole window, so a row
+flagged BOTH may have been a hole in one present and a mismatch in another. Per-
+present resolution needs a per-present reset; the x=0 signature and the reband
+count are what carry the conclusion, not the BOTH classification on its own.
+
+### TT030 — NOT YET NATIVE PLANAR (added to the plan 2026-07-26)
+
+`platform/display_tt.c` converts **every row of every frame**, unconditionally:
+TT-Low is 320x480 in 8 word-interleaved bitplanes, the engine's 320x200 chunky
+frame is line-doubled into it, and `tt_c2p_span` runs over the lot. None of
+ADR-0016's draw-time machinery (dt buffer, ownership, row skip) reaches this
+backend.
+
+It is a planar machine, so the ADR applies to it in principle. It was left out
+deliberately, not by oversight: **a 32 MHz 68030 has enough raw power to sort of
+play as-is**, which is exactly what the ST/STe and Amiga ECS lack — so the
+scarce effort went where the machines could not cope. That reasoning still
+holds; this entry exists so the gap is recorded rather than rediscovered.
+
+Notes for whoever picks it up:
+- The AGA port (#86) is the closest template — 8 planes, and if the TT palette
+  is used as an identity map the remap collapses the same way AGA's did, which
+  is what made AGA ~90 lines instead of ST's several hundred.
+- The line-doubling is the wrinkle AGA did not have: a draw-time writer stamps
+  one source row that must land in two planar lines.
+- Do the reband work above FIRST if it lands — on the evidence, ownership is
+  worth little while the epoch is being reset every other present.

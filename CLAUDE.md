@@ -35,8 +35,17 @@ name.)
 - **The bitplane machines render natively in planes**, not through the Mac's
   chunky surface — writers stamp bitplanes at draw time and the present skips
   the conversion for the rows they own (ADR-0016). Shipping on **all three**:
-  ST/STE, Amiga ECS and Amiga AGA. Falcon/TT (VIDEL) and Amiga RTG stay chunky
-  by design — they are chunky-native, so there is nothing to convert.
+  ST/STE, Amiga ECS and Amiga AGA. Falcon (VIDEL) and Amiga RTG stay chunky by
+  design — they are chunky-native, so there is nothing to convert. **The TT030
+  is NOT chunky** (TT-Low is 320x480 in 8 word-interleaved bitplanes) and still
+  converts every row of every frame; it is a planar target that has not had the
+  native-planar treatment yet, deliberately — a 32 MHz 030 can sort of play
+  as-is, so the effort went to the machines that cannot. See the TT section at
+  the end of `docs/planar-plan.md`.
+  Note that "native planar" removes the conversion only for rows a writer
+  actually stamped: measured 2026-07-26, **~47% of presented ST rows still
+  convert**, and the attribution says that is reband epoch-resets rather than
+  missing writers (same doc).
 
 ## Source material
 
