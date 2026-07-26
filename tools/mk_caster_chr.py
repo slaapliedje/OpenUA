@@ -51,6 +51,9 @@ CHAR_MEMORIZED = 198    # 141 slots
 CHAR_BASE_THAC0 = 127
 CHAR_BASE_MOVE = 136
 CHAR_BASE_AC = 179
+# l05c4 refuses EVERY magic command when this is 0 (or rec[94] == 1), returning
+# before jt597 builds any spell list. char-gen seeds it to 1; so must we.
+CHAR_ALIVE = 382
 # DERIVED bytes, rewritten from the bases above. Displayed AC = 60 - rec[385];
 # displayed THAC0 = 60 - rec[384]. All four stock characters carry base AC 50
 # (= displayed 10, unarmoured) and base move 12.
@@ -100,13 +103,31 @@ def build(name, stats, spells, mage_level, hp):
     # over them. The roster renders AC as 60 - rec[385], so base 50 is the
     # unarmoured AC 10 that all four stock characters carry.
     rec[CHAR_BASE_AC] = 50              # -> derived 385, displayed AC 10
-    rec[CHAR_BASE_THAC0] = 44           # -> derived 384, displayed THAC0 16
+    rec[CHAR_BASE_THAC0] = 40           # -> derived 384; L5 mage THAC0 20
     rec[CHAR_BASE_MOVE] = 12            # -> derived 396
     # Seed the derived bytes too, so the record reads correctly even BEFORE the
     # first load/save round-trip re-derives them.
     rec[CHAR_AC] = 50
-    rec[CHAR_THAC0] = 44
+    rec[CHAR_THAC0] = 40
     rec[CHAR_MOVE] = 12
+
+    # ★ THE FIELDS THAT GATE EVERY MAGIC COMMAND. l05c4 (boot.c ~100112) is the
+    # precondition on camp CAST / MEMORIZE / SCRIBE, and it refuses with
+    # "<name> is in no condition to cast any spells" when
+    #       rec[94] == 1  ||  rec[382] == 0
+    # returning BEFORE jt597 ever builds a spell list. A record missing rec[382]
+    # therefore produces a CAST screen that opens, flashes a message and comes
+    # straight back with no list — which reads exactly like a broken spell
+    # picker and is not one. All four stock characters carry 382=1 / 130=1.
+    #
+    # These values mirror cg_build_record's own seed line (boot.c ~29158), which
+    # is the engine's authoring path and so the right thing to copy:
+    #     cg_rec[179]=50  cg_rec[127]=40  cg_rec[94]=0
+    #     cg_rec[382]=1   cg_rec[130]=1   cg_rec[189]=8
+    rec[CHAR_ALIVE] = 1                 # 382 — l05c4's gate
+    rec[130] = 1
+    rec[189] = 8
+    rec[94] = 0                         # l05c4 also refuses when this is 1
 
     for i, spell in enumerate(spells):
         rec[CHAR_MEMORIZED + i] = spell
