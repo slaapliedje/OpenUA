@@ -49396,6 +49396,9 @@ static void l0098(char *str, unsigned char *nopts)
 	short         i;                  /* fp@-1  */
 
 	PROBE("L0098");
+#ifdef FRUA_DIGDIAG
+	dbg_file_str("l0098 IN  ", str);
+#endif
 	memmove(w4buf,   (const void *)&g_a5_byte(-5236), 2);
 	memmove(markbuf, (const void *)&g_a5_byte(-5234), 6);
 	*nopts = 0;
@@ -49425,6 +49428,10 @@ static void l0098(char *str, unsigned char *nopts)
 			g_a5_word(-27914)++;
 		}
 	}
+#ifdef FRUA_DIGDIAG
+	dbg_file_str("l0098 OUT ", str);
+	dbg_file_num("   nopts ", (long)*nopts);
+#endif
 }
 
 /* L026e_c20 (CODE 20 + 0x026e) — the interactive encounter CHOICE prompt.
@@ -63334,6 +63341,16 @@ static void l2184(const char *src)
 		dbg_file_str("l2184 -> ->", (const char *)g_a5_buf(-13000));
 	}
 #endif
+#ifdef FRUA_DIGDIAG
+	{
+		static short n;
+		if (n < 12) {
+			n++;
+			dbg_file_str("l2184 src  ", src);
+			dbg_file_str("l2184 -> ->", (const char *)g_a5_buf(-13000));
+		}
+	}
+#endif
 
 	{
 		unsigned char len2 = (unsigned char)jt483(
@@ -63462,6 +63479,16 @@ static short l1a0c(const char *prompt, void *buf)
 		if (*p == 0) {
 			done = 1;
 		} else {
+#ifdef FRUA_DIGDIAG
+			{
+				static short nb;
+				if (nb < 10) {
+					nb++;
+					dbg_file_num("l1a0c boundary char ",
+					             (long)(unsigned char)*p);
+				}
+			}
+#endif
 			*(p - 1) = 0;       /* terminate previous word */
 		}
 

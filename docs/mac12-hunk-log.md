@@ -24,10 +24,10 @@ streams**; CODE 17 changes only in operands (see below).
 |--:|--:|---|---|--:|--:|---|---|---|
 | 1 | 6 | `L25c0` | insert | 0 | 5 | jt39 | ✅ ported | jt39: no-permadeath skips BOTH status-6 arms — hunk 17's fix on the damage route |
 | 2 | 6 | `L4e3a` | replace | 1 | 1 | `l4d98` | ✅ ported | l4d98: clear the -22222 SLOT (`pea`), not the object it points at (`movel`) |
-| 3 | 7 | `L1a66` | delete | 11 | 0 | `l1a0c` | ✅ ported | l1a0c: a digit no longer ends a word — only isupper does |
+| 3 | 7 | `L1a66` | delete | 11 | 0 | `l1a0c` | ✅ ported | l1a0c: a digit no longer ends a word — only isupper does. **OBSERVED FIRING** |
 | 4 | 7 | `L1ace` | replace | 1 | 1 | `l1a0c` | ➖ churn | `beqw` -> `beqs`: branch width, shrunk by hunk 3's deletion |
-| 5 | 7 | `L21b6` | delete | 18 | 0 | `l2184` | ✅ ported | l2184 boundary test 1: drop the digit alternative |
-| 6 | 7 | `L22a8` | replace | 19 | 1 | `l2184` | ✅ ported | l2184 boundary test 2 (scan to end of word): same; dead in the asm, live in the port |
+| 5 | 7 | `L21b6` | delete | 18 | 0 | `l2184` | ✅ ported | l2184 boundary test 1: drop the digit alternative. **OBSERVED FIRING** |
+| 6 | 7 | `L22a8` | replace | 19 | 1 | `l2184` | ✅ ported | l2184 boundary test 2 (scan to end of word): same; dead in the asm, live in the port. **OBSERVED FIRING** |
 | 7 | 7 | `L3f80` | replace | 1 | 1 | yes | ✅ ported | l2ebc key-mode arg 0 -> 1 (boot.c ~95700) |
 | 8 | 10 | `L38ba` | replace | 1 | 1 | `l36e0_c10` | ✅ ported | jt399 fill 0 -> 1: the arttype==2 CLUT hole becomes a no-op |
 | 9 | 10 | `L611c` | insert | 0 | 21 | yes | ✅ ported | l611c: sync each ability's CURRENT byte from its PERMANENT byte before the save |
@@ -44,7 +44,7 @@ streams**; CODE 17 changes only in operands (see below).
 | 20 | 19 | `L2c20` | delete | 2 | 0 | yes | ✅ ported | jt893: 1.0 per-case save+clear deleted. **OBSERVED FIRING** |
 | 21 | 19 | `L2c20` | delete | 1 | 0 | yes | ✅ ported | jt893: 1.0 per-case restore deleted. **OBSERVED FIRING** |
 | 22 | 19 | `L2d74` | insert | 0 | 1 | `jt893` | ✅ ported | jt893: restore at the single exit. **OBSERVED FIRING** |
-| 23 | 20 | `L00c4` | delete | 18 | 0 | `l0098` | ✅ ported | l0098: the OTHER half of the tolower fix — deletes 1.0's `A-Z` pre-test; already covered by the A-Z-only implementation |
+| 23 | 20 | `L00c4` | delete | 18 | 0 | `l0098` | ✅ ported | l0098: the OTHER half of the tolower fix — deletes 1.0's `A-Z` pre-test; already covered by the A-Z-only implementation. **OBSERVED FIRING** |
 | 24 | 20 | `L18e2` | insert | 0 | 7 | `l159a` | ✅ ported | l159a combat entry: `ev[12]` bit5 forces the starting range (`rec[56]`) to 0 |
 | 25 | 20 | `L24e6` | insert | 0 | 2 | `l216a` | ⛔ blocked | byte-swap `ev[8]` before the money compare; `l216a` IS lifted but its "generous donation" block is a deferred sub-flow (`l026e_c20`/`l4218` stubs) |
 | 26 | 20 | `L24e6` | replace | 1 | 1 | `l216a` | ⛔ blocked | the compare rearranged to suit hunk 25 |
@@ -123,7 +123,39 @@ Two corrections to the 2026-07-24 entry that stood here:
   run to record 13, whose bit5 is clear. The event-byte count (11 of HEIRS' 175
   combat events affected) was unaffected; only the cell attribution was wrong.
 
-**Promotion status: 18 of 33 observed firing, 2 established as unable to fire.**
+**Promotion status: 22 of 33 observed firing, 2 established as unable to fire.**
+
+**Hunks 3, 5, 6 and 23 are OBSERVED FIRING (2026-07-25)** — four at once, and
+each one isolated with its own A/B. They are a single "digits are not letters"
+fix split across two CODE segments, and one authored option string
+(`^TAKE 3 GEMS ^LEAVE IT`, a type-10 encounter prompt) gives all four somewhere
+to go wrong. `l2184` runs before `l1a0c` in `l206e`, which is what lets the two
+probe lines attribute cleanly.
+
+| build | `l0098 OUT` | `l2184 ->` | `l1a0c` bound | the bar |
+|---|---|---|---|---|
+| 1.2 | ` Take 3 gems  Leave it` | `Take 3 gems  Leave it` | 76 | `Take 3 gems \| Leave it` |
+| 23 off | ` Take **S** gems  Leave it` | `Take S gems  ` | — | `Take \| S gems` |
+| 5, 6 off | ` Take 3 gems  Leave it` | `Take 3 gems  ` | — | `Take \| 3 gems` |
+| 3 off | ` Take 3 gems  Leave it` | `Take 3 gems  Leave it` | **51**, 76 | `Take \| 3 gems \| Leave it` |
+
+1.0's three failures are distinct and all user-visible. **23** turns `'3'` (51)
+into `'S'` (83) and, because that is now uppercase, `l2184` spends both option
+slots on `Take ` and `S gems ` — so `Leave it` never reaches the bar and cannot
+be chosen. **5/6** drop the same option with the digit left intact. **3** goes
+the other way and invents a third button the design never wrote.
+
+Two authoring facts worth keeping: `~` is NOT in the STRG 6-bit alphabet (it
+folds to a space), so design strings mark options with `^` — which is exactly
+why `l0098` accepts both. And the alphabet folds to uppercase, with `l0098`
+lowercasing on the way out; the letter after a marker survives because deleting
+the marker shifts it into an already-visited index. That is the mechanism that
+capitalises each option's initial, and it is why a mid-option digit takes the
+full mangling.
+
+The OFF side for 23 is a reconstruction: the port is already at 1.2 (A-Z only)
+and this hunk "needed no further code", so 1.0's digit clause was pasted back to
+measure it.
 
 **Hunk 34 is OBSERVED FIRING (2026-07-25) — it was filed as CANNOT FIRE and
 that was wrong.** The camp spell-effects screen, same script, same effect on

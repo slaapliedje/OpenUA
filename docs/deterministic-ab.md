@@ -148,12 +148,12 @@ Two things worth carrying forward:
 
 ## Promotion status of the ported 1.2 fixes
 
-Eighteen of the 33 are **observed firing** (ON vs OFF produce different measured
+Twenty-two of the 33 are **observed firing** (ON vs OFF produce different measured
 state, same seed). Two cannot fire at all and that is a finding, not a gap.
 The rest each need a specific situation, listed so the next pass does not have
 to re-derive it.
 
-### Observed firing (18)
+### Observed firing (22)
 
 | hunks | situation | evidence |
 |---|---|---|
@@ -164,6 +164,7 @@ to re-derive it.
 | 15 | same module, 2 monsters so round 2 arrives | `BLEED SUPPRESSED, status stays 5` (ON) vs `bleed tick mc[16] 5` (OFF) |
 | 27, 28 | authored TEMPLE.DSN, `-DFRUA_TMPDIAG` | at the live jt933 call: raw `1677721600` vs swapped `100` — BOTH from one run |
 | 9 | Monster Editor, BASILISK (id 42): Strength 10 -> 18 and % 0 -> 50, then Ok | the SAVED `MONST042.dat` differs in exactly **two** bytes across all 450: `[113]` 18 (ON) vs 10 (OFF), `[125]` 50 (ON) vs 0 (OFF) |
+| 3, 5, 6, 23 | authored DIGTEST.DSN — a type-10 encounter prompt whose STRG option string is `^TAKE 3 GEMS ^LEAVE IT`, `-DFRUA_DIGDIAG` | three separate one-hunk-at-a-time A/Bs, each with its own visible failure: the bar reads `Take 3 gems \| Leave it` (ON) vs `Take \| S gems` (23 off), `Take \| 3 gems` (5/6 off), `Take \| 3 gems \| Leave it` (3 off) |
 | 34 | the same exploding-item trick with `[15] = 73`, camp -> Magic -> Display | same effect on the record, same name pointer: the screen reads **`Immune to Dragon Breath`** (ON) vs **`<No Spell Effects>`** (OFF); `in whitelist` **1** vs **0** |
 | 18 | authored FXTEST.DSN + an exploding item patched into BARBARUS's `.CHR`, `-DFRUA_FXDIAG` | same source, same victim: `jt822 VICTIM BASILISK`, `fx148 node value` **1** (ON) vs **0** (OFF) |
 | 19-22 | authored SHOPPIC.DSN (`tools/mk_bigpic_design.py --shop`), Items -> Sell, `-DFRUA_ITMDIAG` | `jt893 ENTRY saved -22281` is **1** in both, then `in-browser` / loop-top / `jt182 confirm sees -22281` are **0 0 0** (ON) vs **1 1 1** (OFF) |
@@ -191,6 +192,65 @@ spell picker headless" below.
 Hunk 17 is the most CONSEQUENTIAL of the set — the only one where the two
 builds end the session differently. Full recipe below; the short version is
 that the whole no-permadeath family (1, 15, 17) now fires in a single run.
+
+### A prompt with a digit (hunks 3, 5, 6, 23)
+
+Four hunks, one string. They are one coherent "digits are not letters" fix
+split across two CODE segments: 23 is `l0098`'s tolower, 5 and 6 are `l2184`'s
+two word-boundary tests, 3 is `l1a0c`'s scan. Feed a digit through the option
+prompt and all four have somewhere to go wrong.
+
+Two things had to be got right to author the string:
+
+- **`~` is NOT in the STRG 6-bit alphabet** — it folds to a space. Design
+  strings mark options with **`^`** (code 30), which is exactly why `l0098`
+  accepts both and converts `^` to `~` on the way through.
+- **The alphabet folds everything to uppercase**, and `l0098` lowercases A-Z on
+  the way out. The letter immediately after a marker escapes that, because
+  deleting the marker shifts it into an already-visited index — that is the
+  mechanism that capitalises each option's first letter. Digits sit in the
+  middle of an option, so they take the full treatment.
+
+`l2184` runs BEFORE `l1a0c` in `l206e`, so the `l2184 -> ->` probe line
+attributes cleanly to 5/6 and the `l1a0c boundary char` line to 3.
+
+```python
+a5.strg_write(["", "^TAKE 3 GEMS ^LEAVE IT"])
+ev = bytearray(EVENT_SIZE)
+ev[0] = 10                 # encounter prompt -> l3b0e -> l0098 + jt182/l2184
+ev[8] = 2; ev[9] = 0       # option-string id, little-endian; l3b0e does id-1
+a5.set_event(0, bytes(ev))
+_hook(a5, 3, 3, special=1) # entry cell, so beginplay alone raises it
+```
+
+```sh
+make EXTRA_CFLAGS='-DFRUA_DIGDIAG -DFRUA_RNGSEED=12345'
+env -u DISPLAY PLAY_STEP_DELAY=5 .claude/skills/run-falcon-port/driver.sh beginplay
+```
+
+One hunk off at a time, each with its own visible failure:
+
+| build | `l0098 OUT` | `l2184 ->` | `l1a0c` boundary | the bar |
+|---|---|---|---|---|
+| 1.2 (all on) | ` Take 3 gems  Leave it` | `Take 3 gems  Leave it` | 76 `L` | `Take 3 gems \| Leave it` |
+| **23** off | ` Take **S** gems  Leave it` | `Take S gems  ` | — | `Take \| S gems` |
+| **5, 6** off | ` Take 3 gems  Leave it` | `Take 3 gems  ` | — | `Take \| 3 gems` |
+| **3** off | ` Take 3 gems  Leave it` | `Take 3 gems  Leave it` | **51 `3`**, 76 | `Take \| 3 gems \| Leave it` |
+
+Read the three failures:
+
+- **23** corrupts the text AND loses an option. `'3'` (51) + 32 = `'S'` (83), so
+  the digit becomes a letter — and because it is now UPPERCASE, `l2184` counts
+  it as a word start, the two option slots are spent on `Take ` and `S gems `,
+  and **`Leave it` never reaches the bar**. The player cannot choose it.
+- **5, 6** lose the option without corrupting the text: the digit is intact but
+  starts a spurious word, so the same slot exhaustion drops `Leave it`.
+- **3** goes the other way and INVENTS a button: `l1a0c` splits at the digit, so
+  the bar grows a third option that the design never wrote.
+
+Note the OFF side for 23 is a reconstruction — the port is already at 1.2 here
+(A-Z only) and the hunk log records that this hunk "needed no further code", so
+1.0's digit clause has to be pasted back in to measure it.
 
 ### The camp effects screen (hunk 34) — and why "cannot fire" was wrong
 
@@ -558,12 +618,10 @@ already has `rec[113+2i] == rec[112+2i]`, so loading one and pressing Ok makes
 the fix write back the bytes that were already there. Verified on all four of
 HEIRS' records and on stock BASILISK. The divergence has to come from an edit.
 
-### Needs a situation (14)
+### Needs a situation (9)
 
 | hunks | the situation still to construct |
 |---|---|
-| 23 | an option string carrying a digit — same family as 3/5/6 and blocked on the same thing. Across every design on hand, 406 strings have a `~`/`^` marker and not one contains a digit, so it is not SHIPPED; it is authorable through the STRG table. (Was filed as "cannot fire"; see above.) |
-| 3, 5, 6 | a prompt containing a digit. Author a STRG string with a digit plus a `~` marker and watch `l2184`'s word extraction. |
 | 31 | a chained event pair where the first sets `-4943` (`ev[12]&4`, passage `ev[10]&0x20`, combat `ev[7]&0x20`) and the second would inherit it. Authorable. |
 | 29 | an animated passage followed by a chained event. Authorable. |
 | 13 | the editor's test-play Hall — and the obvious route is a DEAD END. `l07dc` picks the Hall only in its `else`: `if (g_a5_-18485 != 0) { jt582(); ... } else { jt918(1); }`, and `jt918` is `l0aae`'s sole caller. So a non-zero `-18485` at play entry means the Hall is never reached — the flag has to go non-zero AFTER `jt918`'s loop is already running. `l30d4` (the spell-memorization sub-editor) is not it: it sets 5 on entry and restores 0 on exit. The one writer that leaves it set is `l3236` case 7 (CODE 11 @0x3348, the GEO editor's tool command — 1, then 2 when `jt318` agrees), so the situation is: enter the editor from `jt918`, issue that command, and see whether the loop re-enters `l0aae`. |
