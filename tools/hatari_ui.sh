@@ -19,10 +19,12 @@
 # State lives in /tmp/frua-ui (log, pid, window id).
 #
 # Environment:
-#   FALCON_TOS   TOS ROM. Unset = searched, and the search is MACHINE-AWARE:
-#                with `HATARI_ARGS="--machine ste"` (or st/megast) it picks an
-#                ST-compatible ROM (EmuTOS 256K, TOS 2.06, EmuTOS 512K), else a
-#                Falcon one (tos404.img, TOSv4.04.img, ~/Downloads, EmuTOS 512K).
+#   FALCON_TOS   TOS ROM. Unset = searched, and the search is MACHINE-AWARE —
+#                each machine gets the ROM it actually shipped with:
+#                  --machine ste / megaste  -> TOS 2.06  (tos206us.img)
+#                  --machine st  / megast   -> TOS 1.04  (tos104us.img)
+#                  otherwise (Falcon)       -> TOS 4.04  (tos404.img)
+#                EmuTOS is a last-resort fallback only, not a first choice.
 #                Handing an ST a Falcon ROM makes hatari SILENTLY fall back to
 #                Falcon mode, so an "STE" run tests the wrong backend.
 #   GEMDOS_DIR   GEMDOS C: mount (default data/work/gamedata)
@@ -57,17 +59,34 @@ LOG="$STATE/conout.log"
 # testing display_videl.c, and nothing in the screenshots says so. That silently
 # wasted a whole STE soak on 2026-07-26. Pick the ROM from the requested machine.
 if [ -z "${FALCON_TOS:-}" ]; then
+	# Per machine, the ROM that shipped with it — NOT one ST-ish list for all of
+	# them. STE gets TOS 2.06 (the STE's own release); a plain ST gets TOS 1.04.
+	# EmuTOS is the fallback only, never the first choice: it is a clean-room
+	# reimplementation, so a bug that reproduces only under real TOS (or only
+	# under EmuTOS) is exactly the kind we want to see rather than paper over.
+	#
+	# The `ste` arm MUST precede the `st` arm: "--machine st" is a substring of
+	# "--machine ste", so testing st first would swallow every STE run and boot
+	# it on a plain-ST ROM. The trailing space in each pattern (this case matches
+	# against HATARI_ARGS padded with spaces) is what keeps them distinct.
 	case " ${HATARI_ARGS:-} " in
-	*"--machine st"*|*"--machine ste"*|*"--machine megast"*)
-		# ST/STE/Mega: EmuTOS 256K first (verified on the STE colour soaks),
-		# then real TOS 2.06, then EmuTOS 512K.
-		for f in "$HOME/Downloads/Atari/etos256us.img" \
-		         /usr/share/hatari/tos206us.img \
+	*"--machine ste "*|*"--machine megaste "*)
+		for f in /usr/share/hatari/tos206us.img \
 		         "$HOME/Downloads/Atari/tos206us.img" \
+		         "$HOME/Downloads/Atari/etos256us.img" \
 		         /usr/share/hatari/etos512us.img; do
 			[ -s "$f" ] && { FALCON_TOS="$f"; break; }
 		done
 		FALCON_TOS="${FALCON_TOS:-/usr/share/hatari/tos206us.img}"
+		;;
+	*"--machine st "*|*"--machine megast "*)
+		for f in /usr/share/hatari/tos104us.img \
+		         "$HOME/Downloads/Atari/tos104us.img" \
+		         /usr/share/hatari/tos106us.img \
+		         /usr/share/hatari/etos512us.img; do
+			[ -s "$f" ] && { FALCON_TOS="$f"; break; }
+		done
+		FALCON_TOS="${FALCON_TOS:-/usr/share/hatari/tos104us.img}"
 		;;
 	*)
 		for f in /usr/share/hatari/tos404.img \
