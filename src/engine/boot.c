@@ -100381,6 +100381,18 @@ static void l1374(void)
 	char           namebuf[42];
 
 	PROBE("L1374");
+#ifdef FRUA_FXDIAG
+	/* Hunk 34: adding 73 to the whitelist only shows something if effect 73
+	 * ALSO has a non-empty name in the -20096 table — the `namebuf[0] == 0`
+	 * gate below drops it otherwise, and the hunk would be inert the way
+	 * hunk 8 is. Measure the name, do not assume it. */
+	{
+		long np73 = g_a5_long(-20096 + 73L * 4);
+		dbg_file_num("l1374: name ptr for fx 73 ", np73);
+		dbg_file_str("   name[73] ",
+		             np73 ? (const char *)(uintptr_t)np73 : "(null)");
+	}
+#endif
 	jt477((void *)(uintptr_t)g_a5_21156, 40, &list);
 	((unsigned char *)(uintptr_t)list)[4] = 1;
 	*(long *)(uintptr_t)list = 0;
@@ -100408,10 +100420,17 @@ static void l1374(void)
 					ok = 1;
 					break;
 				}
+#ifdef FRUA_FXDIAG
+			dbg_file_num("l1374 effect on member: id ", (long)id);
+			dbg_file_num("   in whitelist ", (long)ok);
+#endif
 			if (!ok)
 				continue;
 			jt384(namebuf, (const char *)(uintptr_t)
 			      g_a5_long(-20096 + (long)id * 4));
+#ifdef FRUA_FXDIAG
+			dbg_file_str("   name ", namebuf);
+#endif
 			if (namebuf[0] == 0)
 				continue;
 			any = 1;

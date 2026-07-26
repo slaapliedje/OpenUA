@@ -55,7 +55,7 @@ streams**; CODE 17 changes only in operands (see below).
 | 31 | 20 | `L70d4` | insert | 0 | 1 | `l709e` | ✅ ported | l709e: clear `-4943` per event so the deferred re-trigger flag cannot leak across a chain |
 | 32 | 20 | `L76c4` | replace | 3 | 1 | `l709e` | ➖ churn | codegen only: `moveq`+`moveb`+`tstw` -> `tstb`. Same test, no semantic change |
 | 33 | 20 | `L76fa` | delete | 1 | 0 | `l709e` | ✅ ported | l709e: drop the tail `-4943` clear, redundant once hunk 31 clears at the loop top |
-| 34 | 21 | `L13f6` | insert | 0 | 4 | `l1374` | ✅ ported | l1374: effect id 73 joins the spell-effects DISPLAY whitelist (position is an artefact) |
+| 34 | 21 | `L13f6` | insert | 0 | 4 | `l1374` | ✅ ported | l1374: effect id 73 joins the spell-effects DISPLAY whitelist (position is an artefact). **OBSERVED FIRING** |
 | 35 | 21 | `L3af2` | delete | 20 | 0 | yes | ✅ ported | l3af2: DELETE 1.0's silent clamp — the half that ARMS hunks 36-38. **OBSERVED FIRING** |
 | 36 | 21 | `L4816` | insert | 0 | 8 | yes | ✅ ported | jt955 case 3: overland bounds guard #1 + the refusal message |
 | 37 | 21 | `L4816` | insert | 0 | 5 | yes | ✅ ported | jt955 case 3: overland bounds guard #2 (out of range == blocked) |
@@ -123,7 +123,36 @@ Two corrections to the 2026-07-24 entry that stood here:
   run to record 13, whose bit5 is clear. The event-byte count (11 of HEIRS' 175
   combat events affected) was unaffected; only the cell attribution was wrong.
 
-**Promotion status: 17 of 33 observed firing, 4 established as unable to fire.**
+**Promotion status: 18 of 33 observed firing, 2 established as unable to fire.**
+
+**Hunk 34 is OBSERVED FIRING (2026-07-25) — it was filed as CANNOT FIRE and
+that was wrong.** The camp spell-effects screen, same script, same effect on
+the record, same `-20096` name pointer:
+
+| | the effects screen |
+|---|---|
+| 1.2 (ON) | `BARBARUS` / **Immune to Dragon Breath** |
+| 1.0 (OFF) | `BARBARUS` / **&lt;No Spell Effects&gt;** |
+
+The log isolates it: both runs print `l1374 effect on member: id 73` and differ
+only at `in whitelist` 1 vs 0.
+
+The old verdict rested on a producer census — "no `jt876` call anywhere applies
+kind 73". The census was accurate; the conclusion was not. Hunk 18 established
+that an item's byte-15 effect id feeds `jt820` through `l77a0`'s override, and
+that produces ANY kind on demand, 73 included. **A census over shipped data
+proves the situation is not SHIPPED, never that it is unreachable** — the
+question to ask before closing a hunk is whether it is AUTHORABLE.
+
+The second way this hunk could have been inert WAS checked rather than assumed:
+`l1374` drops any whitelisted effect whose `-20096` name is empty, so 73 joining
+the list would change nothing if 73 were nameless (the shape of hunk 8).
+Measured — the name is "Immune to Dragon Breath".
+
+Hunk **23** has been reclassified out of "cannot fire" for the same reason: its
+note also said "authorable, but nothing shipped exercises it", which is a
+statement about the data. The two entries left (8 and 33) are no-ops by
+construction — unreachable for reasons internal to the code, not the data.
 
 **Hunk 18 is OBSERVED FIRING (2026-07-25)** — the one that looked dead and was
 not. Same source, same victim, same seed:

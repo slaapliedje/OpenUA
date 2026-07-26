@@ -148,12 +148,12 @@ Two things worth carrying forward:
 
 ## Promotion status of the ported 1.2 fixes
 
-Seventeen of the 33 are **observed firing** (ON vs OFF produce different measured
-state, same seed). Four cannot fire at all and that is a finding, not a gap.
+Eighteen of the 33 are **observed firing** (ON vs OFF produce different measured
+state, same seed). Two cannot fire at all and that is a finding, not a gap.
 The rest each need a specific situation, listed so the next pass does not have
 to re-derive it.
 
-### Observed firing (17)
+### Observed firing (18)
 
 | hunks | situation | evidence |
 |---|---|---|
@@ -164,6 +164,7 @@ to re-derive it.
 | 15 | same module, 2 monsters so round 2 arrives | `BLEED SUPPRESSED, status stays 5` (ON) vs `bleed tick mc[16] 5` (OFF) |
 | 27, 28 | authored TEMPLE.DSN, `-DFRUA_TMPDIAG` | at the live jt933 call: raw `1677721600` vs swapped `100` — BOTH from one run |
 | 9 | Monster Editor, BASILISK (id 42): Strength 10 -> 18 and % 0 -> 50, then Ok | the SAVED `MONST042.dat` differs in exactly **two** bytes across all 450: `[113]` 18 (ON) vs 10 (OFF), `[125]` 50 (ON) vs 0 (OFF) |
+| 34 | the same exploding-item trick with `[15] = 73`, camp -> Magic -> Display | same effect on the record, same name pointer: the screen reads **`Immune to Dragon Breath`** (ON) vs **`<No Spell Effects>`** (OFF); `in whitelist` **1** vs **0** |
 | 18 | authored FXTEST.DSN + an exploding item patched into BARBARUS's `.CHR`, `-DFRUA_FXDIAG` | same source, same victim: `jt822 VICTIM BASILISK`, `fx148 node value` **1** (ON) vs **0** (OFF) |
 | 19-22 | authored SHOPPIC.DSN (`tools/mk_bigpic_design.py --shop`), Items -> Sell, `-DFRUA_ITMDIAG` | `jt893 ENTRY saved -22281` is **1** in both, then `in-browser` / loop-top / `jt182 confirm sees -22281` are **0 0 0** (ON) vs **1 1 1** (OFF) |
 | 17 | authored NOPERMA.DSN with **monster 42 (BASILISK)**, `-DFRUA_CBTPLAY -DFRUA_NPDIAG` | same gaze, same seed: `final-status` **5** (ON) vs **7** (OFF) on `subject BARBARUS side 0`; ON the party walks on at 1 HP, OFF the screen reads *"The monsters rejoice, for the party has been destroyed!"* |
@@ -190,6 +191,49 @@ spell picker headless" below.
 Hunk 17 is the most CONSEQUENTIAL of the set — the only one where the two
 builds end the session differently. Full recipe below; the short version is
 that the whole no-permadeath family (1, 15, 17) now fires in a single run.
+
+### The camp effects screen (hunk 34) — and why "cannot fire" was wrong
+
+Hunk 34 adds effect id **73** to `l1374`'s display whitelist, so an active
+effect 73 shows on the camp spell-effects screen instead of being silently
+omitted. It was filed as "cannot fire — nothing produces effect 73". The
+producer census was accurate and the conclusion was not: the hunk-18 route
+produces ANY effect kind from item data, 73 included.
+
+It also had a second way to be inert, which had to be measured rather than
+assumed: `l1374` skips any whitelisted effect whose `-20096` name is empty
+(`namebuf[0] == 0`), so adding 73 to the list would change nothing if 73 were
+nameless — the shape of hunk 8. Measured: the name pointer is non-null and
+reads **"Immune to Dragon Breath"**. The fix is live.
+
+No combat is needed — `l1374` just walks each member's `rec+4` list. Use a bare
+room with no events (HEIRS opens on its caravan intro, which eats the keys):
+
+```python
+# a walled room, no events at all
+a5 = _walled_room(entry=(3, 3), facing=0)
+d = Design("CAMPTEST"); d.start_area = 5; d.start_entry = 1; d.add_area(5, a5)
+d.write("data/work/gamedata", make_current=True)
+```
+
+```python
+# arm BARBARUS's helm with effect 73 (see the hunk-18 recipe for the offsets)
+b = bytearray(open('data/work/gamedata/CHAR0000.CHR','rb').read())
+b[398+15] = 73; b[398+16] = 0x80
+open('data/work/gamedata/CHAR0000.CHR','wb').write(bytes(b))
+```
+
+Then `beginplay` -> `v` -> `i` -> click the item row -> `Rdy` x3 -> `Exit` ->
+`Exit` -> `e` (Encamp) -> click `Magic` (152,439) -> click `Display` (424,439).
+
+| | the effects screen |
+|---|---|
+| 1.2 (ON) | `BARBARUS` / **`Immune to Dragon Breath`** |
+| 1.0 (OFF) | `BARBARUS` / **`<No Spell Effects>`** |
+
+The log confirms the divergence is the whitelist and nothing else — both runs
+report `l1374 effect on member: id 73` and the same name pointer, and differ
+only at `in whitelist` **1** vs **0**.
 
 ### Building an exploding item (hunk 18)
 
@@ -445,14 +489,23 @@ Hunk 1's run carries its own negative control: a second hit in the SAME run with
 `over 6` gives status 5 either way, so the divergence is specific to the
 `over > 9` overkill branch rather than a blanket change.
 
-### Cannot fire — established, not outstanding (4)
+### Cannot fire — established, not outstanding (2)
 
 | hunk | why |
 |---|---|
 | 8 | **No-op by construction.** The line above fills all 768 bytes of `clutbuf` with 1, so 1.2's `jt399(clutbuf+96, 432, 1)` writes the value already there. 1.0's `0` punched a hole; 1.2 stops. There is no state to diff. |
 | 33 | **No observable effect.** It deletes a `-4943` clear made redundant by hunk 31's clear at the loop top. `l709e` is the only reader of `-4943` anywhere, so the sole difference is the value left after it returns, which nothing looks at. |
-| 34 | **Nothing produces effect 73.** The whitelist entry is real, but no `jt876` call anywhere in the port applies kind 73 (the kinds used are 255/0/97/55/105/8/62/31/15/12/95/7...). Unreachable until an effect-73 producer is lifted or a design supplies one. |
-| 23 | **No data in the wild.** Needs an option string carrying a digit; across every design on hand 406 strings have a `~`/`^` marker and not one contains a digit. Authorable, but nothing shipped exercises it. |
+
+**This list used to have four entries, and two of them were wrong.** Hunks 34
+and 23 were filed here on the reasoning "nothing in the shipped data produces
+the input". That is a statement about the DATA, not about the code, and it does
+not belong in the same category as 8 and 33 — which are no-ops by construction
+and stay. Hunk 34 is now observed firing (below); 23 has moved to "needs a
+situation". The general lesson, learned the hard way on hunk 18: a producer
+census over shipped data proves the situation is not SHIPPED, never that it is
+unreachable. Check whether it is AUTHORABLE before closing the case. The two
+that remain here are unreachable for reasons internal to the code.
+
 
 ### Reaching the Monster Editor headless (the hunk-9 recipe)
 
@@ -505,10 +558,11 @@ already has `rec[113+2i] == rec[112+2i]`, so loading one and pressing Ok makes
 the fix write back the bytes that were already there. Verified on all four of
 HEIRS' records and on stock BASILISK. The divergence has to come from an edit.
 
-### Needs a situation (13)
+### Needs a situation (14)
 
 | hunks | the situation still to construct |
 |---|---|
+| 23 | an option string carrying a digit — same family as 3/5/6 and blocked on the same thing. Across every design on hand, 406 strings have a `~`/`^` marker and not one contains a digit, so it is not SHIPPED; it is authorable through the STRG table. (Was filed as "cannot fire"; see above.) |
 | 3, 5, 6 | a prompt containing a digit. Author a STRG string with a digit plus a `~` marker and watch `l2184`'s word extraction. |
 | 31 | a chained event pair where the first sets `-4943` (`ev[12]&4`, passage `ev[10]&0x20`, combat `ev[7]&0x20`) and the second would inherit it. Authorable. |
 | 29 | an animated passage followed by a chained event. Authorable. |
