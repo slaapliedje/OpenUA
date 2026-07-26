@@ -149,9 +149,8 @@ Two things worth carrying forward:
 ## Promotion status of the ported 1.2 fixes
 
 Twenty-eight of the 33 are **observed firing** (ON vs OFF produce different
-measured state, same seed). Two cannot fire at all and that is a finding, not a
-gap. The rest each need a specific situation, listed so the next pass does not
-have to re-derive it.
+measured state, same seed). Four cannot fire at all and that is a finding, not
+a gap. Exactly one is left, and it has no clean observable by nature.
 
 ### Observed firing (28)
 
@@ -879,12 +878,21 @@ Hunk 1's run carries its own negative control: a second hit in the SAME run with
 `over 6` gives status 5 either way, so the divergence is specific to the
 `over > 9` overkill branch rather than a blanket change.
 
-### Cannot fire — established, not outstanding (2)
+### Cannot fire — established, not outstanding (4)
 
 | hunk | why |
 |---|---|
 | 8 | **No-op by construction.** The line above fills all 768 bytes of `clutbuf` with 1, so 1.2's `jt399(clutbuf+96, 432, 1)` writes the value already there. 1.0's `0` punched a hole; 1.2 stops. There is no state to diff. |
+| 10, 11 | **No observable difference, and the stated rationale was wrong.** They rebuild `l6238`'s delete path with two `jt431` appends instead of one `jt436` prefix. The old note here said `jt436` "slides the existing contents up" in place — it does not: CODE 3 `0x4be0` is `linkw #-200` then `jt384(tmp, dir); jt431(tmp, leaf); jt384(a, tmp)`, a temp-buffer copy, which is exactly what the port lifted. Both forms therefore produce the SAME string in every case (empty dir, dir already ending in `:`, normal). The only real change is that 1.0 passes its 201-byte buffer (`linkw #-202`) through jt436's 200-byte frame and 1.2 does not — one byte of headroom. Measured: the design directory is `"MONTEST.DSN"`, **11 characters**, and `start.dat` caps a design name at 34, so the built path tops out near 48 against a 200-byte buffer. |
 | 33 | **No observable effect.** It deletes a `-4943` clear made redundant by hunk 31's clear at the loop top. `l709e` is the only reader of `-4943` anywhere, so the sole difference is the value left after it returns, which nothing looks at. Confirmed from the other side while promoting 31: the two are a PAIR, and an honest 1.0 build restores this clear as it removes 31's — with exactly one of the two present the flag behaves identically, which is precisely why 33 on its own has nothing to measure. |
+
+**Two of these were re-derived rather than inherited.** Hunks 10/11 arrived here
+from the OTHER direction: they had been sitting in "needs a situation" on a
+rationale (`jt436` slides in place) that turned out not to describe the code.
+Reading CODE 3 `0x4be0` in the actual listing settled it in one step, and the
+measured design-directory length settled the headroom question in one run. The
+method note below cuts both ways — a census cannot prove unreachability, but a
+DISASSEMBLY can, when the claim is about what an instruction does.
 
 **This list used to have four entries, and two of them were wrong.** Hunks 34
 and 23 were filed here on the reasoning "nothing in the shipped data produces
@@ -948,11 +956,10 @@ already has `rec[113+2i] == rec[112+2i]`, so loading one and pressing Ok makes
 the fix write back the bytes that were already there. Verified on all four of
 HEIRS' records and on stock BASILISK. The divergence has to come from an edit.
 
-### Needs a situation (3)
+### Needs a situation (1)
 
 | hunks | the situation still to construct |
 |---|---|
-| 10, 11 | delete a monster from a design folder. |
 | 2 | reading the clobbered FC object or the dangling `-22222` pointer — no clean observable; likely only ever visible as corruption. |
 
 ### The UI-navigation blocker — ROOT CAUSE FOUND (TaskList #84)

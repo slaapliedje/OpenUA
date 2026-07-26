@@ -31,8 +31,8 @@ streams**; CODE 17 changes only in operands (see below).
 | 7 | 7 | `L3f80` | replace | 1 | 1 | yes | ✅ ported **OBSERVED FIRING** | l2ebc key-mode arg 0 -> 1 (boot.c ~95700) |
 | 8 | 10 | `L38ba` | replace | 1 | 1 | `l36e0_c10` | ✅ ported | jt399 fill 0 -> 1: the arttype==2 CLUT hole becomes a no-op |
 | 9 | 10 | `L611c` | insert | 0 | 21 | yes | ✅ ported | l611c: sync each ability's CURRENT byte from its PERMANENT byte before the save |
-| 10 | 10 | `L6238` | replace | 1 | 1 | yes | ✅ ported | l6238: build the path forwards (clear + 2x jt431) instead of jt436's in-place dir prefix |
-| 11 | 10 | `L6238` | replace | 1 | 5 | yes | ✅ ported | l6238: the second jt431 join (same change as hunk 10) |
+| 10 | 10 | `L6238` | replace | 1 | 1 | yes | ✅ ported **CANNOT FIRE** | l6238: build the path forwards (clear + 2x jt431) instead of jt436's in-place dir prefix |
+| 11 | 10 | `L6238` | replace | 1 | 5 | yes | ✅ ported **CANNOT FIRE** | l6238: the second jt431 join (same change as hunk 10) |
 | 12 | 12 | `L071c` | replace | 1 | 2 | n/a | 🚫 artefact | DISASSEMBLY DESYNC: an inline dispatch table after `jsr JT[1]` decoded as instructions. Both listings are garbage here — not a comparable change |
 | 13 | 12 | `L0d3e` | insert | 0 | 16 | `l0aae` | ✅ ported **OBSERVED FIRING** | Training Hall: after a RESUMED save, force-enable Create/Delete/Add/Remove/Load/Save/Exit |
 | 14 | 12 | `L3426` | replace | 1 | 5 | `l33d8` | ✅ ported **OBSERVED FIRING** | l33d8 pass 2: skip SUMMONED combatants (`mc[21]==1`) so a conjured creature cannot mask a party wipe |
@@ -123,7 +123,46 @@ Two corrections to the 2026-07-24 entry that stood here:
   run to record 13, whose bit5 is clear. The event-byte count (11 of HEIRS' 175
   combat events affected) was unaffected; only the cell attribution was wrong.
 
-**Promotion status: 28 of 33 observed firing, 2 established as unable to fire.**
+**Promotion status: 28 of 33 observed firing, 4 established as unable to fire, 1 left (hunk 2, no clean observable).**
+
+**Hunks 10 and 11 CANNOT FIRE (2026-07-25) — and the reason this log gave for
+them was factually wrong.** The note below says 1.0's `jt436` "has to slide the
+existing contents up to make room, which is exactly the operation that runs off
+the end of a fixed buffer". It does not slide anything. CODE 3 `0x4be0` in the
+listing is:
+
+```
+  4be0:  linkw %fp,#-200
+  4c0e:  jsr L3952        ; jt384(tmp, dir)
+  4c1a:  jsr L4b8e        ; jt431(tmp, leaf)
+  4c26:  jsr L3952        ; jt384(a, tmp)
+```
+
+— a temp-buffer copy, which is exactly what the port lifted. So both forms
+produce the SAME string in every case: empty dir, dir already ending in `:`,
+or normal. The genuine change is narrower than believed: 1.0 passes its
+201-byte buffer (`l6238` is `linkw #-202`) through jt436's 200-byte frame and
+1.2 builds directly with two `jt431` appends, so the safe capacity goes 200 ->
+201. One byte.
+
+Measured, so the headroom is not a guess: the design directory
+(`-31336`) is `"MONTEST.DSN"` — **11 characters** — and `start.dat` caps a
+design name at 34, so the built path tops out near 48 against a 200-byte
+buffer. Nothing can express the ~185-character directory the difference would
+need.
+
+Reachability, for the record, since it was the other open question: `l6238`'s
+sole caller is `l3066_c10`, reached from `l06d8_c10` case 4 only when
+`l06ae(holder[2]) < 0` — i.e. holder **kind 7**. The Monster Editor's list bar
+"Default" verb does not go there (two attempts, no hit). Verified in the
+listing that CODE 10 `L3066` really does `jsr %pc@(L6238)`, so the odd pairing
+of a spell picker with a "delete MONST%03d.dat" routine is the Mac's, not a
+mis-lift.
+
+**Method note:** a producer census cannot prove unreachability, but a
+disassembly CAN, when the claim is about what an instruction does. Two passes
+had left these open on a sentence about `jt436` that one `grep` of the listing
+disproves.
 
 **Hunk 7 is OBSERVED FIRING (2026-07-25)** — one operand, and the merchant
 screen stops being a still life. `jt183`'s `l2ebc` call passes 1 instead of 0 as

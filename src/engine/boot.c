@@ -30644,6 +30644,19 @@ static void jt431(void *dst, const void *src)
 	PROBE("jt431");
 	if (d == NULL || s == NULL)
 		return;
+#ifdef FRUA_PATHDIAG
+	/* Hunks 10/11 are only about buffer headroom, so the one number that
+	 * decides whether they can matter is the design directory's length.
+	 * One-shot, from the first path build of the run. */
+	{
+		static short once;
+		if (!once) {
+			once = 1;
+			dbg_file_str("design dir -31336 ", (const char *)&g_a5_31336);
+			dbg_file_num("   dir len ", (long)l39ae((char *)&g_a5_31336));
+		}
+	}
+#endif
 	len = l39ae(d);
 	if (len > 0 && d[len - 1] != ':')
 		d[len++] = ':';
@@ -82887,13 +82900,24 @@ static void l26de(short icon)
  *     jt431(full, &g_a5_-31336);
  *     jt431(full, leaf);
  *
- * jt436's in-place prefix has to slide the existing contents up to make room,
- * which is exactly the operation that runs off the end of a fixed buffer when
- * the design directory is long. The two-append form never overlaps its own
- * source and destination. Note l419e directly below ALREADY builds its path
- * with two jt431 concats — 1.2 is making l6238 consistent with the idiom the
- * rest of CODE 10 already used, which is a good sign this was a real report
- * rather than a cleanup. */
+ * CORRECTED 2026-07-25 (and this hunk is now filed CANNOT FIRE): jt436 does
+ * NOT slide in place. CODE 3 0x4be0 reads
+ *
+ *     linkw %fp,#-200
+ *     jsr L3952   ; jt384(tmp, dir)
+ *     jsr L4b8e   ; jt431(tmp, leaf)
+ *     jsr L3952   ; jt384(a, tmp)
+ *
+ * — a temp-buffer copy, exactly what the port lifted above. So both forms
+ * produce the SAME string in every case (empty dir, dir already ending in ':',
+ * normal). The genuine change is only that 1.0 routes l6238's 201-byte buffer
+ * (linkw #-202) through jt436's 200-byte frame, so the safe capacity goes
+ * 200 -> 201. Measured: the design dir is "MONTEST.DSN", 11 chars, and
+ * start.dat caps a design name at 34 — the built path tops out near 48.
+ *
+ * Note l419e directly below ALREADY builds its path with two jt431 concats, so
+ * 1.2 is making l6238 consistent with the idiom the rest of CODE 10 used. That
+ * reads as a cleanup, not the buffer-overrun report the earlier note claimed. */
 static short l6238(short id, long dst) __attribute__((unused));
 static short l6238(short id, long dst)
 {
@@ -82907,6 +82931,17 @@ static short l6238(short id, long dst)
 	buf[0] = '\0';
 	jt431(buf, &g_a5_31336);        /* design-dir prefix */
 	jt431(buf, leaf);               /* then the leaf name */
+#ifdef FRUA_PATHDIAG
+	/* Hunks 10/11 change only HOW this path is assembled, so the path
+	 * itself is the whole observable. Log the two inputs and the result;
+	 * an ON/OFF pair that prints the same string has nothing to promote. */
+	dbg_file_num("l6238 delete monster id ", (long)(unsigned char)id);
+	dbg_file_str("   design dir ", (const char *)&g_a5_31336);
+	dbg_file_num("   dir len ", (long)l39ae((char *)&g_a5_31336));
+	dbg_file_str("   leaf ", leaf);
+	dbg_file_str("   built path ", buf);
+	dbg_file_num("   path len ", (long)l39ae(buf));
+#endif
 	if (jt416(buf) >= 0 && l6028((short)(unsigned char)id) != 0) {
 		char *rec = (char *)(uintptr_t)
 		            *(long *)((char *)(uintptr_t)g_a5_long(-11718) + 10);
