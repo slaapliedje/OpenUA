@@ -46,8 +46,16 @@ CHAR_NAME = 96
 CHAR_MAXHP = 129
 CHAR_LEVEL = 157        # per-class level slot 0; +n for class n
 CHAR_MEMORIZED = 198    # 141 slots
-CHAR_THAC0 = 384        # displayed THAC0 = 60 - this
-CHAR_AC = 385           # displayed AC = |this - 60|
+# BASE combat fields — these are the authoritative ones. l4842 (boot.c ~38943)
+# resets the derived bytes from them on every load: 384<-127, 385<-179, 396<-136.
+CHAR_BASE_THAC0 = 127
+CHAR_BASE_MOVE = 136
+CHAR_BASE_AC = 179
+# DERIVED bytes, rewritten from the bases above. Displayed AC = 60 - rec[385];
+# displayed THAC0 = 60 - rec[384]. All four stock characters carry base AC 50
+# (= displayed 10, unarmoured) and base move 12.
+CHAR_THAC0 = 384
+CHAR_AC = 385
 CHAR_HP = 395
 CHAR_MOVE = 396
 
@@ -79,8 +87,25 @@ def build(name, stats, spells, mage_level, hp):
     # Alive, and not so fragile that a stray fight ends the session.
     rec[CHAR_HP] = hp
     rec[CHAR_MAXHP] = hp
-    rec[CHAR_AC] = 60 - 10              # displayed AC 10
-    rec[CHAR_THAC0] = 60 - 16           # displayed THAC0 16
+
+    # ★ Write the BASE fields, not the derived ones. l4842's "reset combat/move/
+    # save bases" pass does
+    #       m[384] = m[127]     THAC0
+    #       m[385] = m[179]     AC
+    #       m[396] = m[136]     movement
+    # (boot.c ~38943), so anything written straight to 384/385/396 is overwritten
+    # the moment the character is loaded into a party and then saved back. The
+    # earlier version of this function set only the derived bytes, which is why
+    # MERLIN displayed **AC 60 and Move 1**: the engine copied his zeroed bases
+    # over them. The roster renders AC as 60 - rec[385], so base 50 is the
+    # unarmoured AC 10 that all four stock characters carry.
+    rec[CHAR_BASE_AC] = 50              # -> derived 385, displayed AC 10
+    rec[CHAR_BASE_THAC0] = 44           # -> derived 384, displayed THAC0 16
+    rec[CHAR_BASE_MOVE] = 12            # -> derived 396
+    # Seed the derived bytes too, so the record reads correctly even BEFORE the
+    # first load/save round-trip re-derives them.
+    rec[CHAR_AC] = 50
+    rec[CHAR_THAC0] = 44
     rec[CHAR_MOVE] = 12
 
     for i, spell in enumerate(spells):
