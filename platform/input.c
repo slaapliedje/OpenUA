@@ -101,7 +101,21 @@ static const struct ap_key g_ap[] = {
 	 * Generous delays: a full recompose is ~2s of emulated 8MHz, and a step
 	 * that queues faster than it drains just merges frames and hides the very
 	 * artefact we are hunting. Never ships (release_guard has no opinion on it
-	 * because FRUA_AUTOPLAY already gates the whole array). */
+	 * because FRUA_AUTOPLAY already gates the whole array).
+	 *
+	 * ★ THE RETURNS ARE LOAD-BEARING — do not drop them. HEIRS fires a MODAL
+	 * event chain (the Skull Crag caravan: several messages, each waiting on
+	 * "PRESS RETURN TO CONTINUE") the moment the party enters the dungeon. Walk
+	 * keys sent into that modal are simply eaten, so the first version of this
+	 * block fired all ten keys and walked NOWHERE — the soak looked like it had
+	 * covered the walk and had not. Caught only by noticing the last frame of a
+	 * 110-grab AGA run was still the event screen. Clear the chain first. */
+	{ 0x1C, 0x0D, 360 },    /* Return — dismiss entry event 1        */
+	{ 0x1C, 0x0D, 360 },    /* Return — 2                            */
+	{ 0x1C, 0x0D, 360 },    /* Return — 3                            */
+	{ 0x1C, 0x0D, 360 },    /* Return — 4                            */
+	{ 0x1C, 0x0D, 360 },    /* Return — 5 (spare: chain length varies)*/
+	{ 0x1C, 0x0D, 420 },    /* Return — 6 (spare)                    */
 	{ 0x48, 0,    420 },    /* Up    — step 1                        */
 	{ 0x48, 0,    420 },    /* Up    — step 2                        */
 	{ 0x4D, 0,    360 },    /* Right — turn, forces a fresh viewport */

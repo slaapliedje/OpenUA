@@ -925,12 +925,54 @@ same build with `-DFRUA_PLANAR` spelled out, so the default reproduces the
 shipped ST binary exactly. The release recipes keep the explicit `-D` as a pin.
 
 **What is still chunky, and why.** Falcon/TT (VIDEL 8bpp) and Amiga RTG are
-chunky-native — the ADR always exempted them. **Amiga AGA is the one gap**: it is
-a bitplane machine that still pays the c2p tax and never received the draw-time
-path, mitigated only by having an 020 to pay it with. The draw-time hook is
-format-agnostic (`DC_PUT` resolves to `planar_put_amiga` at compile time) and
-`display_ecs.c` is the worked example, so this is a port rather than a design
-problem. Left open deliberately, not overlooked.
+chunky-native — the ADR always exempted them. **Every bitplane target now has
+the draw-time path**: AGA was the last gap and was ported and promoted the same
+day (see the addendum below).
+
+### ADR-0016 addendum (2026-07-26) — AGA ported and promoted; every bitplane target now native
+
+`display_aga.c` had no draw-time code; it is now the third backend with it, and
+`release-amiga` ships `-DFRUA_PLANAR`. **AGA turned out to be the simple case,
+and the reason is instructive:** ST (16 colours) and ECS (32) must *quantise* a
+256-entry chunky index to a slot and rebuild that mapping whenever the scene
+palette changes — which is the origin of the re-band, the per-band remap, the
+stable-slot alignment, the epoch reset and the new-ink re-quant trigger, i.e.
+every part of this design that ever produced a bug. AGA has 8 planes = 256
+colours and `set_palette` writes `COLOR[i]` for index `i`, so **the remap is the
+identity and never changes**: no re-band, therefore no epoch reset (a stamp
+cannot be invalidated by a slot renumbering when slots never renumber); no remap
+buffer, so a bridge is a `c2p` straight from the chunky surface; and no new-ink
+trigger, which exists solely to catch ink quantised through a stale nearest-luma
+fallback. The port is ~90 lines against ECS's several hundred.
+
+Two things deliberately *not* done, both recorded in the code:
+
+- **No row-diff shadow.** AGA has never had one — every present rewrites the
+  whole back page — so leaving it that way keeps the two pages trivially
+  coherent and the flip semantics untouched. The win banked is dropping the
+  *transpose*, which B3.0b measured as ~100% of present cost.
+- **`aga_present_rect` stays plain c2p.** Ownership is decided by `a_dt`'s `idx`
+  snapshot, so a row the rect path touched either still reads `idx == chunky`
+  (a shim writer stamped it; identical values under an identity remap) or reads
+  as changed and re-bridges. Making the rect path stamp too would buy nothing.
+
+**RTG is unaffected** even though it shares the zip: a graphics card is chunky,
+`display_rtg.c` never registers a draw-time target, so `dsp_planar_draw_target()`
+returns 0 and its writers take the unchanged path.
+
+**Soak, and its one honest gap.** Three 110-grab amiberry runs plus a manual
+drive: menu, Training Hall, roster list, the dungeon 3D view, the caravan BIGPIC
+message chain, the treasure screen, the full-screen XP award panel. 91 of 109
+consecutive frame pairs at zero chrome delta in each scan, every outlier a scene
+transition or the typewriter, no engine errors. **A walk STEP was never reached**
+— HEIRS' entry cell opens a long modal chain (messages, then treasure, then the
+award) and movement keys sent into a modal are eaten. That gap does not matter
+*on AGA specifically*, because AGA has no viewport-composite path (that is
+ST-only, `planar_viewport_register`): the 3D view renders into the shared chunky
+surface, so a walk step goes through the same `aga_present` as every screen the
+soak did cover. Note also that the skip RATE was not instrumented on AGA — the
+performance claim is inherited from the ST's b4skip/b30b measurements, not
+measured here.
 
 The draw-time target is **registered by the active backend**, so a 68000 binary
 that boots on a Falcon, TT, or AGA machine finds no registration, sees `dt = 0`,

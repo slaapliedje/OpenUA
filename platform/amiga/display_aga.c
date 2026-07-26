@@ -563,7 +563,16 @@ static void aga_present_rect(short x, short y, short w, short h)
 	 * current frame (full presents rewrite the back buffer entirely), and
 	 * a small unsynchronised write risks at most one frame of shear
 	 * inside the cell. This mattered: the full-frame c2p made every
-	 * 16x16 pane repaint cost a 64000-pixel conversion. */
+	 * 16x16 pane repaint cost a 64000-pixel conversion.
+	 *
+	 * NOT dt-aware, deliberately (ADR-0016 B4): this keeps converting straight
+	 * from chunky and never consults a_dt. It stays correct because a_dt's idx
+	 * snapshot is what decides ownership — a row this function touched still
+	 * reads idx==chunky if a shim writer stamped it (identical values, the
+	 * remap being the identity), and reads as changed otherwise, so the next
+	 * FULL present either skips it legitimately or re-bridges it. Making the
+	 * rect path stamp a_dt as well would buy nothing: the win is in the full
+	 * present, and a rect is already only the cell. */
 	unsigned char *front = s_planes[s_front];
 	unsigned char *planes[8];
 	short p, x1;

@@ -221,6 +221,36 @@ static const struct ap_key g_ap[] = {
 	{ 0x30, 'b',  1200 },   /* dungeon art load: extra slack at 7 MHz */
 	{ 0x4D, 0,    300 },
 	{ 0x4B, 0,    300 },
+#ifdef FRUA_AUTOWALK
+	/* Walk soak (the Atari platform/input.c block, ported — this backend has
+	 * its OWN g_ap[], so a FRUA_AUTOWALK added only there fires nothing here;
+	 * that cost one whole AGA soak run to notice). The walk is the only path
+	 * that presents a RECT rather than a full frame, so it is what exercises
+	 * aga_present_rect against the draw-time plane buffer.
+	 *
+	 * ★ THE RETURNS ARE LOAD-BEARING — do not drop them. HEIRS fires a MODAL
+	 * event chain (the Skull Crag caravan) on dungeon entry, and walk keys sent
+	 * into that modal are eaten: the first version of this block fired all ten
+	 * keys and walked NOWHERE, which reads in the log as a successful 18/18-key
+	 * soak. Caught only by noticing the last of 110 grabs was still the event
+	 * screen. Clear the chain, THEN walk. */
+	{ 0x1C, 0x0D, 300 },    /* Return — dismiss entry event 1        */
+	{ 0x1C, 0x0D, 300 },    /* Return — 2                            */
+	{ 0x1C, 0x0D, 300 },    /* Return — 3                            */
+	{ 0x1C, 0x0D, 300 },    /* Return — 4                            */
+	{ 0x1C, 0x0D, 300 },    /* Return — 5 (spare: chain length varies)*/
+	{ 0x1C, 0x0D, 360 },    /* Return — 6 (spare)                    */
+	{ 0x48, 0,    420 },    /* Up    — step 1                        */
+	{ 0x48, 0,    420 },    /* Up    — step 2                        */
+	{ 0x4D, 0,    360 },    /* Right — turn, forces a fresh viewport */
+	{ 0x48, 0,    420 },    /* Up    — step 3 (new facing)           */
+	{ 0x4B, 0,    360 },    /* Left  — turn back                     */
+	{ 0x48, 0,    420 },    /* Up    — step 4                        */
+	{ 0x4B, 0,    360 },    /* Left  — turn                          */
+	{ 0x48, 0,    420 },    /* Up    — step 5                        */
+	{ 0x4D, 0,    360 },    /* Right — turn                          */
+	{ 0x48, 0,    420 },    /* Up    — step 6                        */
+#endif
 };
 #define AP_N ((short)(sizeof g_ap / sizeof g_ap[0]))
 static short         g_ap_idx;

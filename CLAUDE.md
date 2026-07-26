@@ -33,9 +33,10 @@ name.)
 - **Art libraries resolve design-first, root-fallback**; a module's replacement
   art lives in its `.DSN` and never overwrites the base game (ADR-0011).
 - **The bitplane machines render natively in planes**, not through the Mac's
-  chunky surface — writers stamp bitplanes at draw time and the present is a
-  page flip (ADR-0016). Shipping on ST/STE and Amiga ECS; Falcon/TT (VIDEL) and
-  Amiga RTG stay chunky by design, and AGA has not been ported yet.
+  chunky surface — writers stamp bitplanes at draw time and the present skips
+  the conversion for the rows they own (ADR-0016). Shipping on **all three**:
+  ST/STE, Amiga ECS and Amiga AGA. Falcon/TT (VIDEL) and Amiga RTG stay chunky
+  by design — they are chunky-native, so there is nothing to convert.
 
 ## Source material
 

@@ -793,11 +793,29 @@ release:
 	$(MAKE) strip-target
 	$(call PKG_DIST,openua-falcon-$(VERSION),frua.prg,Atari Falcon030/TT030,Needs: 4MB RAM and TOS 4.04 (Falcon) or 3.0x (TT). One binary serves both — the display/sound path is chosen at runtime.)
 
+# The AGA zip ships the DRAW-TIME plane path too (-DFRUA_PLANAR, ADR-0016 B4),
+# promoted 2026-07-26 — every bitplane target now has it. AGA is the simple
+# case: 8 planes = 256 colours and set_palette writes COLOR[i] for index i, so
+# the remap is the IDENTITY and none of the ST/ECS quantiser machinery (re-band,
+# epoch reset, new-ink trigger) exists here. Writers stamp planes at draw time
+# and aga_present skips the transpose for the rows they own.
+#
+# This zip serves AGA *and* RTG from one runtime-detected binary, and RTG is
+# SAFE: a graphics card is chunky (display_rtg.c has no bitplanes and never
+# calls planar_draw_target_register), so dsp_planar_draw_target() returns 0
+# there and every writer takes the unchanged chunky path. The flag only changes
+# behaviour when the AGA backend is the one that got picked.
+#
+# Soaked in amiberry on the A1200/AGA config: three 110-grab runs plus a manual
+# drive, covering menu, Training Hall, roster, the dungeon 3D view, the caravan
+# BIGPIC message chain, the treasure screen and the full-screen XP award panel.
+# 91 of 109 consecutive frame pairs at ZERO chrome delta in each scan; every
+# outlier a scene transition or the typewriter; no engine errors.
 release-amiga:
 	$(MAKE) test
 	$(MAKE) clean
 	$(MAKE) installer-amiga
-	$(MAKE) MACHINE=amiga NOEMBED=1 EXTRA_LDFLAGS=-s EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_VERSION=\"$(VERSION)\"'
+	$(MAKE) MACHINE=amiga NOEMBED=1 EXTRA_LDFLAGS=-s EXTRA_CFLAGS='-DFRUA_RELEASE -DFRUA_PLANAR -DFRUA_VERSION=\"$(VERSION)\"'
 	$(MAKE) MACHINE=amiga strip-target
 	$(call PKG_DIST,openua-amiga-$(VERSION),frua,Amiga AGA / RTG,Needs: an AA machine (A1200/A4000) or an accelerated ECS Amiga with a graphics card such as Picasso96 or CyberGraphX. KS3.0+ and about 4MB. AGA vs RTG is chosen at runtime.)
 
