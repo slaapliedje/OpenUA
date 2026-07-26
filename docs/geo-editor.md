@@ -20,12 +20,44 @@ the 3D cell view, the `PLACE / BLOCK / PASSABLE` tool palette, and the
 (`S/L/P/R/U/M`) register — the bar highlights the active command — so the
 keyboard command path is exercised end-to-end.
 
-**Caveat — mouse.** The editor's *primary* input is the mouse (click a map cell
-to edit it), and Hatari does not inject mouse buttons (see the
-`run-falcon-port` skill). So full cell-by-cell editing still can't be driven
-headless; the reachability, rendering, and keyboard command path are verified,
-the mouse-driven cell placement is not. `tools/geo.py` remains the fully
-headless-testable authoring path (and edits the same file — see below).
+**Mouse — this now works** (corrected 2026-07-26; the note below used to say
+Hatari does not inject mouse buttons, which stopped being true once the harness
+started launching with `--mousewarp no`). `driver.sh click X Y` registers, and
+`driver.sh drag X1 Y1 X2 Y2` drives the pulldown menus. `tools/geo.py` is still
+the fully headless-*testable* authoring path and edits the same file (see
+below), but the editor's own mouse path is drivable.
+
+**Pulldown menus — the two traps.** Both cost a boot on 2026-07-26:
+
+- **A plain `click` on an already-open menu does NOT select.** Mac menus commit
+  on the mouse RELEASE inside the item, so you must `drag` from the menu title
+  to the item in one gesture. Clicking an open menu just moves the pointer.
+- **`Escape` closes the whole EDITOR**, not just the open menu — it drops you
+  back to the main menu and you have to walk in from `E` again.
+
+And you cannot screenshot while the button is held (it deadlocks the Xvfb), so
+the item coordinates have to be known in advance. Measured, for the **MAP** menu
+(title at x≈285, y≈67; items at x≈380):
+
+| item | y |
+|---|---|
+| 3-D VIEW | 88 |
+| AREA VIEW | 109 |
+| *(separator)* | 130 |
+| WALL PLACEMENT | 150 |
+| BACKDROP PLACEMENT | 170 |
+| ZONE PLACEMENT | 190 |
+| EVENT PLACEMENT | 210 |
+| MOVE THROUGH WALLS | 248 |
+
+A drag that releases on the separator leaves the menu open with no selection —
+which is how these were measured, since the open menu can then be screenshotted.
+
+**Getting in:** main menu `E` → picker (the area list shows OVERLAND 01..04 then
+DUNGEON 01.. for areas 1..4 / 5..) → `click` OPEN at (62, 439) → the canvas.
+Verified 2026-07-26 against a `tools/geo.py`-authored 9x9 room: the editor drew
+the room and its perimeter walls correctly and reported `WD 9 HT 9`, which
+cross-validates the offline GEO writer against the engine's own reader.
 
 ## How it is reached
 
