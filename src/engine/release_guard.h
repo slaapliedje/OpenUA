@@ -50,6 +50,16 @@
 #ifdef FRUA_CBTPLAY
 #error "FRUA_CBTPLAY in a RELEASE build: the party would play its own combat turns, ignoring the player. It is the headless combat auto-turn harness (#74)."
 #endif
+/* Added 2026-07-26, found while working #61. FRUA_AUTOPLAY had been shipping
+ * unguarded despite being the MOST intrusive harness flag of the set: it types
+ * for the player from the moment the main menu appears. FRUA_CBTPLAY, which
+ * only takes over combat turns, was already listed — so this was an omission,
+ * not a judgement call. (FRUA_AUTOWALK merely appends walk steps to the same
+ * array, which lives entirely inside #ifdef FRUA_AUTOPLAY, so it is inert on
+ * its own and this one #error covers both.) */
+#ifdef FRUA_AUTOPLAY
+#error "FRUA_AUTOPLAY in a RELEASE build: the engine would inject its own keystrokes from the main menu onward, playing itself past the player. It is the headless drive-into-the-dungeon harness (platform/input.c g_ap[])."
+#endif
 #if defined(FRUA_ENTRY_LEVEL) || defined(FRUA_ENTRY_ROW) \
  || defined(FRUA_ENTRY_COL) || defined(FRUA_ENTRY_FACING)
 #error "FRUA_ENTRY_* in a RELEASE build: the party would be teleported to a hard-coded cell on every play entry, ignoring the design's start area."

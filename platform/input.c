@@ -85,6 +85,34 @@ static const struct ap_key g_ap[] = {
 	{ 0x4D, 0,    300 },    /* Right (nudge: force the 3D paint)     */
 	{ 0x4B, 0,    300 },    /* Left  (net-zero facing)               */
 #endif
+#ifdef FRUA_AUTOWALK
+	/* #61 walk soak. The base script TURNS but never WALKS, so the walk phase
+	 * has never been sampled headlessly: external keys get dropped when a
+	 * screenshot steals focus (that is what defeated the 2026-07-24 soak), and
+	 * autoplay — the one injector immune to focus loss — had no forward steps.
+	 *
+	 * The walk is the interesting case for the page-flip suspects, because a
+	 * step is the ONE path that presents a rect instead of a full frame:
+	 * st_present_rect draws the SHOWN page in place and does not flip, and a
+	 * rect inside the viewport skips the c2p entirely for st_vp_composite.
+	 * Turn-then-step-then-turn re-renders the viewport from several facings so
+	 * a stale-page or clipped-rect artefact has repeated chances to show.
+	 *
+	 * Generous delays: a full recompose is ~2s of emulated 8MHz, and a step
+	 * that queues faster than it drains just merges frames and hides the very
+	 * artefact we are hunting. Never ships (release_guard has no opinion on it
+	 * because FRUA_AUTOPLAY already gates the whole array). */
+	{ 0x48, 0,    420 },    /* Up    — step 1                        */
+	{ 0x48, 0,    420 },    /* Up    — step 2                        */
+	{ 0x4D, 0,    360 },    /* Right — turn, forces a fresh viewport */
+	{ 0x48, 0,    420 },    /* Up    — step 3 (new facing)           */
+	{ 0x4B, 0,    360 },    /* Left  — turn back                     */
+	{ 0x48, 0,    420 },    /* Up    — step 4                        */
+	{ 0x4B, 0,    360 },    /* Left  — turn                          */
+	{ 0x48, 0,    420 },    /* Up    — step 5                        */
+	{ 0x4D, 0,    360 },    /* Right — turn                          */
+	{ 0x48, 0,    420 },    /* Up    — step 6                        */
+#endif
 };
 #define AP_N ((short)(sizeof g_ap / sizeof g_ap[0]))
 static short         g_ap_idx;

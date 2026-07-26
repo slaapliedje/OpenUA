@@ -95,21 +95,25 @@ static unsigned char           s_band_remap[ST_NBANDS * 256];
  * CLUT matches this snapshot would reproduce the same palettes: skip it. */
 static unsigned char           s_clut_banded[256 * 3];
 static short                   s_banded_valid;
-/* ADR-0016 B3.2 (stable-slot alignment + smart-skip). A re-band re-runs the
- * median-cut, which normally renumbers the 16 slots arbitrarily — so EVERY value
- * looks like it moved and the whole screen must re-c2p (the force-full). We instead
- * PERMUTE the new slots to best-match the previous palette's positions, so a colour
- * that persists across the re-band keeps its slot number; its remap entry is then
- * unchanged, and st_blit_full can leave its pixels' planes alone. s_remap_dirty[v]
- * marks the values whose slot actually moved this re-band; s_remap_changed tells the
- * blit a re-band happened so it consults the dirty map instead of forcing full.
- * Purely a slot renumbering — the 16 colours and the final remap are identical, so
- * the displayed frame is unchanged (planes encode a slot, the palette supplies the
- * colour). */
+/* ADR-0016 B3.2 (stable-slot alignment). A re-band re-runs the median-cut, which
+ * normally renumbers the 16 slots arbitrarily. We instead PERMUTE the new slots to
+ * best-match the previous palette's positions, so a colour that persists across the
+ * re-band keeps its slot number. Purely a slot renumbering — the 16 colours and the
+ * final remap are identical, so the displayed frame is unchanged (planes encode a
+ * slot, the palette supplies the colour). It is also the groundwork B4's page-flip
+ * needs: two pages drawn under differently-numbered slots cannot both be valid.
+ *
+ * The "smart-skip" this used to feed is GONE (removed 2026-07-26, during #61).
+ * It let a re-band pass re-c2p only the rows holding a value whose slot moved,
+ * via s_remap_old / s_remap_dirty[] / s_remap_changed. B4 superseded it: a
+ * re-band must force-full BOTH pages (see st_reband's comment — the single dirty
+ * map is computed against ONE page's previous remap and is simply wrong for the
+ * other, which was the "brown chrome"), so s_remap_changed was thereafter only
+ * ever assigned 0. The skip branches could not execute and the dirty map was
+ * computed every re-band and never read. Dead conservative code is not free
+ * here: it advertises a fast path that does not run, which is actively
+ * misleading when reading this file to chase a redraw artefact. */
 static unsigned char           s_band_pal_prev[ST_NCOL * 3];
-static unsigned char           s_remap_old[256];
-static unsigned char           s_remap_dirty[256];
-static short                   s_remap_changed;
 static short                   s_have_prev_pal;
 /* ADR-0016 B4 Phase-0 (scene-stable remap): a representative CLUT index per
  * slot, captured at each re-quant (the used index whose colour is nearest the
@@ -357,10 +361,10 @@ static void st_blit_full(void)
 {
 	short y;
 
-	/* B4: s_force_full / s_remap_changed are per-page COUNTS — a re-band leaves BOTH
-	 * pages' planes stale, so the treatment repeats until every page is serviced. The
-	 * row-diff / smart-skip run against THIS page's shadow (s_shadow = s_shadow_pg
-	 * [s_back]), so each page independently tracks to the current chunky frame. */
+	/* B4: a re-band leaves BOTH pages' planes stale, so s_force_full's branch
+	 * services every page in this one present. The row-diff runs against THIS
+	 * page's shadow (s_shadow = s_shadow_pg[s_back]), so each page independently
+	 * tracks to the current chunky frame. */
 	if (s_force_full > 0) {
 		short pg;
 #ifdef FRUA_STPROF
@@ -381,7 +385,6 @@ static void st_blit_full(void)
 		s_screen = s_page[s_back];
 		s_shadow = s_shadow_pg[s_back];
 		s_force_full   = 0;
-		s_remap_changed = 0;
 		return;
 	}
 #ifdef FRUA_STPROF
@@ -389,23 +392,10 @@ static void st_blit_full(void)
 #endif
 	for (y = 0; y < ST_H; y++) {
 		const unsigned char *crow = s_chunky + (long)y * ST_W;
-		int conv = memcmp(crow, s_shadow + (long)y * ST_W, ST_W) != 0;
 
-		/* ADR-0016 B3.2: after a re-band the content of a row can be UNCHANGED yet
-		 * still need re-c2p if one of its colours moved to a new slot. Stable-slot
-		 * alignment keeps most colours put, so this scan (only on a re-band pass,
-		 * early-exit on the first moved value) leaves the static chrome/HUD alone
-		 * instead of the old blanket force-full. */
-		if (!conv && s_remap_changed > 0) {
-			short x;
-			for (x = 0; x < ST_W; x++)
-				if (s_remap_dirty[crow[x]]) { conv = 1; break; }
-		}
-		if (conv)
+		if (memcmp(crow, s_shadow + (long)y * ST_W, ST_W) != 0)
 			st_blit_rows(0, ST_W, y, 1);
 	}
-	if (s_remap_changed > 0)
-		s_remap_changed--;
 }
 
 /* Squared RGB distance between two packed 3-byte colours (for slot alignment). */
@@ -581,7 +571,6 @@ static void st_repalette(void)
 	memcpy(s_band_pal_prev, s_band_pal, sizeof s_band_pal_prev);
 	st_build_hw_palette();
 	s_force_full   = 0;      /* planes unchanged: nothing to re-convert */
-	s_remap_changed = 0;
 }
 
 /* Re-band: histogram + per-band reduce, then build the per-band ST-format
@@ -589,18 +578,13 @@ static void st_repalette(void)
  * row (see st_band_stpal) is a copy of the last band. */
 static void st_reband(void)
 {
-	short b, i;
+	short b;
 	const unsigned char *qsrc = s_chunky;
 	short first = !s_have_prev_pal;
 
 #ifdef FRUA_PLANAR
 	st_dt_epoch_reset();                     /* slots renumber: draw-time epoch */
 #endif
-
-	/* Snapshot the remap we're about to replace, so the smart-skip can tell which
-	 * values actually move slot this re-band (B3.2). Band 0 is representative —
-	 * every band carries the same remap after the B1 replicate below. */
-	memcpy(s_remap_old, s_band_remap, 256);
 
 	/* Pin the composited walls' colours (ADR-0016 B1). After B2.1 the dungeon
 	 * viewport renders into the planar SCRATCH, not s_chunky, so the reband never
@@ -677,9 +661,6 @@ static void st_reband(void)
 			s_band_remap[v] = pos[s_band_remap[v]];
 	}
 
-	/* Which values changed slot vs the last convert — the smart-skip's dirty map. */
-	for (i = 0; i < 256; i++)
-		s_remap_dirty[i] = (unsigned char)(s_remap_old[i] != s_band_remap[i]);
 	memcpy(s_band_pal_prev, s_band_pal, sizeof s_band_pal_prev);
 	s_have_prev_pal = 1;
 
@@ -692,23 +673,21 @@ static void st_reband(void)
 	st_build_hw_palette();
 
 	/* B3.2: the FIRST re-band has no aligned predecessor, and the viewport path
-	 * clobbers s_shadow (its temp), so both must convert everything. Otherwise the
-	 * stable-slot alignment kept most slots put, so arm the smart-skip: st_blit_full
-	 * re-c2p's only rows whose content changed OR that hold a value that moved slot.
-	 * The static granite chrome (slots preserved) is then left alone across the
-	 * re-band instead of the old blanket full convert. */
-	/* B4: FORCE-FULL on every re-band (not the smart-skip). The smart-skip's
-	 * s_remap_dirty is computed ONCE per re-band (old remap vs new), but the two
-	 * pages were last drawn with DIFFERENT remaps (they alternate), so that single
-	 * dirty map is wrong for the other page (the "brown chrome"). st_blit_full's
-	 * force-full path now converts BOTH pages in one present against the current
-	 * palette, so a single flag suffices — and both pages stay on the SAME palette,
-	 * fixing the grey-on-grey roster (a page force-fulled on an older CLUT never
-	 * gets shown). Costs 2 c2p's on a re-band only; re-bands are rare and the
-	 * flat-fill already tamed the c2p. */
+	 * clobbers s_shadow (its temp), so both must convert everything.
+	 *
+	 * B4: FORCE-FULL on every re-band. B3.2's "smart-skip" (re-c2p only the rows
+	 * holding a value whose slot moved) was tried and cannot work here: its dirty
+	 * map is computed ONCE per re-band, against the remap ONE page was last drawn
+	 * with, and the two pages alternate — so the map is simply wrong for the other
+	 * page, which is what the "brown chrome" was. The force-full path converts
+	 * BOTH pages in one present against the current palette, so a single flag
+	 * suffices and both pages stay on the SAME palette (fixing the grey-on-grey
+	 * roster: a page force-fulled on an older CLUT never gets shown). Costs 2
+	 * c2p's on a re-band only; re-bands are rare and the flat-fill already tamed
+	 * the c2p. The smart-skip's machinery was removed 2026-07-26 — it had been
+	 * unreachable ever since this decision. */
 	(void)first;
 	s_force_full   = 1;
-	s_remap_changed = 0;
 }
 
 #ifdef FRUA_PLANAR
@@ -894,7 +873,7 @@ static int st_dt_ready_row(short y)
  * Mirrors st_blit_full's page/shadow/counter bookkeeping. */
 static void st_dt_present_full(void)
 {
-	short y, x, pg;
+	short y, pg;
 #ifdef FRUA_STPROF
 	long rows_conv = 0, rows_skip = 0;
 #endif
@@ -913,17 +892,12 @@ static void st_dt_present_full(void)
 		s_screen        = s_page[s_back];
 		s_shadow        = s_shadow_pg[s_back];
 		s_force_full    = 0;
-		s_remap_changed = 0;
 		goto log;
 	}
 	for (y = 0; y < ST_H; y++) {
 		const unsigned char *crow = s_chunky + (long)y * ST_W;
-		int conv = memcmp(crow, s_shadow + (long)y * ST_W, ST_W) != 0;
 
-		if (!conv && s_remap_changed > 0)
-			for (x = 0; x < ST_W; x++)
-				if (s_remap_dirty[crow[x]]) { conv = 1; break; }
-		if (!conv)
+		if (memcmp(crow, s_shadow + (long)y * ST_W, ST_W) == 0)
 			continue;
 #ifdef FRUA_STPROF
 		if (st_dt_ready_row(y)) { rows_conv++; s_prof_convrow[y]++; }
@@ -935,8 +909,6 @@ static void st_dt_present_full(void)
 		       s_dt + (long)y * LINE_BYTES, LINE_BYTES);
 		memcpy(s_shadow + (long)y * ST_W, crow, ST_W);
 	}
-	if (s_remap_changed > 0)
-		s_remap_changed--;
 log:
 #ifdef FRUA_STPROF
 	{
@@ -1319,12 +1291,32 @@ static long st_flip_super(void)
 	return 0;
 }
 
-/* Show the just-drawn back page and make the old front the next draw target. A
- * FULL present does this: the engine presents a full recompose NPAGES times (the
- * `pages` contract), so both pages end up carrying the frame. present_rect does
- * NOT flip — it draws the SHOWN page in place (see st_present_rect), so the walk's
- * small viewport update never desyncs the pages (an earlier flip-on-present_rect
- * showed the back page's stale/blank HUD). */
+/* Show the just-drawn back page and make the old front the next draw target.
+ *
+ * CORRECTED 2026-07-26 (#61 investigation). This comment used to claim "the
+ * engine presents a full recompose NPAGES times (the `pages` contract), so both
+ * pages end up carrying the frame". That is FALSE and was worth catching, since
+ * it describes a coherence mechanism that is not running: ste_backend declares
+ * `pages = 1` (deliberately — see its own comment, and #151), so the engine
+ * presents ONCE and only the back page receives the full frame. Anyone
+ * debugging a stale-page artefact from the old comment would look in the wrong
+ * place. The three mechanisms that ACTUALLY keep the pages coherent are:
+ *
+ *   1. PER-PAGE shadows (s_shadow_pg[]). A page's row-diff runs against its own
+ *      shadow, so whatever the other page missed still reads as changed and is
+ *      rebuilt the next time that page is the target. This is what makes
+ *      present_rect's in-place draw safe: it updates the SHOWN page and the
+ *      SHOWN page's shadow, leaving the back page's shadow correctly stale.
+ *   2. s_force_full is a per-page COUNT, not a flag. A re-band sets it so BOTH
+ *      pages get seeded — necessary because a re-band renumbers slots and
+ *      invalidates the other page's planes wholesale.
+ *   3. st_vp_composite blits the viewport into BOTH pages explicitly. It has to:
+ *      the viewport rows are frozen in s_chunky, so the row-diff would never
+ *      notice the other page's hole was stale.
+ *
+ * present_rect does NOT flip — it draws the SHOWN page in place (see
+ * st_present_rect), so the walk's small viewport update never desyncs the pages
+ * (an earlier flip-on-present_rect showed the back page's stale/blank HUD). */
 static void st_flip_full(void)
 {
 	s_flip_target = s_page[s_back];
