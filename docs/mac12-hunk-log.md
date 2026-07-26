@@ -834,11 +834,32 @@ facing S or W (bit 5 set) therefore also armed `-4943` — and that arm sets
 strength of a direction. Not a latent overlap: it triggers whenever the arm
 runs. 1.2 moves the flag to a bit nothing else claims.
 
-Neither is observed-firing yet. The situations are authorable and small:
-regeneration needs a monster carrying effect 226 in a fight lasting >1 round;
-the `l3cd6` one needs a type-18/19/20 question whose outcome teleports with
-facing S or W, and the observable is `l709e`'s `-> RE-SCAN landed cell` line
-under `FRUA_MOVDIAG`.
+**Both are OBSERVED FIRING (2026-07-26).**
+
+*jt868 case 19* — arm an item with `[15] = 226` (the hunk-18 exploding-item
+trick, which routes an item's byte-15 effect id onto its bearer through
+`l77a0`'s `jt820` override), ready it, and fight. Same script, same seed:
+
+| | codes the sweep asks for | actor carries it | `jt854`, the heal |
+|---|---|---|---|
+| 1.2 | 226 x3 | **1** | fires — **HP 0 -> 3** in combat |
+| 1.0 | 217 x4 | **0**, every time | never, in combat |
+
+1.0's single `jt854` is the out-of-combat ready-time call (78 -> 78, capped),
+so the per-round heal is exactly what 1.2 adds.
+
+*l3cd6* — `tools/mk_movetest_design.py --teleport` authors a type-20 keyword
+question whose YES branch teleports facing S. Identical up to the tail:
+
+| | `-4943` | the deferred re-scan | the screen |
+|---|--:|---|---|
+| 1.2 | 0 | not run | the bare walk view |
+| 1.0 | 32 | `-> RE-SCAN landed cell, event 3` | **"THE STALE FACING BIT RE-SCANNED THIS CELL."** |
+
+Trap worth keeping: the YES-branch action is `(ev[10] & 0x0c) >> 2`, NOT
+`ev[10] & 3` — bits 0-1 are the NO branch's action. Authoring the teleport on
+the wrong bits made the first run measure nothing (`-4942` stayed 0 and the
+party never moved), which looks exactly like an inert fix.
 
 ### The two character-range changes — ✅ PORTED
 

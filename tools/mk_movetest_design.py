@@ -71,6 +71,64 @@ def _movement_event(chain=0, frames=2, rescan=False):
     return bytes(ev)
 
 
+ENTRY_COL_ROW = (3, 3)
+TELE_ROW, TELE_COL = 3, 6      # where the outcome-teleport lands
+
+
+def _keyword_teleport_event(keyword_id, row, col, tries=3):
+    """A 20-byte type-20 record: ask for a keyword, then TELEPORT on success.
+
+    Type 20 is the one branch selector that needs no `jt888` member picker —
+    `l29cc` prompts with `jt98` and compares the typed word — which is what
+    makes it drivable headlessly. `l3cd6` then runs the outcome.
+
+    ev[10] carries BOTH the YES-branch action (bits 2-3, read as
+    `(ev[10] & 0x0c) >> 2`; 2 = teleport) and the landing facing (bits 4-5,
+    read as `(ev[10] & 0x30) >> 3`). 0x28 therefore means "teleport, facing S"
+    — and bit 5 being set is exactly what 1.0's `-4943 = ev[10] & 0x20`
+    misread as a deferred-re-trigger request.
+
+    Note the NO branch uses bits 0-1 (`ev[10] & 3`) for ITS action. Reading the
+    yes-branch action off those bits is the mistake that made the first run of
+    this measure nothing: the teleport arm never ran and `-4942` stayed 0.
+    """
+    ev = bytearray(EVENT_SIZE)
+    ev[0] = 20
+    ev[8] = keyword_id & 0xff       # the expected keyword (STRG id, LE pair)
+    ev[9] = (keyword_id >> 8) & 0xff
+    ev[10] = 0x28                   # bits 2-3 = 2 (teleport) | facing bit 5 (S)
+    ev[17] = row & 0xff             # landing row  (jt413-clamped)
+    ev[18] = col & 0xff             # landing col
+    ev[19] = tries & 0xff
+    return bytes(ev)
+
+
+def teleport_design(name="TELETEST", size=8):
+    """The situation for the CODE 20 operand fix (`l3cd6`'s ev[10] bit).
+
+    Entry cell asks a keyword; answering it teleports the party to
+    (TELE_ROW, TELE_COL) facing S. `l3cd6`'s teleport arm sets `-4942`, and in
+    1.0 the facing bit also sets `-4943` — so `l709e`'s tail runs its deferred
+    re-scan of the cell the party landed on, and fires the event sitting there.
+    1.2 reads bit 6 instead, nothing else claims it, and the re-scan does not
+    happen.
+    """
+    a5 = _walled_room(w=size, h=size, entry=ENTRY_COL_ROW, facing=0)
+    a5.strg_write(["", "OPEN",
+                   "THE STALE FACING BIT RE-SCANNED THIS CELL."])
+    a5.set_event(0, _keyword_teleport_event(2, TELE_ROW, TELE_COL))
+    a5.set_message(2, text_ids=[3])              # slot 2 -> event index 3
+    _hook(a5, 3, 3, special=1)                   # entry -> the question
+    _hook(a5, TELE_COL, TELE_ROW, special=3)     # landing -> the message
+
+    d = Design(name, title="Outcome-teleport re-scan test")
+    d.xp = 15000
+    d.start_area = 5
+    d.start_entry = 1
+    d.add_area(5, a5)
+    return d
+
+
 def movetest_design(name="MOVETEST", rescan=False, frames=2):
     """Entry cell (col 3, row 3) facing 0; the walk lands on (col 3-frames, 3).
 
@@ -115,6 +173,16 @@ def main(argv):
         print(__doc__)
         return 2
     base = argv[0]
+    if "--teleport" in argv:
+        d = teleport_design()
+        folder = d.write(base, make_current=("--current" in argv))
+        ev = d.areas[5].event(0)
+        print("wrote", folder)
+        print("  event 1: type=%d ev[10]=0x%02x (yes-action %d, facing %d)"
+              % (ev[0], ev[10], (ev[10] & 0x0c) >> 2, (ev[10] & 0x30) >> 3))
+        print("  keyword 'OPEN'; lands on (col %d, row %d), which carries the message"
+              % (TELE_COL, TELE_ROW))
+        return 0
     rescan = "--rescan" in argv
     frames = 2
     if "--frames" in argv:

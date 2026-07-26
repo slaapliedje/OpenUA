@@ -32,7 +32,7 @@ from dsn import Design, _walled_room, _hook          # noqa: E402
 from geo import EVENT_SIZE                            # noqa: E402
 
 
-def noperma_design(name="NOPERMA", monster_id=1, flag=True, count=2):
+def noperma_design(name="NOPERMA", monster_id=1, flag=True, count=2, away=False):
     """One walled room; the party's entry cell fires a no-permadeath combat.
 
     `flag=False` builds the identical module with bit 6 CLEAR — the A/B control,
@@ -59,7 +59,14 @@ def noperma_design(name="NOPERMA", monster_id=1, flag=True, count=2):
     ev[12] |= 0x20 | (0x40 if flag else 0x00)
     a5.encr[0:EVENT_SIZE] = bytes(ev)
 
-    _hook(a5, 3, 3, special=1)                  # entry cell -> event 0
+    if away:
+        # Combat on the NEIGHBOURS instead of the entry cell, so the party can
+        # ready an item (or otherwise prepare) before stepping into the fight.
+        # All four so the step direction does not have to be known.
+        for c, r in ((2, 3), (4, 3), (3, 2), (3, 4)):
+            _hook(a5, c, r, special=1)
+    else:
+        _hook(a5, 3, 3, special=1)              # entry cell -> event 0
 
     d = Design(name, title="No-permadeath test")
     d.xp = 15000
@@ -82,7 +89,8 @@ def main(argv):
     count = 2
     if "--count" in argv:
         count = int(argv[argv.index("--count") + 1])
-    d = noperma_design(name, monster_id=monster_id, flag=flag, count=count)
+    d = noperma_design(name, monster_id=monster_id, flag=flag, count=count,
+                       away=("--away" in argv))
     folder = d.write(base, make_current=("--current" in argv))
     ev = d.areas[5].event(0)
     print("wrote", folder)

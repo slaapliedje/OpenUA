@@ -150,9 +150,11 @@ Two things worth carrying forward:
 
 **All 33 are accounted for.** Twenty-nine are **observed firing** (ON vs OFF
 produce different measured state, same seed); the other four cannot fire at
-all, and that is a finding rather than a gap.
+all, and that is a finding rather than a gap. The operand pass turned up two
+more genuine fixes outside the numbered set, and both are observed firing too —
+they head the table below as `op:`.
 
-### Observed firing (29)
+### Observed firing (29 hunks + 2 operand fixes)
 
 | hunks | situation | evidence |
 |---|---|---|
@@ -169,6 +171,8 @@ all, and that is a finding rather than a gap.
 | 19-22 | authored SHOPPIC.DSN (`tools/mk_bigpic_design.py --shop`), Items -> Sell, `-DFRUA_ITMDIAG` | `jt893 ENTRY saved -22281` is **1** in both, then `in-browser` / loop-top / `jt182 confirm sees -22281` are **0 0 0** (ON) vs **1 1 1** (OFF) |
 | 17 | authored NOPERMA.DSN with **monster 42 (BASILISK)**, `-DFRUA_CBTPLAY -DFRUA_NPDIAG` | same gaze, same seed: `final-status` **5** (ON) vs **7** (OFF) on `subject BARBARUS side 0`; ON the party walks on at 1 HP, OFF the screen reads *"The monsters rejoice, for the party has been destroyed!"* |
 | 16 | authored caster (`tools/mk_caster_chr.py`), Hall -> View -> Spells | the picker's command bar reads **`Exit`** (ON) vs **blank** (OFF); `-24126` `0 FF ..` vs the stale `1 'S' 7 'E'`; `l2184("Exit") -> "Exit"` vs `""` |
+| op: `jt868` c19 | armed an item with `[15] = 226` (the hunk-18 route), readied it, then fought — `-DFRUA_REGDIAG` | the per-round sweep asks for **226** and the actor carries it (1.2) vs **217** and it never does (1.0); `jt854` fires **HP 0 -> 3** in combat under 1.2 and not at all under 1.0 |
+| op: `l3cd6` | `tools/mk_movetest_design.py --teleport` — a type-20 keyword question whose YES branch teleports facing S | `-4943` **0** vs **32** at the tail; `-> RE-SCAN landed cell, event 3` in 1.0 only, and on screen **"THE STALE FACING BIT RE-SCANNED THIS CELL."** vs the bare walk view |
 | 2 | no design needed — app init, with `jt399` restored to its Mac shape (see below) | 1.2 boots to the main menu (`menu: modal up` in 10 s); 1.0 takes a **`Bus Error writing at address $0, PC=$28fde`** at that instruction and dies with a garbage screen. The `-22222` slot is **0** there, so 1.0's form dereferences NULL |
 | 7 | authored SHOPPIC.DSN (`tools/mk_bigpic_design.py --shop --picture 57 --sprite`), `-DFRUA_ANIMDIAG` | at the merchant modal `arg_lo` is **1** vs **0** with every other input identical (`-13018 2`, `-24321 1`, `-24206 7`); the animation block runs **12** times vs **0**, and six timed screenshots differ by up to **12764** px (ON) vs **AE 0** every pair (OFF) — the shopkeeper animates vs sits frozen |
 | 14 | authored NOPERMA.DSN with monster 42, `-DFRUA_CBTPLAY -DFRUA_NPDIAG` and **hunks 1/15/17 at their 1.0 shape** (see below) | BARBARUS petrified at status 7 (`qualifies 0`), two live BASILISKs with `mc21 1` / `[382] 1` (`qualifies 1`): `found` **0** (ON) vs **1** (OFF), so `-27982` ends **1** vs **0**. On screen: *"The monsters rejoice, for the party has been destroyed!"* (ON) vs the walk view with BARBARUS at **0 HP** still in the party (OFF) |

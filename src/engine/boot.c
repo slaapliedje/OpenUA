@@ -33723,6 +33723,17 @@ static void l026e(void *arg, short code_w)
 		}
 	}
 #endif
+#ifdef FRUA_REGDIAG
+	/* The 217 -> 226 operand fix. jt868 case 19 runs ONE of these per round;
+	 * l026e only dispatches when the actor carries that effect, so log both
+	 * the code the list asked for and whether the actor has it. */
+	if (code == 217 || code == 226) {
+		void *probe = 0;
+		dbg_file_num("l026e regen-chain code ", (long)code);
+		dbg_file_num("   actor carries it ",
+		             (long)(jt41((long)*(void **)arg, code, &probe) != 0));
+	}
+#endif
 	if (jt41((long)*(void **)arg, code, &out) != 0) {
 		found = 1;
 	} else if (code == 21 || code == 45 || code == 46 || code == 49) {
@@ -47954,6 +47965,12 @@ static short l29cc(void *ev_v)
 		jt176();
 		typed = jt98((long)(uintptr_t)"", 7, 8, 25);
 		result = (unsigned char)jt396(typed, (const char *)&g_a5_byte(-5213));
+#ifdef FRUA_MOVDIAG
+		dbg_file_num("l29cc keyword id ", (long)(ev[8] | (ev[9] << 8)));
+		dbg_file_str("   expected ", (const char *)&g_a5_byte(-5213));
+		dbg_file_str("   typed ", typed ? typed : "(null)");
+		dbg_file_num("   match ", (long)result);
+#endif
 
 		if (result == 0 && (unsigned char)try_n < ev[19]) {
 			jt20();                         /* wrong, tries remain */
@@ -62668,9 +62685,17 @@ static void jt854(long rec_l, long node, short flag)
 
 	PROBE("jt854");
 	(void)node; (void)flag;
+#ifdef FRUA_REGDIAG
+	dbg_file_str("jt854 REGEN ", (const char *)&rec[96]);
+	dbg_file_num("   HP before ", (long)(unsigned char)rec[395]);
+#endif
 	rec[395] = (unsigned char)(rec[395] + 3);
 	if ((unsigned char)rec[395] > (unsigned char)rec[129])
 		rec[395] = rec[129];
+#ifdef FRUA_REGDIAG
+	dbg_file_num("   HP after ", (long)(unsigned char)rec[395]);
+	dbg_file_num("   cap rec[129] ", (long)(unsigned char)rec[129]);
+#endif
 }
 
 /* JT[820] (CODE 18 + 0x7206) — ITEM hook (second arg is the item, not
