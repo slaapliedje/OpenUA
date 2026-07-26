@@ -33,6 +33,7 @@
 #include "c2p4st.h"             /* the nibble-optimized 4-plane span */
 #include "quantize.h"
 #include "planar.h"             /* dungeon-viewport planar composite (B2) */
+#include "plat_sys.h"           /* plat_have_blitter (#48) */
 
 #define ST_W        320
 #define ST_H        200
@@ -869,11 +870,116 @@ static int st_dt_ready_row(short y)
 	return 1;
 }
 
+/* --- BLiTTER word copy (task #48) ---------------------------------------
+ *
+ * Register map from the Atari Compendium B.32 (p.752-753). For a plain
+ * aligned copy: HOP = 2 (source only), OP = 3 (D = S), all three endmasks
+ * $FFFF, both X/Y increments +2, SKEW/FXSR/NFSR all clear. The 24-bit source
+ * and destination addresses are written as LONGS to $FF8A24 / $FF8A32 — the
+ * high byte lands in the unused top half of the first word, which is why the
+ * hardware splits them that way.
+ *
+ * Started by setting BUSY (bit 7) with HOG (bit 6) also set, so the blitter
+ * keeps the bus until the blit finishes; the CPU is halted meanwhile, which
+ * is what we want during a present since there is nothing else to do. The
+ * BUSY poll afterwards is belt-and-braces.
+ *
+ * ★ SUPERVISOR. $FF8A00 is in the protected I/O page, so every one of these
+ * writes must run supervisor — hence the _super suffix and Supexec, the same
+ * pattern st_flip_super uses. Supexec is a TRAP, so it must be amortised: a
+ * per-row Supexec around an 80-word blit would spend more time entering
+ * supervisor than blitting. Batch whole presents into one call. */
+#define BLT_SRC_XINC (*(volatile short *)0xFFFF8A20UL)
+#define BLT_SRC_YINC (*(volatile short *)0xFFFF8A22UL)
+#define BLT_SRC      (*(volatile unsigned long *)0xFFFF8A24UL)
+#define BLT_END1     (*(volatile unsigned short *)0xFFFF8A28UL)
+#define BLT_END2     (*(volatile unsigned short *)0xFFFF8A2AUL)
+#define BLT_END3     (*(volatile unsigned short *)0xFFFF8A2CUL)
+#define BLT_DST_XINC (*(volatile short *)0xFFFF8A2EUL)
+#define BLT_DST_YINC (*(volatile short *)0xFFFF8A30UL)
+#define BLT_DST      (*(volatile unsigned long *)0xFFFF8A32UL)
+#define BLT_XCOUNT   (*(volatile unsigned short *)0xFFFF8A36UL)
+#define BLT_YCOUNT   (*(volatile unsigned short *)0xFFFF8A38UL)
+#define BLT_HOP      (*(volatile unsigned char *)0xFFFF8A3AUL)
+#define BLT_OP       (*(volatile unsigned char *)0xFFFF8A3BUL)
+#define BLT_CTRL     (*(volatile unsigned char *)0xFFFF8A3CUL)
+#define BLT_SKEW     (*(volatile unsigned char *)0xFFFF8A3DUL)
+
+/* One aligned word-copy. SUPERVISOR ONLY — never call this from user code. */
+static void st_blt_copy(void *dst, const void *src, unsigned short words)
+{
+	BLT_SRC_XINC = 2;  BLT_SRC_YINC = 2;
+	BLT_DST_XINC = 2;  BLT_DST_YINC = 2;
+	BLT_SRC      = (unsigned long)(uintptr_t)src;
+	BLT_DST      = (unsigned long)(uintptr_t)dst;
+	BLT_END1     = 0xFFFF; BLT_END2 = 0xFFFF; BLT_END3 = 0xFFFF;
+	BLT_XCOUNT   = words;
+	BLT_YCOUNT   = 1;
+	BLT_HOP      = 2;                        /* HOP: source */
+	BLT_OP       = 3;                        /* OP: D = S    */
+	BLT_SKEW     = 0;                        /* no FXSR/NFSR, no shift */
+	BLT_CTRL     = 0xC0;                     /* BUSY | HOG -> run to completion */
+	while (BLT_CTRL & 0x80)
+		;
+}
+
+/* Changed-row RUNS for one present. ST_H alternating rows is the worst case,
+ * so ST_H/2 + 1 entries can never overflow. */
+static struct { short y0, n; } s_runs[ST_H / 2 + 1];
+static short s_nruns;
+static int   s_use_blt;          /* plat_have_blitter(), latched at init */
+
+/* Copy every recorded run, plane bytes + chunky shadow, with the BLiTTER.
+ * SUPERVISOR — one Supexec for the whole present, which is the only way the
+ * trap is cheap enough to be worth it (see st_blt_copy's note). */
+static long st_dt_blit_runs_super(void)
+{
+	short i;
+
+	for (i = 0; i < s_nruns; i++) {
+		long y0 = s_runs[i].y0, n = s_runs[i].n;
+
+		st_blt_copy(s_page[s_back] + y0 * LINE_BYTES,
+		            s_dt + y0 * LINE_BYTES,
+		            (unsigned short)(n * LINE_BYTES / 2));
+		st_blt_copy(s_shadow + y0 * ST_W, s_chunky + y0 * ST_W,
+		            (unsigned short)(n * ST_W / 2));
+	}
+	return 0;
+}
+
+/* Seed BOTH pages and both shadows from scratch. SUPERVISOR. */
+static long st_dt_blit_forcefull_super(void)
+{
+	short pg;
+
+	for (pg = 0; pg < NPAGES; pg++) {
+		st_blt_copy(s_page[pg], s_dt, SCREEN_BYTES / 2);
+		st_blt_copy(s_shadow_pg[pg], s_chunky,
+		            (unsigned short)((long)ST_W * ST_H / 2));
+	}
+	return 0;
+}
+
 /* B4 step 4: present from s_dt (row-diffed copy), replacing the full c2p.
- * Mirrors st_blit_full's page/shadow/counter bookkeeping. */
+ * Mirrors st_blit_full's page/shadow/counter bookkeeping.
+ *
+ * ★ RUN-COALESCED (task #48). This used to issue two memcpy calls PER CHANGED
+ * ROW — 160 plane bytes and 320 shadow bytes. Measured on an emulated STE, 200
+ * separate 160-byte memcpys cost 38.3 ms against 20.5 ms for ONE 32000-byte
+ * memcpy of exactly the same bytes: the per-call overhead was nearly half the
+ * copy time. Changed rows are also overwhelmingly contiguous in practice (the
+ * viewport, a text line, the HUD bar), so coalescing them into runs recovers
+ * most of that — and it does so on every ST, blitter or not.
+ *
+ * With a BLiTTER present the runs then go through it instead, batched into a
+ * single Supexec. Same measurement: 3.76x on a full-screen copy, but only
+ * 1.41x on 160-byte rows because the ~15 register writes per blit dominate at
+ * that size. Coalescing is what makes the blitter worth using here: it turns
+ * many below-break-even blits into few above-break-even ones. */
 static void st_dt_present_full(void)
 {
-	short y, pg;
+	short y, pg, run0 = -1;
 #ifdef FRUA_STPROF
 	long rows_conv = 0, rows_skip = 0;
 #endif
@@ -885,29 +991,64 @@ static void st_dt_present_full(void)
 #else
 			st_dt_ready_row(y);
 #endif
-		for (pg = 0; pg < NPAGES; pg++) {
-			memcpy(s_page[pg], s_dt, SCREEN_BYTES);
-			memcpy(s_shadow_pg[pg], s_chunky, (size_t)ST_W * ST_H);
-		}
+		/* The single most expensive copy the backend does: 2 x 32000 plane
+		 * bytes + 2 x 64000 shadow bytes, and the one shape where the
+		 * BLiTTER measured a clear 3.76x. One Supexec for all four. */
+		if (s_use_blt)
+			Supexec(st_dt_blit_forcefull_super);
+		else
+			for (pg = 0; pg < NPAGES; pg++) {
+				memcpy(s_page[pg], s_dt, SCREEN_BYTES);
+				memcpy(s_shadow_pg[pg], s_chunky, (size_t)ST_W * ST_H);
+			}
 		s_screen        = s_page[s_back];
 		s_shadow        = s_shadow_pg[s_back];
 		s_force_full    = 0;
 		goto log;
 	}
+
+	/* pass 1 — ready the changed rows and gather them into runs */
+	s_nruns = 0;
 	for (y = 0; y < ST_H; y++) {
 		const unsigned char *crow = s_chunky + (long)y * ST_W;
+		int changed = memcmp(crow, s_shadow + (long)y * ST_W, ST_W) != 0;
 
-		if (memcmp(crow, s_shadow + (long)y * ST_W, ST_W) == 0)
-			continue;
+		if (changed) {
 #ifdef FRUA_STPROF
-		if (st_dt_ready_row(y)) { rows_conv++; s_prof_convrow[y]++; }
-		else rows_skip++;
+			if (st_dt_ready_row(y)) { rows_conv++; s_prof_convrow[y]++; }
+			else rows_skip++;
 #else
-		st_dt_ready_row(y);
+			st_dt_ready_row(y);
 #endif
-		memcpy(s_page[s_back] + (long)y * LINE_BYTES,
-		       s_dt + (long)y * LINE_BYTES, LINE_BYTES);
-		memcpy(s_shadow + (long)y * ST_W, crow, ST_W);
+			if (run0 < 0)
+				run0 = y;
+		}
+		/* close the open run at the first unchanged row, or at the end */
+		if (run0 >= 0 && (!changed || y == ST_H - 1)) {
+			short last = changed ? y : (short)(y - 1);
+
+			s_runs[s_nruns].y0 = run0;
+			s_runs[s_nruns].n  = (short)(last - run0 + 1);
+			s_nruns++;
+			run0 = -1;
+		}
+	}
+	if (s_nruns == 0)
+		goto log;
+
+	/* pass 2 — one copy per run */
+	if (s_use_blt) {
+		Supexec(st_dt_blit_runs_super);
+	} else {
+		short i;
+		for (i = 0; i < s_nruns; i++) {
+			long y0 = s_runs[i].y0, n = s_runs[i].n;
+
+			memcpy(s_page[s_back] + y0 * LINE_BYTES,
+			       s_dt + y0 * LINE_BYTES, (size_t)(n * LINE_BYTES));
+			memcpy(s_shadow + y0 * ST_W, s_chunky + y0 * ST_W,
+			       (size_t)(n * ST_W));
+		}
 	}
 log:
 #ifdef FRUA_STPROF
@@ -1012,6 +1153,135 @@ static void st_dt_probe_span(void)
 
 /* --- backend entry points ------------------------------------------------ */
 
+#ifdef FRUA_BLITBENCH
+/* Task #48: is the BLiTTER worth wiring into the present path?
+ *
+ * Measures the THREE shapes st_dt_present_full actually issues, not an
+ * abstract memory bandwidth number:
+ *
+ *   full   one 32000-byte plane copy   (the s_force_full path, x NPAGES)
+ *   rows   200 x 160-byte plane copies (the row-diff path at worst case)
+ *   shadow 200 x 320-byte chunky copies (the OTHER half of the row cost —
+ *          included because the blitter can accelerate it too, and because
+ *          if it dominates then speeding the plane copy alone is pointless)
+ *
+ * All blitter phases run inside ONE Supexec so the trap is amortised the way
+ * a real batched present would do it; timing a per-row Supexec would measure
+ * the trap, not the hardware. Reported in 200 Hz ticks (5 ms), with the
+ * iteration count chosen to put each phase in the 1-2 s range. */
+static void *s_bb_dst, *s_bb_src;
+
+#define BB_FULL_ITERS   64
+#define BB_ROW_ITERS    64
+#define BB_SHADOW_ITERS 32
+
+static long st_bb_read_hz200(void)
+{
+	return *(volatile long *)0x4BAUL;
+}
+
+static long st_bb_blit_full_super(void)
+{
+	short i;
+	for (i = 0; i < BB_FULL_ITERS; i++)
+		st_blt_copy(s_bb_dst, s_bb_src, SCREEN_BYTES / 2);
+	return 0;
+}
+
+static long st_bb_blit_rows_super(void)
+{
+	short i, y;
+	for (i = 0; i < BB_ROW_ITERS; i++)
+		for (y = 0; y < ST_H; y++)
+			st_blt_copy((char *)s_bb_dst + (long)y * LINE_BYTES,
+			            (const char *)s_bb_src + (long)y * LINE_BYTES,
+			            LINE_BYTES / 2);
+	return 0;
+}
+
+static long st_bb_blit_shadow_super(void)
+{
+	short i, y;
+	for (i = 0; i < BB_SHADOW_ITERS; i++)
+		for (y = 0; y < ST_H; y++)
+			st_blt_copy((char *)s_bb_dst + (long)y * ST_W,
+			            (const char *)s_bb_src + (long)y * ST_W,
+			            ST_W / 2);
+	return 0;
+}
+
+static void st_blitbench(void)
+{
+	long t0, cpu_full, blt_full, cpu_rows, blt_rows, cpu_shad, blt_shad;
+	short i, y;
+	int have = plat_have_blitter();
+
+	dbg_log_num("blitbench: plat_have_blitter = ", (long)have);
+	s_bb_dst = (void *)Mxalloc((long)ST_W * ST_H, 0); /* 64000: every shape */
+	s_bb_src = (void *)Mxalloc((long)ST_W * ST_H, 0);
+	if (s_bb_dst == NULL || s_bb_src == NULL) {
+		dbg_log("blitbench: Mxalloc FAILED — skipped");
+		if (s_bb_dst) Mfree(s_bb_dst);
+		if (s_bb_src) Mfree(s_bb_src);
+		return;
+	}
+	memset(s_bb_src, 0xA5, (size_t)ST_W * ST_H);
+
+	t0 = Supexec(st_bb_read_hz200);
+	for (i = 0; i < BB_FULL_ITERS; i++)
+		memcpy(s_bb_dst, s_bb_src, SCREEN_BYTES);
+	cpu_full = Supexec(st_bb_read_hz200) - t0;
+
+	t0 = Supexec(st_bb_read_hz200);
+	for (i = 0; i < BB_ROW_ITERS; i++)
+		for (y = 0; y < ST_H; y++)
+			memcpy((char *)s_bb_dst + (long)y * LINE_BYTES,
+			       (const char *)s_bb_src + (long)y * LINE_BYTES,
+			       LINE_BYTES);
+	cpu_rows = Supexec(st_bb_read_hz200) - t0;
+
+	t0 = Supexec(st_bb_read_hz200);
+	for (i = 0; i < BB_SHADOW_ITERS; i++)
+		for (y = 0; y < ST_H; y++)
+			memcpy((char *)s_bb_dst + (long)y * ST_W,
+			       (const char *)s_bb_src + (long)y * ST_W, ST_W);
+	cpu_shad = Supexec(st_bb_read_hz200) - t0;
+
+	blt_full = blt_rows = blt_shad = -1;
+	if (have) {
+		t0 = Supexec(st_bb_read_hz200);
+		Supexec(st_bb_blit_full_super);
+		blt_full = Supexec(st_bb_read_hz200) - t0;
+
+		t0 = Supexec(st_bb_read_hz200);
+		Supexec(st_bb_blit_rows_super);
+		blt_rows = Supexec(st_bb_read_hz200) - t0;
+
+		t0 = Supexec(st_bb_read_hz200);
+		Supexec(st_bb_blit_shadow_super);
+		blt_shad = Supexec(st_bb_read_hz200) - t0;
+
+		/* Correctness matters as much as speed: a fast wrong copy is
+		 * worthless. Verify the last blit actually moved the bytes. */
+		dbg_log_num("blitbench: verify (0=OK) = ",
+		            (long)memcmp(s_bb_dst, s_bb_src, (size_t)ST_W * ST_H));
+	}
+
+	dbg_log_num("blitbench iters full/rows/shadow = ",
+	            (long)BB_FULL_ITERS * 1000000L + (long)BB_ROW_ITERS * 1000L
+	            + BB_SHADOW_ITERS);
+	dbg_log_num("blitbench full  cpu 200Hz ticks = ", cpu_full);
+	dbg_log_num("blitbench full  blt 200Hz ticks = ", blt_full);
+	dbg_log_num("blitbench rows  cpu 200Hz ticks = ", cpu_rows);
+	dbg_log_num("blitbench rows  blt 200Hz ticks = ", blt_rows);
+	dbg_log_num("blitbench shadw cpu 200Hz ticks = ", cpu_shad);
+	dbg_log_num("blitbench shadw blt 200Hz ticks = ", blt_shad);
+
+	Mfree(s_bb_dst); s_bb_dst = NULL;
+	Mfree(s_bb_src); s_bb_src = NULL;
+}
+#endif /* FRUA_BLITBENCH */
+
 static int st_init(short want_w, short want_h)
 {
 	(void)want_w; (void)want_h;
@@ -1083,6 +1353,19 @@ static int st_init(short want_w, short want_h)
 	if (s_dt_rowcov != NULL)
 		memset(s_dt_rowcov, 0, ST_H * sizeof(short));
 	planar_draw_target_register(st_dt_target);
+#endif
+
+#ifdef FRUA_PLANAR
+	/* #48: latch BLiTTER availability once. Guarded because the run and
+	 * force-full blit paths that read s_use_blt are planar-only — the
+	 * chunky 020 targets never reach them, and the variable itself only
+	 * exists under FRUA_PLANAR. */
+	s_use_blt = plat_have_blitter();
+	dbg_log_num("ste: blitter = ", (long)s_use_blt);
+#endif
+
+#ifdef FRUA_BLITBENCH
+	st_blitbench();
 #endif
 
 #ifdef FRUA_STPROF
