@@ -51,8 +51,8 @@ streams**; CODE 17 changes only in operands (see below).
 | 27 | 20 | `L26de` | insert | 0 | 4 | `l216a` | ✅ ported | l216a: byte-swap the 4-byte `ev[8]` before jt933 (`jt1199`) |
 | 28 | 20 | `L26de` | delete | 1 | 0 | `l216a` | ✅ ported | the bookkeeping half of 27 (a reload dropped); no separate content |
 | 29 | 20 | `L3114` | insert | 0 | 2 | `l2e42` | ✅ ported **OBSERVED FIRING** | l2e42: set -4942 ("transition done") once the animated passage has moved the party |
-| 30 | 20 | `L57a0` | insert | 0 | 5 | yes | ✅ ported | l5676: "Transfer module ends testing!" before the test-play teardown |
-| 31 | 20 | `L70d4` | insert | 0 | 1 | `l709e` | ✅ ported | l709e: clear `-4943` per event so the deferred re-trigger flag cannot leak across CALLS (needs hunk 30's test-play situation) |
+| 30 | 20 | `L57a0` | insert | 0 | 5 | yes | ✅ ported **OBSERVED FIRING** | l5676: "Transfer module ends testing!" before the test-play teardown |
+| 31 | 20 | `L70d4` | insert | 0 | 1 | `l709e` | ✅ ported **OBSERVED FIRING** | l709e: clear `-4943` per event so the deferred re-trigger flag cannot leak across CALLS (needs hunk 30's test-play situation) |
 | 32 | 20 | `L76c4` | replace | 3 | 1 | `l709e` | ➖ churn | codegen only: `moveq`+`moveb`+`tstw` -> `tstb`. Same test, no semantic change |
 | 33 | 20 | `L76fa` | delete | 1 | 0 | `l709e` | ✅ ported | l709e: drop the tail `-4943` clear, redundant once hunk 31 clears at the loop top |
 | 34 | 21 | `L13f6` | insert | 0 | 4 | `l1374` | ✅ ported | l1374: effect id 73 joins the spell-effects DISPLAY whitelist (position is an artefact). **OBSERVED FIRING** |
@@ -123,7 +123,40 @@ Two corrections to the 2026-07-24 entry that stood here:
   run to record 13, whose bit5 is clear. The event-byte count (11 of HEIRS' 175
   combat events affected) was unaffected; only the cell attribution was wrong.
 
-**Promotion status: 23 of 33 observed firing, 2 established as unable to fire.**
+**Promotion status: 25 of 33 observed firing, 2 established as unable to fire.**
+
+**Hunks 30 and 31 are OBSERVED FIRING (2026-07-25)** — one scripted run, both
+halves of `l5676`'s early return at `0x57ac`, reached by actually TEST-PLAYING a
+design. The route the previous note called for turned out to exist: the map
+editor's **Utilities -> Test module** (`l3236` case 7, CODE 11 `0x3348`) is the
+only writer that leaves `-18485` non-zero, and it is drivable headlessly.
+
+| | 1.2 | 1.0 |
+|---|---|---|
+| bottom row when the transfer fires | `Transfer module ends testing!` | the ordinary `Area \| Cast \| View \| ...` bar |
+| `-4943` at the NEXT event's tail | 0 | 4 (both inherit 4; only 1.2 clears) |
+| the deferred re-scan | not run | **runs** |
+
+So 30 is a plain screen difference (7848 changed pixels vs 224, which is just
+the clock) and 31 is the leak that the same return creates: 1.0 re-scans the
+party's cell on the strength of a transfer from a PREVIOUS test session.
+
+Three findings worth keeping. **`jt101` is a dwell, not a modal** — it draws on
+row 24 and `l4bac` only waits out the design's message-speed value, so a
+stable-frame screenshot always misses it and you have to burst-grab.
+**Test module does not enter play**: it sets the flag, drops you at the MAIN
+MENU, and "Play the Game" then takes the `jt582` load-a-save branch (which needs
+a save to exist, so the design has to be played normally once first). And
+**`-27982` is what makes 31 a two-part measurement** — the transfer raises it,
+which switches off `l709e`'s whole convergence block for the rest of the
+session; `jt948`'s `res == 4` arm breaks to the outer level reload when it is
+set, and that reload clears it, so Escape then Done is the bridge between the
+leak and the measurement.
+
+The OFF build for 31 restores hunk 33's tail clear, because the two are a pair:
+1.2 MOVED the clear rather than adding one, so a 1.0 build has exactly one of
+them. That also settles 33 from the other side — with either clear present the
+flag behaves identically, which is why 33 alone has nothing to measure.
 
 **Hunk 29 is OBSERVED FIRING (2026-07-25)** — and it is the first one measured
 in BOTH directions off a single inserted line. `l2e42`'s trailing

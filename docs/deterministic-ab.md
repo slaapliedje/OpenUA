@@ -148,12 +148,12 @@ Two things worth carrying forward:
 
 ## Promotion status of the ported 1.2 fixes
 
-Twenty-three of the 33 are **observed firing** (ON vs OFF produce different
+Twenty-five of the 33 are **observed firing** (ON vs OFF produce different
 measured state, same seed). Two cannot fire at all and that is a finding, not a
 gap. The rest each need a specific situation, listed so the next pass does not
 have to re-derive it.
 
-### Observed firing (23)
+### Observed firing (25)
 
 | hunks | situation | evidence |
 |---|---|---|
@@ -170,6 +170,8 @@ have to re-derive it.
 | 19-22 | authored SHOPPIC.DSN (`tools/mk_bigpic_design.py --shop`), Items -> Sell, `-DFRUA_ITMDIAG` | `jt893 ENTRY saved -22281` is **1** in both, then `in-browser` / loop-top / `jt182 confirm sees -22281` are **0 0 0** (ON) vs **1 1 1** (OFF) |
 | 17 | authored NOPERMA.DSN with **monster 42 (BASILISK)**, `-DFRUA_CBTPLAY -DFRUA_NPDIAG` | same gaze, same seed: `final-status` **5** (ON) vs **7** (OFF) on `subject BARBARUS side 0`; ON the party walks on at 1 HP, OFF the screen reads *"The monsters rejoice, for the party has been destroyed!"* |
 | 16 | authored caster (`tools/mk_caster_chr.py`), Hall -> View -> Spells | the picker's command bar reads **`Exit`** (ON) vs **blank** (OFF); `-24126` `0 FF ..` vs the stale `1 'S' 7 'E'`; `l2184("Exit") -> "Exit"` vs `""` |
+| 30 | authored TPTEST.DSN (`tools/mk_testplay_design.py`), map editor -> Utilities -> **Test module**, step onto the transfer | same burst position in both runs: the bottom row reads **`Transfer module ends testing!`** (ON) vs the ordinary `Area \| Cast \| View \| ...` command bar (OFF) — 7848 changed pixels vs 224 (the clock) |
+| 31 | the SAME run, second half: Escape -> Done, then step onto a question cell | at the question's `l709e` iteration both builds inherit `-4943 = 4` from the transfer; at the tail it is **0** (ON) vs **4** (OFF), and `-> RE-SCAN landed cell` appears in OFF only |
 | 29 | authored MOVETEST.DSN / MOVERESC.DSN (`tools/mk_movetest_design.py`), `-DFRUA_MOVDIAG` | **two** A/Bs off one line, diverging in OPPOSITE directions: the auto-chain variant prints *"THE CHAIN FIRED"* (OFF) vs nothing (ON); the `--rescan` variant prints *"THE DESTINATION EVENT FIRED"* (ON) vs nothing (OFF) |
 
 Hunk 9 is the strongest evidence of the set, because the observable is a FILE
@@ -193,6 +195,109 @@ spell picker headless" below.
 Hunk 17 is the most CONSEQUENTIAL of the set — the only one where the two
 builds end the session differently. Full recipe below; the short version is
 that the whole no-permadeath family (1, 15, 17) now fires in a single run.
+
+### Reaching TEST-PLAY headless (hunks 30 and 31)
+
+These two are the same code path — `l5676`'s early return at CODE 20 `0x57ac`,
+taken when a type-11 transfer fires while a design is being test-played. Hunk
+30 is the message it adds; hunk 31 is the `-4943` leak that the same return
+creates. One scripted run measures both.
+
+**Test-play is reachable**, and the route is not obvious: the map editor's
+**Utilities -> Test module** is the ONLY writer that leaves `-18485` non-zero
+(`l3236` case 7, CODE 11 `0x3348`). Everything else that sets it — `l30d4`'s
+spell sub-editor — restores 0 on the way out.
+
+```sh
+python3 tools/mk_testplay_design.py data/work/gamedata --current
+```
+
+Then, **in a normal play session first**, make a save — `-18485 != 0` sends
+`l07dc` down `jt582()` instead of the Training Hall and bails with
+"No saved games!" without one:
+
+```sh
+make EXTRA_CFLAGS='-DFRUA_TPDIAG -DFRUA_RNGSEED=12345'
+D=.claude/skills/run-falcon-port/driver.sh
+env -u DISPLAY FALCON_TOS=/usr/share/hatari/tos404.img $D start
+for k in p a Return Escape b; do env -u DISPLAY $D key $k; sleep 3; done
+env -u DISPLAY $D key e     # Encamp
+env -u DISPLAY $D key s     # Save
+env -u DISPLAY $D key a     # -> TPTEST.DSN/SavGamA.csv
+```
+
+Restart (the save is on disk) and run the measurement:
+
+```sh
+env -u DISPLAY $D key e                       # main menu -> Edit Modules
+env -u DISPLAY $D click 58 439                # Open (Dungeon 01 = the design's area 5)
+env -u DISPLAY $D drag 555 67 555 229         # Utilities -> Test module
+env -u DISPLAY $D key p                       # -> the load picker (NOT the Hall)
+env -u DISPLAY $D key a                       # load slot A
+env -u DISPLAY $D key Up                      # step onto the transfer  <- hunk 30
+env -u DISPLAY $D key Escape                  # -> camp
+env -u DISPLAY $D key d                       # Done -> the outer level reload
+env -u DISPLAY $D key Left; env -u DISPLAY $D key Up   # onto a question cell <- hunk 31
+```
+
+Measured, same script both builds:
+
+```
+                                   1.2 (ON)      1.0 (OFF)
+  bottom row after the transfer    "Transfer     the ordinary
+                                    module ends   Area|Cast|View|...
+                                    testing!"     command bar
+  AE vs the landing frame          7848          224   (just the clock)
+
+  at the question's l709e iteration
+    inherited -4943                4             4     (both leak)
+    -4943 at the tail              0             4
+    "-> RE-SCAN landed cell"       absent        PRESENT
+```
+
+Five things that each cost a run:
+
+- **`jt101` is a DWELL, not a modal.** It draws on row 24 via `jt94` and then
+  `l4bac` just waits `jt476(-17518[hdr[18]*2])` — the design's message-speed
+  setting. `driver.sh shots` waits for a STABLE frame and always misses it.
+  Burst-grab with plain `shot` in a loop starting ~0.5 s after the key; the
+  banner held for the first five frames here.
+- **The editor pulldowns need `drag`, and the menu stays painted afterwards** —
+  so you CAN screenshot it to read the row geometry (the "never screenshot
+  during a drag" rule is about a HELD button). Utilities is at x 555, y 67; its
+  rows are Display access 90, Replace globally 110, Clear module 130, Entry
+  points 170, Place entry 190, **Test module 229**. Log `jt341`'s
+  `(group, item)` under `FRUA_TPDIAG` and one drag tells you exactly which row
+  you hit — much cheaper than guessing pixels, and it keeps you off **Clear
+  module**, which is three rows up and would wipe the design.
+- **Test module does not enter play.** It sets `-18485`, exits the editor to the
+  MAIN MENU, and leaves the flag set; "Play the Game" then takes the test-play
+  branch. That looks like the command failed.
+- **`-27982` gates the whole measurement, and only the camp round-trip clears
+  it.** The transfer raises it, which is the point of hunk 31 — but it also
+  keeps `l709e`'s convergence block switched off for the rest of the session,
+  so the `-4942 && -4943` test can never run. There is no route from the camp
+  menu back to the main menu (Done and Exit both return to the walk view), but
+  `jt948`'s `res == 4` arm breaks to the OUTER level reload when `-27982` is
+  set, and that reload clears it. Escape then Done is the whole trick.
+- **Nothing else may fire in between.** Any other event's `l709e` iteration runs
+  a full tail, and 1.0's tail clear takes the leak with it. A step onto an
+  event-free cell is safe (`l709e(0)` breaks before its body) — which is why the
+  design puts the question on every cell except the entry and the transfer,
+  rather than on one square: after the reload the party's facing is not
+  predictable headlessly, and two runs disagreed about it.
+
+**The OFF build for 31 must restore hunk 33 as well.** 31 and 33 are a pair —
+1.2 moved the clear from the tail to the top of the loop body — so an honest 1.0
+build has exactly one of the two clears, not zero. Dropping both would have
+made the flag leak forever and overstated the difference.
+
+Honest limit on hunk 31: the re-scan `jt201` returned **0** here, because
+`l4144` (which runs in both builds, just above the test) restores the saved
+position first and that cell has no special. So 1.0 performs a spurious cell
+re-scan that happens to find nothing. The difference is real and attributable —
+the fix's whole content is whether that scan runs — but it is state-level, not
+something a player would see in this particular module.
 
 ### An animated passage that ends the chain (hunk 29)
 
@@ -623,7 +728,7 @@ Hunk 1's run carries its own negative control: a second hit in the SAME run with
 | hunk | why |
 |---|---|
 | 8 | **No-op by construction.** The line above fills all 768 bytes of `clutbuf` with 1, so 1.2's `jt399(clutbuf+96, 432, 1)` writes the value already there. 1.0's `0` punched a hole; 1.2 stops. There is no state to diff. |
-| 33 | **No observable effect.** It deletes a `-4943` clear made redundant by hunk 31's clear at the loop top. `l709e` is the only reader of `-4943` anywhere, so the sole difference is the value left after it returns, which nothing looks at. |
+| 33 | **No observable effect.** It deletes a `-4943` clear made redundant by hunk 31's clear at the loop top. `l709e` is the only reader of `-4943` anywhere, so the sole difference is the value left after it returns, which nothing looks at. Confirmed from the other side while promoting 31: the two are a PAIR, and an honest 1.0 build restores this clear as it removes 31's — with exactly one of the two present the flag behaves identically, which is precisely why 33 on its own has nothing to measure. |
 
 **This list used to have four entries, and two of them were wrong.** Hunks 34
 and 23 were filed here on the reasoning "nothing in the shipped data produces
@@ -687,16 +792,14 @@ already has `rec[113+2i] == rec[112+2i]`, so loading one and pressing Ok makes
 the fix write back the bytes that were already there. Verified on all four of
 HEIRS' records and on stock BASILISK. The divergence has to come from an edit.
 
-### Needs a situation (8)
+### Needs a situation (6)
 
 | hunks | the situation still to construct |
 |---|---|
-| 31 | **the same situation as hunk 30**, and nothing cheaper. `-4943` can only survive a call when one event both sets it and leaves `-27982` raised, which is `l5676`'s test-play transfer. A chained pair does NOT work: the first iteration's tail clears the flag before the second sees it. Worked out in full under "An animated passage that ends the chain (hunk 29)" above. |
-| 13 | the editor's test-play Hall — and the obvious route is a DEAD END. `l07dc` picks the Hall only in its `else`: `if (g_a5_-18485 != 0) { jt582(); ... } else { jt918(1); }`, and `jt918` is `l0aae`'s sole caller. So a non-zero `-18485` at play entry means the Hall is never reached — the flag has to go non-zero AFTER `jt918`'s loop is already running. `l30d4` (the spell-memorization sub-editor) is not it: it sets 5 on entry and restores 0 on exit. The one writer that leaves it set is `l3236` case 7 (CODE 11 @0x3348, the GEO editor's tool command — 1, then 2 when `jt318` agrees), so the situation is: enter the editor from `jt918`, issue that command, and see whether the loop re-enters `l0aae`. |
+| 13 | the editor's test-play Hall — and the obvious route is a DEAD END. `l07dc` picks the Hall only in its `else`: `if (g_a5_-18485 != 0) { jt582(); ... } else { jt918(1); }`, and `jt918` is `l0aae`'s sole caller. So a non-zero `-18485` at play entry means the Hall is never reached — the flag has to go non-zero AFTER `jt918`'s loop is already running. `l30d4` (the spell-memorization sub-editor) is not it: it sets 5 on entry and restores 0 on exit. The one writer that leaves it set is `l3236` case 7 (CODE 11 @0x3348, the GEO editor's tool command — 1, then 2 when `jt318` agrees), so the situation is: enter the editor from `jt918`, issue that command, and see whether the loop re-enters `l0aae`. **That command is now driven** — it is Utilities -> Test module, the same one hunks 30/31 used; see their recipe. What is left is finding a path that re-enters `l0aae` with the flag still set. |
 | 7 | the `L3f80` picker modal. |
 | 10, 11 | delete a monster from a design folder. |
 | 14 | a party wipe with a summoned creature still on the combatant list. |
-| 30 | a type-11 transfer during a test-play session. |
 | 2 | reading the clobbered FC object or the dangling `-22222` pointer — no clean observable; likely only ever visible as corruption. |
 
 ### The UI-navigation blocker — ROOT CAUSE FOUND (TaskList #84)
@@ -847,6 +950,15 @@ ON/OFF pair.
   `-4943`, `-18484`, `ev[3]`, the cell) plus which arm won — `AUTO-CHAIN to
   event N` or `RE-SCAN landed cell, event N`. Reading the party cell here is
   what caught the facing-0-moves-along-columns trap.
+- **`tools/mk_testplay_design.py`** — authors the module hunks 30/31 need: one
+  event-free cell for the editor cursor and the normal-play save, one type-11
+  transfer with `ev[12]` bit 2 set, and a once-only Yes/No question on every
+  other square.
+- **`-DFRUA_TPDIAG`** — the test-play chain: every menu pick as `(group, item)`
+  from `jt341` (which is how you calibrate an editor pulldown without guessing
+  pixels), `l3236` case 7's `-18485` + editor cursor, `l5676`'s transfer return
+  (`ev[12]`, the `-4943` it leaks, `-27982`), and `l709e`'s per-iteration
+  inherited `-4943` + the `-27982` that gates the whole convergence block.
 - **`-DFRUA_NPDIAG`** — logs the flag seed at combat entry and the decision at
   all three no-permadeath sites; the `jt860` site also names the subject and its
   side, which is what proved hunk 17 lands on a PARTY member and not a monster. **`-DFRUA_OVDIAG`** now also logs the overland

@@ -4427,6 +4427,18 @@ static void  l709e(short a)
 		 *
 		 * Hunk 33 deletes that tail clear, and with this one in place it
 		 * is redundant (each iteration would clear twice). See the tail. */
+#ifdef FRUA_TPDIAG
+		/* Hunk 31's observable: what -4943 held when this iteration
+		 * STARTED. 1.2 clears it on the next line; 1.0 does not, so a
+		 * value that leaked out of an earlier call is still here. */
+		dbg_file_num("l709e iter: inherited -4943 ",
+		             (long)(unsigned char)g_a5_byte(-4943));
+		/* -27982 gates the WHOLE convergence block, tail clear included.
+		 * If it is still 1 from an earlier transfer, neither build can
+		 * reach the `-4942 && -4943` test and the run measures nothing. */
+		dbg_file_num("   -27982 at iter top ",
+		             (long)(unsigned char)g_a5_byte(-27982));
+#endif
 		g_a5_byte(-4943) = 0;
 		g_a5_byte(-4945) = 0;
 		ev = (unsigned char *)(uintptr_t)(g_a5_long(-13038)
@@ -47160,8 +47172,26 @@ static void  l5676(void *ev_v, short type)
 		 * the overland refusal in jt955. */
 		jt101("Transfer module ends testing!", 11, 0);
 		g_a5_byte(-27982) = 1;
+#ifdef FRUA_TPDIAG
+		/* Hunk 31 lives on this same return. -4943 was set from
+		 * ev[12] & 4 at l5676's entry, and raising -27982 here makes
+		 * l709e skip its whole convergence block — including 1.0's only
+		 * clear of the flag. Log what escapes. */
+		dbg_file_num("l5676 TEST-PLAY TRANSFER: -18485 ",
+		             (long)(unsigned char)g_a5_byte(-18485));
+		dbg_file_num("   ev[12] ", (long)ev[12]);
+		dbg_file_num("   -4943 leaving l5676 ",
+		             (long)(unsigned char)g_a5_byte(-4943));
+		dbg_file_num("   -27982 ", (long)(unsigned char)g_a5_byte(-27982));
+#endif
 		return;
 	}
+#ifdef FRUA_TPDIAG
+	dbg_file_num("l5676 entry: type ", (long)t);
+	dbg_file_num("   -18485 ", (long)(unsigned char)g_a5_byte(-18485));
+	dbg_file_num("   valid ", (long)valid);
+	dbg_file_num("   -4943 from ev[12]&4 ", (long)(unsigned char)g_a5_byte(-4943));
+#endif
 	if (*(short *)(ev + 10) != 0) {                        /* 57cc */
 		short d = jt1180(*(short *)(ev + 10));
 		jt232((void *)(uintptr_t)g_a5_long(-13034), d,
@@ -67126,6 +67156,16 @@ static short jt341(void)
 	short w = (short)g_a5_word(-10376);
 
 	PROBE("jt341");
+#ifdef FRUA_TPDIAG
+	/* Calibrating an editor pulldown blind: log every menu pick as
+	 * (group, item) so one drag tells you exactly which row you landed on.
+	 * Utilities is group 3 and "Test module" is its item 8 — the pick that
+	 * reaches l3236 case 7 and sets -18485. */
+	if (w != 0) {
+		dbg_file_num("jt341 menu group ", (long)((w >> 8) & 0xff));
+		dbg_file_num("        item      ", (long)(w & 0xff));
+	}
+#endif
 	g_a5_word(-10376) = 0;
 	return w;
 }
@@ -88453,6 +88493,16 @@ static void l3236(void *holder_v, short a2)
 		g_a5_12286 = (unsigned char)(g_a5_12286 & 7);    /* 0x335a — facing &= 7 */
 		*(short *)(rec + 6) = 1;
 		*(short *)rec = 1;
+#ifdef FRUA_TPDIAG
+		/* "Test module" — the ONLY writer that leaves -18485 non-zero,
+		 * which is what hunks 30/31 (and 13) need. Also log the cursor,
+		 * because l0bbc skips the design's entry point in this mode and
+		 * the party lands on THIS cell. */
+		dbg_file_num("l3236 case 7 TEST MODULE: -18485 ", (long)(unsigned char)g_a5_18485);
+		dbg_file_num("   cursor row ", (long)(signed char)g_a5_byte(-12288));
+		dbg_file_num("   cursor col ", (long)(signed char)g_a5_byte(-12287));
+		dbg_file_num("   facing ", (long)(unsigned char)g_a5_12286);
+#endif
 		break;
 	default:                                                 /* 0x3378 — cases 3/6 + OOR */
 		jt1080();
