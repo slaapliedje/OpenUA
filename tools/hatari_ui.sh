@@ -19,9 +19,12 @@
 # State lives in /tmp/frua-ui (log, pid, window id).
 #
 # Environment:
-#   FALCON_TOS   Falcon TOS ROM. Unset = search /usr/share/hatari/tos404.img,
-#                then TOSv4.04.img, then ~/Downloads/Atari/tos404.img, then
-#                EmuTOS 512K. Set it only to override that choice.
+#   FALCON_TOS   TOS ROM. Unset = searched, and the search is MACHINE-AWARE:
+#                with `HATARI_ARGS="--machine ste"` (or st/megast) it picks an
+#                ST-compatible ROM (EmuTOS 256K, TOS 2.06, EmuTOS 512K), else a
+#                Falcon one (tos404.img, TOSv4.04.img, ~/Downloads, EmuTOS 512K).
+#                Handing an ST a Falcon ROM makes hatari SILENTLY fall back to
+#                Falcon mode, so an "STE" run tests the wrong backend.
 #   GEMDOS_DIR   GEMDOS C: mount (default data/work/gamedata)
 #   FRUA_MEM     emulated ST-RAM in MB: 1, 4 or 14 (default 14 for
 #                development; drop to 4/1 for the memory-fit passes)
@@ -43,15 +46,40 @@ LOG="$STATE/conout.log"
 # had the ROM the whole time. Same order as the Makefile's FALCON_TOS chain.
 # Only NON-EMPTY files count (a 0-byte ROM copy makes hatari print "FATAL: Can
 # not load TOS", which reads as a harness bug).
+#
+# MACHINE-AWARE, and that part is load-bearing: this script passes
+# `--machine falcon` but appends $HATARI_ARGS afterwards, so an
+# `HATARI_ARGS="--machine ste"` run overrides the MACHINE and not the TOS. Hand
+# an ST a Falcon ROM and hatari prints
+#     ERROR: TOS version 4.04 is for Atari Falcon only.
+#      ==> Switching to Falcon mode now.
+# and carries on — so a run you believe is testing display_ste.c is actually
+# testing display_videl.c, and nothing in the screenshots says so. That silently
+# wasted a whole STE soak on 2026-07-26. Pick the ROM from the requested machine.
 if [ -z "${FALCON_TOS:-}" ]; then
-	for f in /usr/share/hatari/tos404.img \
-	         /usr/share/hatari/TOSv4.04.img \
-	         "$HOME/Downloads/Atari/tos404.img" \
-	         /usr/share/hatari/etos512us.img; do
-		[ -s "$f" ] && { FALCON_TOS="$f"; break; }
-	done
-	# Nothing found: keep the canonical name so the error names a real path.
-	FALCON_TOS="${FALCON_TOS:-/usr/share/hatari/tos404.img}"
+	case " ${HATARI_ARGS:-} " in
+	*"--machine st"*|*"--machine ste"*|*"--machine megast"*)
+		# ST/STE/Mega: EmuTOS 256K first (verified on the STE colour soaks),
+		# then real TOS 2.06, then EmuTOS 512K.
+		for f in "$HOME/Downloads/Atari/etos256us.img" \
+		         /usr/share/hatari/tos206us.img \
+		         "$HOME/Downloads/Atari/tos206us.img" \
+		         /usr/share/hatari/etos512us.img; do
+			[ -s "$f" ] && { FALCON_TOS="$f"; break; }
+		done
+		FALCON_TOS="${FALCON_TOS:-/usr/share/hatari/tos206us.img}"
+		;;
+	*)
+		for f in /usr/share/hatari/tos404.img \
+		         /usr/share/hatari/TOSv4.04.img \
+		         "$HOME/Downloads/Atari/tos404.img" \
+		         /usr/share/hatari/etos512us.img; do
+			[ -s "$f" ] && { FALCON_TOS="$f"; break; }
+		done
+		# Nothing found: keep the canonical name so the error names a real path.
+		FALCON_TOS="${FALCON_TOS:-/usr/share/hatari/tos404.img}"
+		;;
+	esac
 fi
 GEMDOS_DIR="${GEMDOS_DIR:-$REPO/data/work/gamedata}"
 FRUA_MEM="${FRUA_MEM:-14}"
