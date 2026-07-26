@@ -40,6 +40,13 @@
 #include <hardware/dmabits.h>
 #include <proto/exec.h>
 #include <proto/graphics.h>
+#include <string.h>              /* memcmp/memset/memcpy — the draw-time row
+                                  * compare. display_ecs.c:38 carries the same
+                                  * include with the same note: without it GCC
+                                  * takes memset/memcpy as implicit builtins
+                                  * and warns "incompatible implicit
+                                  * declaration", which on m68k is a real
+                                  * hazard, not cosmetic. */
 
 /* The custom chip block. Addressed directly (volatile pointer) rather than
  * through amiga.lib's `custom` symbol, so no extra link dependency. */
@@ -76,6 +83,19 @@ static struct View   *s_oldview;                /* to restore on shutdown     */
 
 /* CHIP-RAM size of one 8-bitplane frame (8 separate contiguous planes). */
 #define FRAME_BYTES ((ULONG)AGA_PITCH * AGA_H * AGA_DEPTH)
+
+#ifdef FRUA_PLANAR
+#include "planar.h"              /* draw-time plane path (B4) — hook + puts */
+/* Forward declarations: aga_init registers the target and allocates these,
+ * and it appears above their definitions (which sit next to aga_present, the
+ * only other user). Rationale + why AGA is the easy case: see the block there. */
+static unsigned char *a_dt;
+static unsigned char *a_dt_cov;
+static unsigned char *a_dt_idx;
+static short         *a_dt_rowcov;
+static unsigned char  a_dt_ident[256];
+static int            aga_dt_target(struct dsp_planar_dt *dt);
+#endif
 
 /* --- hardware-sprite cursor state -----------------------------------------
  * The mouse pointer is sprites 0+1 ATTACHED (4-bit pixels = 15 colours +
@@ -334,12 +354,45 @@ static int aga_init(short want_w, short want_h)
 	CUSTOM->copjmp1 = 0;                        /* strobe: restart at cop1lc */
 	CUSTOM->dmacon  = (UWORD)(DMAF_SETCLR | DMAF_MASTER
 	                          | DMAF_RASTER | DMAF_COPPER | DMAF_SPRITE);
+#ifdef FRUA_PLANAR
+	/* Draw-time buffers (CPU-only, so fast RAM is fine — only the display
+	 * plane sets need CHIP) + the shim hook. Registered LAST: until this
+	 * call dsp_planar_draw_target() returns 0 and every writer takes the
+	 * unchanged chunky path, so a failed allocation degrades to the c2p
+	 * present rather than breaking the display. */
+	a_dt        = AllocMem(FRAME_BYTES, MEMF_ANY | MEMF_CLEAR);
+	a_dt_cov    = AllocMem((ULONG)AGA_W * AGA_H, MEMF_ANY | MEMF_CLEAR);
+	a_dt_idx    = AllocMem((ULONG)AGA_W * AGA_H, MEMF_ANY | MEMF_CLEAR);
+	a_dt_rowcov = AllocMem(AGA_H * sizeof(short), MEMF_ANY | MEMF_CLEAR);
+	if (a_dt && a_dt_cov && a_dt_idx && a_dt_rowcov) {
+		short i;
+		for (i = 0; i < 256; i++)
+			a_dt_ident[i] = (unsigned char)i;
+		planar_draw_target_register(aga_dt_target);
+		dbg_log("aga: draw-time plane path up (identity remap, 8 planes)");
+	} else {
+		/* Partial allocation: release it and stay on the c2p path. */
+		if (a_dt)        { FreeMem(a_dt, FRAME_BYTES); a_dt = NULL; }
+		if (a_dt_cov)    { FreeMem(a_dt_cov, (ULONG)AGA_W * AGA_H); a_dt_cov = NULL; }
+		if (a_dt_idx)    { FreeMem(a_dt_idx, (ULONG)AGA_W * AGA_H); a_dt_idx = NULL; }
+		if (a_dt_rowcov) { FreeMem(a_dt_rowcov, AGA_H * sizeof(short)); a_dt_rowcov = NULL; }
+	}
+#endif
 	return 0;
 }
 
 static void aga_shutdown_partial(void)
 {
 	s_cur_ready = 0;    /* the input VBL server must stop touching sprites */
+#ifdef FRUA_PLANAR
+	/* Unregister BEFORE freeing: a writer that resolved the target must not
+	 * be handed pointers we are about to release. */
+	planar_draw_target_register((int (*)(struct dsp_planar_dt *))0);
+	if (a_dt)        { FreeMem(a_dt, FRAME_BYTES); a_dt = NULL; }
+	if (a_dt_cov)    { FreeMem(a_dt_cov, (ULONG)AGA_W * AGA_H); a_dt_cov = NULL; }
+	if (a_dt_idx)    { FreeMem(a_dt_idx, (ULONG)AGA_W * AGA_H); a_dt_idx = NULL; }
+	if (a_dt_rowcov) { FreeMem(a_dt_rowcov, AGA_H * sizeof(short)); a_dt_rowcov = NULL; }
+#endif
 	if (s_spr[0])    { FreeMem(s_spr[0], SPR_WORDS * sizeof(UWORD)); s_spr[0] = NULL; }
 	if (s_spr[1])    { FreeMem(s_spr[1], SPR_WORDS * sizeof(UWORD)); s_spr[1] = NULL; }
 	if (s_spr_null)  { FreeMem(s_spr_null, 4 * sizeof(UWORD)); s_spr_null = NULL; }
@@ -371,6 +424,100 @@ static dsp_surface_t *aga_surface(void)
 	return &s_surface;
 }
 
+#ifdef FRUA_PLANAR
+/* --- draw-time plane path (ADR-0016 B4, ECS-backend parity) ---------------
+ *
+ * The converted Toolbox writers stamp a_dt (SEPARATE planes, the Amiga layout —
+ * the shim's DC_PUT resolves to planar_put_amiga here) in parallel with their
+ * chunky writes. aga_present then SKIPS the c2p transpose for any row whose
+ * every pixel was stamped this epoch and still matches chunky, copying the
+ * finished planes instead.
+ *
+ * AGA IS THE EASY CASE, and it is worth saying why, because the ST and ECS
+ * backends spend most of their draw-time code on problems that simply do not
+ * exist here. Those are 16- and 32-colour targets, so a 256-entry chunky index
+ * must be QUANTISED to a slot and the mapping is rebuilt whenever the scene's
+ * palette changes. That is where the re-band, the per-band remap, the
+ * stable-slot alignment, the epoch reset and the new-ink re-quant trigger all
+ * come from. AGA has 8 planes = 256 colours and set_palette writes COLOR[i]
+ * for index i, so THE REMAP IS THE IDENTITY and never changes:
+ *
+ *   - no re-band, so no epoch reset (a stamp can never be invalidated by a
+ *     slot renumbering, because slots are never renumbered);
+ *   - no remap buffer, so a bridge is c2p straight from s_chunky;
+ *   - no new-ink trigger (it exists to catch ink quantised through a stale
+ *     nearest-luma fallback — impossible when every index has its own colour).
+ *
+ * What is deliberately NOT done here: row-diffing against a shadow. Every
+ * present still writes the whole back page, exactly as the c2p version did, so
+ * the two pages stay trivially coherent and the flip semantics are unchanged.
+ * The win taken here is dropping the TRANSPOSE, which B3.0b measured on the ST
+ * as ~100% of present cost. Adding a per-page shadow on top is a separate,
+ * larger change with real coherence hazards (see st_flip_full's comment); it
+ * belongs in its own commit with its own soak. */
+/* (a_dt, a_dt_cov, a_dt_idx, a_dt_rowcov, a_dt_ident are declared up by
+ * FRAME_BYTES so aga_init, which precedes this block, can allocate them.) */
+
+static int aga_dt_target(struct dsp_planar_dt *dt)
+{
+	if (a_dt == NULL)
+		return 0;
+	dt->planes       = a_dt;
+	dt->remap        = a_dt_ident;
+	dt->cov          = a_dt_cov;
+	dt->idx          = a_dt_idx;
+	dt->rowcov       = a_dt_rowcov;
+	dt->chunky       = s_chunky;
+	dt->chunky_pitch = AGA_W;
+	dt->line_bytes   = AGA_PITCH;            /* one plane's pitch */
+	dt->plane_bytes  = (long)AGA_PITCH * AGA_H;
+	dt->w            = AGA_W;
+	dt->h            = AGA_H;
+	dt->nplanes      = AGA_DEPTH;
+	dt->nbands       = 1;                    /* identity: one band is enough */
+	return 1;
+}
+
+/* Prepare row y of a_dt: skip it if the writers own it, else bridge (c2p the
+ * row from chunky). Returns 1 if bridged. */
+static int aga_dt_ready_row(short y)
+{
+	const unsigned char *crow = s_chunky + (long)y * AGA_W;
+	unsigned char *pl[AGA_DEPTH];
+	short p;
+
+	if (a_dt_rowcov[y] == AGA_W
+	    && memcmp(a_dt_idx + (long)y * AGA_W, crow, AGA_W) == 0)
+		return 0;
+	for (p = 0; p < AGA_DEPTH; p++)
+		pl[p] = a_dt + (long)p * AGA_PITCH * AGA_H;
+	c2p_amiga_rect(s_chunky, AGA_W, pl, AGA_PITCH, 0, y, AGA_W, 1);
+	/* #41 SELF-HEALING OWNERSHIP (ST/ECS parity): the row just bridged IS
+	 * remap[chunky] — here trivially so, the remap being the identity — which
+	 * is exactly the ownership invariant, so claim it. A coverage hole (a
+	 * region drawn by one of the engine-direct writers that never stamps)
+	 * bridges ONCE and is skipped thereafter; an overwrite breaks idx==chunky
+	 * and re-bridges. Without this the same rows re-convert every present and
+	 * the row-skip never fires in play — measured on the ST, where the
+	 * message-text band was paying ~400 conversions a window. */
+	memset(a_dt_cov + (long)y * AGA_W, 1, AGA_W);
+	memcpy(a_dt_idx + (long)y * AGA_W, crow, AGA_W);
+	a_dt_rowcov[y] = AGA_W;
+	return 1;
+}
+
+/* Copy row y's eight plane slices from a_dt into a display plane set. */
+static void aga_dt_copy_row(unsigned char *set, short y)
+{
+	short p;
+
+	for (p = 0; p < AGA_DEPTH; p++)
+		CopyMem(a_dt + (long)p * AGA_PITCH * AGA_H + (long)y * AGA_PITCH,
+		        set  + (ULONG)p * AGA_PITCH * AGA_H + (long)y * AGA_PITCH,
+		        AGA_PITCH);
+}
+#endif /* FRUA_PLANAR */
+
 #ifdef FRUA_KBTRACE
 static long s_kbt_full, s_kbt_rect;
 #endif
@@ -386,6 +533,21 @@ static void aga_present(void)
 		dbg_file_num("kbt: full present #", s_kbt_full);
 #endif
 
+#ifdef FRUA_PLANAR
+	if (a_dt != NULL) {
+		/* Skip-or-bridge per row, then copy the finished planes to the
+		 * back page. Rows the writers own cost a memcmp + 8 CopyMem
+		 * slices; only the rest pay a transpose. */
+		short y;
+		for (y = 0; y < AGA_H; y++) {
+			(void)aga_dt_ready_row(y);
+			aga_dt_copy_row(back, y);
+		}
+		cop_point_planes(back);
+		s_front ^= 1;
+		return;
+	}
+#endif
 	for (p = 0; p < 8; p++)
 		planes[p] = back + (ULONG)p * AGA_PITCH * AGA_H;
 	c2p_amiga(s_chunky, planes, AGA_W, AGA_H, AGA_PITCH);
