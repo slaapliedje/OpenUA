@@ -111,8 +111,24 @@
 #define g_a5_22292 g_a5_byte(-22292)   /* jt23 case 1: pending-go-away flag */
 #define g_a5_17446 g_a5_byte(-17446)   /* L5822/L579e: last-loaded bigpic id*/
 #define g_a5_12300 g_a5_ptr(-12300)    /* jt23 cases 2/6: current-area block */
-/* g_a5_13038 (jt23 gate: record-table base ptr) is a file-static buffer
- * pointer defined near l5124; forward-declared for jt23 below. */
+/* ★ g_a5_13038 — the NCR (event) record-table base. This is NOT a separate
+ * buffer: it IS the A5 pointer slot at -13038, allocated 2000 bytes near the
+ * top of main() and refilled from each area's ENCR chunk on load. It used to
+ * be declared as a file-static `unsigned char *` (twice, in fact), and that
+ * static was NEVER ASSIGNED anywhere — so it stayed NULL for the whole run
+ * and every consumer silently took its NULL-guard exit.
+ *
+ * The visible cost: jt228 ("first FREE record row, 0 = full or unloaded")
+ * always answered 0, l6cc read that as "no free slot" and retyped its record
+ * to 10, and jt247 renders a type-10 record as a no-button alert whose title
+ * is g_a5_longs(-11000)[10] = A5 -10960 = "This map can't hold any more
+ * events." So the map editor refused to add an event to ANY map, including a
+ * shipped one with 14 free slots. See task #88; the call chain
+ * jt258 -> ... -> l6cc -> jt228 was confirmed live with ENGINE_PROBE=1.
+ *
+ * Addressing it as a macro over the real slot is also what the layer rule
+ * wants: A5 globals go through the g_a5_* accessors, never a shadow copy. */
+#define g_a5_13038 ((unsigned char *)(uintptr_t)g_a5_long(-13038))
 
 /* Remaining scalar globals — bytes / shorts / longs / pointers from
  * across boot.c, all bound to their A5-relative slots in the replay
@@ -66472,7 +66488,8 @@ static void   jt527(void)                            { PROBE("jt527"); jt120((vo
  * marked TODO for the GLIB picture lift (task #105).
  * ------------------------------------------------------------------------- */
 
-static unsigned char *g_a5_13038;   /* record-table base (defined near l5124) */
+/* (g_a5_13038 is a macro over the A5 -13038 slot — see the note at the top of
+ * this file. It used to be a never-assigned file-static declared right here.) */
 
 /* GLIB picture-subsystem leaves (lifted leaf-first; wired when L33ac lands). */
 
@@ -67224,7 +67241,7 @@ static short jt227(void)
 
 /* JT[228] (CODE 7+0x0088) — the first FREE -13038 row's 1-based id;
  * 0 when the table is full or unloaded. Full lift (band 7). */
-static short jt228(void) __attribute__((unused));
+/* NOT unused — reached via l6cc from the event editor (see #88). */
 static short jt228(void)
 {
 	short i;
@@ -86458,7 +86475,9 @@ static void l207c(short a, short b)
 /* L6cc (CODE 2 + 0x6cc) — "encounter" retype helper: mark rec@12 bits 1|7, then
  * ask jt228() whether a monster table exists. If so, stash its id in rec[19] and
  * retype the record to 11 (rec@10=1); otherwise clear rec[19] and retype to 10. */
-static void l6cc(void *rec) __attribute__((unused));
+/* NOT unused: the ENGINE_PROBE=1 trail shows jt258 -> ... -> l6cc -> jt228
+ * on every event-editor EDIT. The old __attribute__((unused)) here is what
+ * made this pair easy to dismiss while chasing #88. */
 static void l6cc(void *rec)
 {
 	unsigned char b;
@@ -93233,7 +93252,8 @@ static void l0aae_unused_warn(void) { (void)l0aae; (void)l02dc; }
 /* A5-world globals L5124 touches beyond those already declared. Many are
  * file-static for now; they'll join a shared A5-world header as soon as
  * other CODE segments reach for the same offsets. */
-static unsigned char *g_a5_13038;            /* 2000-byte buffer ptr */
+/* g_a5_13038 — the second of the two duplicate declarations this file used to
+ * carry for the same never-assigned static. Now a macro over A5 -13038. */
 static short          g_a5_27984;            /* cleared (word)     */
 static long           g_a5_27940;            /* cleared (long)     */
 static short          g_a5_24142;            /* set to 1 (word)    */

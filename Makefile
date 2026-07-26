@@ -73,7 +73,12 @@ INCLUDE := -Isrc -Icompat/include -Iplatform/include
 # so a PLANAR=0 rebuild over a default 68000 build would relink stamped-plane
 # objects against a chunky present path. Added when FRUA_PLANAR became the
 # 68000 default (see the CFLAGS block below).
-BUILDSTAMP := $(MACHINE)-$(or $(CPU68K),default)-$(or $(FPU),nofpu)-$(or $(NOEMBED),embed)-planar$(or $(PLANAR),1)-$(words $(EXTRA_CFLAGS))$(firstword $(EXTRA_CFLAGS))
+# ENGINE_PROBE belongs in here: it changes CFLAGS, so leaving it out meant
+# `make ENGINE_PROBE=1` after a normal build printed "Nothing to be done" and
+# silently produced a binary with NO probe in it — a diagnostic that reports
+# nothing because it was never compiled, which is the exact trap that has cost
+# this project several emulator round-trips.
+BUILDSTAMP := $(MACHINE)-$(or $(CPU68K),default)-$(or $(FPU),nofpu)-$(or $(NOEMBED),embed)-planar$(or $(PLANAR),1)-probe$(or $(ENGINE_PROBE),0)-$(words $(EXTRA_CFLAGS))$(firstword $(EXTRA_CFLAGS))
 ifneq ($(shell cat .machine 2>/dev/null),$(BUILDSTAMP))
 $(shell find src compat platform -name '*.o' -delete 2>/dev/null; \
         find src compat platform -name '*.d' -delete 2>/dev/null; \
