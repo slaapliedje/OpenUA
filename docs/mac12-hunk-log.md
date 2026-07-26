@@ -35,7 +35,7 @@ streams**; CODE 17 changes only in operands (see below).
 | 11 | 10 | `L6238` | replace | 1 | 5 | yes | ✅ ported | l6238: the second jt431 join (same change as hunk 10) |
 | 12 | 12 | `L071c` | replace | 1 | 2 | n/a | 🚫 artefact | DISASSEMBLY DESYNC: an inline dispatch table after `jsr JT[1]` decoded as instructions. Both listings are garbage here — not a comparable change |
 | 13 | 12 | `L0d3e` | insert | 0 | 16 | `l0aae` | ✅ ported **OBSERVED FIRING** | Training Hall: after a RESUMED save, force-enable Create/Delete/Add/Remove/Load/Save/Exit |
-| 14 | 12 | `L3426` | replace | 1 | 5 | `l33d8` | ✅ ported | l33d8 pass 2: skip SUMMONED combatants (`mc[21]==1`) so a conjured creature cannot mask a party wipe |
+| 14 | 12 | `L3426` | replace | 1 | 5 | `l33d8` | ✅ ported **OBSERVED FIRING** | l33d8 pass 2: skip SUMMONED combatants (`mc[21]==1`) so a conjured creature cannot mask a party wipe |
 | 15 | 13 | `L105c` | insert | 0 | 5 | `l102a` | ✅ ported | l102a: no-permadeath also stops the per-round BLEED-OUT (dying -> dead at >9) |
 | 16 | 16 | `L50cc` | insert | 0 | 3 | `l4faa` | ✅ ported | l4faa default arm: jt179(0) — init the slot table l2184 reads instead of inheriting a stale one. **OBSERVED FIRING** |
 | 17 | 18 | `L003a` | insert | 0 | 13 | jt860 | ✅ ported | jt860: honour the design's no-permadeath flag — status 6/7/8 downgrades to 5. **OBSERVED FIRING** |
@@ -123,7 +123,44 @@ Two corrections to the 2026-07-24 entry that stood here:
   run to record 13, whose bit5 is clear. The event-byte count (11 of HEIRS' 175
   combat events affected) was unaffected; only the cell attribution was wrong.
 
-**Promotion status: 26 of 33 observed firing, 2 established as unable to fire.**
+**Promotion status: 27 of 33 observed firing, 2 established as unable to fire.**
+
+**Hunk 14 is OBSERVED FIRING (2026-07-25)** — and measuring it turned up
+something about the no-permadeath family: **its own siblings mask it.**
+
+`mc[21]` is not "summoned by a spell". `l404e` sets it on any list entry whose
+1-based index exceeds `-28006[32]`, the party count, so in a fight it marks the
+MONSTERS. Pass 2 exits at the first qualifier (`p[382] != 0 || p[94] in
+{3,4,5}`) and real members come first — and with hunks 1/15/17 present a fallen
+no-permadeath member always lands on **5**, which qualifies. Measured twice on a
+real wipe (`status [94] 5, qualifies 1`): the scan never reaches a monster, so
+hunk 14's `continue` changes nothing in a 1.2-complete build. Hunks 1 and 17
+close hunk 14's own precondition.
+
+The honest A/B is therefore against the **1.0 baseline of the family** — which
+is the question the cherry-pick asks anyway. With hunk 17 reverted, monster 42's
+petrifying gaze writes status **7** straight through, the one value that neither
+qualifies nor gets downgraded:
+
+```
+  BARBARUS   mc21 0   status 7   [382] 0   qualifies 0
+  BASILISK   mc21 1   status 0   [382] 1   qualifies 1
+  BASILISK   mc21 1   status 0   [382] 1   qualifies 1
+```
+
+| | `found` | `-27982` | the screen |
+|---|---|---|---|
+| 1.2 | 0 | 1 | "The monsters rejoice, for the party has been destroyed!" |
+| 1.0 | 1 | 0 | the walk view, BARBARUS still in the party at 0 HP |
+
+So 1.0's bug is not subtle: a wiped party keeps playing, with a petrified
+zero-HP character, because two LIVE ENEMIES were on the combatant list. The
+qualifier was `p[382]` on an enemy — no conjuring involved, which corrects the
+"on the strength of a monster it had conjured" reading in the note above.
+
+Trap for the next run: do NOT use `-DFRUA_PARTYHP=1` here. Clamping to 1 HP lets
+a melee hit kill through `jt39` (status 5, which qualifies) before the gaze
+lands, and the run measures nothing.
 
 **Hunk 13 is OBSERVED FIRING (2026-07-25)** — and it had been filed as a DEAD
 END on reasoning that was correct as far as it went. The fix force-enables the

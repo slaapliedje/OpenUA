@@ -46108,13 +46108,33 @@ static void l33d8(void)
 		unsigned char *mc = (unsigned char *)(uintptr_t)
 		    *(long *)(void *)(p + 64);
 
+#ifdef FRUA_NPDIAG
+		/* Hunk 14's census. The fix only bites where NO real member
+		 * qualifies and an extra (mc[21]==1) does, so log every node's
+		 * three deciding bytes before the test. */
+		dbg_file_str("l33d8 pass2 node ", (const char *)&p[96]);
+		dbg_file_num("   mc21 (extra) ", (long)(mc != NULL ? mc[21] : -1));
+		dbg_file_num("   status [94] ", (long)p[94]);
+		dbg_file_num("   in-combat [382] ", (long)p[382]);
+		dbg_file_num("   side [95] ", (long)p[95]);
+		dbg_file_num("   qualifies ",
+		    (long)(p[382] != 0 || p[94] == 4 || p[94] == 3 || p[94] == 5));
+#endif
 		if (mc != NULL && mc[21] == 1)
 			continue;
 		if (p[382] != 0 || p[94] == 4 || p[94] == 3 || p[94] == 5)
 			found = 1;
 	}
+#ifdef FRUA_NPDIAG
+	dbg_file_num("l33d8 pass2 found ", (long)found);
+	dbg_file_num("   hdr29 ", (long)hdr[29]);
+	dbg_file_num("   -27982 before ", (long)(unsigned char)g_a5_byte(-27982));
+#endif
 	if (hdr[29] != 0 && found)
 		g_a5_byte(-27982) = 0;
+#ifdef FRUA_NPDIAG
+	dbg_file_num("   -27982 after ", (long)(unsigned char)g_a5_byte(-27982));
+#endif
 
 	g_a5_byte(-22286) = 0;
 	if (g_a5_byte(-27988) == 0) {

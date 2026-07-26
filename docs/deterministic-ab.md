@@ -148,12 +148,12 @@ Two things worth carrying forward:
 
 ## Promotion status of the ported 1.2 fixes
 
-Twenty-six of the 33 are **observed firing** (ON vs OFF produce different
+Twenty-seven of the 33 are **observed firing** (ON vs OFF produce different
 measured state, same seed). Two cannot fire at all and that is a finding, not a
 gap. The rest each need a specific situation, listed so the next pass does not
 have to re-derive it.
 
-### Observed firing (26)
+### Observed firing (27)
 
 | hunks | situation | evidence |
 |---|---|---|
@@ -170,6 +170,7 @@ have to re-derive it.
 | 19-22 | authored SHOPPIC.DSN (`tools/mk_bigpic_design.py --shop`), Items -> Sell, `-DFRUA_ITMDIAG` | `jt893 ENTRY saved -22281` is **1** in both, then `in-browser` / loop-top / `jt182 confirm sees -22281` are **0 0 0** (ON) vs **1 1 1** (OFF) |
 | 17 | authored NOPERMA.DSN with **monster 42 (BASILISK)**, `-DFRUA_CBTPLAY -DFRUA_NPDIAG` | same gaze, same seed: `final-status` **5** (ON) vs **7** (OFF) on `subject BARBARUS side 0`; ON the party walks on at 1 HP, OFF the screen reads *"The monsters rejoice, for the party has been destroyed!"* |
 | 16 | authored caster (`tools/mk_caster_chr.py`), Hall -> View -> Spells | the picker's command bar reads **`Exit`** (ON) vs **blank** (OFF); `-24126` `0 FF ..` vs the stale `1 'S' 7 'E'`; `l2184("Exit") -> "Exit"` vs `""` |
+| 14 | authored NOPERMA.DSN with monster 42, `-DFRUA_CBTPLAY -DFRUA_NPDIAG` and **hunks 1/15/17 at their 1.0 shape** (see below) | BARBARUS petrified at status 7 (`qualifies 0`), two live BASILISKs with `mc21 1` / `[382] 1` (`qualifies 1`): `found` **0** (ON) vs **1** (OFF), so `-27982` ends **1** vs **0**. On screen: *"The monsters rejoice, for the party has been destroyed!"* (ON) vs the walk view with BARBARUS at **0 HP** still in the party (OFF) |
 | 13 | authored TPHALL.DSN (`tools/mk_testplay_design.py --hall`), test-play, step onto a hall cell, answer Yes | the Hall opens with `-18485 = 1` and ALL TWELVE slots computed disabled; ON, the seven the fix names (Create, Delete, Add, Remove, Load, Save, Exit) are live. Hall frames differ by **AE 16844**; the landing and the train prompt are **AE 0** in both runs |
 | 30 | authored TPTEST.DSN (`tools/mk_testplay_design.py`), map editor -> Utilities -> **Test module**, step onto the transfer | same burst position in both runs: the bottom row reads **`Transfer module ends testing!`** (ON) vs the ordinary `Area \| Cast \| View \| ...` command bar (OFF) — 7848 changed pixels vs 224 (the clock) |
 | 31 | the SAME run, second half: Escape -> Done, then step onto a question cell | at the question's `l709e` iteration both builds inherit `-4943 = 4` from the transfer; at the tail it is **0** (ON) vs **4** (OFF), and `-> RE-SCAN landed cell` appears in OFF only |
@@ -196,6 +197,64 @@ spell picker headless" below.
 Hunk 17 is the most CONSEQUENTIAL of the set — the only one where the two
 builds end the session differently. Full recipe below; the short version is
 that the whole no-permadeath family (1, 15, 17) now fires in a single run.
+
+### The hunk that its own family masks (hunk 14)
+
+Hunk 14 makes `l33d8`'s pass 2 skip combatants flagged `mc[21] == 1`. That flag
+is **not** "summoned by a spell" — `l404e` sets it on any list entry whose
+1-based index exceeds `-28006[32]`, the party member count, so during a fight it
+marks the MONSTERS. Pass 2 computes `found`, and `hdr[29] != 0 && found` clears
+`-27982`, the party-destroyed flag. So in 1.0 an ENEMY could keep a wiped
+no-permadeath party from being registered as destroyed.
+
+**Measuring it needs hunks 1, 15 and 17 at their 1.0 shape, and that is the
+finding.** Pass 2 exits at the first qualifier (`p[382] != 0 || p[94] in
+{3,4,5}`), real members come first in the list, and with the rest of the
+no-permadeath family present a fallen member always lands on **5** — which
+qualifies. Measured twice on a genuine wipe: `status [94] 5, qualifies 1`, so
+the scan never reaches a monster and hunk 14's `continue` cannot change
+anything. Hunks 1 and 17 exist precisely to keep a member out of 6/7/8, and in
+doing so they close hunk 14's own precondition.
+
+So the honest A/B is against the **1.0 baseline of its family**, which is what
+the cherry-pick actually asks about ("does this hunk change 1.0's behaviour?"):
+hunks 1, 15 and 17 reverted, hunk 14 toggled alone. With hunk 17 off, monster
+42's petrifying gaze writes status **7** straight through — the one value that
+neither qualifies nor gets downgraded.
+
+```sh
+python3 tools/mk_noperma_design.py data/work/gamedata --current --monster 42
+# revert hunks 1 (jt39), 15 (l102a) and 17 (jt860) to their 1.0 shape, then:
+make EXTRA_CFLAGS='-DFRUA_NPDIAG -DFRUA_CBTPLAY -DFRUA_RNGSEED=12345'
+```
+
+No `FRUA_PARTYHP` here — clamping to 1 HP lets a melee hit kill BARBARUS through
+`jt39` (status 5, which qualifies) before the gaze ever lands, and the run
+measures nothing. The gaze needs the fight to last.
+
+`FRUA_NPDIAG`'s pass-2 census, identical in both builds up to the decision:
+
+```
+  BARBARUS   mc21 0   status 7   [382] 0   qualifies 0
+  BASILISK   mc21 1   status 0   [382] 1   qualifies 1
+  BASILISK   mc21 1   status 0   [382] 1   qualifies 1
+```
+
+| | `found` | `-27982` | the screen |
+|---|---|---|---|
+| 1.2 (ON) | 0 | 1 | **"The monsters rejoice, for the party has been destroyed!"** |
+| 1.0 (OFF) | 1 | 0 | the walk view, BARBARUS still in the party at **0 HP** |
+
+1.0 hands the player a petrified, zero-HP, unplayable party and lets the module
+continue — because two live basilisks were on the combatant list. That is the
+bug, and it is decisive on screen, not just in state.
+
+Two things worth carrying: `mc[21]` means "beyond the party count", so read it
+as "extra combatant", not "conjured" — the qualifier here was `p[382]` on a
+**live enemy**, no summoning involved. And within complete 1.2 this hunk is
+belt-and-braces: 1/15/17 close the routes that would produce a non-qualifying
+member, leaving only marginal ones (a party member destroyed by turn-undead,
+`u[94] = 8`, which nothing else gates).
 
 ### The Training Hall the editor could not use (hunk 13)
 
@@ -841,13 +900,12 @@ already has `rec[113+2i] == rec[112+2i]`, so loading one and pressing Ok makes
 the fix write back the bytes that were already there. Verified on all four of
 HEIRS' records and on stock BASILISK. The divergence has to come from an edit.
 
-### Needs a situation (5)
+### Needs a situation (4)
 
 | hunks | the situation still to construct |
 |---|---|
 | 7 | the `L3f80` picker modal. |
 | 10, 11 | delete a monster from a design folder. |
-| 14 | a party wipe with a summoned creature still on the combatant list. |
 | 2 | reading the clobbered FC object or the dangling `-22222` pointer — no clean observable; likely only ever visible as corruption. |
 
 ### The UI-navigation blocker — ROOT CAUSE FOUND (TaskList #84)
@@ -960,7 +1018,9 @@ ON/OFF pair.
 
 ### Machinery added for this
 
-- **`tools/mk_noperma_design.py`** — authors `NOPERMA.DSN`: one room whose entry
+- **`tools/mk_noperma_design.py`** — `--count <n>` sizes the monster group (2 is
+  the default and the right one for the gaze route; 8 forces a quick melee
+  wipe). Authors `NOPERMA.DSN`: one room whose entry
   cell fires a combat with `ev[12]` bit 6 (no-permadeath) and bit 5 (start
   adjacent) set. `--noflag` builds the bit-6-clear control, so two runs differ
   in one bit of one event byte. `--monster <id>` picks the opposition: the

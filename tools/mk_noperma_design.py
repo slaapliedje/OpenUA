@@ -79,11 +79,14 @@ def main(argv):
     monster_id = 1
     if "--monster" in argv:
         monster_id = int(argv[argv.index("--monster") + 1])
-    d = noperma_design(name, monster_id=monster_id, flag=flag)
+    count = 2
+    if "--count" in argv:
+        count = int(argv[argv.index("--count") + 1])
+    d = noperma_design(name, monster_id=monster_id, flag=flag, count=count)
     folder = d.write(base, make_current=("--current" in argv))
     ev = d.areas[5].event(0)
     print("wrote", folder)
-    print("  monster id %d x2" % monster_id)
+    print("  monster id %d x%d" % (monster_id, count))
     print("  event 0: type=%d ev[12]=0x%02x  (bit5 adjacent=%d, bit6 noperma=%d)"
           % (d.areas[5].event_type(0), ev[12],
              (ev[12] >> 5) & 1, (ev[12] >> 6) & 1))
