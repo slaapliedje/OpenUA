@@ -40,11 +40,12 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from dsn import Design, _walled_room, _hook          # noqa: E402
+from geo import EVENT_SIZE                            # noqa: E402
 
 BIGPIC_ID = 240        # >= 240 is what l442e reads as "bigpic backdrop"
 
 
-def bigpic_design(name="BIGPROMPT", shop=False, picture=BIGPIC_ID):
+def bigpic_design(name="BIGPROMPT", shop=False, picture=BIGPIC_ID, sprite=False):
     a5 = _walled_room(entry=(3, 3), facing=0)
     a5.strg_write(["", "A great painted mural fills the wall."])
 
@@ -52,6 +53,16 @@ def bigpic_design(name="BIGPROMPT", shop=False, picture=BIGPIC_ID):
         a5.set_shop(0, shop_type=0, picture=picture, stock=(1, 2, 3))
     else:
         a5.set_message(0, [1], picture=picture)
+
+    if sprite:
+        # ev[7] bit 7 routes a sub-240 picture id down l442e's SPRITE arm,
+        # which puts it in the -22312 slot. Counter-intuitively that is the
+        # slot l08ce feeds to l541a as **"PIC"** (the -22313 slot goes to
+        # "SPRIT"), and only the PIC arm sets -24321 — the flag l23b4's
+        # animation block needs. That is what hunk 7 turns on.
+        ev = bytearray(a5.encr[0:EVENT_SIZE])
+        ev[7] |= 0x80
+        a5.encr[0:EVENT_SIZE] = bytes(ev)
 
     _hook(a5, 3, 3, special=1)                  # entry cell -> event 0
 
@@ -74,12 +85,13 @@ def main(argv):
     if "--picture" in argv:
         picture = int(argv[argv.index("--picture") + 1])
 
-    d = bigpic_design(name, shop=shop, picture=picture)
+    d = bigpic_design(name, shop=shop, picture=picture,
+                      sprite=("--sprite" in argv))
     folder = d.write(base, make_current=("--current" in argv))
     ev = d.areas[5].event(0)
     print("wrote", folder)
-    print("  event 0: type=%d ev[6]=%d (%s)"
-          % (ev[0], ev[6], "shop + bigpic" if shop else "message + bigpic"))
+    print("  event 0: type=%d ev[6]=%d ev[7]=0x%02x (%s)"
+          % (ev[0], ev[6], ev[7], "shop" if shop else "message"))
     return 0
 
 

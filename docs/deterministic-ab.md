@@ -148,12 +148,12 @@ Two things worth carrying forward:
 
 ## Promotion status of the ported 1.2 fixes
 
-Twenty-seven of the 33 are **observed firing** (ON vs OFF produce different
+Twenty-eight of the 33 are **observed firing** (ON vs OFF produce different
 measured state, same seed). Two cannot fire at all and that is a finding, not a
 gap. The rest each need a specific situation, listed so the next pass does not
 have to re-derive it.
 
-### Observed firing (27)
+### Observed firing (28)
 
 | hunks | situation | evidence |
 |---|---|---|
@@ -170,6 +170,7 @@ have to re-derive it.
 | 19-22 | authored SHOPPIC.DSN (`tools/mk_bigpic_design.py --shop`), Items -> Sell, `-DFRUA_ITMDIAG` | `jt893 ENTRY saved -22281` is **1** in both, then `in-browser` / loop-top / `jt182 confirm sees -22281` are **0 0 0** (ON) vs **1 1 1** (OFF) |
 | 17 | authored NOPERMA.DSN with **monster 42 (BASILISK)**, `-DFRUA_CBTPLAY -DFRUA_NPDIAG` | same gaze, same seed: `final-status` **5** (ON) vs **7** (OFF) on `subject BARBARUS side 0`; ON the party walks on at 1 HP, OFF the screen reads *"The monsters rejoice, for the party has been destroyed!"* |
 | 16 | authored caster (`tools/mk_caster_chr.py`), Hall -> View -> Spells | the picker's command bar reads **`Exit`** (ON) vs **blank** (OFF); `-24126` `0 FF ..` vs the stale `1 'S' 7 'E'`; `l2184("Exit") -> "Exit"` vs `""` |
+| 7 | authored SHOPPIC.DSN (`tools/mk_bigpic_design.py --shop --picture 57 --sprite`), `-DFRUA_ANIMDIAG` | at the merchant modal `arg_lo` is **1** vs **0** with every other input identical (`-13018 2`, `-24321 1`, `-24206 7`); the animation block runs **12** times vs **0**, and six timed screenshots differ by up to **12764** px (ON) vs **AE 0** every pair (OFF) — the shopkeeper animates vs sits frozen |
 | 14 | authored NOPERMA.DSN with monster 42, `-DFRUA_CBTPLAY -DFRUA_NPDIAG` and **hunks 1/15/17 at their 1.0 shape** (see below) | BARBARUS petrified at status 7 (`qualifies 0`), two live BASILISKs with `mc21 1` / `[382] 1` (`qualifies 1`): `found` **0** (ON) vs **1** (OFF), so `-27982` ends **1** vs **0**. On screen: *"The monsters rejoice, for the party has been destroyed!"* (ON) vs the walk view with BARBARUS at **0 HP** still in the party (OFF) |
 | 13 | authored TPHALL.DSN (`tools/mk_testplay_design.py --hall`), test-play, step onto a hall cell, answer Yes | the Hall opens with `-18485 = 1` and ALL TWELVE slots computed disabled; ON, the seven the fix names (Create, Delete, Add, Remove, Load, Save, Exit) are live. Hall frames differ by **AE 16844**; the landing and the train prompt are **AE 0** in both runs |
 | 30 | authored TPTEST.DSN (`tools/mk_testplay_design.py`), map editor -> Utilities -> **Test module**, step onto the transfer | same burst position in both runs: the bottom row reads **`Transfer module ends testing!`** (ON) vs the ordinary `Area \| Cast \| View \| ...` command bar (OFF) — 7848 changed pixels vs 224 (the clock) |
@@ -197,6 +198,53 @@ spell picker headless" below.
 Hunk 17 is the most CONSEQUENTIAL of the set — the only one where the two
 builds end the session differently. Full recipe below; the short version is
 that the whole no-permadeath family (1, 15, 17) now fires in a single run.
+
+### The merchant who stopped moving (hunk 7)
+
+Hunk 7 is one operand: `jt183`'s call to `l2ebc` passes **1** instead of 0 as
+the modal's key-mode argument (`clrw %sp@-` -> `movew #1,%sp@-`). That lands in
+`l23b4` as `arg_lo`, and `arg_lo != 0` is what runs the per-iteration animation
+block — `jt46` a frame, `jt80` if there is a wrap, advance the frame every 50
+ticks. 1.0 opened the merchant screen in the mode that ignores it.
+
+Three preconditions all have to hold, and finding them was the work:
+
+1. **`-13018` must be 2, 7, 12 or 13** (`mode_with_timer`), or the whole
+   per-iteration block is skipped. Measured: the merchant modal runs at **2**.
+   Other modals in the same run sit at 9 and could never show this.
+2. **`-24321 > 0`** — `l541a` sets it (via `b[1]`) only on its **PIC** arm.
+3. **`-24206 >= 1`** — that is `frames - 2`, so the art needs at least three.
+
+Getting a PIC loaded needs one counter-intuitive step. `l442e` routes a sub-240
+picture id by `ev[7]` bit 7: WITHOUT it the id goes to `-22313`, which `l08ce`
+feeds to `l541a` as **"SPRIT"** — the arm that leaves `-24321` at 0. WITH bit 7
+set the id goes to `-22312`, which `l08ce` feeds as **"PIC"**. So the flag that
+makes a picture animate is the one the field layout calls "sprite". That is what
+`--sprite` sets.
+
+```sh
+python3 tools/mk_bigpic_design.py data/work/gamedata --current --shop \
+        --picture 57 --sprite
+make EXTRA_CFLAGS='-DFRUA_ANIMDIAG -DFRUA_RNGSEED=12345'
+# beginplay; the entry cell raises the shop, then just watch it
+```
+
+Measured at the merchant modal, every other input identical
+(`-13018 2`, `mode_with_timer 1`, `-24321 1`, `-24206 7`, `-24207 4`):
+
+| | `arg_lo` | animation-block runs | six timed screenshots |
+|---|---:|---:|---|
+| 1.2 (ON) | **1** | 12 (the probe's cap) | differ, up to **AE 12764** |
+| 1.0 (OFF) | **0** | **0** | **AE 0 for every pair** |
+
+On screen the shopkeeper cycles through its eight frames — reading a book,
+then hunched over — versus sitting on a single frozen frame for the whole
+transaction.
+
+A picture id that does not resolve produces **"Disk read error"** on the play
+screen and the shop never opens; id 57 works and has 8 frames (its `-24207 = 4`
+comes from `l541a`'s per-id wrap override). If a run shows that message, the
+art, not the harness, is what failed.
 
 ### The hunk that its own family masks (hunk 14)
 
@@ -900,11 +948,10 @@ already has `rec[113+2i] == rec[112+2i]`, so loading one and pressing Ok makes
 the fix write back the bytes that were already there. Verified on all four of
 HEIRS' records and on stock BASILISK. The divergence has to come from an edit.
 
-### Needs a situation (4)
+### Needs a situation (3)
 
 | hunks | the situation still to construct |
 |---|---|
-| 7 | the `L3f80` picker modal. |
 | 10, 11 | delete a monster from a design folder. |
 | 2 | reading the clobbered FC object or the dangling `-22222` pointer — no clean observable; likely only ever visible as corruption. |
 
@@ -1036,6 +1083,12 @@ ON/OFF pair.
   BIGPIC prompt, so `-22281` is live when the Items browser opens (hunks 19-22).
   `--shop` is the variant that offers the Sell / Id arms and actually diverges;
   the plain message variant reaches only arm 4, the negative control.
+  `--picture <id> --sprite` swaps the bigpic for an animating PIC — hunk 7's
+  situation, and the one the 19-22 visible demo would also need.
+- **`-DFRUA_ANIMDIAG`** — `l23b4`'s modal entry (`arg_lo`, `-13018`,
+  `mode_with_timer`, and the `-24321`/`-24206`/`-24207` animation state), a
+  capped log of the frames the animation block actually draws, and `l541a`'s
+  load result so you can see which arm a picture took.
 - **`tools/mk_caster_chr.py`** — authors a Magic-User with memorized spells into
   the design's saved-character pool, so the spell screens are reachable at all.
   NOT usable as a combat party member (see the hunk-17 traps above).

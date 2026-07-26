@@ -28,7 +28,7 @@ streams**; CODE 17 changes only in operands (see below).
 | 4 | 7 | `L1ace` | replace | 1 | 1 | `l1a0c` | ➖ churn | `beqw` -> `beqs`: branch width, shrunk by hunk 3's deletion |
 | 5 | 7 | `L21b6` | delete | 18 | 0 | `l2184` | ✅ ported | l2184 boundary test 1: drop the digit alternative. **OBSERVED FIRING** |
 | 6 | 7 | `L22a8` | replace | 19 | 1 | `l2184` | ✅ ported | l2184 boundary test 2 (scan to end of word): same; dead in the asm, live in the port. **OBSERVED FIRING** |
-| 7 | 7 | `L3f80` | replace | 1 | 1 | yes | ✅ ported | l2ebc key-mode arg 0 -> 1 (boot.c ~95700) |
+| 7 | 7 | `L3f80` | replace | 1 | 1 | yes | ✅ ported **OBSERVED FIRING** | l2ebc key-mode arg 0 -> 1 (boot.c ~95700) |
 | 8 | 10 | `L38ba` | replace | 1 | 1 | `l36e0_c10` | ✅ ported | jt399 fill 0 -> 1: the arttype==2 CLUT hole becomes a no-op |
 | 9 | 10 | `L611c` | insert | 0 | 21 | yes | ✅ ported | l611c: sync each ability's CURRENT byte from its PERMANENT byte before the save |
 | 10 | 10 | `L6238` | replace | 1 | 1 | yes | ✅ ported | l6238: build the path forwards (clear + 2x jt431) instead of jt436's in-place dir prefix |
@@ -123,7 +123,35 @@ Two corrections to the 2026-07-24 entry that stood here:
   run to record 13, whose bit5 is clear. The event-byte count (11 of HEIRS' 175
   combat events affected) was unaffected; only the cell attribution was wrong.
 
-**Promotion status: 27 of 33 observed firing, 2 established as unable to fire.**
+**Promotion status: 28 of 33 observed firing, 2 established as unable to fire.**
+
+**Hunk 7 is OBSERVED FIRING (2026-07-25)** — one operand, and the merchant
+screen stops being a still life. `jt183`'s `l2ebc` call passes 1 instead of 0 as
+the modal key-mode argument; that reaches `l23b4` as `arg_lo`, and `arg_lo != 0`
+runs the per-iteration animation block.
+
+Three preconditions had to be found, all now measured:
+`-13018` must be 2/7/12/13 (the merchant modal runs at **2**; other modals in
+the same run sit at 9), `-24321 > 0` (set only by `l541a`'s **PIC** arm), and
+`-24206 >= 1` (frames - 2, so at least three frames).
+
+The counter-intuitive step is the picture routing. `l442e` sends a sub-240 id to
+`-22313` by default, which `l08ce` hands to `l541a` as **"SPRIT"** — the arm
+that leaves `-24321` at 0. Setting `ev[7]` bit 7 sends it to `-22312` instead,
+which `l08ce` hands over as **"PIC"**. So the bit the event layout calls
+"sprite" is the one that makes a picture animate.
+
+With `--picture 57 --sprite`, everything else identical
+(`-13018 2`, `-24321 1`, `-24206 7`, `-24207 4`):
+
+| | `arg_lo` | animation-block runs | six timed screenshots |
+|---|---:|---:|---|
+| 1.2 | 1 | 12 (probe cap) | differ, up to AE 12764 |
+| 1.0 | 0 | 0 | AE 0 for every pair |
+
+The shopkeeper cycles through its eight frames in 1.2 and sits on one frozen
+frame in 1.0. Trap: a picture id that does not resolve prints "Disk read error"
+on the play screen and the shop never opens — the art failed, not the harness.
 
 **Hunk 14 is OBSERVED FIRING (2026-07-25)** — and measuring it turned up
 something about the no-permadeath family: **its own siblings mask it.**

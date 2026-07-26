@@ -64287,6 +64287,23 @@ static short l23b4(short arg)
 	mode_with_timer = (g_a5_13018 == 2 || g_a5_13018 == 7
 	                || g_a5_13018 == 13 || g_a5_13018 == 12);
 
+#ifdef FRUA_ANIMDIAG
+	/* Hunk 7 turns arg_lo 0 -> 1 at jt183's call. Everything the animation
+	 * block needs is logged here, once per modal entry: the arg itself, the
+	 * -13018 dialog mode (only 2/7/12/13 reach the per-iteration block at
+	 * all), and the overlay-art state l541a leaves behind. -24321 is set
+	 * only for PIC-type art and -24206 is (frames - 2), so a picture with
+	 * fewer than three frames disarms the whole thing. */
+	dbg_file_num("l23b4 arg_lo ", (long)arg_lo);
+	dbg_file_num("   -24238 (force 0) ", (long)(unsigned char)g_a5_24238);
+	dbg_file_num("   -13018 dialog mode ", (long)(short)g_a5_13018);
+	dbg_file_num("   mode_with_timer ", (long)mode_with_timer);
+	dbg_file_num("   -24321 (PIC art loaded) ", (long)(unsigned char)g_a5_24321);
+	dbg_file_num("   -24206 (last frame) ", (long)(unsigned char)g_a5_24206);
+	dbg_file_num("   -24207 (wrap) ", (long)(unsigned char)g_a5_24207);
+	dbg_file_num("   -24138 (timeout) ", (long)(short)g_a5_24138);
+#endif
+
 	if (mode_with_timer) {
 		long base = jt100();
 
@@ -64337,6 +64354,12 @@ static short l23b4(short arg)
 
 			if (arg_lo != 0) {
 				if (g_a5_24321 > 0 && g_a5_24206 >= 1) {
+#ifdef FRUA_ANIMDIAG
+					{ static short nframe;
+					  if (nframe < 12) { nframe++;
+						dbg_file_num("l23b4 ANIMATE frame ",
+						             (long)(unsigned char)g_a5_24205); } }
+#endif
 					jt46((short)3, (short)3,
 					     (short)(signed char)arg_lo,
 					     (short)g_a5_24205);
@@ -91033,6 +91056,16 @@ static void l541a(const char *type, short id, short flag, void *buf)
 	}
 	g_a5_byte(-24208) = 0;
 	g_a5_24205 = 0;
+#ifdef FRUA_ANIMDIAG
+	/* What l23b4's animation gate will see. -24321 comes out of b[1], set
+	 * only on the PIC arm; -24206 is (frames - 2) there, so a picture with
+	 * fewer than three frames leaves it 0 and disarms hunk 7. */
+	dbg_file_str("l541a loaded type ", type);
+	dbg_file_num("   id ", (long)id);
+	dbg_file_num("   frames-1 b[0] ", (long)b[0]);
+	dbg_file_num("   -24321 ", (long)(unsigned char)g_a5_24321);
+	dbg_file_num("   -24206 ", (long)(unsigned char)g_a5_24206);
+#endif
 	l68ae((short)0);
 }
 
