@@ -23,11 +23,49 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # Components needed for the full pipeline.
 HATARI         = shutil.which("hatari")
-MAGICK         = shutil.which("magick")
+
+def _find_grabber():
+    """Return grab_argv(window_id, out_path) -> list, or None if unavailable.
+
+    ImageMagick 7 unifies everything under `magick`; ImageMagick 6 (still what
+    most distros ship, and what this box has) has no `magick` at all — the
+    grabber is `import`, and it takes a DIFFERENT argv shape. Gating on
+    `magick` alone skipped this test on every IM6 machine.
+    tools/hatari_ui.sh has probed for both since it was written; the test was
+    simply stricter than the harness it duplicates.
+    """
+    if shutil.which("magick"):
+        return lambda win, out: ["magick", f"x:{win}", str(out)]
+    if shutil.which("import"):
+        return lambda win, out: ["import", "-window", str(win), str(out)]
+    return None
+
+
+GRAB_ARGV      = _find_grabber()
 XWININFO       = shutil.which("xwininfo")
 M68K_GCC       = shutil.which("m68k-atari-mint-gcc")
-FALCON_TOS     = os.environ.get("FALCON_TOS",
-                                "/usr/share/hatari/TOSv4.04.img")
+
+def _find_falcon_tos():
+    """First non-empty Falcon TOS ROM, same order as the Makefile / hatari_ui.
+
+    This used to be a single hardcoded "/usr/share/hatari/TOSv4.04.img", and
+    packagers disagree on the spelling — Arch's `hatari` installs tos404.img.
+    On any such machine the skipif below fired and this test QUIETLY DID NOT
+    RUN, while the suite still reported all-green. A boot smoke test that
+    skips itself is worse than no test, because it reads as coverage.
+    """
+    if os.environ.get("FALCON_TOS"):
+        return os.environ["FALCON_TOS"]
+    for p in ("/usr/share/hatari/tos404.img",
+              "/usr/share/hatari/TOSv4.04.img",
+              os.path.expanduser("~/Downloads/Atari/tos404.img"),
+              "/usr/share/hatari/etos512us.img"):
+        if os.path.exists(p) and os.path.getsize(p) > 0:
+            return p
+    return "/usr/share/hatari/tos404.img"      # name a real path in the skip
+
+
+FALCON_TOS     = _find_falcon_tos()
 DISPLAY        = os.environ.get("DISPLAY")
 
 pytestmark = pytest.mark.slow
@@ -74,7 +112,8 @@ def _png_has_visible_content(path):
 
 
 @pytest.mark.skipif(HATARI is None, reason="hatari not installed")
-@pytest.mark.skipif(MAGICK is None, reason="ImageMagick (magick) not installed")
+@pytest.mark.skipif(GRAB_ARGV is None,
+                    reason="ImageMagick not installed (need `magick` or `import`)")
 @pytest.mark.skipif(XWININFO is None, reason="xwininfo not installed")
 @pytest.mark.skipif(DISPLAY is None,
                     reason="no DISPLAY (need Xorg/XWayland or Xvfb)")
@@ -100,10 +139,10 @@ def test_post_boot_frame_renders(tmp_path, frua_prg):
         time.sleep(10)
         win = _find_hatari_window()
         assert win is not None, f"Hatari window not found (log: {log})"
-        result = subprocess.run([MAGICK, f"x:{win}", str(out)],
-                                capture_output=True, text=True)
+        argv = GRAB_ARGV(win, out)
+        result = subprocess.run(argv, capture_output=True, text=True)
         assert result.returncode == 0, \
-            f"magick failed: {result.stderr or result.stdout}"
+            f"{argv[0]} failed: {result.stderr or result.stdout}"
     finally:
         proc.terminate()
         try:

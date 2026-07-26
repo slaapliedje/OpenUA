@@ -305,11 +305,18 @@ data-pool-regen: $(DATAPOOL_FILES)
 # console to this terminal; --dsp emu emulates the Falcon DSP. The --auto
 # arg is an Atari path, not a host path — the GEMDOS-mounted build dir
 # becomes C: inside the emulator, so frua.prg sits at C:\frua.prg.
-# TOS 4.04 fallback chain: the system copy, then the user-local download, then
-# EmuTOS 512K. Only NON-EMPTY files count — a botched ROM copy left 0-byte TOS
-# files once (2026-07-15), and hatari's "FATAL: Can not load TOS" for an empty
-# file looks like a harness bug.
-FALCON_TOS ?= $(shell for f in /usr/share/hatari/TOSv4.04.img \
+# TOS 4.04 fallback chain: the system copy under either spelling, then the
+# user-local download, then EmuTOS 512K. Only NON-EMPTY files count — a botched
+# ROM copy left 0-byte TOS files once (2026-07-15), and hatari's "FATAL: Can not
+# load TOS" for an empty file looks like a harness bug.
+#
+# BOTH system spellings are listed because packagers disagree: Arch's `hatari`
+# installs /usr/share/hatari/tos404.img, others ship TOSv4.04.img. Listing only
+# the latter is what made this chain miss the ROM that was installed all along
+# — see tools/hatari_ui.sh and tests/test_hatari_screenshot.py, which had the
+# same bug with worse consequences (a silently skipped test).
+FALCON_TOS ?= $(shell for f in /usr/share/hatari/tos404.img \
+	/usr/share/hatari/TOSv4.04.img \
 	$(HOME)/Downloads/Atari/tos404.img; do \
 	[ -s $$f ] && { echo $$f; exit; }; done; \
 	echo /usr/share/hatari/etos512us.img)

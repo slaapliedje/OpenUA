@@ -19,7 +19,9 @@
 # State lives in /tmp/frua-ui (log, pid, window id).
 #
 # Environment:
-#   FALCON_TOS   Falcon TOS ROM (default /usr/share/hatari/TOSv4.04.img)
+#   FALCON_TOS   Falcon TOS ROM. Unset = search /usr/share/hatari/tos404.img,
+#                then TOSv4.04.img, then ~/Downloads/Atari/tos404.img, then
+#                EmuTOS 512K. Set it only to override that choice.
 #   GEMDOS_DIR   GEMDOS C: mount (default data/work/gamedata)
 #   FRUA_MEM     emulated ST-RAM in MB: 1, 4 or 14 (default 14 for
 #                development; drop to 4/1 for the memory-fit passes)
@@ -35,7 +37,22 @@ set -euo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 STATE=/tmp/frua-ui
 LOG="$STATE/conout.log"
-FALCON_TOS="${FALCON_TOS:-/usr/share/hatari/TOSv4.04.img}"
+# Falcon TOS: search, don't assume. Packagers disagree on the filename (Arch's
+# `hatari` installs tos404.img; others ship TOSv4.04.img), and hardcoding one
+# spelling meant every boot needed FALCON_TOS= passed by hand on a machine that
+# had the ROM the whole time. Same order as the Makefile's FALCON_TOS chain.
+# Only NON-EMPTY files count (a 0-byte ROM copy makes hatari print "FATAL: Can
+# not load TOS", which reads as a harness bug).
+if [ -z "${FALCON_TOS:-}" ]; then
+	for f in /usr/share/hatari/tos404.img \
+	         /usr/share/hatari/TOSv4.04.img \
+	         "$HOME/Downloads/Atari/tos404.img" \
+	         /usr/share/hatari/etos512us.img; do
+		[ -s "$f" ] && { FALCON_TOS="$f"; break; }
+	done
+	# Nothing found: keep the canonical name so the error names a real path.
+	FALCON_TOS="${FALCON_TOS:-/usr/share/hatari/tos404.img}"
+fi
 GEMDOS_DIR="${GEMDOS_DIR:-$REPO/data/work/gamedata}"
 FRUA_MEM="${FRUA_MEM:-14}"
 # Which Hatari binary. Default = system. Set HATARI_BIN=hrdb to enable the

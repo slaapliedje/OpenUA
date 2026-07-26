@@ -25,7 +25,9 @@
 #   DISPLAY               reuse an existing X server instead of Xvfb
 #   FRUA_XVFB_DISPLAY     Xvfb display to spawn when headless (default :99)
 #   GEMDOS_DIR            game-data C: mount (default data/work/gamedata)
-#   FALCON_TOS            Falcon TOS ROM (default /usr/share/hatari/TOSv4.04.img)
+#   FALCON_TOS            Falcon TOS ROM. Unset = hatari_ui.sh searches
+#                         /usr/share/hatari/tos404.img, TOSv4.04.img,
+#                         ~/Downloads/Atari/tos404.img, then EmuTOS 512K.
 #
 set -euo pipefail
 
