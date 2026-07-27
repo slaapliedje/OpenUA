@@ -911,3 +911,110 @@ thread 3 (fewer rebands) and the one the 2026-07-19 plan already named: attack
 c2p THROUGHPUT directly — a tighter `st_c2p_span` inner loop. The copy path is
 done (#48, 3.4%), ownership is capped at ~53% by rebands, and the rebands are
 mostly legitimate.
+
+### #90 THREAD-3 RE-RUN — RAN 2026-07-26. THE 47% IS THE BOOT, NOT THE PLAY LOOP.
+
+The #89 write-up asked for one thing before anyone built on thread 3: re-run
+with BOTH instruments over a longer drive, because the blank-frame figure was
+2-of-3 and the 94% churn figure was a single scene change. Done. The re-run
+answered thread 3 — and incidentally overturned something bigger.
+
+**Thread 3, on 12 rebands with both instruments (was 3).**
+
+| reband | content rows | clut moved | used idx | used moved |
+|--:|--:|--:|--:|--:|
+| 1 | 0 | 593 | **1** | 0 (0%) |
+| 2 | 200 | 713 | 121 | 114 (94%) |
+| 3 | 200 | 126 | **1** | 0 (0%) |
+| 4 | 200 | 455 | 61 | 53 (86%) |
+| 5 | 125 | 3 | 130 | 80 (61%) |
+| 6 | 200 | 657 | 223 | 214 (95%) |
+| 7 | 200 | 659 | 32 | 29 (90%) |
+| 8 | 200 | 667 | **7** | 7 (100%) |
+| 9 | 200 | 74 | 22 | 16 (72%) |
+| 10 | 200 | 0 | 25 | 11 (44%) |
+| 11 | 7 | 512 | 22 | 9 (40%) |
+| 14 | 138 | 0 | 23 | 7 (30%) |
+
+- **Near-blank rebands: 3 of 12 (25%)**, not the 2-of-3 the small sample
+  suggested. Real, worth having, but a quarter of the rebands — not most.
+- **Churn is NOT uniformly 94%.** It ranges 0–100%, median ~72%, and reband 14
+  moved only 10 of 256 indices. Thread 2 stays closed (a row survives only if
+  EVERY index it uses is unmoved, and at a 72% median that is rare), but the
+  "94%" in the #89 entry was the worst case, not the typical one. Recorded so
+  nobody re-derives thread 2 from a figure that was one sample.
+
+**The finding that matters more: split the same run at `menu: modal up`.**
+
+| phase | presents | rows CONVERTED | rows skipped | rebands |
+|---|--:|--:|--:|--:|
+| pre-menu (boot) | 16 | 2976 | 200 | **11** |
+| post-menu (menus/hall/roster) | 12 | **0** | 549 | **0** |
+
+Every reband, and every converted row, was the BOOT SEQUENCE. Once past the
+menu the draw-time path skipped 100% of rows on the screens driven here, and
+re-banded zero times. A subsequent 36-key dungeon-nav drive added no rebands
+either.
+
+**This reframes the CONVWHY entry above.** `st_prof_hot_dump()` fires every 16
+presents — and the boot IS 16 presents. The window that produced "200 rows
+BOTH, mismatch at x=0, 11 rebands in 16 presents" was therefore window #1, the
+boot, with the drive's own presents landing in a later window that was never
+dumped. The convwhy conclusion ("ownership is thrown away by rebands") is true
+OF BOOT. The steady state it was taken to describe measures zero here.
+
+The ~47% figure quoted in CLAUDE.md carries the same caveat: it is dominated by
+transitions, not by the play loop. Nobody has yet measured the walk itself with
+this instrument, because the walk is unreachable headlessly right now (see
+below).
+
+**Consequence for #63.** Reband work is boot/transition work. If boot time is
+the target it is worth attacking (deferring the quant on near-blank frames
+would remove ~25% of them); if the 8 MHz PLAY loop is the target, the evidence
+says rebands are not where the time goes, and the untouched lever is the one
+the 2026-07-19 plan named — `st_c2p_span` throughput — plus an actual
+measurement of the dungeon walk once it is drivable again.
+
+**Blocked on #91.** Reaching the dungeon headlessly on STE needs
+`-DFRUA_AUTOPLAY` (external keys drop into the roster modal). That flag now
+wedges the boot 100% of the time — not because of anything autoplay does, but
+because it adds BSS to `platform/input.c`, which is enough to make the #91
+boot hang deterministic. The play-loop measurement waits on that fix.
+
+### #91 — THE SHIPPING ST/STE PLANAR BUILD WEDGES AT BOOT (found 2026-07-26)
+
+Found while trying to drive the #90 soak. `make CPU68K=68000` — the default,
+the one `release-ste` ships — hangs at the title screen before the menu on a
+large fraction of boots.
+
+| build | deadline | result |
+|---|--:|---|
+| shipping planar | 200 s | **2 of 5 wedged** (successes take 17–19 s; failures ran the full 202 s with the log frozen) |
+| shipping chunky (`PLANAR=0`) | 90 s | 0 of 6 |
+| planar + one BSS `int` in `input.c` | 150 s | **4 of 4 wedged** (two different source placements) |
+| chunky + the same BSS `int` | 120 s | booted |
+| planar + a 4 KB `const` array (TEXT, not BSS) | 150 s | booted |
+| planar + the BSS `int` in `dbglog.c` instead | 150 s | booted |
+
+So it is **layout-sensitive** (a single unused `volatile int` in one specific
+translation unit's BSS turns a ~40% hang into a 100% hang; the same int
+elsewhere, or 4 KB of TEXT, does nothing), **timing-sensitive** (it is
+intermittent without the perturbation), and it **requires `FRUA_PLANAR`**.
+
+When wedged: the title screen is up, timer/VBL interrupts still fire (a
+`--trace cpu_exception` run shows only autovectors 28 and 30 — **no bus or
+address error**), and neither an injected key nor a mouse click advances it.
+The last log line is always the churn dump of reband #6, the title-screen
+re-quantise.
+
+Two suspects worth checking first: the per-band **Timer-B palette interrupt**
+racing `st_reband()` (which rewrites the band tables the handler reads), and
+the `Supexec`-from-interrupt hazard that `g_plat_in_super` exists to guard in
+`platform/input.c` — the file whose BSS layout flips this from intermittent to
+certain. It may well be the same root cause as **#61**.
+
+A caveat worth stating: an intermittent real-speed measurement (2 of 2 "wedged"
+at a 240 s deadline) was **retracted** — a good real-speed planar boot takes
+232 s, so that deadline was measuring itself. The numbers in the table above all
+come from runs where a success is an order of magnitude faster than the
+deadline.

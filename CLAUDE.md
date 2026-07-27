@@ -43,9 +43,15 @@ name.)
   as-is, so the effort went to the machines that cannot. See the TT section at
   the end of `docs/planar-plan.md`.
   Note that "native planar" removes the conversion only for rows a writer
-  actually stamped: measured 2026-07-26, **~47% of presented ST rows still
-  convert**, and the attribution says that is reband epoch-resets rather than
-  missing writers (same doc).
+  actually stamped. An earlier measurement (2026-07-26) put that at "~47% of
+  presented ST rows still convert", attributed to reband epoch-resets — **read
+  that as a BOOT figure, not a steady-state one.** Re-measured the same day
+  with the phases separated: the boot converts ~186 rows per present and
+  re-bands 11 times, while the post-menu screens converted **zero** rows and
+  re-banded **zero** times. The profiler's window is 16 presents and the boot
+  is 16 presents, which is how the boot came to stand in for the whole run. The
+  play loop itself is still unmeasured — see the #90 section of
+  `docs/planar-plan.md`.
 
 ## Source material
 
