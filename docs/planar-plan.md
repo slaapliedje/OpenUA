@@ -1580,3 +1580,79 @@ all: the writers already know which rows they touched (`s_dt_rowcov`) and the
 shim knows its dirty rects, so a dirty-row bitmap would replace even the fast
 scan with a 200-bit test. That is worth roughly the remaining 19%, and it
 reaches into the shim rather than living inside the backend.
+
+### THE DIRTY-ROW BITMAP: NOT LANDED — the blocker is measured, and so is the prize
+
+Investigated the obvious next #63 step and stopped short of shipping it, because
+what the measurement found changes the plan.
+
+**The mechanism already exists.** `#152` built `g_qd_touched` in the shim —
+"has anything drawn to the surface since the last full present?", set by every
+write path — precisely so a clean present could skip the backend's scan. It was
+added for the mono build, where "a clean present still cost ~310 ms in the
+backend's full-screen diff scan". The skip is gated on a single-buffered
+backend, and **the STE backend declares `pages = 1`, so it qualifies.** It was
+simply never firing.
+
+**Why it never fires — counted over 960 presents on the HEIRS drive:**
+
+| write path that marks the surface touched | hits |
+|---|--:|
+| **`qd_screen_pixels` — the direct-writer POINTER GRAB** | **3606 (3.8 per present)** |
+| `DrawChar` | 4116 |
+| `qd_pixmap_fill` | 2238 |
+| `qd_set_palette` | 85 |
+| `CopyBits`, `qd_cursor_track` | 0 |
+
+The grab is the problem, and it is structural: it marks on GRAB, not on write,
+because it cannot know what the caller will do with the pointer. Giving the
+other primitives per-rect dirty rows therefore buys nothing — the grab would
+still mark the whole screen 3.8 times a present. The grab has **29 call sites,
+nearly all in `src/engine/boot.c`** (the direct writers bridged in #76), and
+migrating lifted decompiled code to announce row ranges is where the actual work
+is. Getting one wrong leaves a stale row on a screen nobody tests.
+
+**So the prize was sized instead** (`FRUA_QDT_NOGRAB`, guarded in
+release_guard.h — it is behaviour-altering and must never ship). Assume every
+grab is a READ and drop its mark:
+
+- **299 presents skipped entirely**, ~23% of all `qd_present` calls.
+- **The end frame is PIXEL-IDENTICAL to the reference**, 0 of 489216 — on this
+  drive, no grab site wrote anything that another primitive had not already
+  announced.
+
+That is the number to build against: roughly a quarter of full presents are
+avoidable outright, before any row-granularity work. It is NOT proof the grabs
+are read-only in general — one drive, one module — but it says the 29 sites are
+worth auditing individually, and that most of them will turn out not to need a
+mark at all.
+
+**Recommended order for whoever picks this up:** audit the 29 `qd_screen_pixels`
+call sites, mark the ones that WRITE with an explicit row range, drop the
+blanket mark from the grab itself, and keep the full scan behind a diag flag
+that reports any row which changed without being announced. That validator is
+the whole safety story and should exist before the blanket mark comes off.
+
+### A PROBABLE #61 MECHANISM, found sideways
+
+Worth recording because it is the first reproducible handle on #61.
+
+The phase-timed builds end the HEIRS drive with a **blank dungeon viewport**
+where the plain build shows the guest-room art. It is not the row-compare
+change (both compare arms blank identically) — and it **disappears completely
+under `FRUA_QDT_NOGRAB`**, where the frame comes back pixel-identical to the
+reference.
+
+The single variable between those two states is HOW MANY FULL PRESENTS RUN. The
+composite is ONE-SHOT: `st_vp_composite` clears `s_vp_active` on its first call,
+so it paints the viewport into both pages exactly once per commit. An extra full
+present arriving between the commit and the flip converts the viewport's rows
+from the FROZEN chunky surface — which is stale there by design — straight over
+the composited planes, and nothing repaints them.
+
+That is a page-flip/redraw interaction that produces exactly #61's reported
+symptom, and it is now reproducible on demand: add presents (the phase timers
+do it accidentally; grab-marking does it by design) and the viewport goes.
+Not yet proven — the next step is to instrument the commit/composite/flip
+ordering directly rather than infer it from two builds that differ in present
+count.

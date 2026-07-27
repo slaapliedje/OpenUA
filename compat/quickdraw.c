@@ -309,6 +309,21 @@ static int g_present_hold;              /* #147 atomic-recompose hold (nests) */
  * different pages, so a "clean" second present still does real work. */
 static int   g_qd_touched = 1;
 
+#ifdef FRUA_STPROF
+/* #63: WHICH write path marks the surface touched? The backend's full-present
+ * row scan is 76% of a present, and the #152 skip that should suppress it on a
+ * single-buffered backend (STE is one) almost never fires — so something marks
+ * touched on nearly every frame. If that something is the POINTER GRAB, which
+ * cannot know what it wrote and so must assume everything, then giving the
+ * other primitives per-rect dirty rows buys nothing and the work belongs in the
+ * direct writers instead. Six counters answer it. Dumped by the backend. */
+long g_qdt_hits[8];              /* 0 grab 1 fill 2 blit 3 palette 4 cursor
+                                  * 5 glyph 6 unused 7 presents-with-touch */
+#define QDT(i) do { g_qdt_hits[i]++; } while (0)
+#else
+#define QDT(i) do { } while (0)
+#endif
+
 /* Present page count — see quickdraw.h (#151). Default 2 = the old
  * unconditional double present, so an unwired build behaves as before.
  * (Declared here, above qd_present, which reads it for the #152 skip;
@@ -404,6 +419,7 @@ void qd_present(void)
 	 * screen is already current; skip the backend's (expensive) no-op
 	 * scan. Only on single-buffered backends — see g_qd_touched. */
 	if (!g_qd_touched && g_present_pages == 1) {
+		QDT(6);                          /* #63: presents skipped clean */
 #ifdef FRUA_MONOPROF
 		g_qdp_counts[7]++;               /* clean presents skipped */
 #endif
@@ -510,7 +526,15 @@ int qd_screen_pixels(unsigned char **pixels, short *rowBytes,
 		return 0;
 	if (pixels) {
 		*pixels = (unsigned char *)(*pm)->baseAddr;
-		g_qd_touched = 1;        /* #152: pointer grab = presumed writer */
+#ifndef FRUA_QDT_NOGRAB
+		g_qd_touched = 1;        /* #152: pointer grab = presumed writer */ QDT(0);
+#else
+		/* #63 EXPERIMENT ONLY, never ships: assume a pointer grab READS.
+		 * Sizes the prize for a dirty-row scheme — if the screen still
+		 * renders correctly with this off, most of the 29 engine grab
+		 * sites do not write, and only the few that do need migrating. */
+		QDT(0);
+#endif
 	}
 	if (rowBytes) *rowBytes = (*pm)->rowBytes;
 	if (width)    *width    = (short)(cp->portRect.right - cp->portRect.left);
@@ -728,7 +752,7 @@ static void qd_pixmap_fill(GrafPtr port, const Rect *clip,
 	if (!SectRect(r, clip, &clipped))
 		return;
 
-	g_qd_touched = 1;                        /* #152: about to write pixels */
+	g_qd_touched = 1;                        /* #152: about to write pixels */ QDT(1);
 	w = (short)(clipped.right - clipped.left);
 #ifdef FRUA_PLANAR
 	dt_on = dsp_planar_draw_target(&dt);
@@ -1343,7 +1367,7 @@ void CopyBits(const BitMap *srcBits, const BitMap *dstBits,
 	if (!SectRect(&dstBits->bounds, &port_clip, &dst_clip))
 		return;
 
-	g_qd_touched = 1;                /* #152: about to write pixels */
+	g_qd_touched = 1;                /* #152: about to write pixels */ QDT(2);
 
 	/* Clip dst to dst_clip, mirroring trims into src. */
 	if (dst.left < dst_clip.left) {
@@ -1521,7 +1545,7 @@ void qd_set_palette(const RGBColor *colors, short first, short count)
 	dsp = dsp_detect();
 	if (dsp != NULL && dsp->set_palette != NULL)
 		dsp->set_palette(tmp, first, count);
-	g_qd_touched = 1;                /* #152: mapping may re-render pixels */
+	g_qd_touched = 1;                /* #152: mapping may re-render pixels */ QDT(3);
 	qd_rebake_color_pointer();      /* keep the colour cursor true to the CLUT */
 }
 
@@ -2020,7 +2044,7 @@ void qd_cursor_track(void)
 		/* #152: a cursor MOVE changes the composited output even though
 		 * the surface bytes didn't — force the present through the
 		 * clean-present gate or the pointer freezes on screen. */
-		g_qd_touched = 1;
+		g_qd_touched = 1; QDT(4);
 #ifdef FRUA_MONOPROF
 		g_qdp_src = 4;
 #endif
@@ -2371,7 +2395,7 @@ void DrawChar(short ch)
 	cp   = (CGrafPtr)port;
 	draw = qd_effective_clip(port, &clip);
 	if (draw)
-		g_qd_touched = 1;        /* #152: about to write pixels */
+		g_qd_touched = 1;        /* #152: about to write pixels */ QDT(5);
 
 	if (((unsigned short)cp->portVersion & CGRAFPORT_FLAG) != CGRAFPORT_FLAG
 	 || cp->portPixMap == NULL || *cp->portPixMap == NULL)

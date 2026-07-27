@@ -2369,6 +2369,16 @@ static void st_present(void)
 		dbg_log_num("b63pr:   vpcomp t200   = ", sp_vp_t);
 		dbg_log_num("b63pr: rows changed    = ", sp_ph_chg_rows);
 		dbg_log_num("b63pr: rows converted  = ", sp_ph_conv_rows);
+		{	/* #63: which shim write path marks the surface touched? */
+			extern long g_qdt_hits[8];
+			dbg_log_num("b63qdt: 0 pointer grab = ", g_qdt_hits[0]);
+			dbg_log_num("b63qdt: 1 pixmap fill  = ", g_qdt_hits[1]);
+			dbg_log_num("b63qdt: 2 CopyBits     = ", g_qdt_hits[2]);
+			dbg_log_num("b63qdt: 3 set_palette  = ", g_qdt_hits[3]);
+			dbg_log_num("b63qdt: 4 cursor track = ", g_qdt_hits[4]);
+			dbg_log_num("b63qdt: 5 DrawChar     = ", g_qdt_hits[5]);
+			dbg_log_num("b63qdt: 6 SKIPPED clean = ", g_qdt_hits[6]);
+		}
 		st_prof_hot_dump();              /* #41: hot-row attribution window */
 		st_prof_b30b();                  /* B3.0b: compute-vs-contention sample */
 	}
