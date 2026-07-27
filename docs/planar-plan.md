@@ -1079,3 +1079,62 @@ redraw glitch". Chunking each `st_blt_copy` into ~1 KB pieces would bound the
 starvation for well under 1% of the copy cost (about 15 register writes per
 chunk against 512 word moves). Not done here: it is a different symptom, and
 folding it into the hang fix would muddy the attribution.
+
+### #61 BLITTER BUS-HOG — FIXED THE STARVATION, DID NOT FIND THE GLITCH (2026-07-26)
+
+Following the #91 lead: #48's HOG-mode blits halt the CPU for the whole
+transfer, so a force-full (2 pages x 32000 plane + 64000 shadow bytes) blocks
+every interrupt for ~24 ms. On a display whose 16 colours come from a per-band
+Timer-B palette split, that should wreck the bands. It does — and it turns out
+not to matter visually.
+
+**Measuring it.** Added an STPROF counter (`b61`): the Timer-B ISR increments a
+per-frame fire count, and the VBL checks it against ST_NBANDS before resetting.
+A frame short of fires rendered its lower bands with a stale palette. Both arms
+of the blitter A/B ran from ONE binary (marker file at `st_init`), per the #91
+lesson.
+
+| arm | starved frames | band fires lost | worst frame | real-speed boot |
+|---|--:|--:|--:|--:|
+| blitter, unbounded HOG (pre-#61) | 107 | 448 | **0 of 10 bands** | 371 s |
+| blitter, 2048-word chunks | 10 | 10 | 9 of 10 | 360 s |
+| **blitter, 512-word chunks** | **0** | **0** | — | **356 s** |
+| no blitter (memcpy reference) | 0 | 0 | — | — |
+
+So the starvation was real and total — at least one frame during every boot got
+NO band switches at all. Chunking each blit to 512 words removes it completely,
+matching the memcpy reference, and is if anything FASTER end to end (356 s vs
+371 s): the CPU is halted for the whole of a HOG blit anyway, and the per-chunk
+cost is ~4 register writes per 512 word moves. Shipped unconditionally.
+
+**But it is not the #61 glitch.** Recorded the whole boot to AVI (22310 frames)
+and looked for the flash: **zero single-frame transients** — no frame differs
+from neighbours that agree with each other. Only 32 frames in the entire boot
+differ from their predecessor at all, so the detector had nothing to hide.
+
+The reason is more interesting than the search. Disabling the per-band palette
+split ENTIRELY (an early `rte` in the Timer-B ISR — verified in the disassembly,
+not just the source) leaves:
+
+- the **title screen pixel-identical**, 0 of 489216 pixels different;
+- the **menu** different by 0.2%, which is the mouse cursor having moved.
+
+**On these screens the raster split is doing nothing at all** — the quantiser's
+per-band reduce lands on the same 16 colours for all ten bands. A frame that
+misses its band interrupts is therefore indistinguishable from a correct one,
+and cannot be the artefact the user reported.
+
+**What this does and does not settle.** The starvation is fixed and a 24 ms
+interrupt blackout — which also stalls sound DMA, the keyboard ACIA and every
+timer, and is what made #91's deadlock fire — is gone. #61 itself stays OPEN:
+this lead is closed, so nobody re-derives it. The screens that could not be
+tested are exactly the ones the split was built for (#40's banding work): the
+dungeon view, combat and BIGPIC art, all still unreachable headlessly on STE.
+If the glitch is a band artefact at all, it will be there.
+
+**Spin-off for #63.** If all ten band palettes are identical — which they are on
+every screen measured here — the Timer-B handler is pure overhead: ~500 ISRs a
+second, each saving eight registers and then SPINNING to the end of a display
+line. Detecting an all-identical band set at re-band time and simply not arming
+Timer B would buy that back on menu-heavy screens for a few lines of code.
+Nobody has measured what it costs, which is the first step.

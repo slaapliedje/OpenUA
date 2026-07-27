@@ -187,6 +187,11 @@ static void           st_vp_composite(void);
  * (Compendium B.38, p.758: IERA 0xFFFA06, IPRA 0xFFFA0A, ISRA 0xFFFA0E — the
  * byte lives at the odd address). Writing IPRA/ISRA clears only the bits
  * written as ZERO, hence the 0xFE masks. */
+#ifdef FRUA_STPROF
+volatile long g_tb_fires;       /* #61: band fires in the CURRENT frame (asm) */
+static long sp_frames, sp_starved, sp_fires_lost, sp_fires_min = 99;
+#endif
+
 #define IERA (*(volatile unsigned char *)0xFFFFFA07UL)
 #define IPRA (*(volatile unsigned char *)0xFFFFFA0BUL)
 #define TB_BIT       0x01
@@ -237,6 +242,23 @@ void st_vbl_handler(void)
 	IPRA = TB_CLR_MASK;             /* drop anything latched while masked   */
 	IERA |= TB_BIT;
 
+#ifdef FRUA_STPROF
+	{	/* #61: how many band palettes did the frame just past actually get?
+		 * A frame starved of interrupts renders its lower bands with a stale
+		 * palette — the artefact, counted rather than eyeballed. */
+		long f = g_tb_fires;
+
+		g_tb_fires = 0;
+		if (sp_frames > 0) {            /* frame 0 is partial by construction */
+			if (f < ST_NBANDS) {
+				sp_starved++;
+				sp_fires_lost += (ST_NBANDS - f);
+				if (f < sp_fires_min) sp_fires_min = f;
+			}
+		}
+		sp_frames++;
+	}
+#endif
 	for (i = 0; i < ST_NCOL; i++)
 		hw[i] = st_band_stpal[0][i];
 	st_band_ptr = &st_band_stpal[1][0];
@@ -275,9 +297,18 @@ extern void st_vbl_trampoline(void);
  * line early — a cosmetic band offset, which is the correct thing to prefer
  * over a hang. */
 typedef char st_asm_assumes_rpb_20[(ST_RPB == 20) ? 1 : -1];
+/* #61: count band fires per frame so interrupt STARVATION is measurable
+ * directly, instead of inferred from pixels. One addq per band; STPROF only. */
+#ifdef FRUA_STPROF
+#define TB_COUNT_INSN "  addql #1,_g_tb_fires\n"
+#else
+#define TB_COUNT_INSN ""
+#endif
+
 __asm__(
 	".globl _st_timerb_trampoline\n"
 	"_st_timerb_trampoline:\n"
+	TB_COUNT_INSN
 	"  moveml %d0-%d7/%a0,%sp@-\n"
 	"  movel  _st_band_ptr,%a0\n"
 	"  moveml %a0@+,%d0-%d7\n"
@@ -947,22 +978,63 @@ static int st_dt_ready_row(short y)
 #define BLT_CTRL     (*(volatile unsigned char *)0xFFFF8A3CUL)
 #define BLT_SKEW     (*(volatile unsigned char *)0xFFFF8A3DUL)
 
+/* Words per blit. HOG mode halts the CPU for the whole blit, so one unbroken
+ * 32000-word copy is ~8 ms with NO interrupt serviced — and a force-full issues
+ * four of them, ~24 ms, well over a frame (task #61: measured 119 frames during
+ * boot rendering with missing band palettes, one with NONE at all). The ST's 16
+ * colours are a per-band Timer-B palette split, so a frame that misses its band
+ * interrupts draws its lower bands in a stale palette. Capping each blit bounds
+ * that: pending interrupts are taken at the instruction boundary after each
+ * chunk.
+ *
+ * 512 words is ~0.125 ms. Measured on the boot sequence (STPROF b61 counters):
+ * unbounded = 107 starved frames and 448 lost band fires, worst frame missing
+ * ALL ten; 2048 words = 10 and 10; 512 words = ZERO, matching the no-blitter
+ * reference exactly. It is not a trade: real-speed boot-to-menu wall clock went
+ * 371 s unbounded -> 356 s at 512 words, because the CPU is halted for the
+ * whole of a HOG blit and the per-chunk cost is ~4 register writes per 512 word
+ * moves.
+ *
+ * Chunked HOG rather than shared-bus (HOG clear): between chunks the blitter is
+ * IDLE, so an interrupt handler that uses the blitter itself cannot corrupt a
+ * transfer in flight. Sharing the bus would leave it exposed for the whole
+ * copy. */
+#define BLT_CHUNK_WORDS 512
+
+/* Words per blit, 0 = unbounded. Set at init; a variable rather than a
+ * constant so the A/B below can hold the binary identical. */
+static unsigned short s_blt_chunk = BLT_CHUNK_WORDS;
+
 /* One aligned word-copy. SUPERVISOR ONLY — never call this from user code. */
 static void st_blt_copy(void *dst, const void *src, unsigned short words)
 {
+	unsigned char       *d = (unsigned char *)dst;
+	const unsigned char *s = (const unsigned char *)src;
+
 	BLT_SRC_XINC = 2;  BLT_SRC_YINC = 2;
 	BLT_DST_XINC = 2;  BLT_DST_YINC = 2;
-	BLT_SRC      = (unsigned long)(uintptr_t)src;
-	BLT_DST      = (unsigned long)(uintptr_t)dst;
 	BLT_END1     = 0xFFFF; BLT_END2 = 0xFFFF; BLT_END3 = 0xFFFF;
-	BLT_XCOUNT   = words;
 	BLT_YCOUNT   = 1;
 	BLT_HOP      = 2;                        /* HOP: source */
 	BLT_OP       = 3;                        /* OP: D = S    */
 	BLT_SKEW     = 0;                        /* no FXSR/NFSR, no shift */
-	BLT_CTRL     = 0xC0;                     /* BUSY | HOG -> run to completion */
-	while (BLT_CTRL & 0x80)
-		;
+
+	while (words) {
+		unsigned short n = words;
+
+		if (s_blt_chunk && n > s_blt_chunk)
+			n = s_blt_chunk;
+
+		BLT_SRC    = (unsigned long)(uintptr_t)s;
+		BLT_DST    = (unsigned long)(uintptr_t)d;
+		BLT_XCOUNT = n;
+		BLT_CTRL   = 0xC0;               /* BUSY | HOG -> run to completion */
+		while (BLT_CTRL & 0x80)
+			;
+		s     += (long)n * 2;
+		d     += (long)n * 2;
+		words -= n;
+	}
 }
 
 /* Changed-row RUNS for one present. ST_H alternating rows is the worst case,
@@ -1685,6 +1757,10 @@ static void st_prof_hot_dump(void)
 		}
 	}
 	dbg_log_num("b4hot rows touched = ", touched);
+	dbg_log_num("b61 frames              = ", sp_frames);
+	dbg_log_num("b61 starved frames      = ", sp_starved);
+	dbg_log_num("b61 band fires lost     = ", sp_fires_lost);
+	dbg_log_num("b61 worst fires in frame= ", sp_fires_min);
 	dbg_log_num("b4why hole-only rows     = ", why_hole);
 	dbg_log_num("b4why mismatch-only rows = ", why_mismatch);
 	dbg_log_num("b4why both rows          = ", why_both);
