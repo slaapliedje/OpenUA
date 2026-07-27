@@ -1014,7 +1014,6 @@ static void st_blt_copy(void *dst, const void *src, unsigned short words)
 	BLT_SRC_XINC = 2;  BLT_SRC_YINC = 2;
 	BLT_DST_XINC = 2;  BLT_DST_YINC = 2;
 	BLT_END1     = 0xFFFF; BLT_END2 = 0xFFFF; BLT_END3 = 0xFFFF;
-	BLT_YCOUNT   = 1;
 	BLT_HOP      = 2;                        /* HOP: source */
 	BLT_OP       = 3;                        /* OP: D = S    */
 	BLT_SKEW     = 0;                        /* no FXSR/NFSR, no shift */
@@ -1028,6 +1027,12 @@ static void st_blt_copy(void *dst, const void *src, unsigned short words)
 		BLT_SRC    = (unsigned long)(uintptr_t)s;
 		BLT_DST    = (unsigned long)(uintptr_t)d;
 		BLT_XCOUNT = n;
+		/* ★ PER CHUNK, NOT ONCE. The blitter DECREMENTS Y count as it runs,
+		 * so it reads 0 after a completed blit — hoisting this out of the
+		 * loop leaves every chunk after the first with YCOUNT = 0 and
+		 * corrupts the screen. Cost one word write; found by the first
+		 * walk-screen render ever captured on STE. */
+		BLT_YCOUNT = 1;
 		BLT_CTRL   = 0xC0;               /* BUSY | HOG -> run to completion */
 		while (BLT_CTRL & 0x80)
 			;

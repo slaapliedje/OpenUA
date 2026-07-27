@@ -1138,3 +1138,60 @@ second, each saving eight registers and then SPINNING to the end of a display
 line. Detecting an all-identical band set at re-band time and simply not arming
 Timer B would buy that back on menu-heavy screens for a few lines of code.
 Nobody has measured what it costs, which is the first step.
+
+### #92 THE STE DUNGEON IS DRIVABLE — and the first walk frame caught a bug
+
+Two things were blocking it, neither of them the engine.
+
+**1. The driver drops fast-forward at the menu.** `hatari_ui.sh start` sends
+`hatari-option --fast-forward no` once it sees `menu: modal up`. Autoplay's
+schedule is in emulated ticks, and at real 8 MHz each screen takes ~40 s to
+build, so a 24-key script needs ~15 minutes and looks exactly like a stall. It
+had been read as "autoplay stops firing after key 5". Send
+`hatari-option --fast-forward yes` back down the fifo after `start` and the same
+script finishes in ~90 s. Drop it again before screenshotting.
+
+**2. HEIRS opens a modal chain on its entry cell**, which eats movement keys —
+the trap `tools/mk_walktest_design.py` was written for. Point the engine at
+WALKTEST.DSN (`--current`) and the walk keys reach the walk code.
+
+Recipe, start to walk frame:
+
+    python3 tools/mk_walktest_design.py data/work/gamedata --current
+    make CPU68K=68000 EXTRA_CFLAGS="-DFRUA_AUTOPLAY -DFRUA_AUTOWALK"
+    env -u DISPLAY HATARI_ARGS="--machine ste " driver.sh start
+    echo "hatari-option --fast-forward yes" > /tmp/frua-ui/cmd.fifo
+    #   poll conout.log until "autoplay: send key" hits 24  (~90 s)
+    echo "hatari-option --fast-forward no"  > /tmp/frua-ui/cmd.fifo
+    driver.sh shots walk.png
+
+Verified by STATE, not key count: the clock reads **12:06 AM**, six minutes for
+the script's six Up steps.
+
+**What the first frame showed: the walk screen was CORRUPT** — red bars across
+it, a roster name painted over the viewport, no command bar, content squashed
+into the top half, and completely static frame to frame. Three runs of the same
+drive localised it, each changing one thing:
+
+| build (same design, same 24 keys) | walk frame |
+|---|---|
+| `PLANAR=0` (chunky) | correct — the reference |
+| planar, blitter forced off | **pixel-identical to the reference** |
+| planar, blitter on (shipping default) | **27.2% of pixels differ** |
+| planar, blitter on, UNCHUNKED (0.5.7 behaviour) | **pixel-identical to the reference** |
+
+So: not the draw-time path, and not #48 — **the chunking added hours earlier in
+3fc0a8cb**. `BLT_YCOUNT = 1` had been hoisted out of the chunk loop, and the
+blitter DECREMENTS Y count as it runs, so it reads 0 after a completed blit and
+every chunk after the first ran with YCOUNT = 0. One word write per chunk, moved
+back inside the loop.
+
+**0.5.7-beta is unaffected** — the bug only ever existed on `main`, between
+3fc0a8cb and its fix.
+
+Worth noting how narrowly it escaped: the earlier #61 verification (6/6 clean
+boots, menu pixel-compared, 0 starved frames, 410 tests) all passed on the
+broken build. Every one of those checks looked at the boot and menu, and the
+menu's copies are small enough to fit in a single 512-word chunk. The bug lived
+entirely in copies big enough to need a second chunk, which is the walk screen —
+the one frame no ST harness had ever rendered.
