@@ -93,8 +93,13 @@ git subtree pull --prefix=third_party/c2p-68k c2p-68k main --squash
 git subtree push --prefix=third_party/c2p-68k c2p-68k main
 ```
 
-The `c2p-68k` remote currently points at a LOCAL path (`~/dev/c2p-68k`);
-repoint it with `git remote set-url` once the repo has a real home.
+Upstream is <https://github.com/slaapliedje/c2p-68k> (MIT). A fresh clone of
+OpenUA has no `c2p-68k` remote — the subtree's code is committed in-tree so the
+build works regardless, but before the first pull/push you need:
+
+```sh
+git remote add c2p-68k git@github.com:slaapliedje/c2p-68k.git
+```
 
 - **Do not re-add local copies** of those files under `platform/`. Edit them in
   `third_party/c2p-68k/` and push upstream.
