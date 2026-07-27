@@ -1018,3 +1018,64 @@ at a 240 s deadline) was **retracted** — a good real-speed planar boot takes
 232 s, so that deadline was measuring itself. The numbers in the table above all
 come from runs where a success is an order of magnitude faster than the
 deadline.
+
+#### #91 ROOT CAUSE AND FIX — 2026-07-26. It was a Timer-B / VBL deadlock.
+
+**Isolating it needed a RUNTIME switch, not a build flag.** Every compile-time
+probe moved the goalposts: the bug is layout-sensitive, so `-DFRUA_STPROF`,
+`ENGINE_PROBE=1`, a bounded spin, even a `--trace gemdos` run all changed the
+odds, and several masked it entirely. The experiment that settled it reads a
+marker file at `st_init` and clears `s_use_blt` if present, so both arms are the
+**same binary** and layout is held constant:
+
+| arm (identical binary) | boots | wedged |
+|---|--:|--:|
+| BLiTTER on | 10 | **7** |
+| BLiTTER off | 10 | **0** |
+
+**The deadlock.** `st_vbl_handler` re-phases Timer B by stopping it
+(`TBCR = 0`), reloading, and restarting. It runs at IPL 4, so the level-6
+Timer-B ISR can preempt it — and that ISR spins on TBDR waiting for the display
+line to end:
+
+    1: cmpib #20,0xFFFFFA21
+       jeq   1b
+
+TBDR only moves while the timer is COUNTING. Preempt the VBL inside its
+stopped-timer window and the ISR waits forever for a register that cannot
+change, at an IPL that blocks the only code that could restart it. The machine
+looks alive from outside — interrupts were serviced right up to the deadlock,
+so a `--trace cpu_exception` run shows nothing but ordinary autovectors, no bus
+error — and the title screen just sits there.
+
+**Why #48 made it fire.** A force-full seeds two pages: 2 x 32000 plane bytes +
+2 x 64000 shadow bytes, in HOG mode, in one `Supexec`. That is ~24 ms during
+which the CPU cannot service any interrupt. The VBL and a Timer-B request then
+come due together and land in the window. The window is only ~10 cycles wide,
+which is why the pre-#48 build hit it rarely enough to look fine.
+
+**The fix** (both parts, `platform/display_ste.c`):
+
+1. `st_vbl_handler` masks Timer B in **IERA bit 0** (Compendium B.38 p.758 —
+   Timer B is MFP channel 8, so it lives in the *A* register set, not B) across
+   the re-phase, clears anything latched via IPRA, then re-enables. Disabling an
+   MFP channel also clears its pending bit, so the cost is at most one band's
+   palette arriving a frame late.
+2. The ISR spin gains a **liveness test** rather than a counter: if TBCR is 0
+   the timer is stopped and TBDR is frozen, so fall through and store the
+   palette a line early. Cosmetic band offset instead of a hang. This should now
+   be unreachable; it stays because an unbounded spin inside an interrupt
+   handler is a landmine, and teardown stops the timer too.
+
+**Verification.** Shipping config 10/10 clean. With the BSS amplifier that
+previously wedged 4 of 4 boots, 8/8 clean. Menu renders correctly (bands
+intact). ST chunky 2/2. 410 tests pass; falcon / TT-FPU / ST-chunky / Amiga AGA
+/ Amiga ECS all build.
+
+**Left for #61.** The 24 ms bus hog is still there — the fix makes it harmless
+rather than absent. Interrupts starved for 1.4 frames means band palettes land
+late on every transition, which is a strong candidate for the "occasional STe
+redraw glitch". Chunking each `st_blt_copy` into ~1 KB pieces would bound the
+starvation for well under 1% of the copy cost (about 15 register writes per
+chunk against 512 word moves). Not done here: it is a different symptom, and
+folding it into the hang fix would muddy the attribution.

@@ -183,6 +183,15 @@ static void           st_vp_composite(void);
 #define TBCR (*(volatile unsigned char *)0xFFFFFA1BUL)
 #define TBDR (*(volatile unsigned char *)0xFFFFFA21UL)
 
+/* MFP interrupt registers. Timer B is MFP channel 8 = BIT 0 of the *A* set
+ * (Compendium B.38, p.758: IERA 0xFFFA06, IPRA 0xFFFA0A, ISRA 0xFFFA0E — the
+ * byte lives at the odd address). Writing IPRA/ISRA clears only the bits
+ * written as ZERO, hence the 0xFE masks. */
+#define IERA (*(volatile unsigned char *)0xFFFFFA07UL)
+#define IPRA (*(volatile unsigned char *)0xFFFFFA0BUL)
+#define TB_BIT       0x01
+#define TB_CLR_MASK  0xFE
+
 /* VBL (C, via the rts trampoline below — the vertical blank has time to
  * spare): re-phase Timer B, load band 0's palette, point the raster handler
  * at band 1.
@@ -195,12 +204,29 @@ static void           st_vp_composite(void);
  * line's display ends and drops the 16 colours entirely inside the border
  * (see the trampoline below). Fired at the boundary itself, the store landed
  * ~120 cycles into the new band's first visible line — the "weird lines" of
- * the live test. */
+ * the live test.
+ *
+ * ★ THE RE-PHASE MUST BE UNINTERRUPTIBLE BY TIMER B ITSELF (task #91). This
+ * handler runs at IPL 4, so the level-6 Timer-B ISR can preempt it — and if it
+ * lands in the window where TBCR is 0, the machine DEADLOCKS: the ISR spins on
+ * TBDR waiting for the display line to end, TBDR only moves while the timer is
+ * counting, and the timer is stopped by the very handler the ISR just
+ * preempted. Nothing at IPL 4 can run to restart it, so the boot hangs on the
+ * title screen with interrupts apparently still alive. Masking Timer B in IERA
+ * across the window closes it. (Disabling an MFP channel also clears its
+ * pending bit, so at most one band fire is lost — one frame of one band's
+ * palette arriving late, versus a hard hang.)
+ *
+ * The trigger that made this fire ~40% of boots was #48's BLiTTER copies: a
+ * force-full seeds 2 pages x (32000 plane + 64000 shadow) bytes in HOG mode,
+ * ~24 ms during which the CPU cannot service ANY interrupt, so the VBL and a
+ * Timer-B request come due together and land in exactly this window. */
 void st_vbl_handler(void)
 {
 	volatile short *hw = ST_COLORREGS;
 	short i;
 
+	IERA &= (unsigned char)~TB_BIT; /* Timer B cannot preempt the re-phase  */
 	TBCR = 0;                       /* stop: the writes must not race       */
 	TBDR = ST_RPB - 1;              /* first fire ONE LINE EARLY            */
 	TBCR = 8;                       /* event-count mode, re-armed in phase  */
@@ -208,6 +234,8 @@ void st_vbl_handler(void)
 	                                 * only picks this up at the next
 	                                 * underflow, so the -1 above stands
 	                                 * for the first) */
+	IPRA = TB_CLR_MASK;             /* drop anything latched while masked   */
+	IERA |= TB_BIT;
 
 	for (i = 0; i < ST_NCOL; i++)
 		hw[i] = st_band_stpal[0][i];
@@ -234,7 +262,18 @@ extern void st_vbl_trampoline(void);
  * one poll (~20 cycles) of jitter. If the handler was entered so late that
  * the line already ended, the spin falls straight through. ISRA bit 0
  * (Timer B = MFP channel 8) is cleared on exit; the MFP clears only the ZERO
- * bits of the written mask, hence 0xFE. */
+ * bits of the written mask, hence 0xFE.
+ *
+ * ★ THE SPIN IS BOUNDED BY A LIVENESS TEST, NOT A COUNT (task #91). TBDR only
+ * moves while the timer is COUNTING, so if this ISR is ever entered with the
+ * timer stopped (TBCR == 0) the condition can never become false and the
+ * machine deadlocks at IPL 6 — no IPL-4 code can run to restart it. The VBL's
+ * re-phase window is the one place that stops the timer, and it now masks
+ * Timer B for exactly that window, so this test should never fire. It stays
+ * anyway: an unbounded spin inside an interrupt handler is a landmine, and
+ * teardown paths stop the timer too. Falling through just stores the palette a
+ * line early — a cosmetic band offset, which is the correct thing to prefer
+ * over a hang. */
 typedef char st_asm_assumes_rpb_20[(ST_RPB == 20) ? 1 : -1];
 __asm__(
 	".globl _st_timerb_trampoline\n"
@@ -245,7 +284,10 @@ __asm__(
 	"  movel  %a0,_st_band_ptr\n"
 	"1:\n"
 	"  cmpib  #20,0xFFFFFA21\n"     /* TBDR still at reload (ST_RPB)?      */
-	"  jeq    1b\n"                 /* yes: the line is still displaying   */
+	"  jne    2f\n"                 /* no: the line ended — store now      */
+	"  tstb   0xFFFFFA1B\n"         /* TBCR == 0 -> timer STOPPED, TBDR is */
+	"  jne    1b\n"                 /*   frozen: spinning would deadlock   */
+	"2:\n"
 	"  moveml %d0-%d7,0xFFFF8240\n"
 	"  moveml %sp@+,%d0-%d7/%a0\n"
 	"  moveb  #0xFE,0xFFFFFA0F\n"
