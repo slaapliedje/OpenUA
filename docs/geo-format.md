@@ -43,7 +43,19 @@ occurs in practice (the parser still honours it). `l7226` validates:
 | 272 + k·2 | u16 | 8 shorts stored **byte-swapped** on disk, flipped via `jt1180` on load |
 
 The remaining HDR bytes hold per-area design metadata (light level, save flags,
-etc.) not yet individually mapped; for a bare walkable area they can stay zero.
+etc.) not yet individually mapped.
+
+**HDR[4..13] must NOT be left zero — it is the area's ART BINDING.** This text
+used to say the unmapped bytes "can stay zero for a bare walkable area". They
+can, and such an area loads, walks and blocks correctly — with no art. The
+first-person view then falls back to a flat generic corridor that is
+BYTE-IDENTICAL regardless of the geometry authored or where the party stands,
+which is how task #61 came to spend two soaks photographing a picture that could
+not change. Every real area has ten non-zero bytes here (HEIRS GEO005:
+`05 08 01 01 08 01 24 03 01 01`); splicing that block into a generated area
+changed the editor's 3D preview by 50.8% and gave the in-play viewport its
+ceiling and floor art back. `tools/dsn.py` now writes it as `ART_BLOCK`. The
+individual fields remain unmapped.
 
 **Party start.** `l0bbc` places the party from entry point `g_a5_-18488` (the
 Game-Settings "AT ENTRY POINT" value): `st = ds + entry*4`, then

@@ -117,6 +117,21 @@ class Design:
 # 0x10 does not appear at all.
 WALL_SOLID = 0xF0
 
+# HDR[4..13] — the area's ART BINDING, and it must not be left zero.
+#
+# geo-format.md used to say of these bytes "not yet individually mapped; for a
+# bare walkable area they can stay zero". They can, and the area then loads and
+# walks perfectly — with NO ART. The first-person view falls back to a flat
+# generic corridor that is byte-identical no matter what geometry you author,
+# which is exactly how task #61 came to spend two soaks photographing a picture
+# that could not change. Splicing this block from a real area into a generated
+# one changed the editor's 3D preview by 50.8% (flat corridor -> beamed ceiling
+# and stone floor), which is how it was found.
+#
+# The individual fields are still unmapped; these are HEIRS GEO005's values,
+# copied wholesale because a known-good set beats ten guessed bytes.
+ART_BLOCK = bytes((0x05, 0x08, 0x01, 0x01, 0x08, 0x01, 0x24, 0x03, 0x01, 0x01))
+
 
 def _walled_room(w=8, h=8, entry=(3, 3), facing=0):
     """An enclosed dungeon chamber: a solid wall on every perimeter cell's
@@ -129,6 +144,7 @@ def _walled_room(w=8, h=8, entry=(3, 3), facing=0):
                                     WALL_SOLID if c == w - 1 else 0,
                                     WALL_SOLID if r == h - 1 else 0,
                                     WALL_SOLID if c == 0 else 0))
+    g.hdr[4:14] = ART_BLOCK          # without this the area renders no art
     g.set_entry_point(0, row=entry[0], col=entry[1], facing=facing)
     return g
 
