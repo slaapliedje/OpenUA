@@ -191,6 +191,25 @@ static void           st_vp_composite(void);
 volatile long g_tb_fires;       /* #61: band fires in the CURRENT frame (asm) */
 static long sp_frames, sp_starved, sp_fires_lost, sp_fires_min = 99;
 static long sp_tb_total;        /* #63: band fires since boot (bench deltas) */
+
+/* #63 PLAY-LOOP profile. Everything measured on this target so far has been
+ * the boot or a menu — st_prof_hot_dump's window is full presents, and a
+ * dungeon walk issues RECT presents, so the walk has literally never been
+ * timed. These count the two things the walk actually runs: the viewport
+ * composite (chunky scratch -> planes -> both pages) and the rect present.
+ * Wall ticks alongside them give the share: if composite+rect is a small
+ * fraction of the wall, the 8 MHz ceiling is the ENGINE's 3D render and no
+ * amount of c2p tuning will move it.
+ *
+ * 200 Hz (5 ms) rather than TickCount's 60 Hz — a walk step is a few tens of
+ * ms and 60 Hz would quantise most of it away. The Supexec is a trap, but it
+ * is two per composite against a body that touches ~7700 pixels. */
+static long st_prof_hz200(void)
+{
+	return *(volatile long *)0x4BAUL;
+}
+static long sp_vp_n, sp_vp_t, sp_rect_n, sp_rect_t, sp_play_t0 = -1;
+static long sp_vp_conv, sp_vp_blit;     /* composite split: c2p vs plane blit */
 #endif
 
 #define IERA (*(volatile unsigned char *)0xFFFFFA07UL)
@@ -1628,21 +1647,101 @@ static void st_vp_commit(short x, short y, short w, short h)
 	s_vp_active = 1;
 }
 
+/* Convert EIGHT chunky pixels straight into their four ST-Low plane bytes.
+ *
+ * An ST-Low 16-pixel group is four consecutive words, one per plane, and each
+ * word's high byte is pixels 0-7 of the group, its low byte pixels 8-15. So an
+ * 8-pixel column that starts on a multiple of 8 lands on FOUR WHOLE BYTES —
+ * `(x >> 4) * 8` picks the group, `(x >> 3) & 1` the half, and plane p is at
+ * +2p. No read-modify-write and no masking: every destination bit belongs to
+ * this span, which is the whole reason the aligned path can exist. Bit 7 of a
+ * byte is its leftmost pixel, matching c2p4st_32's bit-15-is-leftmost. */
+static void st_c2p8(const unsigned char *src, const unsigned char *lut,
+                    unsigned char *dstrow, short x)
+{
+	unsigned char *g = dstrow + (long)(x >> 4) * 8 + ((x >> 3) & 1);
+	unsigned char b0 = 0, b1 = 0, b2 = 0, b3 = 0;
+	short i;
+
+	for (i = 0; i < 8; i++) {
+		unsigned char s = lut[src[i]];
+		unsigned char m = (unsigned char)(0x80u >> i);
+
+		if (s & 1) b0 |= m;
+		if (s & 2) b1 |= m;
+		if (s & 4) b2 |= m;
+		if (s & 8) b3 |= m;
+	}
+	g[0] = b0; g[2] = b1; g[4] = b2; g[6] = b3;
+}
+
+/* #63: chunky viewport -> ST-Low planes, straight into each page.
+ *
+ * Replaces a two-stage scalar path that was costing 4.75 s of emulated time per
+ * dungeon step: chunky -> separate planes one bit at a time (1.03 s), then
+ * planar_blit_stlow shifting those planes into the interleaved screen one bit
+ * per pixel per plane, twice (3.72 s, ~1900 cycles PER PIXEL). Both stages
+ * disappear here — there is no intermediate buffer, no memset, and the 32-pixel
+ * bulk goes through the same c2p4st_32 the full-frame path uses, flat-span fast
+ * path included.
+ *
+ * Requires an 8-pixel-aligned x and width; the caller checks and keeps the old
+ * path for anything else. The live viewport is 88x88 at (24,24), so the middle
+ * loop does two 32-pixel blocks and the edges one 8-pixel column each side.
+ *
+ * Shadows are deliberately untouched, exactly as before: the viewport's rows in
+ * s_chunky are frozen, the row-diff therefore skips them, and this write is
+ * what makes the planes right. Both pages are converted because a full present
+ * flips, and the other page's hole would otherwise show a stale viewport. */
+static void st_vp_composite_fast(void)
+{
+	short pg, r;
+
+	for (pg = 0; pg < NPAGES; pg++) {
+		for (r = 0; r < s_vp_h; r++) {
+			short yy   = (short)(s_vp_y + r);
+			short band = (short)((long)yy * ST_NBANDS / ST_H);
+			const unsigned char *lut = s_band_remap + (long)band * 256;
+			const unsigned char *sp  =
+			    s_vp_scratch + (long)yy * VP_SCR_PITCH + s_vp_x;
+			unsigned char *drow = s_page[pg] + (long)yy * LINE_BYTES;
+			short x = s_vp_x, n = s_vp_w;
+
+			/* lead-in 8px columns until x is 32-aligned */
+			while (n >= 8 && (x & 31) != 0) {
+				st_c2p8(sp, lut, drow, x);
+				sp += 8; x = (short)(x + 8); n = (short)(n - 8);
+			}
+			while (n >= 32) {
+				unsigned short *d =
+				    (unsigned short *)(drow + (long)(x >> 4) * 8);
+
+				if (c2p4st_is_flat(sp, 32))
+					c2p4st_32_flat(sp[0], lut, d);
+				else
+					c2p4st_32(sp, lut, d);
+				sp += 32; x = (short)(x + 32); n = (short)(n - 32);
+			}
+			while (n >= 8) {                 /* trailing columns */
+				st_c2p8(sp, lut, drow, x);
+				sp += 8; x = (short)(x + 8); n = (short)(n - 8);
+			}
+		}
+	}
+}
+
 /* Convert the committed rect (chunky, per-band remap) to ST-Low planes and drop
  * it into the viewport hole. One-shot: cleared after compositing so a later
  * full recompose (menu/combat) that did NOT re-commit leaves the surface alone.
  * Called at the tail of every present. */
-static void st_vp_composite(void)
+static void st_vp_composite_slow(void)
 {
 	unsigned char *pp[ST_DEPTH];
 	long planebytes;
 	short r, c, p;
-
-	if (!s_vp_active)
-		return;
-	s_vp_active = 0;                         /* one-shot per commit */
-	if (!s_have_pal)
-		return;                          /* no palette yet: nothing to map */
+#ifdef FRUA_STPROF
+	long t0 = Supexec(st_prof_hz200);
+#endif
 
 	planebytes = (long)VP_PLANE_STRIDE * s_vp_h;
 	for (p = 0; p < ST_DEPTH; p++)
@@ -1670,17 +1769,64 @@ static void st_vp_composite(void)
 		}
 	}
 
+#ifdef FRUA_STPROF
+	sp_vp_conv += Supexec(st_prof_hz200) - t0;
+#endif
 	/* B4: drop the converted viewport into BOTH pages' holes, not just the one being
 	 * drawn. The commit is one-shot (a full present that flips to the other page would
 	 * otherwise show that page's stale/black viewport hole), and the viewport is tiny
 	 * (88x88) so blitting it twice is cheap. */
 	{
 		short pg;
+#ifdef FRUA_STPROF
+		long tb = Supexec(st_prof_hz200);
+#endif
 		for (pg = 0; pg < NPAGES; pg++)
 			planar_blit_stlow(pp, VP_PLANE_STRIDE, s_vp_w, s_vp_h, ST_DEPTH,
 			                  s_page[pg], LINE_BYTES, ST_W, ST_H,
 			                  s_vp_x, s_vp_y);
+#ifdef FRUA_STPROF
+		sp_vp_blit += Supexec(st_prof_hz200) - tb;
+#endif
 	}
+}
+
+static void st_vp_composite(void)
+{
+#ifdef FRUA_STPROF
+	long t0;
+#endif
+
+	if (!s_vp_active)
+		return;
+	s_vp_active = 0;                         /* one-shot per commit */
+	if (!s_have_pal)
+		return;                          /* no palette yet: nothing to map */
+#ifdef FRUA_STPROF
+	t0 = Supexec(st_prof_hz200);
+#endif
+	/* #63: measured 2026-07-27, this was the dungeon walk's ENTIRE display
+	 * cost — 4.75 s of emulated time per step, 31-36% of the step. The
+	 * aligned path is the same work through the fast c2p; the slow one stays
+	 * for a commit the fast one cannot take (none is issued today).
+	 *
+	 * Two conditions, both of which the live viewport meets: 8-pixel aligned
+	 * (so every destination byte is wholly ours) and wholly on screen. The
+	 * second is what planar_blit_stlow was paying a per-pixel bounds test for;
+	 * st_vp_commit already rejects anything outside VP_MAX, which is smaller
+	 * than the screen either way, so this is belt-and-braces against a future
+	 * caller that widens the viewport. */
+	if (((s_vp_x | s_vp_w) & 7) == 0
+	    && s_vp_x >= 0 && s_vp_y >= 0
+	    && (short)(s_vp_x + s_vp_w) <= ST_W
+	    && (short)(s_vp_y + s_vp_h) <= ST_H)
+		st_vp_composite_fast();
+	else
+		st_vp_composite_slow();
+#ifdef FRUA_STPROF
+	sp_vp_t += Supexec(st_prof_hz200) - t0;
+	sp_vp_n++;
+#endif
 }
 
 #ifdef FRUA_STPROF
@@ -1722,11 +1868,6 @@ static void st_c2p_page(unsigned char *dstbase)
  * The arming override goes through s_tb_force and is applied by the VBL, so
  * the hardware is only touched from supervisor code that already owns it. Two
  * VBLs are allowed to pass after each switch before timing starts. */
-static long st_prof_hz200(void)
-{
-	return *(volatile long *)0x4BAUL;
-}
-
 static void st_prof_tb_settle(void)
 {
 	long t = Supexec(st_prof_hz200);
@@ -2109,9 +2250,46 @@ static void st_present(void)
 	st_flip_full();                          /* B4: show this page, advance */
 }
 
+/* #63: the walk's per-step display cost, and what share of the step it is.
+ * Dumped every 8 rect presents (a walk step is one), so a short scripted drive
+ * actually reports — unlike the 16-FULL-present window, which a dungeon walk
+ * never reaches. */
+#ifdef FRUA_STPROF
+static void st_prof_play_dump(void)
+{
+	long now  = Supexec(st_prof_hz200);
+	long wall = (sp_play_t0 < 0) ? 0 : now - sp_play_t0;
+
+	sp_play_t0 = now;
+	dbg_log_num("b63play: rect presents  = ", sp_rect_n);
+	dbg_log_num("b63play: rect t200      = ", sp_rect_t);
+	dbg_log_num("b63play: composites     = ", sp_vp_n);
+	dbg_log_num("b63play: vp w*1000+h    = ", (long)s_vp_w * 1000L + s_vp_h);
+	dbg_log_num("b63play:   of which c2p = ", sp_vp_conv);
+	dbg_log_num("b63play:   of which blit= ", sp_vp_blit);
+	dbg_log_num("b63play: composite t200 = ", sp_vp_t);   /* SUBSET of rect  */
+	dbg_log_num("b63play: wall t200      = ", wall);
+	/* The number the lever choice turns on: per mille of wall clock spent
+	 * inside the display layer. Small => the ceiling is the engine's own 3D
+	 * render and c2p tuning cannot reach it. rect ALONE — the composite runs
+	 * inside it on the walk path, so adding the two would double-count. */
+	if (wall > 0)
+		dbg_log_num("b63play: display per 1000= ",
+		            (sp_rect_t * 1000L) / wall);
+	sp_rect_n = sp_rect_t = sp_vp_n = sp_vp_t = 0;
+	sp_vp_conv = sp_vp_blit = 0;
+}
+#endif
+
 static void st_present_rect(short x, short y, short w, short h)
 {
 	short x1;
+#ifdef FRUA_STPROF
+	long t_rect0 = Supexec(st_prof_hz200);
+
+	if (sp_play_t0 < 0)
+		sp_play_t0 = t_rect0;
+#endif
 
 	/* B4: a partial update draws the SHOWN page IN PLACE and does not flip — the
 	 * back page keeps whatever it had and catches up on the next full present. This
@@ -2133,7 +2311,7 @@ static void st_present_rect(short x, short y, short w, short h)
 	if (x + w > ST_W) w = (short)(ST_W - x);
 	if (y + h > ST_H) h = (short)(ST_H - y);
 	if (w <= 0 || h <= 0)
-		return;
+		return;                          /* clipped away: not a display cost */
 
 	/* ADR-0016 B2.2: when the requested rect lies entirely within the active
 	 * planar viewport, the composite below is authoritative for those pixels, so
@@ -2146,6 +2324,11 @@ static void st_present_rect(short x, short y, short w, short h)
 	    && (short)(x + w) <= (short)(s_vp_x + s_vp_w)
 	    && (short)(y + h) <= (short)(s_vp_y + s_vp_h)) {
 		st_vp_composite();
+#ifdef FRUA_STPROF
+		sp_rect_t += Supexec(st_prof_hz200) - t_rect0;
+		if ((++sp_rect_n & 7) == 0)
+			st_prof_play_dump();
+#endif
 		return;
 	}
 
@@ -2165,6 +2348,9 @@ static void st_present_rect(short x, short y, short w, short h)
 			dbg_log_num("b30a rect rows        = ", rows_now);
 		}
 	}
+	sp_rect_t += Supexec(st_prof_hz200) - t_rect0;
+	if ((++sp_rect_n & 7) == 0)
+		st_prof_play_dump();
 #endif
 }
 

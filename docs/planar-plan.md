@@ -1377,3 +1377,76 @@ still unmeasured (the walk harness has the facing bug described above). The
 14% is machine-wide, so the play loop gets it too, but the *distribution* of
 where play-loop time goes remains unknown. The 2026-07-19 plan's other named
 lever — `st_c2p_span` throughput — is still untouched.
+
+### #63 THE DUNGEON WALK, MEASURED AT LAST — and it was the viewport composite
+
+With the raster split gone the next lever needed a number nobody had: what does
+the PLAY loop cost? Every profile on this target had measured the boot or a menu,
+for a structural reason — `st_prof_hot_dump`'s window counts FULL presents, and
+a dungeon walk issues RECT presents, so the walk fell through every instrument
+ever written here. `b63play` (STPROF only) counts the two things the walk
+actually runs, in 200 Hz ticks, and dumps every 8 rect presents so a 24-key
+scripted drive reports three windows instead of none.
+
+**The walk's display cost, WALKTEST, 8 composites per window:**
+
+| phase | per composite | share of composite |
+|---|--:|--:|
+| chunky -> separate planes, bit at a time | 1.03 s | 22% |
+| `planar_blit_stlow` x2 pages, bit per pixel per plane | **3.72 s** | **78%** |
+| total | 4.75 s | **31-36% of the walk step** |
+
+Four point seven five seconds of emulated time, per step, to move an 88x88
+viewport. `planar_blit_stlow` alone was **~1900 cycles per pixel** — it walks
+pixels, recomputes a shift mask and a destination pointer for each one, and does
+a byte read-modify-write per plane, with a bounds test per pixel, twice (once
+per page). The optimized c2p in the same file runs at 151 cycles/pixel.
+
+**The fix is that the viewport is 8-PIXEL ALIGNED.** It sits at x=24, 88 wide,
+and an ST-Low 16-pixel group is four words whose high/low bytes are pixels 0-7
+and 8-15. So every destination BYTE belongs wholly to the viewport: no masking,
+no read-modify-write, no separate-plane intermediate. `st_vp_composite_fast`
+converts chunky straight to interleaved planes — `c2p4st_32` (flat-span path
+included) for the 32-pixel bulk, a small `st_c2p8` for the ragged 8-pixel
+columns at each edge.
+
+**Result, same drive, same content:**
+
+| | before | after |
+|---|--:|--:|
+| per composite | 951 t200 (4.75 s) | **152 t200 (0.76 s)** |
+| display share of the walk | 31-36% | **8-10%** |
+| walk wall clock (3 windows, 24 rect presents) | 63730 t200 | **44722 t200** |
+
+**~30% off the dungeon walk**, on top of the 13.4% from the raster split.
+
+**The measurement validates itself.** Window by window, the drop in wall time
+matches the drop in composite time to within 0.5% — 6386/6355, 6386/6334,
+6392/6319. Nothing else moved, which is what you want from a single-variable
+change, and it is why the absolute numbers can be trusted despite looking
+implausibly large at first sight. (They are not implausible: `stprof b30b`
+independently puts a FULL-frame c2p at 1.21 s on this machine. An 8 MHz 68000
+really is that slow, which is the whole content of #63.)
+
+**Verification: the walk frame is pixel-identical**, 0 of 489216, on the same
+24-key drive — and that frame exercises all three sub-paths (lead-in `st_c2p8`,
+two `c2p4st_32` blocks, two trailing `st_c2p8`) over real textured dungeon art,
+so the byte layout of each is checked against the implementation it replaces.
+412 host tests pass; the 68000 and 020 builds both link.
+
+**Scope.** ST/STE only — `planar_viewport_register` has exactly one caller and
+the Amiga backends never register a viewport hook, so neither ECS nor AGA was
+paying this. `planar_blit_stlow` keeps its general per-pixel body for the
+unaligned fallback, which nothing issues today.
+
+**Still on the table for #63**, in rough order of size:
+
+1. **The walk is now ~90% ENGINE.** The display layer is down to 8-10% of a
+   step, so the remaining ceiling is the engine's own 3D render. That is where
+   the next measurement has to go, and it is not a c2p problem.
+2. Convert once and copy the bytes to the second page instead of converting
+   twice — halves what is left of the composite (~0.4 s/step, ~4% of a step).
+3. `st_c2p8` still handles 24 of the viewport's 88 columns; a 16-pixel variant
+   would fold two of them into the fast transpose.
+4. `st_c2p_span` throughput itself — the 2026-07-19 lever, still untouched, and
+   now the thing behind every remaining conversion.
