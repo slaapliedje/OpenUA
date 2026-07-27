@@ -1285,3 +1285,21 @@ deliberately.
 
 What remains genuinely wrong is narrower and is a TOOLING gap, not an engine
 one: generated areas still do not render their walls in play (see task #94).
+
+**Two conventions, measured, because I had both wrong:**
+
+- **The HUD readout is `row,col`** — as geo-format.md always said. Asked for
+  `ROW=6 COL=1`, the HUD reads `6,1`. An earlier claim in this document's
+  history that it prints col,row was wrong and is retracted.
+- **`FRUA_ENTRY_FACING=0` walks WEST**, not north. HEIRS `6,1 -> 6,0` (one step
+  west, then stopped at column 0, the map edge); WALKTEST `5,5 -> 5,3 -> 5,1`
+  (six Ups netting four cells west, row unchanged). **This is why every walk in
+  this session was one or two steps** — the party was heading for the nearest
+  west edge, not along the corridor I thought I had built. The facing encoding
+  does not match the `0=N 2=E 4=S 6=W` reading of the passage-event field;
+  HEIRS' own entry is `row=10 col=8 facing=2` and that start faces EAST, so
+  `2 = E` at least. Run a four-value sweep (`FACING=0/2/4/6`, one step, read the
+  HUD delta) before authoring any more geometry against it.
+
+And note the entry cell itself is the caravan (`special=2`), so landing exactly
+on `10,8` fires the chain the jump points exist to skip — land PAST it.
