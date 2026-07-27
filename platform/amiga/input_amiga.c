@@ -252,6 +252,24 @@ static const struct ap_key g_ap[] = {
 	{ 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 },
 	{ 0x1C, 0x0D, 360 },
 #endif
+#ifdef FRUA_AUTOWALK_TREASURE
+	/* ★ Mirrors platform/input.c — see the full note there. HEIRS' entry
+	 * chain ends on the TREASURE screen, which ignores Return, so sixteen
+	 * Returns leave the drive parked on it with every walk key eaten while
+	 * the key count still reads a healthy 34 of 34. EXIT, decline the "still
+	 * treasure left" prompt, then clear the farewell messages.
+	 *
+	 * Kept behind its OWN flag because 'e' is ENCAMP on the walk bar. And
+	 * kept in BOTH files because this backend has its own g_ap[] — an edit
+	 * to only one of them fires nothing on the other machine, which has
+	 * already cost a full soak once. */
+	{ 0x12, 'e',  600 },    /* EXIT the treasure screen              */
+	{ 0x31, 'n',  600 },    /* NO — do not go back and claim the rest */
+	{ 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 },
+	{ 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 },
+	{ 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 },
+	{ 0x1C, 0x0D, 420 },
+#endif
 	{ 0x48, 0,    420 },    /* Up    — step 1                        */
 	{ 0x48, 0,    420 },    /* Up    — step 2                        */
 	{ 0x4D, 0,    360 },    /* Right — turn, forces a fresh viewport */

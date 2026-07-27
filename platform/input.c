@@ -128,6 +128,32 @@ static const struct ap_key g_ap[] = {
 	{ 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 },
 	{ 0x1C, 0x0D, 360 },
 #endif
+#ifdef FRUA_AUTOWALK_TREASURE
+	/* ★ A CHAIN THAT ENDS ON THE TREASURE SCREEN NEEDS TWO NON-RETURN KEYS.
+	 * HEIRS' Skull Crag caravan hands the party a hoard, and the treasure
+	 * screen (VIEW TAKE POOL SHARE EXIT) ignores Return completely: sixteen
+	 * of them left the 2026-07-27 drive parked on it with every walk key
+	 * eaten — the same trap the Returns themselves exist for, one level
+	 * further in, and invisible because the key count still read 34 of 34.
+	 * EXIT, then answer NO to "THERE IS STILL TREASURE LEFT. DO YOU WANT TO
+	 * GO BACK AND CLAIM IT?", then clear the caravan-farewell messages that
+	 * follow it.
+	 *
+	 * SEPARATE from LONGINTRO deliberately: 'e' is ENCAMP on the walk command
+	 * bar, so firing this at a module whose entry chain hands out no treasure
+	 * opens the camp screen and the walk samples that instead. Pass it only
+	 * for a module that actually needs it (HEIRS does).
+	 *
+	 * Verified live on STE 2026-07-27: reaches the walk bar at 10,8 12:00 AM,
+	 * and the following steps move 10,8 -> 11,8 -> 12,8 with the viewport
+	 * changing at each one. */
+	{ 0x12, 'e',  600 },    /* EXIT the treasure screen              */
+	{ 0x31, 'n',  600 },    /* NO — do not go back and claim the rest */
+	{ 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 },
+	{ 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 },
+	{ 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 },
+	{ 0x1C, 0x0D, 420 },
+#endif
 	{ 0x48, 0,    420 },    /* Up    — step 1                        */
 	{ 0x48, 0,    420 },    /* Up    — step 2                        */
 	{ 0x4D, 0,    360 },    /* Right — turn, forces a fresh viewport */

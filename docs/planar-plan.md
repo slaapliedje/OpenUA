@@ -1450,3 +1450,65 @@ unaligned fallback, which nothing issues today.
    would fold two of them into the fast transpose.
 4. `st_c2p_span` throughput itself — the 2026-07-19 lever, still untouched, and
    now the thing behind every remaining conversion.
+
+### THE LONG-INTRO DRIVE ON HEIRS — and what real geometry does to the #63 numbers
+
+`FRUA_AUTOWALK_LONGINTRO` did not work on HEIRS, and failed in the way this
+harness always fails: **reporting success**. The drive fired all 34 keys, the
+log read 34 of 34, and the party never left the entry cell — because HEIRS'
+entry chain does not end on a message. It ends on the **TREASURE screen**
+(`VIEW TAKE POOL SHARE EXIT`), which ignores Return entirely, so all sixteen
+Returns and then all eighteen walk keys went into a modal that ate them.
+
+Driven by hand on a live STE, the real chain is:
+
+    ~6-16 Return   BIGPIC story messages
+    e              EXIT the treasure screen
+    n              NO to "THERE IS STILL TREASURE LEFT. DO YOU WANT TO GO
+                   BACK AND CLAIM IT?"
+    ~10 Return     the caravan-farewell messages
+    -> walk command bar at 10,8, 12:00 AM
+
+That is now `FRUA_AUTOWALK_TREASURE`, in BOTH `platform/input.c` and
+`platform/amiga/input_amiga.c` (separate `g_ap[]` arrays — editing one fires
+nothing on the other machine, which has cost a soak before). It is a SEPARATE
+flag from LONGINTRO on purpose: **`e` is ENCAMP on the walk command bar**, so
+firing it at a module with no treasure screen opens the camp screen and the
+walk samples that instead.
+
+Verified fully headless: 46 keys, ending at **11,7 12:04 AM** — four steps
+walked through the tavern, viewport changing at every one, with a real event
+firing when the party walked into a guest room ("GED OUD!").
+
+**And a diagnostic bonus: the viewport genuinely CHANGES now.** Consecutive
+steps 10,8 -> 11,8 -> 12,8 gave 8.5%, 85.9% and 87.9% frame differences (the
+large ones are scene rebands). That is the thing #61's soak never had — every
+previous walk sampled WALKTEST, a bare symmetric chamber whose viewport cannot
+differ. A transient hunt is now worth running.
+
+**★ THE CORRECTION THIS FORCES ON THE #63 COMPOSITE ENTRY ABOVE.**
+
+The composite's own cost reproduces exactly on real geometry — **150.7 t200 per
+composite on HEIRS vs 152 on WALKTEST**, as it should, since it converts a fixed
+88x88 rect whatever is in it. But its SHARE of the play loop does not:
+
+| | WALKTEST (bare, event-free) | HEIRS (real module) |
+|---|--:|--:|
+| viewport composite, share of wall | 31-36% | **0.1-0.6%** |
+| FULL presents in the run | ~0 | **1008** |
+| time inside the full-present path | — | **32.5% of all wall time** |
+
+WALKTEST is a room where nothing happens, so the viewport update IS the frame.
+A real module spends its time somewhere else entirely: 1008 full presents at
+~1.6 s each, plus BIGPIC art, plus 47 rebands. The composite rewrite is still
+real and still worth having — it is content-independent and 6.25x — but on a
+module anyone would actually play it buys well under a percent, not a third.
+Stated plainly because the earlier entry, read alone, oversells it.
+
+**So #63's real target is now named and measured: the FULL PRESENT path, 32.5%
+of play, ~1008 presents at ~1.6 s each.** Consistent across three windows
+(95880/293935, 97053/297896, 98227/301859 ticks). Worth knowing before anyone
+starts: a full-frame c2p is 1.21 s, so a present costing 1.6 s looks like it is
+paying nearly a whole conversion — even though #90 measured post-menu presents
+converting ZERO rows. Those two facts do not fit together yet, and reconciling
+them is the next piece of work, not a foregone conclusion.
