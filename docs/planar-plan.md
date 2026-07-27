@@ -854,3 +854,60 @@ Notes for whoever picks it up:
   one source row that must land in two planar lines.
 - Do the reband work above FIRST if it lands — on the evidence, ownership is
   worth little while the epoch is being reset every other present.
+
+### #89 REBAND ATTRIBUTION — RAN 2026-07-26. BOTH PLANNED THREADS CLOSED NEGATIVE.
+
+#89 was opened on the convwhy finding ("11 rebands in 16 presents, zero
+repalette skips") with two hypotheses. Instrumenting the decision killed both,
+and surfaced a third that looks better than either.
+
+**Thread 1 — "the repalette skip predicate is too strict." WRONG.**
+
+Added per-conjunct attribution to the reband/repalette decision (which of
+`s_banded_valid`, `!s_vp_active`, content-unchanged, `!st_remap_split()`
+vetoed the cheap path). Across 11 rebands, **content differed every single
+time** — 9 of them with all 200 rows changed. The predicate is not too strict;
+the content genuinely changed. DE-RISK #1's redraw-less rebands are a
+menu/fade phenomenon, not a play-loop one, so in a dungeon drive there is
+simply nothing for the skip to catch.
+
+One reband looked like pure waste — CLUT byte-identical (`clut moved = 0`) yet
+still re-quantising — and is not: that is the NEW-INK trigger deliberately
+clearing `s_banded_valid` so the CLUT-guard cannot skip, which is what stops
+post-reband inks rendering invisible. Working as designed.
+
+**Thread 2 — "make the epoch reset partial." DEAD ON ARRIVAL.**
+
+The idea: a reband that moves only a few palette slots need not invalidate
+rows whose pixels map to unmoved slots. Measured it — snapshot band 0's
+index→slot remap, re-quant, count how many indices landed elsewhere:
+
+    reband over a real scene change:  121 used indices, 114 moved slot = 94%
+
+At 94% churn essentially no row ownership could survive, so the bookkeeping to
+preserve it would buy nothing. Not worth building.
+
+**Thread 3 (NEW) — rebands over near-blank frames.**
+
+Of 3 fully instrumented rebands, **2 quantised a frame using a single colour
+index** (`used idx = 1`), one of them while reporting all 200 rows changed —
+i.e. the screen had just been CLEARED to one colour and the real content had
+not been drawn yet. Quantising that produces a palette derived from nothing,
+which the next frame's real content must then immediately re-quantise.
+
+If that pattern holds, deferring the quant until the frame carries meaningful
+content would remove a whole class of rebands. Unlike threads 1 and 2 it
+attacks the reband COUNT rather than the per-reband cost, which is where the
+leverage is.
+
+**Sample-size caveat, stated plainly:** the 94% churn figure is ONE scene
+change, and the blank-frame observation is 2 of 3 rebands. The 11-reband run
+that produced the veto attribution predates the remap-churn instrumentation.
+Before building anything on thread 3, re-run with both instruments over a
+longer drive and count what fraction of rebands see `used idx` below, say, 8.
+
+**Consequence for #63.** With threads 1 and 2 closed, the remaining levers are
+thread 3 (fewer rebands) and the one the 2026-07-19 plan already named: attack
+c2p THROUGHPUT directly — a tighter `st_c2p_span` inner loop. The copy path is
+done (#48, 3.4%), ownership is capped at ~53% by rebands, and the rebands are
+mostly legitimate.

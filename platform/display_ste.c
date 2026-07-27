@@ -1703,14 +1703,55 @@ static void st_present(void)
 				dbg_log_num("b4audit: reband #        = ", sp_reband);
 				dbg_log_num("b4audit:   content rows  = ", crows);
 				dbg_log_num("b4audit:   clut bytes mvd= ", clut_moved);
+				/* #89: WHICH of the four conjuncts vetoed the cheap path?
+				 * "content_same is false" is not actionable on its own —
+				 * a stale band, a pending viewport, real redraw and a
+				 * remap split need completely different fixes. Encoded
+				 * decimal so one line carries all four:
+				 *   1000s !s_banded_valid   100s s_vp_active
+				 *     10s content differs     1s st_remap_split() */
+				dbg_log_num("b4audit:   veto b/v/c/s  = ",
+				            (long)(!s_banded_valid) * 1000
+				            + (long)(s_vp_active != 0) * 100
+				            + (long)(crows != 0) * 10
+				            + (long)(s_banded_valid && st_remap_split()));
 				dbg_log(content_same ? "b4audit:   -> repalette (registers only)"
 				                     : "b4audit:   -> reband (re-quant)");
 			}
 #endif
-			if (content_same)
+			if (content_same) {
 				st_repalette();
-			else
+			} else {
+#ifdef FRUA_STPROF
+				/* #89 thread 2: a PARTIAL epoch reset is only worth
+				 * building if a reband typically leaves most of the
+				 * index->slot map alone. Measure it: snapshot band 0's
+				 * remap, re-quant, then count how many indices landed
+				 * on a different slot. If nearly all move, row
+				 * ownership could not have survived anyway and the
+				 * partial reset is dead on arrival. */
+				unsigned char sp_before[256];
+				memcpy(sp_before, s_band_remap, 256);
+#endif
 				st_reband();
+#ifdef FRUA_STPROF
+				{
+					short i, moved = 0, used = 0, umoved = 0;
+					for (i = 0; i < 256; i++) {
+						if (sp_before[i] != s_band_remap[i])
+							moved++;
+						if (s_used_idx[i]) {
+							used++;
+							if (sp_before[i] != s_band_remap[i])
+								umoved++;
+						}
+					}
+					dbg_log_num("b4audit:   idx slot moved= ", moved);
+					dbg_log_num("b4audit:   used idx      = ", used);
+					dbg_log_num("b4audit:   used moved    = ", umoved);
+				}
+#endif
+			}
 		}
 	}
 #ifdef FRUA_PLANAR
