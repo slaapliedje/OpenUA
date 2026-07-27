@@ -240,6 +240,18 @@ static const struct ap_key g_ap[] = {
 	{ 0x1C, 0x0D, 300 },    /* Return — 4                            */
 	{ 0x1C, 0x0D, 300 },    /* Return — 5 (spare: chain length varies)*/
 	{ 0x1C, 0x0D, 360 },    /* Return — 6 (spare)                    */
+#ifdef FRUA_AUTOWALK_LONGINTRO
+	/* Real modules open with a STORY CHAIN, not one message: BEOWOLF and
+	 * GIANTS were both still on "PRESS RETURN TO CONTINUE" after the six
+	 * Returns above, so every movement key that followed was eaten and the
+	 * walk sampled nothing (the same trap the six Returns were added for,
+	 * one size up). Ten more clear a longer intro. Only for real modules —
+	 * on the event-free WALKTEST room these would land in the walk view. */
+	{ 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 },
+	{ 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 },
+	{ 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 },
+	{ 0x1C, 0x0D, 360 },
+#endif
 	{ 0x48, 0,    420 },    /* Up    — step 1                        */
 	{ 0x48, 0,    420 },    /* Up    — step 2                        */
 	{ 0x4D, 0,    360 },    /* Right — turn, forces a fresh viewport */

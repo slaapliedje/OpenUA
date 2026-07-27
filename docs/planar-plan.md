@@ -1195,3 +1195,56 @@ broken build. Every one of those checks looked at the boot and menu, and the
 menu's copies are small enough to fit in a single 512-word chunk. The bug lived
 entirely in copies big enough to need a second chunk, which is the walk screen —
 the one frame no ST harness had ever rendered.
+
+### #61 ON THE PLAY SCREENS — band theory fully closed, glitch still not found
+
+The STE dungeon became reachable (#92), so the screens #61's band-artefact
+theory pointed at could finally be photographed. Repeating the bands-ON vs
+bands-OFF comparison there (an early `rte` in the Timer-B ISR, verified in the
+disassembly):
+
+| screen | pixels differing, band split ON vs OFF |
+|---|--:|
+| title art | 0.0% |
+| main menu | 0.2% (the mouse cursor moved) |
+| **dungeon walk** | chrome **0.0%** — command bar, roster and marble frame all identical; only viewport and clock differ, and those differ by one step of game state |
+| **BIGPIC / treasure art** | **0.0%** |
+
+**The per-band palette split makes no pixel difference on ANY screen we can
+reach**, including the colourful BIGPIC art it was presumably built for. The
+band-artefact theory for #61 is closed, not merely unsupported: the mechanism
+cannot produce a visible change here even when disabled outright.
+
+That hands #63 a concrete lever — see its entry. ~500 ISRs a second, each
+saving eight registers and spinning to the end of a display line, currently buy
+nothing measurable.
+
+**Transient sweeps found nothing, but the sample is weak and it is worth being
+precise about why.** Two play recordings (13549 and 13986 frames) yielded ZERO
+single-frame transients — but also only FOUR changed frames each, all of
+magnitude 1, which were the clock digit. The walk was real (12:00 → 12:06) and
+the viewport still never changed, because **WALKTEST is a bare square chamber
+viewed from its centre**: every facing is identical by symmetry, and a plain
+wall four cells away looks much like one three cells away. You cannot see a
+glitch in a picture that never differs.
+
+**Two attempts to give it geometry, both inconclusive:**
+
+1. Pillars in the interior corners — no effect. The first-person view is a
+   narrow forward cone and a block three cells off-axis never enters it.
+2. Pillars FLANKING the walk axes (`--pillars`, now the shipped variant) — the
+   viewport differs 5.6% from the bare room, but that is exactly the figure two
+   runs ending one step apart also produce, so the comparison is confounded by
+   position and **the pillars' effect is UNPROVEN**. Stated plainly rather than
+   claimed.
+
+Real modules were tried too and are a separate problem: BEOWOLF and GIANTS both
+open with a multi-screen story chain, and at 8 MHz the typewriter runs ~1.4 s a
+character, so clearing the intro takes far more than the six Returns the script
+sends. `-DFRUA_AUTOWALK_LONGINTRO` adds ten more (both input layers — Atari and
+Amiga have SEPARATE arrays); BEOWOLF was still mid-intro after them.
+
+**The right next step is to stop guessing at generated geometry** and author a
+room whose walls the game itself renders — build it in the module editor
+(unblocked by #88) and export it as the walk-soak area. That doubles as the
+first end-to-end exercise of the editor's map UI.
