@@ -17,7 +17,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 from mk_walktest_design import (walktest_design, ROOM, ENTRY_ROW, ENTRY_COL,
-                                PILLARS)
+                                SIDE_WALLED)
 
 
 def test_every_cell_is_event_free():
@@ -31,37 +31,44 @@ def test_every_cell_is_event_free():
         "autowalk keys and the soak silently samples nothing: %r" % (offenders,))
 
 
-def test_pillars_are_also_event_free():
-    """--pillars must not smuggle an event in: same alarm, other variant."""
-    g = walktest_design(pillars=True).areas[5]
+def test_corridor_is_also_event_free():
+    """--corridor must not smuggle an event in: same alarm, other variant."""
+    g = walktest_design(corridor=True).areas[5]
     offenders = [(c, r)
                  for c in range(ROOM) for r in range(ROOM)
                  if g.cell_special(c, r) != 0]
     assert offenders == []
 
 
-def test_pillars_are_solid_and_off_the_walk_path():
-    """The pillars exist to break the chamber's symmetry so the viewport
-    actually CHANGES as the party walks — without that a soak photographs the
-    same frame six times (task #61). They must not sit where the party walks,
-    or a step turns into a wall bump and goes missing from the readout."""
-    g = walktest_design(pillars=True).areas[5]
-    for col, row in PILLARS:
-        for d in range(4):
-            assert g.wall(col, row, d) != 0, "pillar (%d,%d) not solid" % (col, row)
-        # Must not sit ON the walk axes (that would bump a step)...
-        assert col != ENTRY_COL and row != ENTRY_ROW, (
-            "pillar (%d,%d) sits on the party's walk axis" % (col, row))
-        # ...but must FLANK one, or it never enters the forward view cone and
-        # the viewport stays static, which is the bug this variant exists to
-        # avoid (corner pillars failed exactly that way).
-        assert abs(col - ENTRY_COL) == 1 or abs(row - ENTRY_ROW) == 1, (
-            "pillar (%d,%d) is too far off-axis to enter the view cone"
-            % (col, row))
+def test_corridor_walls_are_perpendicular_to_travel():
+    """The side walls exist so the viewport actually CHANGES as the party walks
+    (task #61: without them a soak photographs the same frame six times). Two
+    earlier attempts used free-standing pillar cells walled on all four sides
+    and drew NOTHING, because FRUA walls are PER-CELL EDGES, not shared between
+    neighbours — a pillar's east wall belongs to the pillar, and the corridor
+    cell beside it has nothing on that edge to draw. So the walls must sit on
+    cells the party occupies, and on faces PERPENDICULAR to travel, or they
+    would block the step instead of framing it."""
+    g = walktest_design(corridor=True).areas[5]
+    N, E, S, W = 0, 1, 2, 3
+    for (col, row), walls in SIDE_WALLED.items():
+        assert g.cell(col, row)[:4] == list(walls) or \
+               tuple(g.cell(col, row)[:4]) == walls
+        if col == ENTRY_COL:                 # party travels N/S through it
+            assert walls[N] == 0 and walls[S] == 0, \
+                "(%d,%d) would block a north/south step" % (col, row)
+            assert walls[E] and walls[W], "(%d,%d) frames nothing" % (col, row)
+        else:                                # party travels E/W through it
+            assert walls[E] == 0 and walls[W] == 0, \
+                "(%d,%d) would block an east/west step" % (col, row)
+            assert walls[N] and walls[S], "(%d,%d) frames nothing" % (col, row)
+    # the entry cell itself stays completely open
+    assert tuple(walktest_design(corridor=True).areas[5]
+                 .cell(ENTRY_COL, ENTRY_ROW)[:4]) == (0, 0, 0, 0)
     # and the bare room must stay bare
     bare = walktest_design().areas[5]
-    for col, row in PILLARS:
-        assert bare.wall(col, row, 0) == 0
+    for (col, row) in SIDE_WALLED:
+        assert tuple(bare.cell(col, row)[:4]) == (0, 0, 0, 0)
 
 
 def test_room_leaves_room_to_walk():

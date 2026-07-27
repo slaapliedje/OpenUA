@@ -364,7 +364,10 @@ the party and event text.
 from geo import Geo
 g = Geo.blank(width=8, height=8)      # zeroed HDR/MAP/ENCR/STRG, version 106
 g.set_entry_point(0, row=1, col=1, facing=0)
-g.set_cell(col=1, row=1, walls=(0x10, 0, 0, 0))   # a wall on edge 0
+g.set_cell(col=1, row=1, walls=(0xF0, 0, 0, 0))   # a solid wall on edge 0
+#   NB 0xF0, not 0x10: the byte is `id << 4 | attribute`, and wall id 1 is the
+#   SECRET DOOR type — it renders, but the engine announces it and the party
+#   walks through. Real areas use id 15 (0xF0) for ordinary stone.
 open("GEO001.DAT", "wb").write(g.build())          # exactly 12962 bytes
 ```
 

@@ -170,3 +170,29 @@ recreated on every video-mode change). Driving that would be flaky, so the test
 asserts the invariant the GUI round-trip rests on instead. See the
 `run-falcon-port` skill's input notes for the headless-editor recipe (keyboard
 to reach it; assert by saving and re-reading with `geo.py`).
+
+## Driving it headlessly — what a live session actually found (2026-07-27, #93)
+
+Walking in from the main menu with `E` → `click` OPEN at (62, 439) works exactly
+as described above. Three things learned by doing it that are not obvious from
+the code:
+
+- **A plain `click` DOES open a pulldown** (the menu stays up), but selecting an
+  item needs the press-drag-release `drag`, as documented. The MAP menu item
+  coordinates in the table above are correct.
+- **Grid clicks only MOVE THE CURSOR.** They select the edited cell and re-render
+  the 3D preview; they do not place anything. In `3-D VIEW` the placement
+  metaphor is the 3D pane, and the `PLACE` command-bar button on its own did
+  nothing observable in this session — neither the 3D pane, the grid nor the
+  status text changed. Placement was not driven to a confirmed wall write.
+- **`AREA VIEW` has a redraw defect**: switching to it leaves the previous 3D
+  bitmap on screen with only a sliver of top-down map drawn over the top-left
+  corner. Stable across a 6 s settle, so not a mid-redraw artefact. Switching
+  back to `3-D VIEW` restores a correct canvas. Not investigated further.
+
+**The editor is a good READER even when placement is not driven.** Pointing it
+at a `geo.py`-authored room and reading the grid is a cheap, authoritative check
+that the offline writer produced what the engine believes: the corridor walls
+authored for #61 showed up in the editor's grid exactly where intended, which
+is how they were confirmed present before chasing why they were not visible in
+play.

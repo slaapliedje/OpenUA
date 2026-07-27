@@ -104,16 +104,31 @@ class Design:
             f.write(data)
 
 
+# A plain solid wall. The byte is `id << 4 | attribute` (see geo-format): id 15
+# is the ordinary stone wall, attribute 0 = no door.
+#
+# ★ THIS USED TO BE 0x10, WHICH IS A SECRET DOOR, NOT A WALL. Wall id 1 is the
+# secret-door type: the engine renders it but announces "A SECRET DOOR!" on
+# approach and lets the party walk through. Every generated room was therefore
+# ringed with secret doors. Caught 2026-07-27 by putting one directly in the
+# party's face and reading the command bar: 0x10 gave the walk bar plus "A
+# SECRET DOOR!", 0xF0 gives "BLOCKED: BASH | EXIT". Real engine-authored areas
+# agree — 0xF0 is by far the commonest wall byte in HEIRS (3861 of them), and
+# 0x10 does not appear at all.
+WALL_SOLID = 0xF0
+
+
 def _walled_room(w=8, h=8, entry=(3, 3), facing=0):
-    """An enclosed dungeon chamber: wall id 1 on every perimeter cell's outward
-    edge (edge 0=N 1=E 2=S 3=W), party entering at `entry` facing `facing`."""
+    """An enclosed dungeon chamber: a solid wall on every perimeter cell's
+    outward edge (edge 0=N 1=E 2=S 3=W), party entering at `entry` facing
+    `facing`."""
     g = Geo.blank(w, h)
     for c in range(w):
         for r in range(h):
-            g.set_cell(c, r, walls=(0x10 if r == 0 else 0,
-                                    0x10 if c == w - 1 else 0,
-                                    0x10 if r == h - 1 else 0,
-                                    0x10 if c == 0 else 0))
+            g.set_cell(c, r, walls=(WALL_SOLID if r == 0 else 0,
+                                    WALL_SOLID if c == w - 1 else 0,
+                                    WALL_SOLID if r == h - 1 else 0,
+                                    WALL_SOLID if c == 0 else 0))
     g.set_entry_point(0, row=entry[0], col=entry[1], facing=facing)
     return g
 
