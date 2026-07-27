@@ -1248,3 +1248,40 @@ Amiga have SEPARATE arrays); BEOWOLF was still mid-intro after them.
 room whose walls the game itself renders — build it in the module editor
 (unblocked by #88) and export it as the walk-soak area. That doubles as the
 first end-to-end exercise of the editor's map UI.
+
+
+### CORRECTION — the engine was never broken; use HEIRS + the jump points
+
+Recorded because I got this wrong and it cost a session's worth of dead ends.
+
+I concluded from a `geo.py`-authored WALKTEST room that "the play viewport does
+not reflect party position". **False.** Driven against HEIRS through the
+`FRUA_ENTRY_LEVEL/COL/ROW/FACING` jump points — which exist exactly to drop the
+party into a real module's dungeon past its entry-event chain — the Falcon build
+of the same commit gives:
+
+    entry vs after two steps: 28.6% of the VIEWPORT differs
+    visually: a corridor receding into darkness -> a close-up brick wall
+
+Position tracking, wall rendering and the walk all work, on the current build.
+
+**The error was methodological**, and worth naming: I tested with a synthetic
+room I had authored and modified twice in the same hour, and never once with a
+known-good module, then blamed the engine. A harness that cannot reproduce a
+known-good case is not evidence about the engine.
+
+**The recipe for any play-screen work is therefore:**
+
+    make CPU68K=68000 EXTRA_CFLAGS="-DFRUA_AUTOPLAY -DFRUA_AUTOWALK \
+        -DFRUA_ENTRY_LEVEL=5 -DFRUA_ENTRY_COL=1 -DFRUA_ENTRY_ROW=6 \
+        -DFRUA_ENTRY_FACING=0"
+
+with HEIRS as the current design. No intro chain to clear, no synthetic
+geometry, and the walk starts in real dungeon art. Pick the start cell by
+reading the GEO with `tools/geo.py` first — the cell used above has three clear
+cells north of it, and even then the autowalk script's turns walked the party
+into a dead end after three steps, so a longer straight run is worth choosing
+deliberately.
+
+What remains genuinely wrong is narrower and is a TOOLING gap, not an engine
+one: generated areas still do not render their walls in play (see task #94).
