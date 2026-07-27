@@ -1303,3 +1303,77 @@ one: generated areas still do not render their walls in play (see task #94).
 
 And note the entry cell itself is the caravan (`special=2`), so landing exactly
 on `10,8` fires the chain the jump points exist to skip — land PAST it.
+
+### #63 THE RASTER SPLIT COSTS 14% OF THE CPU AND HAS BOUGHT NOTHING SINCE B1
+
+The #61 write-up above closed the band-artefact theory by disabling the split
+and finding **no pixel changed on any reachable screen** — title, menu, dungeon
+walk, BIGPIC. That was recorded as a spin-off lever for #63. Measured, and it
+is the biggest single lever anyone has found on this target.
+
+**Why the split is idle is structural, not situational.** `st_build_hw_palette`
+opens with
+
+    for (b = 1; b < ST_NBANDS; b++)
+            memcpy(s_band_pal + b * ST_NCOL * 3, s_band_pal, ST_NCOL * 3);
+
+— it REPLICATES band 0 to every band, and `st_reband` calls the quantizer with
+`nbands = 1`. That is Strategy B (B1/B4 Phase-0) doing exactly what it was
+designed to do: one scene-stable palette for the whole frame, which is what
+makes the remap stable enough for draw-time writers. The per-band machinery
+from #40 survived it as dead weight. So the bands are not "identical on the
+screens we happened to test" — they are identical **by construction**, and
+Timer B spends every frame loading ten times the colours the VBL already
+loaded.
+
+**The cost, measured A/B/A inside ONE boot** (`st_prof_tbcost`, STPROF only).
+Sixteen full-frame c2p passes per arm, 200 Hz ticks, the arming forced through
+`s_tb_force` and applied by the VBL:
+
+| arm | ticks | band fires |
+|---|--:|--:|
+| split ON  #1 | 4513 | 13550 |
+| split OFF    | **3869** | **0** |
+| split ON  #2 | 4511 | 13540 |
+
+- The two ON arms agree to **0.04%**, so order/warm-up is not the effect.
+- The OFF arm fires **zero** times — the disarm is total, not partial.
+- Tax = **16.6% of the c2p**, i.e. 19,010 cycles of every 133,333-cycle frame,
+  **14.3% of the whole machine**.
+- **1901 cycles per band interrupt.** A handler that does interrupt entry, two
+  movems and one line of spin should cost ~600. Recorded because it matters
+  IF the split ever returns: the extra ~1300 is the TBDR spin running long, and
+  that is a bug in the handler rather than a cost of banding. Not chased — the
+  handler is now disarmed.
+
+**End-to-end, real speed, shipping binaries, HEIRS:** boot-to-menu **231 s ->
+200 s**, 13.4% faster. Two independent measurements (one micro, one macro) that
+agree to within a point. For scale, #48's blitter work — a much larger change —
+was 3.4%.
+
+**Shipped as a runtime check, not an #ifdef.** `st_build_hw_palette` compares
+the encoded `st_band_stpal` rows; all equal sets `s_tb_uniform` and the VBL
+stops arming Timer B (once, via `s_tb_live`, from supervisor code that already
+owns the hardware). Restore a per-band quantizer and the rows stop matching,
+the flag clears and the split comes back on its own. The alternative — deleting
+the handler, or gating it on a build flag — would have to be manually undone by
+whoever revives #40's per-band work, and would be silently wrong until they
+noticed.
+
+**Verification.** The walk frame — the frame that caught the YCOUNT bug when
+6/6 clean boots and a pixel-compared menu had missed it — is **pixel-identical**
+across the change, 0 of 489216 pixels, on the same 24-key drive. Menu renders
+correctly. 412 host tests pass. Both the 68000 and the default 020 builds link.
+
+**Side effect worth recording: this retires the #91 hazard class in the
+shipping build.** #91 was the Timer-B ISR preempting the VBL's re-phase window
+and deadlocking on a stopped timer. With the split disarmed there is no Timer-B
+ISR to preempt anything. The fix stays — it is still load-bearing the moment
+per-band palettes return — but the shipping configuration no longer contains
+the race at all.
+
+**What this does NOT do.** It does not touch the actual play loop, which is
+still unmeasured (the walk harness has the facing bug described above). The
+14% is machine-wide, so the play loop gets it too, but the *distribution* of
+where play-loop time goes remains unknown. The 2026-07-19 plan's other named
+lever — `st_c2p_span` throughput — is still untouched.

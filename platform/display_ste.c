@@ -190,12 +190,37 @@ static void           st_vp_composite(void);
 #ifdef FRUA_STPROF
 volatile long g_tb_fires;       /* #61: band fires in the CURRENT frame (asm) */
 static long sp_frames, sp_starved, sp_fires_lost, sp_fires_min = 99;
+static long sp_tb_total;        /* #63: band fires since boot (bench deltas) */
 #endif
 
 #define IERA (*(volatile unsigned char *)0xFFFFFA07UL)
 #define IPRA (*(volatile unsigned char *)0xFFFFFA0BUL)
 #define TB_BIT       0x01
 #define TB_CLR_MASK  0xFE
+
+/* ★ #63: THE SPLIT IS ONLY ARMED WHEN THE BANDS ACTUALLY DIFFER.
+ *
+ * The raster split exists to give each band its own 16 colours. Strategy B
+ * (B1/B4 Phase-0) made the remap SCENE-STABLE, and the way it did that was to
+ * quantize ONE palette for the whole frame and replicate it to every band —
+ * see st_build_hw_palette. So on this build every band's palette is identical
+ * by construction, and Timer B loads ten times a frame the colours the VBL
+ * already loaded. That is not free: ~500 interrupts a second, each saving nine
+ * registers, pre-loading eight, and then SPINNING to the end of a display line
+ * so the store lands in the border (~500 cycles = a whole scanline, worst
+ * case). Measured against a fixed c2p workload with st_prof_tbcost().
+ *
+ * The check is at RUNTIME, over the encoded hardware palettes, rather than a
+ * "this build has one palette" #ifdef, because it cannot rot: restore a
+ * per-band quantizer and the bands stop matching, the flag clears and the
+ * split comes back on its own. s_tb_live tracks whether the hardware is
+ * actually running so the disarm happens exactly once, in the VBL, which is
+ * already supervisor. */
+static short s_tb_uniform = 1;  /* band palettes all equal -> split is idle   */
+static short s_tb_live;         /* Timer B is currently armed in hardware     */
+#ifdef FRUA_STPROF
+static short s_tb_force = -1;   /* bench override: -1 none, 0 force off, 1 on */
+#endif
 
 /* VBL (C, via the rts trampoline below — the vertical blank has time to
  * spare): re-phase Timer B, load band 0's palette, point the raster handler
@@ -230,17 +255,30 @@ void st_vbl_handler(void)
 {
 	volatile short *hw = ST_COLORREGS;
 	short i;
+	short arm = !s_tb_uniform;      /* #63: nothing to switch -> do not arm */
 
-	IERA &= (unsigned char)~TB_BIT; /* Timer B cannot preempt the re-phase  */
-	TBCR = 0;                       /* stop: the writes must not race       */
-	TBDR = ST_RPB - 1;              /* first fire ONE LINE EARLY            */
-	TBCR = 8;                       /* event-count mode, re-armed in phase  */
-	TBDR = ST_RPB;                  /* reload for all LATER fires (the MFP
-	                                 * only picks this up at the next
-	                                 * underflow, so the -1 above stands
-	                                 * for the first) */
-	IPRA = TB_CLR_MASK;             /* drop anything latched while masked   */
-	IERA |= TB_BIT;
+#ifdef FRUA_STPROF
+	if (s_tb_force >= 0)
+		arm = s_tb_force;
+#endif
+	if (arm) {
+		IERA &= (unsigned char)~TB_BIT; /* Timer B cannot preempt the re-phase  */
+		TBCR = 0;                       /* stop: the writes must not race       */
+		TBDR = ST_RPB - 1;              /* first fire ONE LINE EARLY            */
+		TBCR = 8;                       /* event-count mode, re-armed in phase  */
+		TBDR = ST_RPB;                  /* reload for all LATER fires (the MFP
+		                                 * only picks this up at the next
+		                                 * underflow, so the -1 above stands
+		                                 * for the first) */
+		IPRA = TB_CLR_MASK;             /* drop anything latched while masked   */
+		IERA |= TB_BIT;
+		s_tb_live = 1;
+	} else if (s_tb_live) {                 /* #63: armed -> idle, stop it once */
+		IERA &= (unsigned char)~TB_BIT;
+		TBCR = 0;
+		IPRA = TB_CLR_MASK;
+		s_tb_live = 0;
+	}
 
 #ifdef FRUA_STPROF
 	{	/* #61: how many band palettes did the frame just past actually get?
@@ -249,6 +287,7 @@ void st_vbl_handler(void)
 		long f = g_tb_fires;
 
 		g_tb_fires = 0;
+		sp_tb_total += f;               /* #63: cumulative, for the A/B bench */
 		if (sp_frames > 0) {            /* frame 0 is partial by construction */
 			if (f < ST_NBANDS) {
 				sp_starved++;
@@ -511,6 +550,19 @@ static void st_build_hw_palette(void)
 	}
 	for (i = 0; i < ST_NCOL; i++)
 		st_band_stpal[ST_NBANDS][i] = st_band_stpal[ST_NBANDS - 1][i];
+	{	/* #63: does the split have anything to do this scene? See the flag's
+		 * comment — with a single replicated palette the answer is always no,
+		 * and Timer B is ~500 interrupts a second of pure overhead. */
+		short uniform = 1;
+
+		for (b = 1; b < ST_NBANDS && uniform; b++)
+			for (i = 0; i < ST_NCOL; i++)
+				if (st_band_stpal[b][i] != st_band_stpal[0][i]) {
+					uniform = 0;
+					break;
+				}
+		s_tb_uniform = uniform;
+	}
 	memcpy(s_clut_banded, s_clut, sizeof s_clut);   /* B1: snapshot the CLUT */
 	s_banded_valid = 1;
 	s_dirty = 0;
@@ -1450,6 +1502,12 @@ static int st_init(short want_w, short want_h)
 	 * and Timer B in event-count mode firing every ST_RPB display lines. */
 	Supexec(st_vbl_install_super);
 	Xbtimer(1, 8, ST_RPB, st_timerb_trampoline);   /* timer B, event count */
+	/* #63: Xbtimer both installs the vector AND enables the channel, so the
+	 * split is LIVE from here. The VBL owns arming from now on and will stop
+	 * it on the first frame that finds the bands uniform — which, until a
+	 * per-band quantizer returns, is every frame. */
+	s_tb_live    = 1;
+	s_tb_uniform = 1;
 	s_ints_on = 1;
 
 	/* Take over the dungeon-viewport composite (ADR-0016 B2). */
@@ -1634,6 +1692,7 @@ static long sp_n, sp_rows, sp_in, sp_wall0 = -1, sp_reband, sp_reband_skip;
 static long sp_rows_prev;               /* g_stprof_rows at end of prev present */
 static long sp_logs;                    /* B3.0a per-present logs emitted (capped) */
 static long sp_b30b_done;               /* B3.0b samples taken (capped one-shot) */
+static short sp_tbcost_done;            /* #63 raster-split A/B bench: once */
 long g_stprof_rows;                     /* incremented in st_blit_rows */
 
 /* Full-frame chunky->ST-Low c2p to an ARBITRARY base (no shadow write, no diff),
@@ -1649,6 +1708,83 @@ static void st_c2p_page(unsigned char *dstbase)
 		unsigned char *dst = dstbase + (long)y * LINE_BYTES;
 		st_c2p_span(src, dst, ST_W, lut);
 	}
+}
+
+/* #63: what does the per-band raster split actually COST?
+ *
+ * Times the SAME fixed workload — 16 full-frame c2p passes to the off-screen
+ * page — with Timer B armed and with it stopped, one after the other in a
+ * single boot. Both arms are the same binary at the same instant on the same
+ * content, so neither BSS layout (the #91 trap) nor scene differences can
+ * confound it; the only variable is the interrupt. Reported in 200 Hz ticks
+ * (5 ms) rather than TickCount's 60 Hz, for 3x the resolution on a ~2 s arm.
+ *
+ * The arming override goes through s_tb_force and is applied by the VBL, so
+ * the hardware is only touched from supervisor code that already owns it. Two
+ * VBLs are allowed to pass after each switch before timing starts. */
+static long st_prof_hz200(void)
+{
+	return *(volatile long *)0x4BAUL;
+}
+
+static void st_prof_tb_settle(void)
+{
+	long t = Supexec(st_prof_hz200);
+
+	while (Supexec(st_prof_hz200) - t < 8L)   /* 40 ms = 2 frames  */
+		;
+}
+
+static long st_prof_tb_arm(short on, long *fires)
+{
+	long a, f, t, i;
+	const long reps = 16;
+
+	s_tb_force = on;
+	st_prof_tb_settle();                     /* the VBL applies it, 2 frames  */
+	f = sp_tb_total;
+	a = Supexec(st_prof_hz200);
+	for (i = 0; i < reps; i++)
+		st_c2p_page(s_offpage);
+	t = Supexec(st_prof_hz200) - a;
+	*fires = sp_tb_total - f;
+	return t;
+}
+
+static void st_prof_tbcost(void)
+{
+	long on1, off, on2, f_on1, f_off, f_on2;
+
+	if (s_offpage == NULL)
+		return;
+
+	/* A/B/A. The arms run back to back in one boot, so the only thing that
+	 * could still confound them is ORDER (a warm-up effect, an unrelated
+	 * background cost that fades). Repeating the ON arm at the end prices
+	 * that: if on1 and on2 agree, the middle number is the split's own cost. */
+	on1 = st_prof_tb_arm(1, &f_on1);
+	off = st_prof_tb_arm(0, &f_off);
+	on2 = st_prof_tb_arm(1, &f_on2);
+	s_tb_force = -1;                         /* back to the uniformity decision */
+
+	dbg_log_num("stprof tb: uniform bands     = ", (long)s_tb_uniform);
+	dbg_log_num("stprof tb: ON  #1 x16 t200   = ", on1);
+	dbg_log_num("stprof tb: OFF    x16 t200   = ", off);
+	dbg_log_num("stprof tb: ON  #2 x16 t200   = ", on2);
+	/* Three lines, not one packed number: an arm fires ~13500 times, so the
+	 * obvious f_on1*1000000 encoding silently WRAPS a 32-bit long. */
+	dbg_log_num("stprof tb: fires ON  #1      = ", f_on1);
+	dbg_log_num("stprof tb: fires OFF         = ", f_off);
+	dbg_log_num("stprof tb: fires ON  #2      = ", f_on2);
+	dbg_log_num("stprof tb: tax per 1000      = ",
+	            off > 0 ? (((on1 + on2) / 2 - off) * 1000L) / off : -1L);
+	/* Cycles per band interrupt, the sanity check on the tax: (ticks saved)
+	 * x 5 ms x 8 MHz / fires. A plain ISR — entry, two movems, one line of
+	 * spin — should land near 600; a number in the thousands says the spin
+	 * is running long, which is a bug in the handler, not a cost of banding. */
+	if (f_on1 > 0)
+		dbg_log_num("stprof tb: cycles per fire   = ",
+		            ((on1 - off) * 40000L) / f_on1);
 }
 
 /* B3.0b: is the c2p cost COMPUTE or CONTENTION? Time an identical full-frame c2p
@@ -1950,6 +2086,10 @@ static void st_present(void)
 	if (s_have_pal && sp_b30b_done < 6) {
 		sp_b30b_done++;
 		st_prof_b30b();
+	}
+	if (s_have_pal && !sp_tbcost_done) {     /* #63: one-shot, ~4 s emulated */
+		sp_tbcost_done = 1;
+		st_prof_tbcost();
 	}
 	/* Window was 64 presents, which a scripted headless drive NEVER reaches
 	 * (a boot + dungeon + short walk produces under 20), so the hot-row and
