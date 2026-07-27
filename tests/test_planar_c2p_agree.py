@@ -79,7 +79,8 @@ def test_plane_store_agrees_with_c2p(tmp_path):
 	exe = tmp_path / "t"
 	subprocess.run(
 		["cc", "-O2", "-Wall", "-o", str(exe), str(harness),
-		 "-I", os.path.join(REPO, "platform", "include")],
+		 "-I", os.path.join(REPO, "platform", "include"),
+		 "-I", os.path.join(REPO, "third_party", "c2p-68k", "include")],
 		check=True, capture_output=True, text=True)
 	out = subprocess.run([str(exe)], check=True,
 	                     capture_output=True, text=True).stdout

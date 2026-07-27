@@ -159,7 +159,8 @@ def test_quantize_properties(tmp_path):
 	exe = tmp_path / "quant_test"
 	subprocess.run(
 		["cc", "-O2", "-Wall", "-o", str(exe), str(harness),
-		 "-I", os.path.join(REPO, "platform", "include")],
+		 "-I", os.path.join(REPO, "platform", "include"),
+		 "-I", os.path.join(REPO, "third_party", "c2p-68k", "include")],
 		check=True, capture_output=True, text=True)
 	out = subprocess.run([str(exe)], check=True,
 	                     capture_output=True, text=True).stdout

@@ -27,7 +27,7 @@ PLATFORM_SRC := $(PLATFORM_SHARED) \
                 platform/amiga/display_aga.c \
                 platform/amiga/display_rtg.c \
                 platform/amiga/display_ecs.c \
-                platform/amiga/c2p_amiga.c \
+                third_party/c2p-68k/src/c2p_amiga.c \
                 platform/amiga/sound_paula.c \
                 platform/amiga/input_amiga.c \
                 platform/amiga/dbglog_amiga.c \
@@ -51,7 +51,10 @@ $(error unknown MACHINE '$(MACHINE)' — use 'falcon' or 'amiga')
 endif
 
 SRCDIRS := src src/engine compat
-INCLUDE := -Isrc -Icompat/include -Iplatform/include
+# third_party/c2p-68k is a git subtree (see third_party/c2p-68k/PROVENANCE.md).
+# It owns c2p32.h / c2p4st.h / c2p_amiga.*; do NOT re-add local copies — edit
+# them upstream and `git subtree pull`, or the two will silently diverge.
+INCLUDE := -Isrc -Icompat/include -Iplatform/include -Ithird_party/c2p-68k/include
 
 # Machine stamp: the two machines share object paths, so a MACHINE switch
 # without a clean silently links stale other-machine objects (bitten three
@@ -80,8 +83,8 @@ INCLUDE := -Isrc -Icompat/include -Iplatform/include
 # this project several emulator round-trips.
 BUILDSTAMP := $(MACHINE)-$(or $(CPU68K),default)-$(or $(FPU),nofpu)-$(or $(NOEMBED),embed)-planar$(or $(PLANAR),1)-probe$(or $(ENGINE_PROBE),0)-$(words $(EXTRA_CFLAGS))$(firstword $(EXTRA_CFLAGS))
 ifneq ($(shell cat .machine 2>/dev/null),$(BUILDSTAMP))
-$(shell find src compat platform -name '*.o' -delete 2>/dev/null; \
-        find src compat platform -name '*.d' -delete 2>/dev/null; \
+$(shell find src compat platform third_party -name '*.o' -delete 2>/dev/null; \
+        find src compat platform third_party -name '*.d' -delete 2>/dev/null; \
         echo $(BUILDSTAMP) > .machine)
 endif
 
@@ -661,7 +664,10 @@ cg-audit:
 # by default; opt in with `make test-slow`.
 PYTEST ?= tools/.venv/bin/pytest
 test:
-	$(PYTEST) tests -q
+	# third_party/c2p-68k carries its own equivalence tests (the c2p files
+	# moved there — see the INCLUDE note above). Run them here too, or the
+	# subtree's coverage silently drops out of OpenUA's suite.
+	$(PYTEST) tests third_party/c2p-68k/tests -q
 
 test-slow:
 	$(PYTEST) tests -q -m slow
@@ -672,8 +678,8 @@ test-slow:
 # clean and linked into a -m68000 build).
 clean:
 	$(RM) $(OBJ) $(DEP) $(TARGET) $(DATAPOOL_FILES) $(A4MAP_C)
-	find src compat platform -name '*.o' -delete 2>/dev/null || true
-	find src compat platform -name '*.d' -delete 2>/dev/null || true
+	find src compat platform third_party -name '*.o' -delete 2>/dev/null || true
+	find src compat platform third_party -name '*.d' -delete 2>/dev/null || true
 	$(RM) frua frua.prg uainst.ttp uainst_amiga uainst.info
 
 # clean does NOT remove dist/ — release-all cleans objects between platforms and

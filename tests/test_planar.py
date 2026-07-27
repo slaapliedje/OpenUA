@@ -156,6 +156,7 @@ def _compile_run(tmp_path, harness):
     subprocess.run(
         [cc, "-O2", "-Wall", "-Wextra", "-Werror",
          "-I", os.path.join(REPO, "platform", "include"),
+         "-I", os.path.join(REPO, "third_party", "c2p-68k", "include"),
          str(src), os.path.join(REPO, "platform", "planar.c"),
          "-o", str(exe)],
         check=True)

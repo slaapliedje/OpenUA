@@ -80,6 +80,34 @@ and reconnect the session (MCP servers load at session start).
    tools/atari-compendium-mcp/server.py` (use absolute paths). The PDF + its
   text cache are NOT committed (copyright, like `data/`); only the server code.
 
+## Vendored subtree: `third_party/c2p-68k`
+
+The chunky→planar converter (`c2p32.h`, `c2p4st.h`, `c2p_amiga.*`) lives in a
+**git subtree**, not in `platform/`. It is shared with another project, so this
+repo is a CONSUMER — upstream is the source of truth.
+
+```sh
+# pull upstream changes in
+git subtree pull --prefix=third_party/c2p-68k c2p-68k main --squash
+# push local edits back out (do this, or the copies diverge silently)
+git subtree push --prefix=third_party/c2p-68k c2p-68k main
+```
+
+The `c2p-68k` remote currently points at a LOCAL path (`~/dev/c2p-68k`);
+repoint it with `git remote set-url` once the repo has a real home.
+
+- **Do not re-add local copies** of those files under `platform/`. Edit them in
+  `third_party/c2p-68k/` and push upstream.
+- The subtree carries its OWN tests; `make test` runs them via an explicit
+  `third_party/c2p-68k/tests` path. Adding tests there is free, but they only
+  run because that path is named.
+- `third_party` is in the BUILDSTAMP purge and in `clean`. It has to be: the
+  subtree's `c2p_amiga.o` would otherwise survive a `CPU68K` switch and link
+  68020 code into a 68000 binary — exactly the staleness the stamp exists to
+  prevent.
+- Licensing differs deliberately: OpenUA is GPL-2.0, the subtree is MIT (see
+  `third_party/c2p-68k/PROVENANCE.md`).
+
 ## Layer rule
 
 `src/engine/` (engine) → `compat/` (Mac Toolbox shim) → `platform/` (HAL) →
