@@ -209,6 +209,24 @@ append-only decision log [`docs/decisions.md`](docs/decisions.md). `docs/` also
 holds the per-subsystem maps ("`*-wall.md`") and the decompilation workflow
 ([`docs/decompilation.md`](docs/decompilation.md)).
 
+### Generally applicable writeups
+
+Two documents are written to stand on their own, for anyone doing this kind of
+work on any project — no knowledge of this codebase assumed, and worth reading
+before repeating the same experiments:
+
+- [`docs/chunky-to-planar-68k.md`](docs/chunky-to-planar-68k.md) — converting a
+  chunky framebuffer to bitplanes on ST/STE/TT/Amiga: the layouts, what the
+  optimisations were actually worth (flat-run detection −36%; the BLiTTER 3.4%
+  end-to-end, not the 3.76× the microbenchmark promised), the draw-time
+  plane-stamping model and the three walls that cap it, and the measurement
+  that overturned the plan.
+- [`docs/headless-retro-harness.md`](docs/headless-retro-harness.md) — driving
+  Hatari and amiberry with no display so rendering changes can be
+  regression-tested by diffing frames, plus the traps (silence that looks like
+  success, verifying by state rather than by keys sent, pulldown menus that
+  cannot be screenshotted while open).
+
 ## Repository layout
 
 ```
