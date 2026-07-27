@@ -1512,3 +1512,71 @@ starts: a full-frame c2p is 1.21 s, so a present costing 1.6 s looks like it is
 paying nearly a whole conversion — even though #90 measured post-menu presents
 converting ZERO rows. Those two facts do not fit together yet, and reconciling
 them is the next piece of work, not a foregone conclusion.
+
+### RECONCILED: a present costs 1.6 s with ZERO converted rows because it MEMCMPs 64 KB to find out nothing moved
+
+The HEIRS drive left two facts that could not both be true: full presents were
+32.5% of play at ~1.6 s each, and #90 had measured post-menu presents converting
+ZERO rows — with a whole-frame c2p costing only 1.21 s. Phase-timed the present
+(`b63pr`, STPROF), 960 presents:
+
+| phase | t200 | share of in-present |
+|---|--:|--:|
+| **pass 1 — the 200-row diff** | **240834** | **76%** |
+| reband / repalette branch | 35945 | 11% |
+| run copies (blitter) | 1534 | 0.5% |
+| viewport composite | 608 | 0.2% |
+| rows CHANGED | 9827 | 10.2 per present |
+| rows CONVERTED | **776** | **0.8 per present** |
+
+**#90 was right and nothing contradicts it.** The present converts essentially
+nothing. It spends its life running `memcmp` over all 64000 bytes of the chunky
+surface against the page shadow to discover that about ten rows moved.
+
+**And `memcmp` is the wrong primitive on this target.** Timed back to back in
+one boot, 16 sweeps of the real 64000-byte surface, row by row exactly as pass 1
+does it:
+
+| | t200 | cycles/byte |
+|---|--:|--:|
+| `memcmp` | 2395 | **93** |
+| the same compare as a `long`-wise C loop | **776** | **30** |
+
+3.09x, for a ten-line function. (An earlier version of this log line divided by
+64 instead of 640 and printed a nonsense 938 cycles/byte — the 93 is the
+corrected figure.)
+
+**Shipped as `st_row_differs`**, used by both row comparisons (pass 1's diff and
+`st_dt_ready_row`'s stamp check). Measured A/B on the identical HEIRS drive with
+identical instrumentation, the two arms one `FRUA_ROWDIFF_MEMCMP` flag apart:
+
+| | memcmp arm | long-compare arm |
+|---|--:|--:|
+| per present | 322.0 t200 (1.61 s) | **167.7 t200 (0.84 s)** |
+| pass 1 per present | 250.4 | **90.4** |
+| rows converted | 776 | 776 |
+
+**The full present is HALVED**, and in-present fell from 32.5% to 19.1% of the
+run's wall clock — worth ~13% of total play time on a real module. `rows
+converted` identical in both arms, which is the semantic check: same answer,
+a third of the time.
+
+**Verification.** The WALKTEST walk frame — the byte-exact reference that caught
+the YCOUNT bug — is **pixel-identical, 0 of 489216**, with the change in, on the
+shipping flag set. 412 host tests pass; 68000 and 020 both link.
+
+**One honest loose end, chased and cleared.** The HEIRS end frame in the
+phase-timed runs shows a BLANK viewport where an earlier run showed guest-room
+art, which looked like a rendering regression. It is not the row-diff change:
+the memcmp arm and the long-compare arm produce **pixel-identical frames**
+(0 differing), so both instrumented builds do it and the plain build does not.
+It is the phase timers' ~10 extra Supexec per present perturbing a
+timing-sensitive path — the same sensitivity #91 documented. STPROF-only; it
+does not exist in anything that ships. Recorded rather than swept up because
+the next person to phase-time this will see it too.
+
+**Where #63 stands after this.** The remaining big item is to stop scanning at
+all: the writers already know which rows they touched (`s_dt_rowcov`) and the
+shim knows its dirty rects, so a dirty-row bitmap would replace even the fast
+scan with a 200-bit test. That is worth roughly the remaining 19%, and it
+reaches into the shim rather than living inside the backend.

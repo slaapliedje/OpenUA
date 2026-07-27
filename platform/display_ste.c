@@ -210,6 +210,15 @@ static long st_prof_hz200(void)
 }
 static long sp_vp_n, sp_vp_t, sp_rect_n, sp_rect_t, sp_play_t0 = -1;
 static long sp_vp_conv, sp_vp_blit;     /* composite split: c2p vs plane blit */
+
+/* #63 FULL-PRESENT phase split. The HEIRS drive put 32.5% of all play time
+ * inside st_present — ~1008 presents at ~1.6 s each — which does not square
+ * with #90's finding that post-menu presents convert ZERO rows, since a
+ * full-frame c2p is only 1.21 s. Either the conversions are back, or a
+ * present that converts nothing is still doing 1.6 s of something. These name
+ * which. Coarse on purpose: five Supexec pairs per present, not per row. */
+static long sp_ph_band, sp_ph_pass1, sp_ph_copy, sp_ph_n;
+static long sp_ph_conv_rows, sp_ph_chg_rows;
 #endif
 
 #define IERA (*(volatile unsigned char *)0xFFFFFA07UL)
@@ -948,6 +957,37 @@ static void st_dt_selfcheck(void)
  * ink has a real slot. Same class the B1 wall-pinning solved for walls. */
 static long s_dt_new_ink;
 
+/* Does a 320-byte surface row differ? (#63)
+ *
+ * This is THE hot primitive of the whole backend. The full present compares
+ * all 200 rows against the page's shadow on every present, and the HEIRS drive
+ * measured that scan at 76% of a present and the present at 32.5% of play —
+ * while finding only ~10 changed rows and converting 0.8. The engine spends a
+ * quarter of its life discovering that nothing moved.
+ *
+ * `memcmp` costs **93 cycles per byte** on this target; this loop costs **30**
+ * (measured back to back in one boot, 16 sweeps of the real 64000-byte
+ * surface: 2395 vs 776 t200). Rows are Mxalloc-based and ST_W is a multiple
+ * of 4, so the long accesses are aligned. Same answer, a third of the time.
+ *
+ * The real fix is to not scan at all — the writers already know which rows
+ * they touched — but that reaches into the shim, and this is ten lines. */
+static int st_row_differs(const unsigned char *a, const unsigned char *b)
+{
+#ifdef FRUA_ROWDIFF_MEMCMP
+	return memcmp(a, b, ST_W) != 0;  /* A/B arm: the old primitive, one flag */
+#else
+	const long *p = (const long *)a;
+	const long *q = (const long *)b;
+	short w;
+
+	for (w = 0; w < ST_W / 4; w++)
+		if (p[w] != q[w])
+			return 1;
+	return 0;
+#endif
+}
+
 static void st_dt_build_row(short y)
 {
 	short band = (short)((long)y * ST_NBANDS / ST_H);
@@ -993,7 +1033,7 @@ static int st_dt_ready_row(short y)
 		if (!s_used_idx[crow[x]])
 			s_dt_new_ink++;
 	if (s_dt_rowcov != NULL && s_dt_rowcov[y] == ST_W
-	    && memcmp(s_dt_idx + (long)y * ST_W, crow, ST_W) == 0)
+	    && !st_row_differs(s_dt_idx + (long)y * ST_W, crow))
 		return 0;                        /* writer-stamped: s_dt authoritative */
 #ifdef FRUA_STPROF
 	/* #41 attribution: WHY did the skip fail — coverage hole (an unconverted
@@ -1198,10 +1238,14 @@ static void st_dt_present_full(void)
 	}
 
 	/* pass 1 — ready the changed rows and gather them into runs */
+#ifdef FRUA_STPROF
+	{
+	long tp1 = Supexec(st_prof_hz200);
+#endif
 	s_nruns = 0;
 	for (y = 0; y < ST_H; y++) {
 		const unsigned char *crow = s_chunky + (long)y * ST_W;
-		int changed = memcmp(crow, s_shadow + (long)y * ST_W, ST_W) != 0;
+		int changed = st_row_differs(crow, s_shadow + (long)y * ST_W);
 
 		if (changed) {
 #ifdef FRUA_STPROF
@@ -1223,10 +1267,20 @@ static void st_dt_present_full(void)
 			run0 = -1;
 		}
 	}
+#ifdef FRUA_STPROF
+	sp_ph_pass1 += Supexec(st_prof_hz200) - tp1;
+	sp_ph_conv_rows += rows_conv;
+	sp_ph_chg_rows  += rows_conv + rows_skip;
+	}
+#endif
 	if (s_nruns == 0)
 		goto log;
 
 	/* pass 2 — one copy per run */
+#ifdef FRUA_STPROF
+	{
+	long tcp = Supexec(st_prof_hz200);
+#endif
 	if (s_use_blt) {
 		Supexec(st_dt_blit_runs_super);
 	} else {
@@ -1240,6 +1294,10 @@ static void st_dt_present_full(void)
 			       (size_t)(n * ST_W));
 		}
 	}
+#ifdef FRUA_STPROF
+	sp_ph_copy += Supexec(st_prof_hz200) - tcp;
+	}
+#endif
 log:
 #ifdef FRUA_STPROF
 	{
@@ -1908,6 +1966,52 @@ static void st_prof_tbcost(void)
 	on2 = st_prof_tb_arm(1, &f_on2);
 	s_tb_force = -1;                         /* back to the uniformity decision */
 
+	/* #63 CALIBRATION. The present-phase split blames the 200-row memcmp scan
+	 * for 76% of a present, which works out at ~156 cycles per byte compared —
+	 * absurd for any memcmp, and the same ~10x over-expectation the c2p and the
+	 * composite both show. So price the primitive directly, in the same clock,
+	 * before believing any of it: 16 sweeps of the real 64000-byte surface, row
+	 * by row exactly as pass 1 does it. If this lands near 150 cycles/byte then
+	 * memcmp genuinely is the cost and the scan is the bug; if it lands near 10
+	 * then the phase timer is inflated and the attribution is wrong. */
+	{
+		long a, tm, tl, i;
+		short y;
+		volatile long sink = 0;
+
+		/* Arm A: exactly what pass 1 runs — 200 row memcmps, 16 times. */
+		a = Supexec(st_prof_hz200);
+		for (i = 0; i < 16; i++)
+			for (y = 0; y < ST_H; y++)
+				sink += memcmp(s_chunky + (long)y * ST_W,
+				               s_offpage + (long)y * ST_W, ST_W) != 0;
+		tm = Supexec(st_prof_hz200) - a;
+
+		/* Arm B: the same comparison as a LONG-wise loop. Both buffers are
+		 * Mxalloc'd (long-aligned) and ST_W is a multiple of 4, so this is a
+		 * straight 80-iteration compare per row. A ratio, deliberately: it is
+		 * immune to whatever the absolute cycles-per-byte puzzle turns out to
+		 * be, because both arms carry it equally. */
+		a = Supexec(st_prof_hz200);
+		for (i = 0; i < 16; i++)
+			for (y = 0; y < ST_H; y++) {
+				const long *p = (const long *)(s_chunky + (long)y * ST_W);
+				const long *q = (const long *)(s_offpage + (long)y * ST_W);
+				short w, diff = 0;
+
+				for (w = 0; w < ST_W / 4; w++)
+					if (p[w] != q[w]) { diff = 1; break; }
+				sink += diff;
+			}
+		tl = Supexec(st_prof_hz200) - a;
+
+		dbg_log_num("stprof cal: memcmp  x16 t200 = ", tm);
+		dbg_log_num("stprof cal: longcmp x16 t200 = ", tl);
+		/* (t/16) ticks * 5 ms * 8 MHz / 64000 bytes = t / 25.6, so t*5/128. */
+		dbg_log_num("stprof cal: memcmp  cyc/byte = ", tm * 5L / 128L);
+		dbg_log_num("stprof cal: longcmp cyc/byte = ", tl * 5L / 128L);
+	}
+
 	dbg_log_num("stprof tb: uniform bands     = ", (long)s_tb_uniform);
 	dbg_log_num("stprof tb: ON  #1 x16 t200   = ", on1);
 	dbg_log_num("stprof tb: OFF    x16 t200   = ", off);
@@ -2065,6 +2169,10 @@ static void st_present(void)
 	/* B4: a full present targets the HIDDEN page, then flips to it. */
 	s_screen = s_page[s_back];
 	s_shadow = s_shadow_pg[s_back];
+#ifdef FRUA_STPROF
+	{
+	long tb0 = Supexec(st_prof_hz200);
+#endif
 	if (s_dirty) {
 		/* B1: only re-band when the CLUT actually moved since the last one;
 		 * a matching CLUT would reproduce the same band palettes. */
@@ -2154,6 +2262,10 @@ static void st_present(void)
 			}
 		}
 	}
+#ifdef FRUA_STPROF
+	sp_ph_band += Supexec(st_prof_hz200) - tb0;
+	}
+#endif
 #ifdef FRUA_PLANAR
 #ifdef FRUA_PLANAR_DIAG
 	st_dt_selfcheck();                       /* diag: owned == c2p (before build) */
@@ -2216,6 +2328,7 @@ static void st_present(void)
 		long in_ticks = TickCount() - t0;
 
 		sp_in += in_ticks;
+		sp_ph_n++;
 		if (sp_n < 48)
 			dbg_log_num("b4perf present ticks = ", in_ticks);
 	}
@@ -2243,6 +2356,19 @@ static void st_present(void)
 		dbg_log_num("stprof: rows converted = ", sp_rows);
 		dbg_log_num("stprof: rebands = ", sp_reband);
 		dbg_log_num("stprof: reband skips = ", sp_reband_skip);
+		/* #63: WHERE does a full present's ~1.6 s go? All t200. `pass1` is
+		 * the 200-row diff plus every st_dt_ready_row it triggers (the
+		 * new-ink scan and any conversion); `copy` is the run blits; `band`
+		 * is the reband/repalette branch. in-present minus the three is the
+		 * composite, the flip and the profiler's own overhead. */
+		dbg_log_num("b63pr: presents        = ", sp_ph_n);
+		dbg_log_num("b63pr: in-present t200 = ", sp_in * 10 / 3);
+		dbg_log_num("b63pr:   band   t200   = ", sp_ph_band);
+		dbg_log_num("b63pr:   pass1  t200   = ", sp_ph_pass1);
+		dbg_log_num("b63pr:   copy   t200   = ", sp_ph_copy);
+		dbg_log_num("b63pr:   vpcomp t200   = ", sp_vp_t);
+		dbg_log_num("b63pr: rows changed    = ", sp_ph_chg_rows);
+		dbg_log_num("b63pr: rows converted  = ", sp_ph_conv_rows);
 		st_prof_hot_dump();              /* #41: hot-row attribution window */
 		st_prof_b30b();                  /* B3.0b: compute-vs-contention sample */
 	}
