@@ -244,6 +244,15 @@ static long sp_ph_built;        /* st_dt_build_row calls                      */
  * have charged pass 1 for twelve times the conversions it actually did.
  * Accumulated as a delta across the timed region, three subtracts a present. */
 static long sp_p1_cmpwords, sp_p1_inkbytes, sp_p1_built;
+/* #63 REBAND SPLIT. The boot's first 16 presents spend 90.7 s inside
+ * st_present against 11 rebands — `band` alone is 36.7 s, ~3.3 s per reband,
+ * for what is nominally ONE median cut over at most 256 colours. That is far
+ * too much for the cut itself, so the cost must be in the full-frame passes
+ * around it: quant_banded's own histogram, the separate 64000-iteration
+ * s_used_idx capture right after it, and the viewport overlay memcpy. Time
+ * them apart before touching any of them. */
+static long sp_rb_vpcopy, sp_rb_quant, sp_rb_used, sp_rb_align, sp_rb_ffull;
+static long sp_rb_n;
 static long sp_cal_cmp, sp_cal_ink, sp_cal_bld, sp_cal_loop;  /* bench t200   */
 static short sp_ph1cal_done;
 #endif
@@ -776,6 +785,9 @@ static void st_reband(void)
 	 * with the scratch's viewport rect overlaid, so the fixed palette is derived
 	 * from the walls too and their indices get exact slots. The temp lives in
 	 * s_shadow, which the forced-full blit right after this rebuilds anyway. */
+#ifdef FRUA_STPROF
+	{ long tv = Supexec(st_prof_hz200);
+#endif
 	if (s_vp_active) {
 		short r;
 		memcpy(s_shadow, s_chunky, (long)ST_W * ST_H);
@@ -787,6 +799,11 @@ static void st_reband(void)
 		}
 		qsrc = s_shadow;
 	}
+#ifdef FRUA_STPROF
+	sp_rb_vpcopy += Supexec(st_prof_hz200) - tv;
+	sp_rb_n++;
+	}
+#endif
 
 	/* ADR-0016 B1 (fixed per-scene palette): ONE global reduce over the whole
 	 * frame (nbands=1 histograms all rows), replicated to every band. A flat
@@ -799,22 +816,42 @@ static void st_reband(void)
 	 * plus the overlaid walls above, which one 16-colour palette covers. The
 	 * raster-split machinery stays (identical per-band loads) so per-band
 	 * anchoring can return later if an art-heavy screen needs the extra colours. */
+#ifdef FRUA_STPROF
+	{ long tq = Supexec(st_prof_hz200);
+#endif
 	quant_banded(qsrc, ST_W, ST_H, s_clut,
 	             1, ST_NCOL, ST_BITS, s_band_pal, s_band_remap);
+#ifdef FRUA_STPROF
+	sp_rb_quant += Supexec(st_prof_hz200) - tq;
+	}
+#endif
 
-	/* Capture which indices this quant actually saw (st_remap_split's domain). */
+	/* Capture which indices this quant actually saw (st_remap_split's domain).
+	 * #63: this is a SECOND full-frame pass over the same 64000 pixels
+	 * quant_banded just histogrammed — measured apart from the cut itself so
+	 * the duplication can be priced before it is removed. */
+#ifdef FRUA_STPROF
+	{ long tu = Supexec(st_prof_hz200);
+#endif
 	{
 		long n;
 		memset(s_used_idx, 0, sizeof s_used_idx);
 		for (n = 0; n < (long)ST_W * ST_H; n++)
 			s_used_idx[qsrc[n]] = 1;
 	}
+#ifdef FRUA_STPROF
+	sp_rb_used += Supexec(st_prof_hz200) - tu;
+	}
+#endif
 
 	/* B3.2 STABLE-SLOT ALIGNMENT: permute band 0's fresh 16 slots so each lands at
 	 * the position holding the closest colour in the PREVIOUS palette — a colour
 	 * that persists across the re-band keeps its slot number, so its remap entry
 	 * doesn't move and the smart-skip leaves the static chrome/HUD un-converted. A
 	 * pure renumber (colours + final remap unchanged), so the frame is identical. */
+#ifdef FRUA_STPROF
+	{ long ta = Supexec(st_prof_hz200);
+#endif
 	if (!first) {
 		unsigned char used[ST_NCOL];
 		unsigned char pos[ST_NCOL];             /* pos[newslot] = its position   */
@@ -841,6 +878,10 @@ static void st_reband(void)
 		for (v = 0; v < 256; v++)
 			s_band_remap[v] = pos[s_band_remap[v]];
 	}
+#ifdef FRUA_STPROF
+	sp_rb_align += Supexec(st_prof_hz200) - ta;
+	}
+#endif
 
 	memcpy(s_band_pal_prev, s_band_pal, sizeof s_band_pal_prev);
 	s_have_prev_pal = 1;
@@ -999,6 +1040,22 @@ static long s_dt_new_ink;
  *
  * The real fix is to not scan at all — the writers already know which rows
  * they touched — but that reaches into the shim, and this is ten lines. */
+/* Whole-buffer variant of the same primitive, for the reband path's
+ * "did anything move since the last present?" test (#63). Both buffers are
+ * Mxalloc-based and the length is a multiple of 4. */
+static int st_buf_differs(const unsigned char *a, const unsigned char *b,
+                          long nbytes)
+{
+	const long *p = (const long *)a;
+	const long *q = (const long *)b;
+	long w, n = nbytes / 4;
+
+	for (w = 0; w < n; w++)
+		if (p[w] != q[w])
+			return 1;
+	return 0;
+}
+
 static int st_row_differs(const unsigned char *a, const unsigned char *b)
 {
 #ifdef FRUA_ROWDIFF_MEMCMP
@@ -1332,6 +1389,12 @@ static void st_dt_present_full(void)
 #endif
 
 	if (s_force_full > 0) {
+#ifdef FRUA_STPROF
+		/* #63: the force-full branch `goto log`s past the pass-1 timer, so
+		 * every reband's whole-frame rebuild landed in the UNATTRIBUTED
+		 * remainder of in-present (46% of the boot). Name it. */
+		long tff = Supexec(st_prof_hz200);
+#endif
 		for (y = 0; y < ST_H; y++)
 #ifdef FRUA_STPROF
 			if (st_dt_ready_row(y)) rows_conv++; else rows_skip++;
@@ -1353,6 +1416,9 @@ static void st_dt_present_full(void)
 		s_force_full    = 0;
 		memset(s_pend, 0, sizeof s_pend);   /* #63: both pages are current */
 		s_pend_init     = 1;
+#ifdef FRUA_STPROF
+		sp_rb_ffull += Supexec(st_prof_hz200) - tff;
+#endif
 		goto log;
 	}
 
@@ -2459,8 +2525,13 @@ static void st_present(void)
 			 * re-quantises. s_shadow == s_chunky after any completed present, so
 			 * an all-zero diff means nothing was drawn since. (st_reband borrows
 			 * s_shadow as a temp, so this MUST be sampled before the dispatch.) */
+			/* #63: was memcmp over all 64000 bytes. memcmp costs 93
+			 * cycles/byte on this target where the long-wise loop
+			 * costs ~53 — the same substitution that halved pass 1,
+			 * never applied here. Identical answer, and it runs on
+			 * EVERY dirty present, not just the ones that reband. */
 			int content_same = s_banded_valid && !s_vp_active &&
-			    memcmp(s_chunky, s_shadow, (long)ST_W * ST_H) == 0 &&
+			    !st_buf_differs(s_chunky, s_shadow, (long)ST_W * ST_H) &&
 			    !st_remap_split();  /* a CLUT load that SPLITS a merged
 			                         * slot invalidates the remap even
 			                         * with content unchanged (the
@@ -2642,6 +2713,15 @@ static void st_present(void)
 		dbg_log_num("b63pr:   vpcomp t200   = ", sp_vp_t);
 		dbg_log_num("b63pr: rows changed    = ", sp_ph_chg_rows);
 		dbg_log_num("b63pr: rows converted  = ", sp_ph_conv_rows);
+		/* #63 REBAND SPLIT — where the boot's `band` + force-full time goes.
+		 * vpcopy/quant/used/align sum to st_reband; ffull is the whole-frame
+		 * rebuild each reband forces afterwards. */
+		dbg_log_num("b63rb: rebands run     = ", sp_rb_n);
+		dbg_log_num("b63rb:   vp overlay    = ", sp_rb_vpcopy);
+		dbg_log_num("b63rb:   quant_banded  = ", sp_rb_quant);
+		dbg_log_num("b63rb:   used_idx scan = ", sp_rb_used);
+		dbg_log_num("b63rb:   slot align    = ", sp_rb_align);
+		dbg_log_num("b63rb:   FORCE-FULL    = ", sp_rb_ffull);
 		/* #63 PASS-1 ATTRIBUTION. Exact work counters x calibrated unit
 		 * costs. `residual` is pass1 minus gather minus all four: if it
 		 * is near zero the model is complete and pass 1 is fully named;

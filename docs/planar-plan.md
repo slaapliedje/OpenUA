@@ -2149,3 +2149,108 @@ Together they are ~85% of pass 1, which is 30% of the in-present time, which is
 13.6% of play. So the honest ceiling on both, done perfectly, is around 4% of
 wall — worth stating before anyone starts, and a long way from the 32.5% the
 present path cost when #63 opened.
+
+### #63 THE BOOT IS THE REBANDS — 90 s of a 200 s boot is inside st_present
+
+Everything #63 measured until now was the PLAY loop, because that is where the
+instrument pointed. The user asked why an 8 MHz STE takes three minutes to the
+main menu when a 7 MHz ECS A500 takes ~105 s, with a faster CPU and one fewer
+bitplane. The answer was already in the profiler's FIRST window — its window is
+16 presents and the boot is 16 presents — and nobody had read it.
+
+**Boot, 16 presents, 11 rebands (STPROF, `--machine ste`):**
+
+| phase | t200 | seconds | share of in-present |
+|---|--:|--:|--:|
+| **force-full rebuild** | 7700 | **38.5 s** | **43%** |
+| **band (reband/repalette)** | 7120 | **35.6 s** | **40%** |
+| pass 1 | 2368 | 11.8 s | 13% |
+| run copies | 131 | 0.7 s | 0.7% |
+| **in-present** | **17913** | **89.6 s** | — |
+
+**~90 s of the 200 s boot is inside the display present**, which matches the
+~95 s ST-vs-ECS gap almost exactly. This inverts the play-loop picture, where
+pass 1 dominates and `band` is 20%: at boot pass 1 is 13% and the rebands are
+everything.
+
+The force-full is not a separate phenomenon — **a reband forces a whole-frame
+rebuild**, so those two rows are one mechanism costing 74 s between them, about
+6.7 s per reband. It had been invisible because the force-full branch `goto`s
+past the pass-1 timer and landed in the unattributed remainder.
+
+**Inside a reband (`b63rb`, 11 rebands):**
+
+| step | t200 | s | per reband |
+|---|--:|--:|--:|
+| `quant_banded` (the median cut) | 1614 | 8.1 s | 0.73 s |
+| **`s_used_idx` capture** | **2227** | **11.1 s** | **1.0 s** |
+| stable-slot align | 118 | 0.6 s | 0.05 s |
+| viewport overlay | 0 | 0 | — |
+| band remainder (hw palette, slot reps, guards) | 3161 | 15.8 s | 1.4 s |
+
+**★ THE PRESENCE SET IS COMPUTED TWICE.** `quant_banded` already builds
+`used[b][i]` — which CLUT indices appear — and `st_reband` then runs its own
+64000-iteration `s_used_idx[qsrc[n]] = 1` pass immediately afterwards. The
+duplicate costs MORE than the quantiser it duplicates (11.1 s vs 8.1 s),
+because `quant_banded` deliberately samples every OTHER row (32000 pixels) and
+the copy samples all of them.
+
+They cannot simply be merged: the half-row set would miss indices that live
+only on odd rows, and `s_used_idx` feeds the new-ink detector, so a smaller set
+means MORE spurious re-quants — the wrong direction. The fix is one full-frame
+pass that fills both, with `quant_banded` taking presence as an input. That
+changes which colours the median cut sees (all rows, not half), so it is a
+palette-affecting change and needs frame verification, not a free refactor.
+
+**Why the rebands fire at all — `b4audit` over 22 of them:**
+
+| # | content rows | CLUT bytes moved | used idx | of which moved |
+|---|--:|--:|--:|--:|
+| 5 | 125 | **3** | 130 | **80** |
+| 10, 14, 15, 18, 21 | 200/138/193/29/29 | **0** | ~23 | 7–26 |
+| 17, 20 | **0** | 96 | 67 | 41 / 43 |
+| others | 200 | 74–713 | 1–223 | most |
+
+Three distinct wasteful classes, none of which #89 could see (it asked whether
+rebands were *legitimate*, not what they *cost*):
+
+1. **CLUT moved ZERO bytes** (5 of 22). These are the **new-ink trigger**:
+   `s_dt_new_ink >= 4` sets `s_dirty = 1` AND clears `s_banded_valid`, forcing a
+   full re-quant for a palette that did not change. The new-ink scan optimised
+   two commits ago is the thing *causing* the most expensive operation in the
+   boot — a 3% saving on the trigger, feeding a 6.7 s response.
+2. **Content identical, only `s_vp_active` vetoed the cheap path** (#17, #20).
+   Zero content rows and a 96-byte CLUT move, yet 41 of 67 used indices were
+   reshuffled.
+3. **A 3-byte CLUT delta reshuffling 80 of 130 in-use indices** (#5). One
+   colour entry moved and the median cut landed somewhere completely different.
+
+**★ CLASS 3 IS ALMOST CERTAINLY THE USER-REPORTED VISUAL BUG** — "flashes a
+very true-to-colour image, then redraws to a greyed-out look and darkens the
+door on HEIRS". A reband IS a visible palette reallocation, and #5 shows a
+trivial CLUT edit reshuffling most of the on-screen colours. The B3.2
+stable-slot alignment exists to prevent exactly this and is not achieving it
+here (80/130 moved), which is the thing to look at first.
+
+**One change landed, and it is small.** The `content_same` test used `memcmp`
+over all 64000 bytes — 93 cycles/byte where the long-wise loop is ~53, the same
+substitution that halved pass 1, never applied here. Swapped for
+`st_buf_differs`. Measured `band` 7222 -> 7120 t200, **1.4%, which is within a
+single run's noise** — because both primitives EARLY-EXIT and the content
+genuinely differs on most rebands, so neither ever scans the full buffer. The
+predicted ~8 s did not exist. Kept because it is semantically identical and
+strictly cheaper in the worst case, but it is not a win worth claiming.
+
+**Ranked, with the arithmetic:**
+
+1. **Stop the force-full where the remap barely moved** — 38.5 s, the single
+   biggest item in the boot, and shared with the visual bug.
+2. **Fix class 1** (zero-CLUT-delta rebands from the new-ink trigger) — the
+   right response to unseen ink is to map it to its nearest existing slot, a
+   `remap[]` patch, not a re-partition. No reshuffle, no force-full.
+3. **Single presence pass** — ~8 s, but palette-affecting.
+4. **The 15.8 s band remainder** is still unattributed; `st_build_hw_palette`
+   and `st_compute_slot_reps` are the candidates.
+
+For scale: #63's remaining play-loop levers are worth ~4% of play wall. This is
+~45% of the boot.
