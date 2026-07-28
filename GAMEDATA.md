@@ -6,9 +6,9 @@ release contains them**. You supply them from your own copy of the game.
 
 ## Where to get FRUA
 
-- **Your own original Macintosh release** — the primary source. Everything
-  OpenUA needs comes from it. It shipped as three 1.44 MB floppies (also found
-  as a StuffIt archive of DiskCopy images).
+- **Your own original Macintosh release** — everything OpenUA needs comes from
+  it. It shipped as three 1.44 MB floppies (also found as a StuffIt archive of
+  DiskCopy images). Long out of print, and **no longer required** — see below.
 - **GOG** — [Forgotten Realms: The Archives – Collection Two](https://www.gog.com/game/forgotten_realms_the_archives_collection_two)
 - **Steam** — [Forgotten Realms: The Archives – Collection Two](https://store.steampowered.com/app/1882280/Forgotten_Realms_The_Archives__Collection_Two/)
 
@@ -27,7 +27,7 @@ it starts in.
 ```
 OPENUA/
 ├── frua.prg              the engine (Atari; named `frua` on Amiga) — from the release zip
-├── frua.rsc              engine resources, packed from the Mac application (below)
+├── frua.rsc              engine resources, from the DOS CKIT.EXE or the Mac app (below)
 ├── 8X8DB.TLB 8X8DB.CTL   ┐
 ├── ALWAYS.TLB ALWAYS.CTL │  the shared libraries — every file from the Mac
 ├── PICA…PICF, BIGPIC,    │  release's Disk1…Disk4 folders, copied flat
@@ -103,8 +103,14 @@ so save games and rolled characters survive.
 
 Fan modules from the [fan-module archive](http://frua.rosedragon.org) —
 hundreds of community adventures, mostly authored on the PC — install with
-the native `uainst` on the machine itself (drag the ZIP onto it), or convert
-on the PC with `art_convert.py`; see `CONVERTER.md`. Verified end-to-end with
+the native `uainst` on the machine itself, or convert on the PC with
+`art_convert.py`; see `CONVERTER.md`. `uainst` picks its ZIP and its
+destination for you: on the Amiga double-click `uainst` for the two ASL
+requesters, and on the Atari double-click **`UAINST.PRG`** for the GEM file
+selector. (**`UAINST.TTP`** is the same program under the name the desktop
+launches as a TOS application — use that one to drag a ZIP onto it or to type
+arguments; it cannot show the selector, because the desktop has already left
+GEM by the time it runs.) Verified end-to-end with
 *Pool of Radiance* running on its own converted art. Known limit:
 RLE-compressed big-picture entries (piece type 2) are refused loudly rather
 than mangled.

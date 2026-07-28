@@ -43,10 +43,17 @@
 #define SEP '/'
 #endif
 
-#ifdef __amigaos__
-/* installer/asl_amiga.c — pops the ASL file/drawer requesters when uainst
- * is run with no ZIP argument. Returns 1 if a ZIP was chosen. */
+/* The native file picker, when uainst is run with no ZIP argument: the ASL
+ * requesters on the Amiga (installer/asl_amiga.c), the AES file selector on
+ * the Atari (installer/fsel_atari.c). Same contract on both — returns 1 if a
+ * ZIP was chosen, leaves `dest` alone unless a folder was picked too, and
+ * returns 0 when the windowing system is unavailable so the console prompt
+ * below still gets a chance. UAINST_GUI is defined by the Makefile for the
+ * builds that link one; the host build has neither. */
+#ifdef UAINST_GUI
 int uainst_gui_pick(char *zip, size_t zipcap, char *dest, size_t destcap);
+#endif
+#ifdef __amigaos__
 /* installer/asl_amiga.c — runs fn(argc,argv) on a large StackSwap'd stack;
  * the Shell/Workbench default stack is too small for miniz + asl.library. */
 int uainst_run_big_stack(int (*fn)(int, char **), int argc, char **argv);
@@ -245,10 +252,11 @@ static int installer_main(int argc, char **argv)
 			if (dest_dir[0] == 0)
 				strcpy(dest_dir, ".");
 		}
-#ifdef __amigaos__
-		/* No ZIP argument: pop the ASL requesters (task #24). If
-		 * asl.library will not open, fall through to the console
-		 * prompt below just like the Atari build. */
+#ifdef UAINST_GUI
+		/* No ZIP argument: pop the native picker — ASL requesters on
+		 * the Amiga (task #24), the AES file selector on the Atari.
+		 * If the windowing system will not answer, fall through to
+		 * the console prompt below. */
 		if (zip_path[0] == 0)
 			(void)uainst_gui_pick(zip_path, sizeof zip_path,
 					      dest_dir, sizeof dest_dir);

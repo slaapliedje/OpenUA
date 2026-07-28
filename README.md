@@ -89,13 +89,16 @@ FRUA in **Forgotten Realms: The Archives – Collection Two**:
 - **GOG** — [Forgotten Realms: The Archives – Collection Two](https://www.gog.com/game/forgotten_realms_the_archives_collection_two)
 - **Steam** — [Forgotten Realms: The Archives – Collection Two](https://store.steampowered.com/app/1882280/Forgotten_Realms_The_Archives__Collection_Two/)
 
-Those are the **DOS** release. The engine here is Mac-derived, but design/data
-files are byte-identical between the DOS and Mac versions, and the included art
-converter (`tools/art_convert.py`, below) makes the DOS art readable. One piece
-still requires the original **Macintosh** release: the engine resource archive
-`frua.rsc` is packed from the Mac application itself. **Step-by-step setup —
-which files go where, per platform — is in [`GAMEDATA.md`](GAMEDATA.md)**; the
-Mac release's unpacking pipeline is in
+Those are the **DOS** release, and **either release gives you a complete
+install** — the Macintosh original is *not* required (ADR-0017). Design and data
+files are byte-identical between the DOS and Mac versions, the included art
+converter (`tools/art_convert.py`, below) makes the DOS art readable, and the
+engine resource archive `frua.rsc` builds from the DOS `CKIT.EXE` via
+`tools/rsrc_from_dos.py`. The DOS path is the easy one: `make gamedata-dos`
+converts everything in one step, including `frua.rsc`, the soundtrack and the
+sampled sound effects. The Mac path is a short manual copy plus one packing
+step. **Step-by-step setup — which files go where, per platform — is in
+[`GAMEDATA.md`](GAMEDATA.md)**; the Mac release's unpacking pipeline is in
 [`docs/mac-release.md`](docs/mac-release.md).
 
 ## Building

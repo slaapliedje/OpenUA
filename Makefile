@@ -680,7 +680,7 @@ clean:
 	$(RM) $(OBJ) $(DEP) $(TARGET) $(DATAPOOL_FILES) $(A4MAP_C)
 	find src compat platform third_party -name '*.o' -delete 2>/dev/null || true
 	find src compat platform third_party -name '*.d' -delete 2>/dev/null || true
-	$(RM) frua frua.prg uainst.ttp uainst_amiga uainst.info
+	$(RM) frua frua.prg uainst.prg uainst.ttp uainst_amiga uainst.info
 
 # clean does NOT remove dist/ — release-all cleans objects between platforms and
 # must keep the earlier binaries' packaged output. `distclean` wipes dist too.
@@ -689,18 +689,35 @@ distclean: clean
 
 # --- installer ---------------------------------------------------------------
 #
-# uainst.ttp — the native fan-module installer (task #23 / ADR-0014):
+# uainst — the native fan-module installer (task #23 / ADR-0014):
 # ZIP -> extract into <dest>/<MODULE>.DSN -> convert all DOS art with the
 # same byte-exact core the engine links (colour .ctl twins + the mono
 # .tlb synthesis the engine deliberately never does on the fly).
-# A single 68000 build runs on every Atari. Drag the module ZIP onto it
-# from the desktop (TTP args), or run it bare and type the ZIP name.
+# A single 68000 build runs on every Atari. Double-click UAINST.PRG for the
+# AES file selector, drag a ZIP onto UAINST.TTP, or pass it as an argument.
 # ZIP reading is vendored public-domain miniz v1.14 (installer/miniz.c).
-installer: uainst.ttp
-uainst.ttp: installer/main.c installer/miniz.c src/convert/artconv.c src/convert/artconv.h
+#
+# TWO NAMES, ONE BINARY IMAGE — because the Atari desktop decides how to
+# launch a program from its EXTENSION, and the two things we want are
+# mutually exclusive:
+#   UAINST.PRG  launched as a GEM application, so the AES is alive and the
+#               file selector can draw: double-click -> pick ZIP, pick folder,
+#               which is the Amiga's flow (installer/fsel_atari.c).
+#   UAINST.TTP  launched as a TOS application, which tears the GEM screen
+#               down (no selector) but gives you the parameter box and
+#               accepts a ZIP dragged onto it. Kept for that, and for TOS 1.x
+#               desktops that cannot drop onto a .PRG at all.
+# Same objects either way; the selector is simply unreachable from the .TTP
+# because the desktop has already left GEM by the time it runs.
+installer: uainst.prg uainst.ttp
+UAINST_SRC = installer/main.c installer/fsel_atari.c installer/miniz.c \
+	     src/convert/artconv.c
+uainst.prg: $(UAINST_SRC) src/convert/artconv.h installer/fsel_atari.c
 	$(CC) -m68000 -msoft-float -std=gnu99 -O2 -fomit-frame-pointer \
-	    -o $@ installer/main.c installer/miniz.c src/convert/artconv.c
+	    -DUAINST_GUI -o $@ $(UAINST_SRC)
 	$(STRIP) $@
+uainst.ttp: uainst.prg
+	cp $< $@
 
 # The Amiga build of the same installer. Adds installer/asl_amiga.c: with
 # no ZIP argument it pops the standard asl.library file/drawer requesters
@@ -712,6 +729,7 @@ installer-amiga: uainst_amiga uainst.info
 uainst_amiga: installer/main.c installer/asl_amiga.c installer/miniz.c src/convert/artconv.c src/convert/artconv.h
 	$(AMIGA_CROSS)gcc -m68000 -msoft-float -noixemul -std=gnu99 -O2 \
 	    -fomit-frame-pointer -s \
+	    -DUAINST_GUI \
 	    -o $@ installer/main.c installer/asl_amiga.c installer/miniz.c \
 	    src/convert/artconv.c
 	# no post-link strip: m68k-amigaos-strip corrupts hunk executables
@@ -765,12 +783,17 @@ define PKG_DIST
 	    tools/macrsrc.py tools/glb2glib.py tools/xmi2slb.py tools/voc2glb.py \
 	    tools/hlib_extract.py tools/appledouble.py \
 	    installer/strs_map_dos12.json dist/$(1)/
+	@# Every release target runs `installer`/`installer-amiga` first, so a
+	@# missing file here is a BUILD BUG, not a variation. It used to be
+	@# `[ -f x ] && cp ... || true`, which would have shipped a zip with no
+	@# installer and said nothing — plain cp fails the release instead.
 	@case "$(1)" in \
 	*falcon*|*atari*) \
-		[ -f uainst.ttp ] && cp uainst.ttp dist/$(1)/UAINST.TTP || true;; \
+		cp uainst.prg dist/$(1)/UAINST.PRG; \
+		cp uainst.ttp dist/$(1)/UAINST.TTP;; \
 	*amiga*) \
-		[ -f uainst_amiga ] && cp uainst_amiga dist/$(1)/uainst || true; \
-		[ -f uainst.info ] && cp uainst.info dist/$(1)/uainst.info || true;; \
+		cp uainst_amiga dist/$(1)/uainst; \
+		cp uainst.info dist/$(1)/uainst.info;; \
 	esac
 	@case "$(1)" in \
 	*amiga*) \

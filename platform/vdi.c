@@ -61,7 +61,20 @@ static short ptsout[64];
 static void *const vdi_pb[5] = { contrl, intin, ptsin, intout, ptsout };
 
 /* Raw trap #2. GEM clobbers the scratch registers; d0 carries the 0x73
- * magic in and (for the GDOS probe) a result out. */
+ * magic in and (for the GDOS probe) a result out.
+ *
+ * ⚠ THIS CONSTRUCT IS FRAGILE — IT IS CORRECT HERE BY LUCK, NOT BY RULE.
+ * A local `register ... asm("d1")` only lands in d1 where the CONSTRAINT also
+ * demands it, and "r" is satisfied by any general register. The identical
+ * spelling in installer/fsel_atari.c miscompiled the moment GCC inlined it:
+ * it emitted `lea _aes_pb,%a6` and left d1 holding garbage, so every AES call
+ * raised "Illegal AES function call" (2026-07-28). Verified as of that date
+ * this file still gets `moveq #115,%d0` + `movel #<pb>,%d1` at all three
+ * traps, so GDOS printing is unaffected and it is left alone rather than
+ * churned — but if you touch vdi_trap or its callers, CHECK THE CODEGEN
+ * (`m68k-atari-mint-objdump -d platform/vdi.o | grep -B4 'trap #2'`), or
+ * switch to fsel_atari.c's shape: load d0/d1 inside the asm template from an
+ * "a"-constrained operand, which cannot collide with the clobbers. */
 static long vdi_trap(long magic)
 {
 	register long        d0 asm("d0") = magic;
