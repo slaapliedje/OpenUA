@@ -5379,8 +5379,11 @@ static void jt81(void)
 	 * bars) is clip-rejected — the Mac's display init sets it before
 	 * any screen paints.  Same idiom the dungeon/area screens use. */
 	{
-		unsigned char *px; short pitch, sw, sh;
-		if (g_a5_3050 == 0 && qd_screen_pixels(&px, &pitch, &sw, &sh)) {
+		short pitch, sw, sh;
+		/* #63: DIMENSIONS ONLY — passing NULL for the pixel pointer skips
+		 * the shim's "presumed writer" dirty mark. This site never touches
+		 * a pixel; it only seeds the A5 clip rect from the screen size. */
+		if (g_a5_3050 == 0 && qd_screen_pixels(NULL, &pitch, &sw, &sh)) {
 			g_a5_3054 = 0; g_a5_3056 = 0;
 			g_a5_3050 = sh; g_a5_3052 = sw;
 		}
@@ -40274,7 +40277,7 @@ static void cg_finalize_stats(unsigned char *rec)
 static int cg_char_sheet(unsigned char *rec)
 {
 	short action, i;
-	unsigned char *px; short pitch, sw, sh;
+	short pitch, sw, sh;
 
 	/* Re-establish the menu render state before painting.  The pick screen
 	 * (l3666) leaves a different CLUT + a narrowed clip; the sheet chrome
@@ -40283,7 +40286,9 @@ static int cg_char_sheet(unsigned char *rec)
 	 * any jt1161 fill clips away.  Mirrors jt574's preamble. */
 	g_a5_2347 = g_port_2347;
 	load_menu_ui();
-	if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
+	/* #63: DIMENSIONS ONLY — NULL pixel pointer, so no dirty mark. This
+	 * site seeds the A5 clip rect and never writes a pixel. */
+	if (qd_screen_pixels(NULL, &pitch, &sw, &sh)) {
 		g_a5_3054 = 0; g_a5_3056 = 0; g_a5_3050 = sh; g_a5_3052 = sw;
 	}
 
@@ -92626,7 +92631,9 @@ static void cg_body_repro(void)
 	/* menu screen + full-screen clip, like cg_char_sheet / jt574 */
 	g_a5_2347 = g_port_2347;
 	load_menu_ui();
-	if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px) {
+	/* #63: DIMENSIONS ONLY — NULL pixel pointer, so no dirty mark. This
+	 * site seeds the A5 clip rect and never writes a pixel. */
+	if (qd_screen_pixels(NULL, &pitch, &sw, &sh)) {
 		g_a5_3054 = 0; g_a5_3056 = 0; g_a5_3050 = sh; g_a5_3052 = sw;
 	}
 

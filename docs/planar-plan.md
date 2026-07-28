@@ -1656,3 +1656,52 @@ do it accidentally; grab-marking does it by design) and the viewport goes.
 Not yet proven — the next step is to instrument the commit/composite/flip
 ordering directly rather than infer it from two builds that differ in present
 count.
+
+### THE 28 POINTER-GRAB SITES, AUDITED
+
+Every `qd_screen_pixels` call site classified by what it does with the pointer.
+The question each one answers is "must this mark the surface dirty, and over
+which rows?"
+
+| verdict | sites | notes |
+|---|--:|---|
+| **Dimensions only — never touches a pixel** | **3** | `boot.c:5383`, `:40286`, `:92629`. All three seed the A5 clip rect from `sw`/`sh`. **FIXED** — see below. |
+| Read-only, diag build only | 1 | `boot.c:8140` (`FRUA_ROW24TRACE`) reads pixels into a log string. |
+| Diag build only, writes | 2 | `quickdraw.c:1606` (`FRUA_CLICKMARK`), `boot.c:19645` (`FRUA_SPILLTEST`). |
+| Already net-neutral | 2 | `quickdraw.c:2130`/`:2178` — cursor composite/restore, and `qd_present` already saves and restores the flag around them. |
+| **Writes the WHOLE screen** | **10** | `4842`, `14850` (`port_draw_play_frame`), `18815` (`encounter_screen` memsets), `26466`, `26583`, `26838`, `29146`, `29315`, `91504`, `93035` (backdrop fills / memsets). Row granularity gains nothing here — but these are SCREEN TRANSITIONS, not per-frame. |
+| **Writes a BOUNDED rect** | **9** | `3673` (`render_3d_faithful`, viewport), `6439` (`l2d4e`, and it has already clipped `top`/`bottom`), `14888` (jt312 3D view), `25111` (menu button plate), `26214` (GLIB blit, `y..y+h`), `26899` (banner `decorate`), `72986` (`jt200` at top/left), plus `7066`/`7206` (mono span/blit, mono builds only). **These are the per-frame ones, and every one of them knows its rows.** |
+| **Indirect — the hard one** | 1 | `boot.c:36057` `jt1177` computes and CACHES a pixel address into A5 `-3076` for ~7 downstream consumers (the jt119/jt122 save-under pair, jt1192/1194/1197/1202, the jt1126 scroll). It cannot know whether the eventual use reads or writes; the mark belongs at the consumers. |
+
+**Landed from the audit: the three dimension-only sites now pass NULL** for the
+pixel pointer. `qd_screen_pixels` already skips the dirty mark when `pixels` is
+NULL, so no new API was needed, and each site's `px` was dead immediately after
+the call (checked over the whole enclosing function).
+
+**Measured, same drive, one variable:**
+
+| | presents | skipped clean |
+|---|--:|--:|
+| before the audit fix | 960 | **146** |
+| after | 976 | **157** |
+| `FRUA_QDT_NOGRAB` (every grab assumed a read) | 1008 | **299** |
+
+**+11 presents, ~0.7 points.** Small, and it should be: those three run once per
+screen entry, not per frame. Correct and free, so it stays, but it is not the
+prize.
+
+**★ THE PRIZE IS SMALLER THAN THE PREVIOUS ENTRY IMPLIED, and this is the
+correction that matters.** The skip was ALREADY firing 146 times — 13.2% of
+`qd_present` calls — before any of this. So NOGRAB's 23% is not 23 points of
+new headroom; it is **~9 points**, held by the grabs that genuinely write. At
+~19% of play spent in presents, converting all nine bounded writers would be
+worth on the order of **1-2% of total play time**. That is not nothing, but it
+does not justify migrating lifted decompiled code with a stale-row risk.
+
+**So the recommendation changes.** Skipping whole presents is close to tapped
+out. The value in the bounded-writer row ranges is not the skip — it is
+NARROWING THE SCAN on the presents that still run: pass 1 currently diffs all
+200 rows, and the nine per-frame writers between them touch a small fraction of
+the screen. That is the version worth building, and it needs the same row
+ranges, but it is measured against pass 1's ~90 t200 per present rather than
+against the present count. Build the validator first either way.
