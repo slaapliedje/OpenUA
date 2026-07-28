@@ -47,6 +47,9 @@
 #ifdef FRUA_PARTYHP
 #error "FRUA_PARTYHP in a RELEASE build: every party member's HP would be clamped at combat entry. It exists only to drive a fight to a deterministic death (docs/deterministic-ab.md)."
 #endif
+#ifdef FRUA_DIRTYCHECK
+#error "FRUA_DIRTYCHECK in a RELEASE build: it re-scans every row the dirty set said to skip, which is the whole cost the dirty set exists to avoid. It is the validator for #63's narrowed scan, not a shipping mode."
+#endif
 #ifdef FRUA_QDT_NOGRAB
 #error "FRUA_QDT_NOGRAB in a RELEASE build: a direct writer's pointer grab would no longer mark the surface dirty, so any screen painted only through a grabbed pointer could present STALE. It exists to size the dirty-row prize for #63 (docs/planar-plan.md)."
 #endif

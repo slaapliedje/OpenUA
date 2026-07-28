@@ -113,6 +113,22 @@ void planar_viewport_register(unsigned char *(*scratch)(short *pitch),
 struct dsp_planar_dt;
 void planar_draw_target_register(int (*fn)(struct dsp_planar_dt *dt));
 
+/* #63 dirty rows — which surface rows a writer touched since the last full
+ * present. Lives HERE, not in the shim, because both sides need it and the
+ * layer rule runs compat -> platform: the Toolbox shim records (it is what
+ * knows the rects), a display backend reads (it is what would otherwise scan
+ * all 200 rows to rediscover the same thing).
+ *
+ * ★ CONSERVATIVE BY DEFAULT. Any writer that cannot name its rows calls
+ * planar_touch_all() and the backend scans everything, exactly as before a
+ * dirty set existed. A writer that narrows without announcing leaves its rows
+ * stale forever — see FRUA_DIRTYCHECK. */
+#define PLANAR_DIRTY_MAX 512            /* tallest surface any backend attaches */
+void planar_touch_rows(short y0, short y1);      /* [y0, y1), surface coords */
+void planar_touch_all(void);
+int  planar_dirty_rows(const unsigned char **rows);  /* !0 = scan everything */
+void planar_dirty_reset(void);
+
 /* --- draw-time plane store (ADR-0016 draw-time present model) -------------
  *
  * The primitives the draw-time model routes every writer through: set slot bits

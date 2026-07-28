@@ -309,6 +309,64 @@ static int g_present_hold;              /* #147 atomic-recompose hold (nests) */
  * different pages, so a "clean" second present still does real work. */
 static int   g_qd_touched = 1;
 
+/* #63 DIRTY ROWS. The backend's full present diffs all 200 surface rows on
+ * every present to find the ~10 that moved, and that scan is its single
+ * largest cost. This narrows it: a writer that knows which rows it touches
+ * says so, and the backend scans only those.
+ *
+ * ★ THE DEFAULT IS CONSERVATIVE AND MUST STAY THAT WAY. Anything that cannot
+ * name its rows — above all qd_screen_pixels, which hands out a raw pointer
+ * and cannot know what the caller does with it — calls qd_touch_all(), and
+ * the backend then scans everything exactly as before. A writer that narrows
+ * WITHOUT announcing leaves a row permanently stale, which is why the
+ * migration is per-site and why FRUA_DIRTYCHECK exists to police it.
+ *
+ * Sized for the tallest surface any backend attaches (TT-low is 320x480), not
+ * for ST's 200. A flat byte per row rather than a bitmap: the set and test are
+ * both single instructions, and 512 bytes of BSS is not worth a shift. */
+/* The row set itself lives in platform/planar.c — see planar.h. The shim is
+ * what KNOWS the rects, the backend is what uses them, and the layer rule runs
+ * compat -> platform, so the storage sits on the platform side and these are
+ * thin recorders that also keep #152's boolean in step. */
+void qd_touch_all(void)
+{
+	g_qd_touched = 1;
+	planar_touch_all();
+}
+
+void qd_touch_rows(short y0, short y1)
+{
+	g_qd_touched = 1;
+	planar_touch_rows(y0, y1);
+}
+
+int qd_dirty_rows(const unsigned char **rows)
+{
+	return planar_dirty_rows(rows);
+}
+
+/* Is this the SCREEN's pixmap? A port drawing into a window's own PixMap does
+ * not touch the surface at all, and its rect is in that pixmap's coordinates —
+ * so only a screen-targeted write may narrow, and everything else stays
+ * conservative. Compared by baseAddr: the screen port's map is the one
+ * qd_attach_screen pointed at the backend surface. */
+/* Bounds for the DrawChar glyph box (#63). The two font paths are the Mac
+ * FONT resource (g_mac_font, ascent/height from the resource header) and the
+ * built-in 8x8 (ascent 7, height 8). These cover both with room to spare; a
+ * font taller than this would only make the announcement narrower than the
+ * glyph, so the check below clamps to the clip and FRUA_DIRTYCHECK polices
+ * the result. */
+#define QD_GLYPH_MAX_ASCENT 32
+#define QD_GLYPH_MAX_DESCENT 32
+
+static int qd_is_screen_pm(const PixMap *pm)
+{
+	PixMapHandle spm = g_screen_port.portPixMap;
+
+	return spm != NULL && *spm != NULL && pm != NULL
+	    && pm->baseAddr == (*spm)->baseAddr;
+}
+
 #ifdef FRUA_STPROF
 /* #63: WHICH write path marks the surface touched? The backend's full-present
  * row scan is 76% of a present, and the #152 skip that should suppress it on a
@@ -441,6 +499,11 @@ void qd_present(void)
 	 * cursor_restore above grab the pixel pointer (marking touched) but
 	 * are net-neutral writes already reflected in the pack. */
 	g_qd_touched = 0;
+	/* #63: the backend has consumed the row set for this frame. Note that
+	 * qd_present_rect does NOT reset — a rect present updates only the SHOWN
+	 * page, so those rows must stay dirty until a full present has given the
+	 * other page its turn. */
+	planar_dirty_reset();
 }
 
 void qd_set_present_pages(short n)
@@ -513,8 +576,8 @@ void qd_attach_screen(void *pixels, short rowBytes, short width, short height)
  * paints raw 8-bit cells (e.g. the GEO map visualizer) without going
  * through the GrafPort primitives. Returns 0 if no screen is attached.
  */
-int qd_screen_pixels(unsigned char **pixels, short *rowBytes,
-                     short *width, short *height)
+static int qd_screen_pixels_core(unsigned char **pixels, short *rowBytes,
+                                 short *width, short *height, int mark)
 {
 	CGrafPtr     cp = &g_screen_port;
 	PixMapHandle pm;
@@ -526,20 +589,35 @@ int qd_screen_pixels(unsigned char **pixels, short *rowBytes,
 		return 0;
 	if (pixels) {
 		*pixels = (unsigned char *)(*pm)->baseAddr;
+		if (!mark) {
+			/* #63: caller names its own rows via qd_touch_rows. */
+		} else
 #ifndef FRUA_QDT_NOGRAB
-		g_qd_touched = 1;        /* #152: pointer grab = presumed writer */ QDT(0);
+		{ qd_touch_all(); QDT(0); }   /* #152: grab = presumed writer */
 #else
 		/* #63 EXPERIMENT ONLY, never ships: assume a pointer grab READS.
 		 * Sizes the prize for a dirty-row scheme — if the screen still
 		 * renders correctly with this off, most of the 29 engine grab
 		 * sites do not write, and only the few that do need migrating. */
-		QDT(0);
+		{ QDT(0); }
 #endif
 	}
 	if (rowBytes) *rowBytes = (*pm)->rowBytes;
 	if (width)    *width    = (short)(cp->portRect.right - cp->portRect.left);
 	if (height)   *height   = (short)(cp->portRect.bottom - cp->portRect.top);
 	return 1;
+}
+
+int qd_screen_pixels(unsigned char **pixels, short *rowBytes,
+                     short *width, short *height)
+{
+	return qd_screen_pixels_core(pixels, rowBytes, width, height, 1);
+}
+
+int qd_screen_pixels_nomark(unsigned char **pixels, short *rowBytes,
+                            short *width, short *height)
+{
+	return qd_screen_pixels_core(pixels, rowBytes, width, height, 0);
 }
 
 /*
@@ -752,7 +830,14 @@ static void qd_pixmap_fill(GrafPtr port, const Rect *clip,
 	if (!SectRect(r, clip, &clipped))
 		return;
 
-	g_qd_touched = 1;                        /* #152: about to write pixels */ QDT(1);
+	/* #63: the fill is clipped to `clipped`, so those are exactly the rows
+	 * it can touch. */
+	if (qd_is_screen_pm(pm))
+		qd_touch_rows((short)(clipped.top    - pm->bounds.top),
+		              (short)(clipped.bottom - pm->bounds.top));
+	else
+		qd_touch_all();
+	QDT(1);
 	w = (short)(clipped.right - clipped.left);
 #ifdef FRUA_PLANAR
 	dt_on = dsp_planar_draw_target(&dt);
@@ -1545,7 +1630,7 @@ void qd_set_palette(const RGBColor *colors, short first, short count)
 	dsp = dsp_detect();
 	if (dsp != NULL && dsp->set_palette != NULL)
 		dsp->set_palette(tmp, first, count);
-	g_qd_touched = 1;                /* #152: mapping may re-render pixels */ QDT(3);
+	qd_touch_all();                  /* #152: mapping may re-render pixels */ QDT(3);
 	qd_rebake_color_pointer();      /* keep the colour cursor true to the CLUT */
 }
 
@@ -2044,7 +2129,7 @@ void qd_cursor_track(void)
 		/* #152: a cursor MOVE changes the composited output even though
 		 * the surface bytes didn't — force the present through the
 		 * clean-present gate or the pointer freezes on screen. */
-		g_qd_touched = 1; QDT(4);
+		qd_touch_all(); QDT(4);
 #ifdef FRUA_MONOPROF
 		g_qdp_src = 4;
 #endif
@@ -2394,8 +2479,33 @@ void DrawChar(short ch)
 		return;
 	cp   = (CGrafPtr)port;
 	draw = qd_effective_clip(port, &clip);
-	if (draw)
-		g_qd_touched = 1;        /* #152: about to write pixels */ QDT(5);
+	if (draw) {
+		/* #63: every glyph row is rejected outside `clip` (see the row
+		 * loops below), so the clip is a guaranteed superset of what this
+		 * call writes — no font-metric knowledge needed here. */
+		PixMap *dpm = (cp->portPixMap != NULL && *cp->portPixMap != NULL)
+		            ? *cp->portPixMap : NULL;
+
+		/* The GLYPH BOX, not the clip. Announcing the clip was correct
+		 * but useless: a text port's clip is usually most of the screen,
+		 * so 4251 DrawChar calls a drive marked nearly every row and the
+		 * scan narrowed by 2%. The glyph occupies
+		 * [pnLoc.v - ascent + 1, +height); both font paths below use
+		 * their own metrics, so bound the box by the LARGER of the two
+		 * and intersect with the clip — still a guaranteed superset of
+		 * what the row loops can write. */
+		short gtop = (short)(port->pnLoc.v - QD_GLYPH_MAX_ASCENT);
+		short gbot = (short)(port->pnLoc.v + QD_GLYPH_MAX_DESCENT);
+
+		if (gtop < clip.top)    gtop = clip.top;
+		if (gbot > clip.bottom) gbot = clip.bottom;
+		if (dpm != NULL && qd_is_screen_pm(dpm))
+			qd_touch_rows((short)(gtop - dpm->bounds.top),
+			              (short)(gbot - dpm->bounds.top));
+		else
+			qd_touch_all();
+		QDT(5);
+	}
 
 	if (((unsigned short)cp->portVersion & CGRAFPORT_FLAG) != CGRAFPORT_FLAG
 	 || cp->portPixMap == NULL || *cp->portPixMap == NULL)

@@ -1705,3 +1705,64 @@ NARROWING THE SCAN on the presents that still run: pass 1 currently diffs all
 the screen. That is the version worth building, and it needs the same row
 ranges, but it is measured against pass 1's ~90 t200 per present rather than
 against the present count. Build the validator first either way.
+
+### NARROWING THE SCAN: infrastructure landed, and it is honest about what it buys so far
+
+Built the dirty-row machinery, migrated what can be migrated safely, and
+measured. The infrastructure is in; the payoff is not, and the reason is
+precise enough to act on.
+
+**Where the row set lives: `platform/planar.c`, not the shim.** The layer rule
+runs compat -> platform, and both sides need it — the Toolbox shim is what
+knows the rects, a display backend is what would otherwise scan 200 rows to
+rediscover them. `planar_touch_rows()` / `planar_touch_all()` /
+`planar_dirty_rows()` in `planar.h`; `qd_touch_rows()` / `qd_touch_all()` are
+thin shim recorders that also keep #152's boolean in step.
+
+**Per-page pending sets in the backend.** The subtlety that makes this more
+than a bitmap: the two pages catch up independently, so a row dirtied while
+page A was the target must still be rebuilt when page B next comes round. The
+shim's report is folded into BOTH pages' sets (`s_pend[NPAGES][ST_H]`) and each
+page clears only its own as it handles them. That is the same invariant the
+per-page shadows already encode — the set just avoids reading 64000 bytes to
+rediscover it.
+
+**Conservative by default, and the shipping build is a NO-OP.** Anything that
+cannot name its rows calls `planar_touch_all()` and the backend scans
+everything exactly as before. Verified: the WALKTEST walk frame is
+**pixel-identical, 0 of 489216**, on the shipping flag set; four targets build;
+412 tests pass.
+
+**`FRUA_DIRTYCHECK` is the police** (guarded in release_guard.h — it re-scans
+everything the set skipped, which is the entire cost the set exists to avoid).
+It re-runs the old unconditional diff on every skipped row and reports any that
+moved. It works, and it earned its keep immediately:
+
+| marks in place | unannounced rows over the drive |
+|---|--:|
+| shim primitives announcing their CLIP | 17 (all in ONE present) |
+| shim primitives announcing the GLYPH BOX | **175, across 73 distinct rows** |
+
+**Migrated so far:** `qd_pixmap_fill` (exact clipped rect) and `DrawChar`
+(glyph box). DrawChar first announced its CLIP, which was correct and useless —
+a text port's clip is most of the screen, so 4251 calls a drive marked nearly
+every row and the scan narrowed by 2%. The glyph box is the right unit.
+
+**Measured, with the grab silenced (`FRUA_QDT_NOGRAB`, experiment only):**
+pass 1 per present **90.4 -> 88.8 t200**. About 2%. The scan does not shrink
+yet, and the validator says exactly why: the 73 missed rows fall in three
+bands — **0-7** (frame top), **46-113** (the dungeon viewport), **184-197**
+(command bar). Those are the un-migrated ENGINE writers, and they are the ones
+that run on the frames that matter.
+
+**So the remaining work is named and now safe to do incrementally**: migrate
+`3673`/`14888` (the 3D view — rows 46-113), `6439` (`l2d4e`, which has already
+computed `top`/`bottom`), `72986` (`jt200`), `26214` (the GLIB blit). Each one
+is a two-line change — `qd_screen_pixels_nomark()` plus a `qd_touch_rows()` —
+and after each, the DIRTYCHECK run must still read zero for the rows that site
+owns.
+
+**Worth finishing?** Pass 1 is ~90 of a ~168 t200 present, so ~54% of the
+present and ~10% of all play time. Removing most of the scan is worth up to
+~8-9% of play — several times what the pointer-grab present-skipping was worth
+(~1-2%), which is why this is the branch to pursue and that one is not.

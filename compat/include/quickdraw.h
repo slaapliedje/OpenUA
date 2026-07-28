@@ -339,6 +339,22 @@ GrafPtr qd_screen_port(void);
 int  qd_screen_pixels(unsigned char **pixels, short *rowBytes,
                       short *width, short *height);
 
+/* #63 dirty rows — narrow the backend's per-present row scan.
+ *
+ * qd_screen_pixels() marks the WHOLE surface dirty, because it cannot know
+ * what the caller will do with the pointer. A caller that DOES know takes
+ * qd_screen_pixels_nomark() and then names its rows with qd_touch_rows().
+ *
+ * ★ nomark WITHOUT a matching qd_touch_rows() leaves the rows it wrote
+ * permanently stale on screen. Build with -DFRUA_DIRTYCHECK to have the
+ * backend run the old full scan alongside and report any row that changed
+ * without being announced. */
+int  qd_screen_pixels_nomark(unsigned char **pixels, short *rowBytes,
+                             short *width, short *height);
+void qd_touch_rows(short y0, short y1);   /* [y0, y1) in surface coords */
+void qd_touch_all(void);
+int  qd_dirty_rows(const unsigned char **rows);   /* backend: !0 = scan all */
+
 /*
  * Present hook — called by long-running window-tracking loops (DragWindow,
  * TrackGoAway) so the platform layer can flush the back buffer to the

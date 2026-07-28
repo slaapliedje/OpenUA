@@ -1207,6 +1207,45 @@ static long st_dt_blit_forcefull_super(void)
  * 1.41x on 160-byte rows because the ~15 register writes per blit dominate at
  * that size. Coalescing is what makes the blitter worth using here: it turns
  * many below-break-even blits into few above-break-even ones. */
+/* #63 per-page pending rows. The shim reports which rows changed since the
+ * last FULL present, but the two pages catch up independently — a row dirtied
+ * while page A was the target still has to be rebuilt when page B next comes
+ * round. So the report is folded into BOTH pages' sets, and a page clears only
+ * its own as it handles them. This is the same invariant the per-page shadows
+ * encode; the set just avoids having to READ 64000 bytes to rediscover it.
+ * Starts all-ones so the first present of each page converts everything. */
+#ifdef FRUA_DIRTYCHECK
+long g_dirtycheck_miss;                 /* rows that changed unannounced */
+#endif
+static unsigned char s_pend[NPAGES][ST_H];
+static short         s_pend_init;
+
+static void st_pend_all(void)
+{
+	memset(s_pend, 1, sizeof s_pend);
+	s_pend_init = 1;
+}
+
+/* Fold this frame's shim report into both pages. */
+static void st_pend_gather(void)
+{
+	const unsigned char *drows;
+	short pg, y;
+
+	if (!s_pend_init) {
+		st_pend_all();
+		return;
+	}
+	if (planar_dirty_rows(&drows)) {             /* "scan everything" */
+		st_pend_all();
+		return;
+	}
+	for (y = 0; y < ST_H; y++)
+		if (drows[y])
+			for (pg = 0; pg < NPAGES; pg++)
+				s_pend[pg][y] = 1;
+}
+
 static void st_dt_present_full(void)
 {
 	short y, pg, run0 = -1;
@@ -1234,6 +1273,8 @@ static void st_dt_present_full(void)
 		s_screen        = s_page[s_back];
 		s_shadow        = s_shadow_pg[s_back];
 		s_force_full    = 0;
+		memset(s_pend, 0, sizeof s_pend);   /* #63: both pages are current */
+		s_pend_init     = 1;
 		goto log;
 	}
 
@@ -1242,11 +1283,31 @@ static void st_dt_present_full(void)
 	{
 	long tp1 = Supexec(st_prof_hz200);
 #endif
+	st_pend_gather();
 	s_nruns = 0;
 	for (y = 0; y < ST_H; y++) {
 		const unsigned char *crow = s_chunky + (long)y * ST_W;
-		int changed = st_row_differs(crow, s_shadow + (long)y * ST_W);
+		/* #63: only rows a writer announced can have moved. Everything
+		 * else keeps its shadow and is skipped without being read. */
+		int changed = 0;
 
+		if (s_pend[s_back][y]) {
+			s_pend[s_back][y] = 0;
+			changed = st_row_differs(crow, s_shadow + (long)y * ST_W);
+		}
+#ifdef FRUA_DIRTYCHECK
+		/* THE POLICE. Re-run the old unconditional diff on the rows the
+		 * set said to skip; any hit is a writer that changed a row without
+		 * announcing it, which would leave that row stale on screen
+		 * forever. Must read ZERO over a full drive before anyone trusts
+		 * a narrowed scan. */
+		else if (st_row_differs(crow, s_shadow + (long)y * ST_W)) {
+			extern long g_dirtycheck_miss;
+			g_dirtycheck_miss++;
+			dbg_log_num("b63MISS unannounced row = ", (long)y);
+			changed = 1;                     /* self-heal, then report */
+		}
+#endif
 		if (changed) {
 #ifdef FRUA_STPROF
 			if (st_dt_ready_row(y)) { rows_conv++; s_prof_convrow[y]++; }
@@ -2369,6 +2430,10 @@ static void st_present(void)
 		dbg_log_num("b63pr:   vpcomp t200   = ", sp_vp_t);
 		dbg_log_num("b63pr: rows changed    = ", sp_ph_chg_rows);
 		dbg_log_num("b63pr: rows converted  = ", sp_ph_conv_rows);
+#ifdef FRUA_DIRTYCHECK
+		{ extern long g_dirtycheck_miss;
+		  dbg_log_num("b63pr: UNANNOUNCED rows = ", g_dirtycheck_miss); }
+#endif
 		{	/* #63: which shim write path marks the surface touched? */
 			extern long g_qdt_hits[8];
 			dbg_log_num("b63qdt: 0 pointer grab = ", g_qdt_hits[0]);

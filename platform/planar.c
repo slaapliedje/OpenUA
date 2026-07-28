@@ -3,6 +3,7 @@
  * ADR-0016 phase 1. Portable, 68000-clean C (host-testable; see
  * tests/test_planar.py). Interface + rationale in platform/include/planar.h.
  */
+#include <string.h>
 #include "planar.h"
 #include "display.h"
 
@@ -192,4 +193,36 @@ void planar_blit_stlow(unsigned char *const src_planes[], short src_stride,
 			}
 		}
 	}
+}
+
+/* --- #63 dirty rows (see planar.h) -------------------------------------- */
+
+static unsigned char s_dirty_rows[PLANAR_DIRTY_MAX];
+static int           s_dirty_all = 1;
+
+void planar_touch_all(void)
+{
+	s_dirty_all = 1;
+}
+
+void planar_touch_rows(short y0, short y1)
+{
+	if (y0 < 0)                 y0 = 0;
+	if (y1 > PLANAR_DIRTY_MAX)  y1 = PLANAR_DIRTY_MAX;
+	if (y0 >= y1)
+		return;
+	memset(s_dirty_rows + y0, 1, (size_t)(y1 - y0));
+}
+
+int planar_dirty_rows(const unsigned char **rows)
+{
+	if (rows)
+		*rows = s_dirty_rows;
+	return s_dirty_all;
+}
+
+void planar_dirty_reset(void)
+{
+	s_dirty_all = 0;
+	memset(s_dirty_rows, 0, sizeof s_dirty_rows);
 }
