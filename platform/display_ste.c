@@ -2443,6 +2443,17 @@ static void st_present(void)
 			dbg_log_num("b63qdt: 4 cursor track = ", g_qdt_hits[4]);
 			dbg_log_num("b63qdt: 5 DrawChar     = ", g_qdt_hits[5]);
 			dbg_log_num("b63qdt: 6 SKIPPED clean = ", g_qdt_hits[6]);
+			/* #63: per-call-site grab counts, encoded line*100000+hits
+			 * so one line carries both. Cross-reference against
+			 * src/engine/boot.c — 25 of the 28 sites live there. */
+			/* TWO lines per site. Packing line*100000+hits overflows
+			 * a 32-bit long the moment a boot.c five-digit line number
+			 * shows up — the same encoding trap as the band-fire counts. */
+			{ extern long g_qdt_site[32][2]; int i;
+			  for (i = 0; i < 32 && g_qdt_site[i][0]; i++) {
+				dbg_log_num("b63site line = ", g_qdt_site[i][0]);
+				dbg_log_num("b63site hits = ", g_qdt_site[i][1]);
+			  } }
 		}
 		st_prof_hot_dump();              /* #41: hot-row attribution window */
 		st_prof_b30b();                  /* B3.0b: compute-vs-contention sample */

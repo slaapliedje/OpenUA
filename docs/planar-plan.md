@@ -1870,3 +1870,62 @@ one counter, which is why "~2 per present" cannot be attributed. Give
 dump per-site counts; that names the two per-frame markers in one run instead
 of the four this entry spent inferring. The prime suspects remain `72986`
 (`jt200`) and `36057` (`jt1177`, whose ~7 consumers are the real writers).
+
+### THE PER-SITE COUNTERS FOUND IT IN ONE RUN: THE CURSOR. pass 1 −44%
+
+Gave `qd_screen_pixels` a `__LINE__` call-site id and dumped per-site counts.
+The "~2 blanket grabs per present" that four rounds of inference had failed to
+attribute showed up immediately:
+
+| site | hits over 960 presents |
+|---|--:|
+| `quickdraw.c:2251` — `cursor_composite` | **~950** |
+| `quickdraw.c:2299` — `cursor_restore` | **~950** |
+| everything else | single digits |
+
+**One grab each, every present, each marking all 200 rows.** And it was
+self-inflicted: `qd_cursor_track` has carried a net-neutral bracket since #152
+that saves and restores `g_qd_touched` around the composite/restore pair — but
+that bracket covers the BOOLEAN only, and the dirty-row set added here is a
+second piece of state it knew nothing about. The cursor is 16x16 at a known
+origin, so both paths now take the non-marking grab and announce their band:
+`[oy, oy+16)` and `[save_y, save_y+16)`, exact rather than conservative.
+
+**Measured, HEIRS drive, 960 presents:**
+
+| | before | after |
+|---|--:|--:|
+| marking pointer grabs | 1911 | **10** |
+| pass 1 per present | 91.4 t200 | **51.5 t200** |
+| in-present per present | 169.5 t200 | **130.0 t200** |
+| rows changed / converted | 9984 / 776 | 9984 / 776 |
+
+**pass 1 is down 44% and the whole present down 23%.** Rows changed and rows
+converted are byte-for-byte the same, which is the semantic check: the scan
+looks at less and reaches the identical answer. In-present was 19.1% of the
+run's wall clock, so this is worth roughly **4-5% of total play time** on a real
+module — and unlike everything in the three preceding entries, it actually
+lands in the SHIPPING build. No `FRUA_QDT_NOGRAB`, no caveat.
+
+**Verification, all four:**
+
+- WALKTEST walk frame **pixel-identical**, 0 of 489216.
+- **Main menu pixel-identical**, 0 of 489216 — the screen where the cursor is
+  actually visible, and therefore the one that would show a smear or a trail if
+  the 16-row band were wrong.
+- `FRUA_DIRTYCHECK` **zero unannounced rows on BOTH drives**.
+- Four targets build; 412 tests pass.
+
+**The lesson is about instrumentation, not the cursor.** Three entries above
+this one spent their effort inferring which sites marked — reverting a group,
+mis-blaming `render_3d_faithful`, retracting a lesson about sparse drives. One
+`__LINE__` argument answered it in a single run, and the answer was a site
+nobody had suspected, in the shim rather than the engine, and one the audit had
+explicitly classified as "already net-neutral — no action needed". **When a
+measurement keeps failing to attribute, stop inferring and label the data.**
+
+**Still un-narrowed, and now cheap to find:** the remaining ten grabs are
+noise. `pass 1` at 51.5 t200 is still the largest phase of a present, so the
+next question is what the surviving announcements cost — the `l2d4e` and
+`DrawChar` bands are the volume writers now, and the same counters can price
+them by row count rather than by call.

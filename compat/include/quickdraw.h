@@ -336,8 +336,16 @@ GrafPtr qd_screen_port(void);
 /* Direct access to the attached screen back buffer (raw 8-bit pixels),
  * for engine code that paints cells without the GrafPort primitives.
  * Returns 0 if no screen is attached. */
-int  qd_screen_pixels(unsigned char **pixels, short *rowBytes,
-                      short *width, short *height);
+int  qd_screen_pixels_at(unsigned char **pixels, short *rowBytes,
+                         short *width, short *height, short site);
+
+/* #63: every grab carries its CALL SITE. 28 sites shared one counter, so
+ * "~2 marking grabs per present" could not be attributed to any of them and
+ * two rounds went on inferring which. __LINE__ costs one immediate push and
+ * makes the next round a measurement. (Line numbers alone; 25 of the 28 are
+ * in boot.c, so collisions across files are not worth a file id.) */
+#define qd_screen_pixels(p, rb, w, h) \
+	qd_screen_pixels_at((p), (rb), (w), (h), (short)__LINE__)
 
 /* #63 dirty rows — narrow the backend's per-present row scan.
  *

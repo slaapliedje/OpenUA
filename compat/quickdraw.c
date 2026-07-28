@@ -377,6 +377,26 @@ static int qd_is_screen_pm(const PixMap *pm)
  * direct writers instead. Six counters answer it. Dumped by the backend. */
 long g_qdt_hits[8];              /* 0 grab 1 fill 2 blit 3 palette 4 cursor
                                   * 5 glyph 6 unused 7 presents-with-touch */
+
+/* #63 per-call-site grab counts: [i][0] = __LINE__, [i][1] = hits. Linear
+ * scan over at most 28 live sites — a handful of compares on a path that is
+ * already handing out a raw framebuffer pointer. */
+#define QDT_SITES 32
+long g_qdt_site[QDT_SITES][2];
+
+static void qdt_note(short site)
+{
+	int i;
+
+	for (i = 0; i < QDT_SITES; i++) {
+		if (g_qdt_site[i][0] == (long)site) { g_qdt_site[i][1]++; return; }
+		if (g_qdt_site[i][0] == 0) {
+			g_qdt_site[i][0] = (long)site;
+			g_qdt_site[i][1] = 1;
+			return;
+		}
+	}
+}
 #define QDT(i) do { g_qdt_hits[i]++; } while (0)
 #else
 #define QDT(i) do { } while (0)
@@ -618,9 +638,15 @@ static int qd_screen_pixels_core(unsigned char **pixels, short *rowBytes,
 	return 1;
 }
 
-int qd_screen_pixels(unsigned char **pixels, short *rowBytes,
-                     short *width, short *height)
+int qd_screen_pixels_at(unsigned char **pixels, short *rowBytes,
+                        short *width, short *height, short site)
 {
+#ifdef FRUA_STPROF
+	if (pixels)
+		qdt_note(site);
+#else
+	(void)site;
+#endif
 	return qd_screen_pixels_core(pixels, rowBytes, width, height, 1);
 }
 
@@ -2222,12 +2248,18 @@ static void cursor_composite(void)
 		return;
 	if (!g_cursor_init || g_cursor_level < 0 || g_cursor_obscured)
 		return;
-	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
+	if (!qd_screen_pixels_nomark(&px, &pitch, &sw, &sh) || px == NULL)
 		return;
 
 	plat_mouse_pos(&mx, &my);
 	ox = (short)(mx - hx);
 	oy = (short)(my - hy);
+	/* #63: THE per-present blanket marker, found by the call-site counters —
+	 * this and cursor_restore grabbed once each per present and, through the
+	 * grab, marked all 200 rows. The cursor is 16x16 at a known origin, so
+	 * say so. (The net-neutral bracket in qd_cursor_track saves only #152's
+	 * boolean, not the row set, so it did not cover this.) */
+	qd_touch_rows(oy, (short)(oy + 16));
 	black = qd_nearest_color(&bk);
 	white = qd_nearest_color(&wh);
 
@@ -2270,8 +2302,9 @@ static void cursor_restore(void)
 	if (!g_cursor_saved)
 		return;
 	g_cursor_saved = 0;
-	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
+	if (!qd_screen_pixels_nomark(&px, &pitch, &sw, &sh) || px == NULL)
 		return;
+	qd_touch_rows(g_cursor_save_y, (short)(g_cursor_save_y + 16));  /* #63 */
 	for (y = 0; y < 16; y++) {
 		short dy = (short)(g_cursor_save_y + y);
 		unsigned char *d;
