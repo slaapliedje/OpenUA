@@ -585,6 +585,24 @@ static long st_coldist(const unsigned char *a, const unsigned char *b)
 	return dr * dr + dg * dg + db * db;
 }
 
+/* Whole-buffer long-wise compare, for the reband path's "did anything move
+ * since the last present?" test (#63). Same primitive as st_row_differs below,
+ * but it must live ABOVE the FRUA_PLANAR block: st_present calls it on EVERY
+ * build, and defining it next to its sibling broke the 020 Falcon target.
+ * Both buffers are Mxalloc-based and the length is a multiple of 4. */
+static int st_buf_differs(const unsigned char *a, const unsigned char *b,
+                          long nbytes)
+{
+	const long *p = (const long *)a;
+	const long *q = (const long *)b;
+	long w, n = nbytes / 4;
+
+	for (w = 0; w < n; w++)
+		if (p[w] != q[w])
+			return 1;
+	return 0;
+}
+
 /* Replicate band 0's reduced palette to every band and encode the per-band
  * ST-format hardware palettes (STE gun encoding: nibble = (v0 << 3) | (v >> 1)),
  * plus the sentinel row (see st_band_stpal) and the CLUT snapshot the reband-skip
@@ -1025,6 +1043,24 @@ static void st_dt_selfcheck(void)
  * ink has a real slot. Same class the B1 wall-pinning solved for walls. */
 static long s_dt_new_ink;
 
+/* #63: WHICH rows and WHICH indices carried the unseen ink.
+ *
+ * The trigger used to answer only "how many?", and its response to "4 or more"
+ * was to clear s_banded_valid and force a whole re-quant — measured as 5 of 22
+ * rebands firing with a BYTE-IDENTICAL CLUT, each costing ~6.7 s and visibly
+ * reshuffling the palette. The palette does not need re-partitioning to give a
+ * never-seen index a slot; it needs that one index mapped to the nearest slot
+ * it already has. Recording the index lets us patch it, and recording the row
+ * lets us rebuild just that row instead of the frame.
+ *
+ * Bounded: past INK_MAX distinct indices the cheap patch stops being obviously
+ * right (that many unseen colours IS a scene change), so we fall back to the
+ * old force-a-requant behaviour. */
+#define INK_MAX 24
+static unsigned char s_ink_idx[256];    /* index seen unmapped this present  */
+static short         s_ink_n;           /* distinct indices recorded         */
+static short         s_ink_over;        /* blew INK_MAX -> full re-quant     */
+
 /* Does a 320-byte surface row differ? (#63)
  *
  * This is THE hot primitive of the whole backend. The full present compares
@@ -1040,22 +1076,6 @@ static long s_dt_new_ink;
  *
  * The real fix is to not scan at all — the writers already know which rows
  * they touched — but that reaches into the shim, and this is ten lines. */
-/* Whole-buffer variant of the same primitive, for the reband path's
- * "did anything move since the last present?" test (#63). Both buffers are
- * Mxalloc-based and the length is a multiple of 4. */
-static int st_buf_differs(const unsigned char *a, const unsigned char *b,
-                          long nbytes)
-{
-	const long *p = (const long *)a;
-	const long *q = (const long *)b;
-	long w, n = nbytes / 4;
-
-	for (w = 0; w < n; w++)
-		if (p[w] != q[w])
-			return 1;
-	return 0;
-}
-
 static int st_row_differs(const unsigned char *a, const unsigned char *b)
 {
 #ifdef FRUA_ROWDIFF_MEMCMP
@@ -1143,18 +1163,37 @@ static int st_dt_ready_row(short y)
 	 *
 	 * (Under FRUA_PLANAR_DIAG the b4ink line now prints a count that stops at
 	 * the threshold rather than the true total — the trigger is unaffected.) */
+	/* ★ THE THRESHOLD GATE STAYS. Dropping it — so the scan could collect
+	 * every unseen index rather than stopping at four pixels — DOUBLED
+	 * in-present at boot, 17913 -> 35653 t200. The gate is not the 3% it
+	 * looked like in the play loop: there few rows change, while at boot
+	 * nearly all of them do, and without it every changed row of every
+	 * present pays a full 320-byte table-lookup scan. Trading a 6.7 s reband
+	 * for ~88 s of scanning is not a trade.
+	 *
+	 * Recording identities inside the gate is free, so that is what happens:
+	 * one lookup per byte in the common case, exactly as before. */
 	if (s_dt_new_ink < 4) {
 		const unsigned char *p   = crow;
 		const unsigned char *end = crow + ST_W;
 		const unsigned char *tab = s_used_idx;
 		long                 ink = s_dt_new_ink;
 
-		while (p < end)
-			if (!tab[*p++])
+		while (p < end) {
+			unsigned char c = *p++;
+
+			if (!tab[c]) {
 				ink++;
+				if (!s_ink_idx[c]) {
+					s_ink_idx[c] = 1;
+					if (++s_ink_n > INK_MAX)
+						{ s_ink_over = 1; break; }
+				}
+			}
+		}
 		s_dt_new_ink = ink;
 #ifdef FRUA_STPROF
-		sp_ph_inkbytes += ST_W;          /* #63: only when the gate passed */
+		sp_ph_inkbytes += ST_W;
 #endif
 	}
 	(void)x;
@@ -1352,6 +1391,7 @@ long g_dirtycheck_miss;                 /* rows that changed unannounced */
 static unsigned char s_pend[NPAGES][ST_H];
 static short         s_pend_init;
 
+
 static void st_pend_all(void)
 {
 	memset(s_pend, 1, sizeof s_pend);
@@ -1379,6 +1419,64 @@ static void st_pend_gather(void)
 #ifdef FRUA_STPROF
 	sp_ph_gather += Supexec(st_prof_hz200) - tg;
 #endif
+}
+
+/* #63 NEW-INK PATCH — the cheap answer to "an index the quant never saw".
+ *
+ * Give each recorded index the slot whose palette colour is nearest in RGB and
+ * mark it seen. No re-partition, so EVERY already-mapped index keeps its slot:
+ * the on-screen planes stay valid, there is no epoch reset and no force-full,
+ * and nothing visibly reshuffles. Only the rows that actually carried the ink
+ * are flagged for a rebuild.
+ *
+ * Strictly better than what the rows had, too: quant_banded's fallback for an
+ * absent colour is nearest in LUMINANCE, which is what makes a distinctly
+ * coloured glyph land on the background it happens to match in brightness —
+ * the "invisible text after a re-band" this detector was written for. Nearest
+ * in RGB cannot do that.
+ *
+ * Returns 1 if it handled the ink, 0 to fall back to a full re-quant. */
+static int st_patch_new_ink(void)
+{
+	short c, s, b, y, patched = 0;
+
+	if (s_ink_over || s_ink_n <= 0 || !s_have_pal)
+		return 0;
+
+	for (c = 0; c < 256; c++) {
+		short best = 0;
+		long  bestd = 0x7fffffffL;
+
+		if (!s_ink_idx[c])
+			continue;
+		for (s = 0; s < ST_NCOL; s++) {
+			long d = st_coldist(s_clut + (long)c * 3,
+			                    s_band_pal + (long)s * 3);
+			if (d < bestd) { bestd = d; best = s; }
+		}
+		for (b = 0; b < ST_NBANDS; b++)
+			s_band_remap[(long)b * 256 + c] = (unsigned char)best;
+		s_used_idx[c] = 1;
+		patched++;
+	}
+	if (!patched)
+		return 0;
+
+	/* Every row holding the patched index was stamped through the OLD
+	 * mapping, so its planes are stale. We do NOT know which rows those are:
+	 * the scan stops at four pixels (see the gate in st_dt_ready_row — losing
+	 * it doubled in-present), so the recorded set would be partial, and a
+	 * partial rebuild leaves the rest wrong FOREVER because the index is now
+	 * marked seen and will never register as new ink again. So: rebuild the
+	 * frame. That is still half the old cost — the re-quant, the epoch reset
+	 * and the visible palette reshuffle are all gone, and only the rebuild
+	 * remains, which is #63 item (1). */
+	(void)y;
+	s_force_full = 1;
+#ifdef FRUA_PLANAR_DIAG
+	dbg_log_num("b63ink: patched indices    = ", (long)patched);
+#endif
+	return 1;
 }
 
 static void st_dt_present_full(void)
@@ -2633,14 +2731,25 @@ static void st_present(void)
 	 * NOT enough — the CLUT-guard would skip it (the CLUT did not change; the
 	 * CONTENT did), so invalidate the banded snapshot too. The re-quant's own
 	 * s_used_idx refresh then covers the ink, so this cannot loop. */
-	if (s_have_pal && s_banded_valid && s_dt_new_ink >= 4) {
+	if (s_have_pal && s_banded_valid && s_dt_new_ink > 0) {
 #ifdef FRUA_PLANAR_DIAG
-		dbg_log_num("b4ink: new-ink px -> requant, n = ", s_dt_new_ink);
+		dbg_log_num("b4ink: new-ink px, n = ", s_dt_new_ink);
 #endif
-		s_dirty        = 1;
-		s_banded_valid = 0;
+		/* #63: PATCH FIRST, re-quant only if the patch declines. This
+		 * used to go straight to `s_dirty = 1; s_banded_valid = 0`,
+		 * i.e. a full re-quant plus a whole-frame rebuild, for ink that
+		 * had not moved the CLUT by a single byte. */
+		if (!st_patch_new_ink()) {
+			s_dirty        = 1;
+			s_banded_valid = 0;
+		}
 	}
 	s_dt_new_ink = 0;
+	if (s_ink_n) {
+		memset(s_ink_idx, 0, sizeof s_ink_idx);
+		s_ink_n = 0;
+	}
+	s_ink_over = 0;
 #endif
 #ifdef FRUA_STPROF
 	{

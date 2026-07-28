@@ -2254,3 +2254,67 @@ strictly cheaper in the worst case, but it is not a win worth claiming.
 
 For scale: #63's remaining play-loop levers are worth ~4% of play wall. This is
 ~45% of the boot.
+
+### #63 (2) THE NEW-INK TRIGGER NO LONGER RE-QUANTS — patch the remap instead
+
+The detector exists for a real bug: an index the quantiser never saw rides
+quant_banded's fallback, which is nearest in **LUMINANCE** — so a distinctly
+coloured glyph lands on whatever background matches its brightness, and the
+text goes invisible. Its RESPONSE was the problem: `s_dirty = 1;
+s_banded_valid = 0`, i.e. a full re-quant, for ink that had not moved the CLUT
+by a single byte (5 of 22 rebands measured that way).
+
+The palette does not need re-partitioning to give one index a slot. It needs
+that index mapped to the nearest slot it already has. `st_patch_new_ink()`
+does exactly that — nearest in **RGB**, which cannot make the luminance
+mistake — and marks it seen. Every already-mapped index keeps its slot, so
+there is no epoch reset and, crucially, **no visible palette reshuffle**.
+
+**Measured, same drive, matched flags, boot window:**
+
+| | before | after |
+|---|--:|--:|
+| rebands | 11 | **10** |
+| in-present | 17913 | **17283** (−3.5%) |
+| band | 7120 | **6511** (−8.6%) |
+| pass 1 | 2368 | 2523 (+6.5%) |
+| force-full | 7700 | 7512 |
+
+−630 t200 ≈ **−3.2 s of a 200 s boot**, one fewer palette reshuffle, and the
+fallback for patched ink is now correct rather than luma-approximate. Modest at
+boot because only ONE of the eleven boot rebands was the zero-CLUT kind; the
+class is 5 of 22 across a longer run.
+
+**★ THE GATE STAYS — REMOVING IT DOUBLED THE BOOT.** The first cut dropped the
+`s_dt_new_ink < 4` threshold so the scan could collect every unseen index
+rather than stopping at four pixels. In-present went **17913 -> 35653**, +88 s.
+The gate is not the 3% it measured as in the play loop: there few rows change,
+while at boot nearly all of them do, so without it every changed row of every
+present pays a full 320-byte table-lookup scan. Recording identities INSIDE the
+gate is free (one lookup per byte, as before), so that is what ships.
+
+The consequence is that the recorded index set is partial, which decides the
+rest of the design: a partial row set cannot be used for a targeted rebuild,
+because the index is now marked seen and the rows we missed would never
+register as new ink again — they would keep the stale mapping forever. So the
+patch sets `s_force_full`. That is still half the old cost (the re-quant, the
+epoch reset and the reshuffle are gone) and the remaining rebuild is item (1).
+
+A `s_replane[][]` third signal ("planes stale, content unchanged") was built
+for the targeted rebuild and then **removed** when the gate finding killed the
+approach — dead mechanism is worse than no mechanism. The reasoning is kept
+here because the signal is genuinely distinct from the other two and will be
+needed if item (1) makes targeted rebuilds viable.
+
+**★ AND A MEASUREMENT TRAP, THE THIRD OF THIS KIND THIS SESSION.** The "still
+35513" reading that made the fix look inert was **my own diagnostic flag**: I
+had added `-DFRUA_PLANAR_DIAG` to see the patch logging, and that flag runs
+per-present `st_dt_probe` calls the baseline never had. Matching the flags
+turned 35513 back into 17283. The rule already written up for the ablation and
+the printf applies verbatim to build flags: **change one thing, and check that
+the phases which should be unaffected really are.**
+
+Also fixed on the way: `st_buf_differs` was defined next to `st_row_differs`,
+which lives inside the `FRUA_PLANAR` block, while `st_present` calls it on
+every build — the 020 Falcon and FPU targets failed to compile. It now sits
+above the guard with the other shared helpers.
