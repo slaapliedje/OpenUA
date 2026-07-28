@@ -224,6 +224,28 @@ static long sp_ph_conv_rows, sp_ph_chg_rows;
  * and time the gather separately — pass1 minus gather, over scanned rows, is
  * the real per-row price. */
 static long sp_ph_scanned, sp_ph_gather;
+/* #63 PASS-1 ATTRIBUTION (the residual hunt). pass 1 is 31.7 t200 a present
+ * with no dominant component: ~41 scanned rows, ~10 changed, 0.8 built do not
+ * add up to it under any per-row constant, and the shortfall looked like ~2x.
+ *
+ * The obvious instrument — a Supexec pair around each phase INSIDE ready_row —
+ * costs ~20k traps a drive and distorts what it measures by ~8%. These do the
+ * same job for a few adds per present: count the WORK EXACTLY (words compared,
+ * ink bytes scanned, rows built), then price each unit ONCE in a calibration
+ * bench. Legitimate here because the 68000 has no cache: a bench loop over the
+ * real buffers runs the same cycles the present does. */
+static long sp_ph_cmpwords;     /* longs actually compared (early exit aware) */
+static long sp_ph_inkbytes;     /* bytes the new-ink scan actually read       */
+static long sp_ph_built;        /* st_dt_build_row calls                      */
+/* ...and the PASS-1 SHARE of each. The raw counters above are since-boot over
+ * every phase, and the force-full branch runs the same primitives 200 rows at
+ * a time OUTSIDE the pass-1 timer: force-fulls contributed 9000 of the first
+ * run's 9776 build_row calls, so subtracting the raw figure from pass1 would
+ * have charged pass 1 for twelve times the conversions it actually did.
+ * Accumulated as a delta across the timed region, three subtracts a present. */
+static long sp_p1_cmpwords, sp_p1_inkbytes, sp_p1_built;
+static long sp_cal_cmp, sp_cal_ink, sp_cal_bld, sp_cal_loop;  /* bench t200   */
+static short sp_ph1cal_done;
 #endif
 
 #define IERA (*(volatile unsigned char *)0xFFFFFA07UL)
@@ -987,8 +1009,19 @@ static int st_row_differs(const unsigned char *a, const unsigned char *b)
 	short w;
 
 	for (w = 0; w < ST_W / 4; w++)
-		if (p[w] != q[w])
+		if (p[w] != q[w]) {
+#ifdef FRUA_STPROF
+			/* #63 attribution: the WORK, not the call count. This loop
+			 * early-exits, so "rows scanned x 80 words" is an upper bound
+			 * that a row differing in its first word misses by 80x. One
+			 * add per call at the exit, not one per word. */
+			sp_ph_cmpwords += (long)w + 1;
+#endif
 			return 1;
+		}
+#ifdef FRUA_STPROF
+	sp_ph_cmpwords += ST_W / 4;
+#endif
 	return 0;
 #endif
 }
@@ -1005,6 +1038,9 @@ static void st_dt_build_row(short y)
 	 * lut[chunky] — 3a-pinned at 0 mismatches — while the per-pixel bridge
 	 * the first cut used cost ~2x the c2p on transitions (b4perf). */
 	st_c2p_span(crow, s_dt + (long)y * LINE_BYTES, ST_W, lut);
+#ifdef FRUA_STPROF
+	sp_ph_built++;
+#endif
 
 	/* #41 SELF-HEALING OWNERSHIP: the row just built IS remap[chunky], which
 	 * is precisely the ownership invariant — so claim it. A row whose skip
@@ -1060,6 +1096,9 @@ static int st_dt_ready_row(short y)
 			if (!tab[*p++])
 				ink++;
 		s_dt_new_ink = ink;
+#ifdef FRUA_STPROF
+		sp_ph_inkbytes += ST_W;          /* #63: only when the gate passed */
+#endif
 	}
 	(void)x;
 #else
@@ -1321,6 +1360,7 @@ static void st_dt_present_full(void)
 #ifdef FRUA_STPROF
 	{
 	long tp1 = Supexec(st_prof_hz200);
+	long w0 = sp_ph_cmpwords, i0 = sp_ph_inkbytes, b0 = sp_ph_built;
 #endif
 	st_pend_gather();
 	s_nruns = 0;
@@ -1372,6 +1412,9 @@ static void st_dt_present_full(void)
 	}
 #ifdef FRUA_STPROF
 	sp_ph_pass1 += Supexec(st_prof_hz200) - tp1;
+	sp_p1_cmpwords += sp_ph_cmpwords - w0;
+	sp_p1_inkbytes += sp_ph_inkbytes - i0;
+	sp_p1_built    += sp_ph_built    - b0;
 	sp_ph_conv_rows += rows_conv;
 	sp_ph_chg_rows  += rows_conv + rows_skip;
 	}
@@ -2076,18 +2119,30 @@ static void st_prof_tbcost(void)
 	 * before believing any of it: 16 sweeps of the real 64000-byte surface, row
 	 * by row exactly as pass 1 does it. If this lands near 150 cycles/byte then
 	 * memcmp genuinely is the cost and the scan is the bug; if it lands near 10
-	 * then the phase timer is inflated and the attribution is wrong. */
+	 * then the phase timer is inflated and the attribution is wrong.
+	 *
+	 * ★ THE B-SIDE USED TO BE s_offpage, WHICH IS SCREEN_BYTES (32000) — and
+	 * both arms index it to y=199, i.e. 64000 bytes, running 32 KB off the end
+	 * of an Mxalloc block on every sweep. No MMU, so it never faulted and the
+	 * numbers looked fine. s_shadow_pg[] is ST_W*ST_H, the size this actually
+	 * wants. The published memcmp-vs-longcmp RATIO is unaffected (both arms
+	 * read the identical bytes, before and after), which is the part the
+	 * shipped change rests on. */
 	{
 		long a, tm, tl, i;
 		short y;
 		volatile long sink = 0;
+		const unsigned char *s_cal_b = s_shadow_pg[NPAGES - 1];
+
+		if (s_cal_b == NULL)
+			goto skip_cal;
 
 		/* Arm A: exactly what pass 1 runs — 200 row memcmps, 16 times. */
 		a = Supexec(st_prof_hz200);
 		for (i = 0; i < 16; i++)
 			for (y = 0; y < ST_H; y++)
 				sink += memcmp(s_chunky + (long)y * ST_W,
-				               s_offpage + (long)y * ST_W, ST_W) != 0;
+				               s_cal_b + (long)y * ST_W, ST_W) != 0;
 		tm = Supexec(st_prof_hz200) - a;
 
 		/* Arm B: the same comparison as a LONG-wise loop. Both buffers are
@@ -2099,7 +2154,7 @@ static void st_prof_tbcost(void)
 		for (i = 0; i < 16; i++)
 			for (y = 0; y < ST_H; y++) {
 				const long *p = (const long *)(s_chunky + (long)y * ST_W);
-				const long *q = (const long *)(s_offpage + (long)y * ST_W);
+				const long *q = (const long *)(s_cal_b + (long)y * ST_W);
 				short w, diff = 0;
 
 				for (w = 0; w < ST_W / 4; w++)
@@ -2114,6 +2169,7 @@ static void st_prof_tbcost(void)
 		dbg_log_num("stprof cal: memcmp  cyc/byte = ", tm * 5L / 128L);
 		dbg_log_num("stprof cal: longcmp cyc/byte = ", tl * 5L / 128L);
 	}
+skip_cal:
 
 	dbg_log_num("stprof tb: uniform bands     = ", (long)s_tb_uniform);
 	dbg_log_num("stprof tb: ON  #1 x16 t200   = ", on1);
@@ -2133,6 +2189,114 @@ static void st_prof_tbcost(void)
 	if (f_on1 > 0)
 		dbg_log_num("stprof tb: cycles per fire   = ",
 		            ((on1 - off) * 40000L) / f_on1);
+}
+
+/* work units x (bench t200 / bench units), scaled to survive a 32-bit long:
+ * sp_p1_cmpwords reaches millions and a bench arm a few hundred t200, so the
+ * naive product overflows. Divide both sides down first — the ratio is what
+ * matters and the counts are far too coarse for the lost precision to show. */
+static long sp_model(long work, long cal, long units)
+{
+	if (units <= 0)
+		return 0;
+	while (work > 100000L && units >= 10) {
+		work  /= 10;
+		units /= 10;
+	}
+	return (work * cal) / units;
+}
+
+/* #63 PASS-1 CALIBRATION. One-shot, ~6 s emulated.
+ *
+ * Prices each unit of pass-1 work ONCE, so the exact work counters
+ * (sp_p1_cmpwords / sp_p1_inkbytes / sp_p1_built) can be turned into t200 and
+ * subtracted from the measured pass1. Whatever is left is the residual — the
+ * thing this whole exercise is trying to name — and it is named by ARITHMETIC
+ * rather than by 20000 Supexec traps.
+ *
+ * Why a bench is exact here: the 68000 has NO CACHE. There is no warm/cold
+ * distinction to get wrong, so a loop over the real buffers costs what the same
+ * loop costs inside a present. (This is the one measurement style that would
+ * NOT transfer to the 030 targets, which is fine — this is the ST/STe path.)
+ *
+ * Each arm runs the REAL function, not a copy of its body, so the numbers stay
+ * honest if the function changes. */
+static void st_prof_ph1cal(void)
+{
+	long a, i, saved_words, saved_ink, saved_built;
+	short y;
+	volatile long sink = 0;
+	const long reps = 8;
+
+	if (s_chunky == NULL || s_dt == NULL || s_shadow_pg[NPAGES - 1] == NULL)
+		return;
+
+	/* The bench drives the very counters it is calibrating. */
+	saved_words = sp_ph_cmpwords;
+	saved_ink   = sp_ph_inkbytes;
+	saved_built = sp_ph_built;
+
+	/* A: st_row_differs, full 80 words (equal rows). 8 x 200 calls.
+	 *
+	 * ★ THE FIRST CUT PASSED THE SAME POINTER TWICE AND MEASURED 6 t200 —
+	 * 0.5 cycles a byte, an impossibility that is the whole reason to sanity-
+	 * check a bench against the machine. st_row_differs is static and small,
+	 * so GCC inlines it; with a == b it proves p[w] == q[w] and folds the
+	 * loop away, leaving only the counter increment (which it must keep, so
+	 * the WORK counter still looked plausible). Compare against a real second
+	 * buffer holding a copy: equal, so the full 80 words run, but the equality
+	 * is a runtime fact the compiler cannot see. */
+	memcpy(s_shadow_pg[NPAGES - 1], s_chunky, (size_t)ST_W * ST_H);
+	a = Supexec(st_prof_hz200);
+	for (i = 0; i < reps; i++)
+		for (y = 0; y < ST_H; y++)
+			sink += st_row_differs(s_chunky + (long)y * ST_W,
+			                       s_shadow_pg[NPAGES - 1]
+			                           + (long)y * ST_W);
+	sp_cal_cmp = Supexec(st_prof_hz200) - a;
+
+	/* B: the new-ink scan, byte for byte as ready_row runs it. */
+	a = Supexec(st_prof_hz200);
+	for (i = 0; i < reps; i++)
+		for (y = 0; y < ST_H; y++) {
+			const unsigned char *p   = s_chunky + (long)y * ST_W;
+			const unsigned char *end = p + ST_W;
+			const unsigned char *tab = s_used_idx;
+			long                 ink = 0;
+
+			while (p < end)
+				if (!tab[*p++])
+					ink++;
+			sink += ink;
+		}
+	sp_cal_ink = Supexec(st_prof_hz200) - a;
+
+	/* C: st_dt_build_row — the span c2p plus the ownership self-heal.
+	 * It MUTATES s_dt/s_dt_idx/s_dt_cov, but into exactly the state the
+	 * invariant wants (dt == remap[chunky], fully owned), which is what a
+	 * force-full leaves behind. Force one anyway so neither that nor arm A's
+	 * clobbered shadow is inherited by the next present. */
+	a = Supexec(st_prof_hz200);
+	for (i = 0; i < reps; i++)
+		for (y = 0; y < ST_H; y++)
+			st_dt_build_row(y);
+	sp_cal_bld = Supexec(st_prof_hz200) - a;
+	s_force_full = 1;
+
+	/* D: the loop FLOOR — 200 iterations of the pend test with nothing
+	 * pending. Not a faithful copy of pass 1's body (no run bookkeeping),
+	 * so read it as a lower bound on the fixed per-present overhead. */
+	a = Supexec(st_prof_hz200);
+	for (i = 0; i < reps; i++)
+		for (y = 0; y < ST_H; y++)
+			if (s_pend[0][y])
+				sink++;
+	sp_cal_loop = Supexec(st_prof_hz200) - a;
+
+	sp_ph_cmpwords = saved_words;
+	sp_ph_inkbytes = saved_ink;
+	sp_ph_built    = saved_built;
+	(void)sink;
 }
 
 /* B3.0b: is the c2p cost COMPUTE or CONTENTION? Time an identical full-frame c2p
@@ -2448,6 +2612,10 @@ static void st_present(void)
 		sp_tbcost_done = 1;
 		st_prof_tbcost();
 	}
+	if (s_have_pal && !sp_ph1cal_done) {     /* #63: one-shot, ~6 s emulated */
+		sp_ph1cal_done = 1;
+		st_prof_ph1cal();
+	}
 	/* Window was 64 presents, which a scripted headless drive NEVER reaches
 	 * (a boot + dungeon + short walk produces under 20), so the hot-row and
 	 * why-attribution dumps below had effectively never fired. 16 still
@@ -2474,6 +2642,43 @@ static void st_present(void)
 		dbg_log_num("b63pr:   vpcomp t200   = ", sp_vp_t);
 		dbg_log_num("b63pr: rows changed    = ", sp_ph_chg_rows);
 		dbg_log_num("b63pr: rows converted  = ", sp_ph_conv_rows);
+		/* #63 PASS-1 ATTRIBUTION. Exact work counters x calibrated unit
+		 * costs. `residual` is pass1 minus gather minus all four: if it
+		 * is near zero the model is complete and pass 1 is fully named;
+		 * if it stays large the cost is NOT in the primitives and the
+		 * next place to look is the loop around them. Every line is t200
+		 * so they subtract directly. */
+		if (sp_ph1cal_done) {
+			long b_cmp  = sp_model(sp_p1_cmpwords, sp_cal_cmp,
+			                       8L * ST_H * (ST_W / 4));
+			long b_ink  = sp_model(sp_p1_inkbytes, sp_cal_ink,
+			                       8L * ST_H * ST_W);
+			long b_bld  = sp_model(sp_p1_built, sp_cal_bld,
+			                       8L * ST_H);
+			long b_loop = sp_model(sp_ph_n * (long)ST_H, sp_cal_loop,
+			                       8L * ST_H);
+
+			dbg_log_num("b63a: cal cmp  x8 t200 = ", sp_cal_cmp);
+			dbg_log_num("b63a: cal ink  x8 t200 = ", sp_cal_ink);
+			dbg_log_num("b63a: cal bld  x8 t200 = ", sp_cal_bld);
+			dbg_log_num("b63a: cal loop x8 t200 = ", sp_cal_loop);
+			/* PASS-1 SHARE first (what the model uses), then the
+			 * since-boot totals — the gap between them IS the
+			 * force-full branch, which pass 1 must not be charged. */
+			dbg_log_num("b63a: p1 words compared= ", sp_p1_cmpwords);
+			dbg_log_num("b63a: p1 ink bytes     = ", sp_p1_inkbytes);
+			dbg_log_num("b63a: p1 rows built    = ", sp_p1_built);
+			dbg_log_num("b63a: ALL words compared= ", sp_ph_cmpwords);
+			dbg_log_num("b63a: ALL ink bytes    = ", sp_ph_inkbytes);
+			dbg_log_num("b63a: ALL rows built   = ", sp_ph_built);
+			dbg_log_num("b63a: MODEL cmp  t200  = ", b_cmp);
+			dbg_log_num("b63a: MODEL ink  t200  = ", b_ink);
+			dbg_log_num("b63a: MODEL bld  t200  = ", b_bld);
+			dbg_log_num("b63a: MODEL loop t200  = ", b_loop);
+			dbg_log_num("b63a: RESIDUAL t200    = ",
+			            sp_ph_pass1 - sp_ph_gather
+			            - b_cmp - b_ink - b_bld - b_loop);
+		}
 #ifdef FRUA_DIRTYCHECK
 		{ extern long g_dirtycheck_miss;
 		  dbg_log_num("b63pr: UNANNOUNCED rows = ", g_dirtycheck_miss); }

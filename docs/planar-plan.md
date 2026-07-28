@@ -2034,3 +2034,118 @@ the rest; it is no longer a case of picking off an obvious hotspot.
 engine's own `SetCursor` on menu entry, not a rendering fault; three
 back-to-back runs on the same binary then matched exactly. Four targets build;
 412 tests pass.
+
+### #63 PASS 1 IS FULLY NAMED — and the "~2x unaccounted" never existed
+
+The previous entry left pass 1 at 31.7 t200 a present with, in its own words,
+"no dominant component": ~41 scanned rows, ~10 changed and 0.8 built that "do
+not add up to it under any per-row constant", a shortfall of roughly a factor
+of two. The stated next step was per-phase Supexec timers inside
+`st_dt_ready_row` — ~20k traps a drive and ~8% distortion.
+
+That is not what this needed, and the hole was an artefact of how it was
+estimated: **row counts multiplied by a hand-guessed cycles-per-row.** Count
+the work exactly and price it once, and pass 1 closes to 6.8%.
+
+**The method.** Two halves, neither of which perturbs the thing it measures:
+
+1. **Exact work counters**, one add per call, not per unit —
+   `sp_ph_cmpwords` accumulates `w + 1` at `st_row_differs`' early exit (so a
+   row differing in its first word is charged one word, not eighty),
+   `sp_ph_inkbytes` adds `ST_W` only when the new-ink gate actually passed,
+   `sp_ph_built` counts `st_dt_build_row`.
+2. **A one-shot calibration bench** (`st_prof_ph1cal`, ~6 s emulated) that runs
+   each REAL primitive over the REAL buffers 1600 times and divides.
+
+The bench is exact here for a reason specific to this target: **the 68000 has
+no cache**, so there is no warm/cold distinction for a bench loop to get wrong.
+This is the one measurement style that would not transfer to the 030 targets.
+
+**Measured, HEIRS drive, 736 presents** (reproduced across two builds and three
+dump windows; the calibration constants came back 679 / 1872 / 2379 / 3 both
+runs):
+
+| pass-1 component | t200 | share |
+|---|--:|--:|
+| `st_row_differs` — the shadow compare | **11628** | **50.1%** |
+| the new-ink scan | **8217** | **35.4%** |
+| `st_dt_build_row` — actual conversions | 1153 | 5.0% |
+| dirty-row gather | 367 | 1.6% |
+| loop floor (200 pend tests a present) | 276 | 1.2% |
+| **RESIDUAL** | **1573** | **6.8%** |
+| pass 1 total | 23214 | 100% |
+
+Per-unit, all in this machine's own clock: the long-wise row compare is **53
+cycles a byte**, the new-ink scan **146 cycles a byte** (2.75x — byte-at-a-time
+with a table lookup against long-at-a-time compare), a row build **186 cycles a
+pixel**. Pass 1 is 31.5 t200 a present, matching the 31.7 baseline, so this is
+the same workload the earlier entries measured, not a different one.
+
+**★ TWO TRAPS, both of which produced numbers that looked fine.**
+
+**1. The bench measured nothing, and said so only if you knew the machine.**
+Arm A first called `st_row_differs(row, row)` — same pointer, guaranteed equal,
+full 80 words. It reported **6 t200 for 512 KB compared: 0.5 cycles a byte**,
+which no 68000 can do. `st_row_differs` is static and small, so GCC inlines it,
+proves `p[w] == q[w]` from the aliasing, and folds the loop away — leaving only
+the counter increment, which it must keep, so the WORK counter still looked
+completely plausible. Comparing against a second buffer holding a `memcpy` of
+the first keeps the equality a runtime fact. That one line moved MODEL cmp from
+778 to 11355 and turned a 67749 residual into 1520.
+
+**2. Charging pass 1 for the force-full branch.** The raw counters are
+since-boot across every phase, and the force-full path runs the same primitives
+200 rows at a time OUTSIDE the pass-1 timer. It contributed **9000 of the first
+run's 9776 `build_row` calls** — subtracting the raw figure would have charged
+pass 1 with twelve times the conversions it actually performed. The counters
+are now snapshotted across the timed region and the dump prints the pass-1
+share and the since-boot total side by side; the gap between them is exactly
+the force-full branch.
+
+**And one pre-existing bug found on the way.** The older memcmp-vs-longcmp
+calibration compared against `s_offpage`, which is `SCREEN_BYTES` (32000), while
+indexing it to y=199 — i.e. 64000 bytes, running **32 KB past the end of an
+Mxalloc block** on every sweep. No MMU, so it never faulted. Repointed at
+`s_shadow_pg[]`, which is `ST_W * ST_H`. The published memcmp-vs-longcmp RATIO
+is unaffected (both arms read the identical bytes, before and after), and that
+ratio is the part the shipped change rests on.
+
+**What this retires and what it opens.**
+
+The "attribute the rest with per-row Supexec timers" plan is retired: there was
+no unattributed bulk to find, and the instrument would have cost 8% distortion
+to discover that.
+
+It also settles the previous entry's retraction, in the direction of the
+retraction being right about the METHOD and wrong about the size. That entry
+withdrew "the new-ink scan is over half of pass 1" because the `FRUA_NOINK`
+ablation moved rebands 47->38 and changed rows 9920->10799, so it priced the
+scan and an altered workload together. **The scan is 35.4%** — the ablation's
+33% was numerically close and arrived at unsoundly, which is why it was right
+to withdraw it rather than keep a number that happened to land near the truth.
+
+The 3% the last commit got out of it is also now explained: the threshold gate
+(`s_dt_new_ink < 4`, reset every present) skips only **7.6%** of the scans —
+7024 rows scanned of 7606 changed. Nearly every present pays full scans on its
+first few changed rows before the counter saturates.
+
+**The two levers that remain, in size order:**
+
+1. **The shadow compare, 50%.** The dirty set already narrows 200 rows to ~35;
+   what remains is verifying that an announced row really moved. Dropping the
+   verification means trusting the announcements — for which there is real
+   evidence (`FRUA_DIRTYCHECK` read ZERO unannounced rows over a full drive),
+   and a bounded downside (an over-announced row costs a copy, and
+   `ready_row`'s own ownership test still suppresses its conversion). It would
+   also free the two 64 KB shadow buffers. This is a design change, not a
+   tuning change, and wants its own de-risking pass.
+2. **The new-ink scan, 35%.** Same shape as the win that already landed: the
+   writers already read `lut[c]` for every pixel they stamp, so they could note
+   `!s_used_idx[c]` for free at draw time instead of the present re-reading
+   whole 320-byte rows to ask the same question. Strictly less work, because
+   stamped pixels are a subset of scanned rows.
+
+Together they are ~85% of pass 1, which is 30% of the in-present time, which is
+13.6% of play. So the honest ceiling on both, done perfectly, is around 4% of
+wall — worth stating before anyone starts, and a long way from the 32.5% the
+present path cost when #63 opened.
