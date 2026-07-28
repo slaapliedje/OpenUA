@@ -350,15 +350,6 @@ int qd_dirty_rows(const unsigned char **rows)
  * so only a screen-targeted write may narrow, and everything else stays
  * conservative. Compared by baseAddr: the screen port's map is the one
  * qd_attach_screen pointed at the backend surface. */
-/* Bounds for the DrawChar glyph box (#63). The two font paths are the Mac
- * FONT resource (g_mac_font, ascent/height from the resource header) and the
- * built-in 8x8 (ascent 7, height 8). These cover both with room to spare; a
- * font taller than this would only make the announcement narrower than the
- * glyph, so the check below clamps to the clip and FRUA_DIRTYCHECK polices
- * the result. */
-#define QD_GLYPH_MAX_ASCENT 32
-#define QD_GLYPH_MAX_DESCENT 32
-
 static int qd_is_screen_pm(const PixMap *pm)
 {
 	PixMapHandle spm = g_screen_port.portPixMap;
@@ -2537,8 +2528,17 @@ void DrawChar(short ch)
 		 * their own metrics, so bound the box by the LARGER of the two
 		 * and intersect with the clip — still a guaranteed superset of
 		 * what the row loops can write. */
-		short gtop = (short)(port->pnLoc.v - QD_GLYPH_MAX_ASCENT);
-		short gbot = (short)(port->pnLoc.v + QD_GLYPH_MAX_DESCENT);
+		/* Real metrics, not a 32/32 guess. The ±32 bound announced 64 rows
+		 * per glyph for an 8-12 pixel font, which is most of why the scan
+		 * still averaged 88 rows a present. Take the larger of the two font
+		 * paths below (the Mac FONT resource and the built-in 8x8) so the
+		 * box remains a superset whichever one draws. */
+		short gasc = (g_mac_font.ascent > (short)qd_font_8x8_ascent)
+		           ? g_mac_font.ascent : (short)qd_font_8x8_ascent;
+		short ghgt = (g_mac_font.height > (short)qd_font_8x8_height)
+		           ? g_mac_font.height : (short)qd_font_8x8_height;
+		short gtop = (short)(port->pnLoc.v - gasc + 1);
+		short gbot = (short)(gtop + ghgt);
 
 		if (gtop < clip.top)    gtop = clip.top;
 		if (gbot > clip.bottom) gbot = clip.bottom;

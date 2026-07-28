@@ -219,6 +219,11 @@ static long sp_vp_conv, sp_vp_blit;     /* composite split: c2p vs plane blit */
  * which. Coarse on purpose: five Supexec pairs per present, not per row. */
 static long sp_ph_band, sp_ph_pass1, sp_ph_copy, sp_ph_n;
 static long sp_ph_conv_rows, sp_ph_chg_rows;
+/* #63: pass 1 is still the biggest phase after the cursor fix. Is that the
+ * remaining scan, or the fixed cost around it? Count the rows actually diffed
+ * and time the gather separately — pass1 minus gather, over scanned rows, is
+ * the real per-row price. */
+static long sp_ph_scanned, sp_ph_gather;
 #endif
 
 #define IERA (*(volatile unsigned char *)0xFFFFFA07UL)
@@ -1231,19 +1236,22 @@ static void st_pend_gather(void)
 {
 	const unsigned char *drows;
 	short pg, y;
+#ifdef FRUA_STPROF
+	long tg = Supexec(st_prof_hz200);
+#endif
 
-	if (!s_pend_init) {
+	if (!s_pend_init)
 		st_pend_all();
-		return;
-	}
-	if (planar_dirty_rows(&drows)) {             /* "scan everything" */
+	else if (planar_dirty_rows(&drows))          /* "scan everything" */
 		st_pend_all();
-		return;
-	}
-	for (y = 0; y < ST_H; y++)
-		if (drows[y])
-			for (pg = 0; pg < NPAGES; pg++)
-				s_pend[pg][y] = 1;
+	else
+		for (y = 0; y < ST_H; y++)
+			if (drows[y])
+				for (pg = 0; pg < NPAGES; pg++)
+					s_pend[pg][y] = 1;
+#ifdef FRUA_STPROF
+	sp_ph_gather += Supexec(st_prof_hz200) - tg;
+#endif
 }
 
 static void st_dt_present_full(void)
@@ -1293,6 +1301,9 @@ static void st_dt_present_full(void)
 
 		if (s_pend[s_back][y]) {
 			s_pend[s_back][y] = 0;
+#ifdef FRUA_STPROF
+			sp_ph_scanned++;
+#endif
 			changed = st_row_differs(crow, s_shadow + (long)y * ST_W);
 		}
 #ifdef FRUA_DIRTYCHECK
@@ -2426,6 +2437,8 @@ static void st_present(void)
 		dbg_log_num("b63pr: in-present t200 = ", sp_in * 10 / 3);
 		dbg_log_num("b63pr:   band   t200   = ", sp_ph_band);
 		dbg_log_num("b63pr:   pass1  t200   = ", sp_ph_pass1);
+		dbg_log_num("b63pr:   of which gather= ", sp_ph_gather);
+		dbg_log_num("b63pr: rows SCANNED     = ", sp_ph_scanned);
 		dbg_log_num("b63pr:   copy   t200   = ", sp_ph_copy);
 		dbg_log_num("b63pr:   vpcomp t200   = ", sp_vp_t);
 		dbg_log_num("b63pr: rows changed    = ", sp_ph_chg_rows);

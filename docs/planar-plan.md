@@ -1929,3 +1929,58 @@ noise. `pass 1` at 51.5 t200 is still the largest phase of a present, so the
 next question is what the surviving announcements cost — the `l2d4e` and
 `DrawChar` bands are the volume writers now, and the same counters can price
 them by row count rather than by call.
+
+### PRICING PASS 1 BY ROWS: the glyph box was 64 rows wide. −36% more.
+
+With the cursor fixed, pass 1 was still the largest phase of a present, so the
+next question was what it is now made of. Counted the rows actually diffed and
+timed the gather separately:
+
+| | per present |
+|---|--:|
+| rows SCANNED | **88.3** (of 200) |
+| rows CHANGED | 10.4 |
+| gather (folding the shim report into both pages) | 0.5 t200 — **1% of pass 1** |
+
+Two things fall out. The gather is free, so the per-page set costs nothing to
+maintain. And the scan was still touching 88 rows to find 10 — which, at ~0.24
+t200 for a 320-byte long-compare, accounts for under half of pass 1. The rest
+is `st_dt_ready_row` on the changed rows: its unguarded 320-iteration new-ink
+scan, a stamp memcmp, and the row build.
+
+**Where the 88 came from: `QD_GLYPH_MAX_ASCENT/DESCENT` were 32 and 32.** The
+previous entry replaced DrawChar's clip with "the glyph box", but bounded that
+box by a guess wide enough for any conceivable font — **64 rows announced per
+glyph, for a font 8 to 12 pixels tall.** Now it takes the larger of the two
+real metrics (`g_mac_font.ascent/height` and the built-in 8x8's 7/8), which is
+still a superset whichever path draws and is an order of magnitude tighter.
+
+| | before | after |
+|---|--:|--:|
+| rows scanned / present | 88.3 | **41.1** |
+| pass 1 / present | 51.5 t200 | **32.8 t200** |
+| in-present / present | 130.0 t200 | **111.3 t200** |
+| rows changed / converted | 9984 / 776 | 9920 / 776 |
+
+**pass 1 is now 32.8 t200 against the 91.4 it started at today — down 64%.**
+
+**Cumulative on the present path, one session:**
+
+| | in-present share of wall |
+|---|--:|
+| session start | **32.5%** |
+| after the memcmp → long-compare row diff | 19.1% |
+| after the cursor + glyph-box announcements | **13.6%** |
+
+**Verified:** WALKTEST walk frame and the MAIN MENU both **pixel-identical, 0
+of 489216** — the menu being the text-heavy screen a wrong glyph box would
+corrupt. `FRUA_DIRTYCHECK` **zero** unannounced rows on the HEIRS drive. Four
+targets build; 412 tests pass. `rows converted` is 776 in every run since the
+narrowing began, which is the invariant worth watching: the scan keeps looking
+at less and keeps reaching the same answer.
+
+**Next, and now clearly the biggest single item:** `st_dt_ready_row` is over
+half of what remains, and its 320-iteration new-ink scan runs on EVERY changed
+row whether or not the row ends up converting — 9920 rows a drive. That is the
+next thing to price, and unlike the scan it is not a search, it is real work
+that may or may not be needed.
