@@ -47,6 +47,9 @@
 #ifdef FRUA_PARTYHP
 #error "FRUA_PARTYHP in a RELEASE build: every party member's HP would be clamped at combat entry. It exists only to drive a fight to a deterministic death (docs/deterministic-ab.md)."
 #endif
+#ifdef FRUA_R3DEXTENT
+#error "FRUA_R3DEXTENT in a RELEASE build: it snapshots and re-compares the whole 64000-byte surface around every 3D render, which is slower than the render. It is the #63 write-extent probe."
+#endif
 #ifdef FRUA_DIRTYCHECK
 #error "FRUA_DIRTYCHECK in a RELEASE build: it re-scans every row the dirty set said to skip, which is the whole cost the dirty set exists to avoid. It is the validator for #63's narrowed scan, not a shipping mode."
 #endif

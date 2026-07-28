@@ -1817,3 +1817,56 @@ writers), plus the 3D-view group done properly — which needs
 reading what it draws outside the viewport rect (the compass and frame chrome
 are the visible candidates) rather than assuming l2d4e covers it. Until all of
 them go, pass 1 stays at 200 rows.
+
+### RENDER_3D_FAITHFUL'S REAL WRITE EXTENT: ZERO ROWS — and the regression was mine, not its
+
+Measured instead of reasoned (`FRUA_R3DEXTENT`, guarded): snapshot the whole
+surface, run the render, diff every row.
+
+    r3dext VT*1000+VB   = 24112        (the rect it commits: rows 24..112)
+    r3dext rows changed = 0            (every call, WALKTEST)
+
+**It writes NOTHING to the chunky surface.** Obvious in hindsight and worth
+stating plainly: under ADR-0016 the viewport renders into the planar SCRATCH
+via `dsp_viewport_commit`, and the chunky viewport rows are deliberately
+FROZEN — `display_ste.c` says so in as many words. So the previous entry's
+diagnosis, "`render_3d_faithful` writes outside `VT..VB` and those rows went
+stale", was **wrong**. It writes outside nothing; it writes nothing at all.
+
+**The actual bug was in the API I added.** `qd_screen_pixels_nomark` suppressed
+TWO signals when it should have suppressed one:
+
+| question | who answers it | what nomark did |
+|---|---|---|
+| "does this frame need presenting at all?" | `g_qd_touched` (#152) | **wrongly suppressed** |
+| "WHICH rows changed?" | the dirty set | correctly deferred to the caller |
+
+With both suppressed, `qd_present()` skipped the frame outright, so the backend
+never ran and the pending viewport composite never happened — which is exactly
+the compass-and-lower-viewport band that came back 2168 pixels different.
+
+**★ And this is why FRUA_DIRTYCHECK reported ZERO on both drives while the
+screen was visibly wrong.** It was not a coverage gap and WALKTEST-vs-HEIRS had
+nothing to do with it — the previous entry's lesson about sparse drives was
+drawn from a false premise and is **retracted**. The truth is structural: the
+validator polices rows WITHIN a present. **It cannot police a present that
+never happened.** Any future dirty-set work needs a second check at the present
+level, not just the row level.
+
+Fixed: a grab now always sets `g_qd_touched`, marking or not. **All five engine
+writers are migrated and the walk frame is pixel-identical, 0 of 489216** —
+including the whole 3D-view group the previous entry reverted.
+
+**Shipping impact: still nil, and now I can say exactly why.** pass 1 is
+**91.3 t200 per present** against the 90.4 baseline, with **1911 grabs over 960
+presents — still ~2 per present** from sites nobody has migrated. The threshold
+is unchanged: one blanket grab marks all 200 rows, so the scan only narrows
+when the LAST marker on a frame is gone. Five down, and the count did not move
+because the remaining two per frame are elsewhere.
+
+**The next step is a tool, not a guess.** `QDT(0)` lumps all 28 grab sites into
+one counter, which is why "~2 per present" cannot be attributed. Give
+`qd_screen_pixels` a call-site id (a `__LINE__` argument behind a macro) and
+dump per-site counts; that names the two per-frame markers in one run instead
+of the four this entry spent inferring. The prime suspects remain `72986`
+(`jt200`) and `36057` (`jt1177`, whose ~7 consumers are the real writers).

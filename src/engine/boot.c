@@ -2892,6 +2892,56 @@ static short jt212(short row, short col, short edge);      /* CODE 7+0x5cc8 — 
 static void  jt199(unsigned char *page, short Y, short X, short row,
                    short col, short facing);                /* JT[199]=CODE 7+0x6234 frustum walker */
 static void  render_3d_faithful(unsigned char *px, short pitch, short sw, short sh);
+
+#ifdef FRUA_R3DEXTENT
+/* #63: what does render_3d_faithful ACTUALLY write?
+ *
+ * The migration attempt assumed it stayed inside the viewport rect it hands to
+ * dsp_viewport_commit, on the reasoning that its chrome all goes through
+ * l2d4e. That was wrong by 2168 pixels, so stop reasoning and measure: snapshot
+ * the surface, run the render, diff every row. Ground truth, per drive.
+ *
+ * Diag only — it copies and re-compares the whole surface per call. */
+static unsigned char g_r3d_snap[320L * 200L];
+
+static void r3d_extent_call(unsigned char *px, short pitch, short sw, short sh)
+{
+	static short calls;
+	long  span = (long)pitch * sh;
+	short y, lo = -1, hi = -1, n = 0;
+	char  list[220];
+	short p = 0;
+
+	if (span > (long)sizeof g_r3d_snap) {           /* too big to police */
+	render_3d_faithful(px, pitch, sw, sh);
+		return;
+	}
+	memcpy(g_r3d_snap, px, (size_t)span);
+	render_3d_faithful(px, pitch, sw, sh);
+	for (y = 0; y < sh; y++)
+		if (memcmp(px + (long)y * pitch,
+		           g_r3d_snap + (long)y * pitch, (size_t)sw) != 0) {
+			if (lo < 0) lo = y;
+			hi = y;
+			n++;
+			if (p < (short)sizeof list - 6) {
+				list[p++] = (char)('0' + (y / 100) % 10);
+				list[p++] = (char)('0' + (y / 10) % 10);
+				list[p++] = (char)('0' + y % 10);
+				list[p++] = ' ';
+			}
+		}
+	list[p] = 0;
+	dbg_log_num("r3dext call#          = ", ++calls);
+	dbg_log_num("r3dext lo*1000+hi     = ", (long)lo * 1000 + hi);
+	dbg_log_num("r3dext rows changed   = ", n);
+	if (calls <= 4)
+		dbg_file_str("r3dext rows: ", list);
+}
+#define R3D_CALL(a, b, c, d) r3d_extent_call((a), (b), (c), (d))
+#else
+#define R3D_CALL(a, b, c, d) render_3d_faithful((a), (b), (c), (d))
+#endif
 static void  port_draw_play_frame(unsigned char *px, short pitch, short sw, short sh);
 static void  port_reinstall_frame_band(void);
 /* Extra pixel y added to jt1089 text while composing the dungeon HUD. The
@@ -3670,8 +3720,8 @@ static void jt221(short x, short y, short facing)
 		 * the port's clut/chrome scaffolding and shares the viewport clip. It
 		 * reads the party from g_a5_-12286/-12287/-12288 (same source as jt221's
 		 * args). (page is the port's drawing surface the Mac draws to the port.) */
-		if (qd_screen_pixels(&page, &pitch, &sw, &sh) && page != NULL)
-			render_3d_faithful(page, pitch, sw, sh);
+		if (qd_screen_pixels_nomark(&page, &pitch, &sw, &sh) && page != NULL)
+			R3D_CALL(page, pitch, sw, sh);
 		(void)jt117();
 	}
 }
@@ -4839,7 +4889,7 @@ static void jt948(void)
 			 * hole. The walk loop's first jt312 re-composes identically. */
 			{
 				unsigned char *fpx; short fpitch, fsw, fsh;
-				if (qd_screen_pixels(&fpx, &fpitch, &fsw, &fsh)
+				if (qd_screen_pixels_nomark(&fpx, &fpitch, &fsw, &fsh)
 				    && fpx != NULL && (short)g_a5_18878 >= 5) {
 					/* We arrive from a NON-play screen (Hall/menu/
 					 * camp) that overwrote the wall CLUT bands
@@ -14324,6 +14374,10 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	 * (ADR-0016 B2). No-op when vtgt == px (chunky backends). */
 	if (vp)
 		dsp_viewport_commit(VL, VT, (short)(VR - VL), (short)(VB - VT));
+#ifdef FRUA_R3DEXTENT
+	/* #63: the rect the migration ASSUMED was the whole write extent. */
+	dbg_log_num("r3dext VT*1000+VB     = ", (long)VT * 1000 + VB);
+#endif
 #if defined(FRUA_SKIP_ENTRY_EVENTS) && !defined(FRUA_AMIGA)   /* task #25: not 68EC020-safe */
 	g_j2_active = 0;
 	j200_dump();
@@ -14690,6 +14744,7 @@ static void port_reinstall_frame_band(void)
 
 static void port_draw_play_frame(unsigned char *px, short pitch, short sw, short sh)
 {
+	qd_touch_all();          /* #63 probe: claims every row */
 	/* #63: this wipes and re-lays the WHOLE play frame, so it owns every row.
 	 * Declaring it here rather than at the three call sites means each of
 	 * those can take the non-marking grab and still be covered. */
@@ -14858,7 +14913,7 @@ static void jt312(unsigned char *page)
 			signed char cy = (signed char)g_a5_12288;
 			signed char cx = (signed char)g_a5_12287;
 
-			if (qd_screen_pixels(&mpx, &mpitch, &msw, &msh) && mpx != NULL)
+			if (qd_screen_pixels_nomark(&mpx, &mpitch, &msw, &msh) && mpx != NULL)
 				port_draw_play_frame(mpx, mpitch, msw, msh);
 			l52b8(&cy, &cx, NULL, NULL, (short)11, (short)11, (short)1);
 #ifdef FRUA_MAPTRACE
@@ -14896,7 +14951,7 @@ static void jt312(unsigned char *page)
 #endif
 	if (!dungeon_view_setup())
 		return;
-	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == 0)
+	if (!qd_screen_pixels_nomark(&px, &pitch, &sw, &sh) || px == 0)
 		return;
 
 	cell = (short)((long)(short)g_a5_12288 * ds[3] + (short)g_a5_12287);
@@ -14984,7 +15039,7 @@ static void jt312(unsigned char *page)
 #elif defined(FRUA_RAYCAST)
 	render_3d_raycast(px, pitch, sw, sh);
 #else
-	render_3d_faithful(px, pitch, sw, sh);
+	R3D_CALL(px, pitch, sw, sh);
 #endif
 #ifdef FRUA_MONOPROF
 	{ extern long g_mpf_t2; g_mpf_t2 = TickCount(); }

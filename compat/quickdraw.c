@@ -589,6 +589,16 @@ static int qd_screen_pixels_core(unsigned char **pixels, short *rowBytes,
 		return 0;
 	if (pixels) {
 		*pixels = (unsigned char *)(*pm)->baseAddr;
+		/* ★ #152's boolean is set for EVERY grab, marking or not. The two
+		 * questions are different and conflating them was a real bug:
+		 *   "does this frame need presenting at all?"  -> yes, presume so
+		 *   "WHICH rows changed?"                      -> the caller says
+		 * A nomark grab that suppressed both meant qd_present() skipped the
+		 * frame outright, so the backend never ran — and a skipped present
+		 * never reaches the row diff, which is why FRUA_DIRTYCHECK reported
+		 * zero while the screen went stale. It polices rows within a
+		 * present; it cannot police a present that never happened. */
+		g_qd_touched = 1;
 		if (!mark) {
 			/* #63: caller names its own rows via qd_touch_rows. */
 		} else
