@@ -6439,12 +6439,16 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 		return;
 	}
 
-	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
+	if (!qd_screen_pixels_nomark(&px, &pitch, &sw, &sh) || px == NULL)
 		return;
 	if (top < 0)     top = 0;
 	if (left < 0)    left = 0;
 	if (bottom > sh) bottom = sh;
 	if (right > sw)  right = sw;
+	/* #63: every row loop below rejects dy outside [top, bottom), so that
+	 * span is a proven superset of what this blit writes — announce it
+	 * instead of letting the grab mark the whole surface. */
+	qd_touch_rows(top, bottom);
 
 	if (mode == 7) {
 		/* transparency RLE (Mac L2b9a / JT[1195]): decode the whole piece
@@ -14686,6 +14690,10 @@ static void port_reinstall_frame_band(void)
 
 static void port_draw_play_frame(unsigned char *px, short pitch, short sw, short sh)
 {
+	/* #63: this wipes and re-lays the WHOLE play frame, so it owns every row.
+	 * Declaring it here rather than at the three call sites means each of
+	 * those can take the non-marking grab and still be covered. */
+	qd_touch_all();
 	short r;
 
 	port_frame_load();
@@ -26214,8 +26222,11 @@ static void ui_glib_blit(long handle, short idx, short top, short left,
 		return;
 	}
 
-	if (!qd_screen_pixels(&px, &pitch, &sw, &sh) || px == NULL)
+	if (!qd_screen_pixels_nomark(&px, &pitch, &sw, &sh) || px == NULL)
 		return;
+	/* #63: the row loop skips dy outside [0, sh), so the piece can only
+	 * touch [y, y + h). */
+	qd_touch_rows(y, (short)(y + h));
 
 	int xparent = transparent;
 	if ((flags & 0x0f) == 2) {               /* PackBits 8bpp */

@@ -1766,3 +1766,54 @@ owns.
 present and ~10% of all play time. Removing most of the scan is worth up to
 ~8-9% of play — several times what the pointer-grab present-skipping was worth
 (~1-2%), which is why this is the branch to pursue and that one is not.
+
+### MIGRATING THE ENGINE WRITERS: two land, the 3D-view group is REVERTED
+
+Two of the five migrated and verified. The third attempt produced a real
+rendering regression, and the way it was caught is the useful part.
+
+**Landed (both provably bounded, both verified):**
+
+- **`l2d4e` (`boot.c:6439`).** All four of its row loops reject `dy` outside
+  `[top, bottom)`, and neither bound is reassigned afterwards, so the span it
+  has ALREADY clipped is a proven superset. Announced right after the clamps.
+- **The GLIB blit (`boot.c:26214`).** Its row loop skips `dy` outside
+  `[0, sh)`, so the piece can only touch `[y, y + h)`.
+
+**Reverted: the 3D-view group** — `render_3d_faithful` announcing `VT..VB`,
+plus the non-marking grabs at `3673` / `14888` (jt312) / `4842` / `14850` and
+`port_draw_play_frame` claiming everything.
+
+The reasoning was that the renderer's chrome all goes through `l2d4e`, which now
+announces its own rows, leaving only the view itself — the rect it already hands
+to `dsp_viewport_commit`. **That is wrong.** `render_3d_faithful` writes outside
+`VT..VB`, so with its callers no longer marking, those rows went stale: the
+WALKTEST walk frame came back **2168 pixels different**, in a band across the
+compass and the bottom of the viewport. Bisected by reverting the 3D group
+alone — l2d4e + GLIB then measured **pixel-identical, 0 of 489216**, which
+pins the fault on the 3D group and clears the two blits.
+
+**★ THE LESSON, AND IT IS ABOUT THE VALIDATOR.** `FRUA_DIRTYCHECK` reported
+**ZERO** unannounced rows on the HEIRS drive with the broken migration in
+place. It was not lying: on HEIRS those rows WERE announced — by other
+writers, the clock and roster text going through `DrawChar`. WALKTEST is an
+event-free room where nothing else paints there, so the same code left them
+stale. **A dirty-set validator only proves the drives you run it on**, and a
+second, sparser design caught what the busier one structurally could not. Any
+future site migration must be checked on BOTH, and the sparse one is the
+sensitive instrument.
+
+**Shipping impact: still none, measured.** pass 1 is **91.4 t200 per present**
+against the 90.4 baseline — unchanged, because a single blanket grab marks the
+whole surface and roughly two still fire per present. The migrations did halve
+the grab count (3606 -> 1911), but that does not help until the LAST one on a
+given frame is gone. This is an all-or-nothing threshold per present, which is
+worth stating plainly: partial migration buys exactly nothing.
+
+**What would finish it.** The remaining per-frame markers are `72986` (`jt200`)
+and `36057` (`jt1177`, the cached-address site whose ~7 consumers are the real
+writers), plus the 3D-view group done properly — which needs
+`render_3d_faithful`'s true write extent established, not inferred. That means
+reading what it draws outside the viewport rect (the compass and frame chrome
+are the visible candidates) rather than assuming l2d4e covers it. Until all of
+them go, pass 1 stays at 200 rows.
