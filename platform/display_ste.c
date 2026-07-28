@@ -1034,9 +1034,40 @@ static int st_dt_ready_row(short y)
 	const unsigned char *crow = s_chunky + (long)y * ST_W;
 	short x;
 
-	for (x = 0; x < ST_W; x++)
-		if (!s_used_idx[crow[x]])
-			s_dt_new_ink++;
+#ifndef FRUA_NOINK
+	/* #63: this scan measured 33% of pass 1 — 1.04 t200 per changed row, or
+	 * ~130 cycles a pixel for a table lookup and a conditional increment,
+	 * four times the per-byte cost of the row compare next to it. Two exact
+	 * changes, neither of which alters what the trigger decides:
+	 *
+	 *   1. THRESHOLD GATE. The only consumer is `s_dt_new_ink >= 4`, and the
+	 *      counter resets every present, so once four have been seen the rest
+	 *      of the present's scans cannot change the outcome. Skip them.
+	 *   2. LOCAL ACCUMULATOR + pointer walk. s_dt_new_ink is a file static
+	 *      and s_used_idx a static array, so the compiler had to assume the
+	 *      increment might alias the table and could not keep either in a
+	 *      register across the loop.
+	 *
+	 * (Under FRUA_PLANAR_DIAG the b4ink line now prints a count that stops at
+	 * the threshold rather than the true total — the trigger is unaffected.) */
+	if (s_dt_new_ink < 4) {
+		const unsigned char *p   = crow;
+		const unsigned char *end = crow + ST_W;
+		const unsigned char *tab = s_used_idx;
+		long                 ink = s_dt_new_ink;
+
+		while (p < end)
+			if (!tab[*p++])
+				ink++;
+		s_dt_new_ink = ink;
+	}
+	(void)x;
+#else
+	/* #63 ABLATION ONLY (never ships): skip the new-ink scan to price it.
+	 * Disables the re-quant trigger, so compare rebands too — if they move,
+	 * the timing comparison is confounded. */
+	(void)x;
+#endif
 	if (s_dt_rowcov != NULL && s_dt_rowcov[y] == ST_W
 	    && !st_row_differs(s_dt_idx + (long)y * ST_W, crow))
 		return 0;                        /* writer-stamped: s_dt authoritative */

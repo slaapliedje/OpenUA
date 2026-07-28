@@ -1984,3 +1984,53 @@ half of what remains, and its 320-iteration new-ink scan runs on EVERY changed
 row whether or not the row ends up converting — 9920 rows a drive. That is the
 next thing to price, and unlike the scan it is not a search, it is real work
 that may or may not be needed.
+
+### THE NEW-INK SCAN: 3%, not "over half" — the ablation that said otherwise was confounded
+
+Priced `st_dt_ready_row`'s 320-iteration new-ink scan by ablation
+(`FRUA_NOINK`, guarded), and the first number looked enormous:
+
+| | with scan | ablated |
+|---|--:|--:|
+| pass 1 | 31465 t200 | **21150** |
+| band | 36439 | 29177 |
+| rebands | 47 | **38** |
+| rows changed | 9920 | **10799** |
+
+**−33%, and confounded.** Removing the scan disables the re-quant trigger, so
+the run took a different path: nine fewer re-bands, nearly nine hundred more
+changed rows. The band column moving 20% is the tell — the scan does not live
+there, so that difference is workload, not cost. Any timing read off this
+comparison prices the scan AND the altered workload together.
+
+**Two exact optimisations, neither changing what the trigger decides:**
+
+1. **Threshold gate.** The only consumer is `s_dt_new_ink >= 4`, and the
+   counter resets every present, so once four have been seen the rest of the
+   present's scans cannot change the outcome — skip them.
+2. **Local accumulator + pointer walk.** `s_dt_new_ink` is a file static and
+   `s_used_idx` a static array, so the compiler had to assume the increment
+   might alias the table and could keep neither in a register.
+
+**Result: pass 1 31465 -> 30477 t200. Three percent.** And this time the
+comparison is clean: **rebands 47 both ways, rows changed 9920, rows converted
+776** — identical workload, one variable.
+
+**So the previous entry's "st_dt_ready_row is over half of what remains" was
+wrong**, and it was wrong because it was read off the confounded ablation. The
+scan is a few percent. Retracted here rather than left standing.
+
+**What this says about the remaining pass 1.** At 31.7 t200 per present it no
+longer has a dominant component: ~41 scanned rows, ~10 changed rows through
+`ready_row`, and 0.8 built rows do not add up to it under any per-row constant
+I can justify — a factor of about two is unaccounted. Attributing that needs
+per-phase timers INSIDE `ready_row`, which costs a Supexec pair per row (~20k
+traps a drive, ~8% distortion). That is the honest next step if anyone wants
+the rest; it is no longer a case of picking off an obvious hotspot.
+
+**Verified:** WALKTEST walk frame **pixel-identical**; menu **pixel-identical
+3 runs out of 3**. One earlier menu grab differed by exactly one cursor sprite
+— the shield pointer versus the sword — which was a capture race against the
+engine's own `SetCursor` on menu entry, not a rendering fault; three
+back-to-back runs on the same binary then matched exactly. Four targets build;
+412 tests pass.

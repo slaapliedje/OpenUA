@@ -47,6 +47,9 @@
 #ifdef FRUA_PARTYHP
 #error "FRUA_PARTYHP in a RELEASE build: every party member's HP would be clamped at combat entry. It exists only to drive a fight to a deterministic death (docs/deterministic-ab.md)."
 #endif
+#ifdef FRUA_NOINK
+#error "FRUA_NOINK in a RELEASE build: the new-ink re-quant trigger would never fire, so a stamped ink the quantiser never saw would ride the luma fallback (invisible text after a re-band). It is the #63 cost-ablation switch."
+#endif
 #ifdef FRUA_R3DEXTENT
 #error "FRUA_R3DEXTENT in a RELEASE build: it snapshots and re-compares the whole 64000-byte surface around every 3D render, which is slower than the render. It is the #63 write-extent probe."
 #endif
