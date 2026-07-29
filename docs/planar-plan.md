@@ -2466,3 +2466,67 @@ So this change ships as a correctness-of-intent fix at negligible cost (0.065%
 of the boot), better on its own metric, with a latent border hazard now
 documented — not as a performance win. It pays off only if the epoch reset ever
 becomes partial.
+
+### #63 MEDIAN-CUT "INSTABILITY" — measured, and mostly NOT instability
+
+Asked to fix the median cut, the first job was to measure the thing it was
+accused of, because the previous attribution (slot churn) turned out to be
+appearance-neutral and nobody had ever measured the COLOURS.
+
+**The measurement**: for every index in use, the squared RGB distance between
+the colour it displayed BEFORE a re-quant and the colour it displays after —
+`st_coldist(s_band_pal_prev[s_remap_prev[v]], s_band_pal[s_band_remap[v]])`.
+Max possible 195075. Plus mean palette CHROMA (max-min per slot) either side,
+because "greyed out" is specifically a chroma drop.
+
+| reband | rows | CLUT bytes | dmean | dmax | chroma |
+|---|--:|--:|--:|--:|--:|
+| 2 | 200 | 713 | 61184 | 157952 | 0 -> 100 |
+| 3 | 200 | 126 | 256 | 256 | 100 -> 0 (only 1 index in use) |
+| 4 | 200 | 455 | 43016 | 124416 | 0 -> 94 |
+| **5** | 125 | **3** | **5244** | 29952 | 94 -> 84 |
+| 6 | 200 | 657 | 34206 | 94976 | 84 -> 65 |
+| 7 | 200 | 659 | 30136 | 80640 | 65 -> 31 |
+| 8 | 200 | 667 | 8704 | 23808 | 31 -> 30 |
+| 9 | 200 | 74 | 8389 | 46336 | 30 -> 32 |
+| 10 | 7 | 512 | 104 | 1536 | 32 -> 32 |
+
+**The big shifts are legitimate.** Rebands 2/4/6/7 move 30000-61000, but each
+has 200 changed content rows AND 455-713 changed CLUT bytes: a genuinely new
+screen with genuinely new colours, which is what a re-quant is for. The
+progressive chroma decline 100 -> 94 -> 84 -> 65 -> 31 is not the quantiser
+losing its grip either — it tracks the boot going from the colourful title
+painting to the grey granite menu, and the captured frames confirm exactly
+that.
+
+**Only reband 5 looks like real instability**: THREE CLUT bytes changed, and
+the used palette still moved by dmean 5244 (RMS ~72, ~42 per channel). Its
+content moved 125 rows, so the used-colour POPULATION changed — the cut sees a
+different input and lands elsewhere. Real, but a single mild case in ten.
+
+**Captured the boot to check the reported symptom.** Frames every 3 s: the
+title screen renders in full colour (golds, browns, the blue orb, lightning),
+then the granite menu chrome, then the final menu with cyan headings. The
+"colourful then grey" transition in the BOOT is faithful — the menu genuinely
+is grey granite. The reported artefact is on the HEIRS door screen, which this
+capture never reaches, so it is NOT yet reproduced and NOT yet diagnosed.
+
+**★ NOTHING LANDED TODAY WOULD HAVE FIXED IT.** The three changes were the ink
+patch (adds remap entries for previously-unmapped indices only), the
+force-full ink-scan skip (no palette effect, menu byte-identical) and the
+stable-slot alignment (appearance-neutral, verified 0 differing pixels). None
+touches which colours the quantiser picks. If the artefact was there before, it
+is there now — with one narrow exception: `st_patch_new_ink` changes what an
+unseen index displays from nearest-LUMINANCE to nearest-RGB, so if the door's
+colours were arriving as unseen ink, that specific case is improved.
+
+**Both probes were removed after answering.** They cost ~880 t200 in `band` —
+not the arithmetic but the FOUR EXTRA `dbg_log_num` CALLS per reband, log
+writes inside a phase timer. Fifth confounder of the session, and the second
+of exactly this shape after the ROWS-SKIPPABLE probe. The probe code is quoted
+in this entry so it can be re-added deliberately rather than left resident.
+
+**To actually settle the door**: drive HEIRS to the entry BIGPIC
+(`FRUA_AUTOWALK_TREASURE`) and capture frames either side of the reband that
+fires there, with the two probes temporarily back in. Until that exists, any
+change to the median cut would be tuning against an unreproduced symptom.
