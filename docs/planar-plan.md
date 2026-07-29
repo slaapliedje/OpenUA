@@ -2927,3 +2927,86 @@ concrete levers, both untried:
 
 Neither is attempted here — this entry is the measurement, and the measurement
 is that the target was in the wrong subsystem entirely.
+
+## #63 postscript: the synth was rendering silence, 26.6 million samples of it
+
+The PC-sampled profile put `plat_sound_vbl` at 55.6% of the ST/STe play loop
+and `FRUA_NOSOUND` priced the whole subsystem at ~70% of wall (223 s -> 67 s
+over the same drive). That measurement was right and the conclusion drawn from
+it — "the four-tone synth is expensive, so either lower the sample rate or
+rewrite the inner loop" — was wrong. Both proposed fixes traded something
+(audible fidelity, or faithfulness of the mixer) against a cost that did not
+need to exist at all.
+
+`FRUA_SNDPROF` buckets every rendered sample by the state it was rendered in,
+accounted per render CALL (~50/sec) rather than per sample, so the instrument
+cannot distort what it measures. A boot + 36-key HEIRS walk:
+
+```
+b63snd: render calls  = 76831
+b63snd: samples SILENT= 26633924      99.976%
+b63snd: samples VOICED= 0            <- no voice was EVER armed
+b63snd: samples tone  =    6334       0.024%  (one UI beep)
+b63snd: samples sfx   =       0
+```
+
+Not "mostly idle" — **entirely** idle. The four-tone synth never had a voice
+armed for the whole run, and the only audible samples in the entire drive were
+a single beep. Every one of the other 26.6 million cost the per-sample loop
+(three state tests, two clamps, a store) on a CPU with no cache.
+
+The mechanism is that the DMA ring loops forever, so the vblank refill runs
+whether or not anything is audible — ~410 samples every frame at 25033 Hz,
+regardless. Silence is not free; it is synthesised at the same price as music.
+
+**The fix is to notice that a ring full of zeroes can be looped indefinitely
+and still play silence.** `synth_audible()` hoists the audibility test out of
+the per-sample loop; `g_quiet_run` counts silence already committed, and once
+a whole ring of it is down the refill stops until something makes noise. Free:
+no rate change, no fidelity loss, no change to the mixer's faithfulness.
+
+Three traps on the way in, all of which would have shipped a broken audio path:
+
+1. **Returning early skips the sequencer hook.** The hook is what ARMS the
+   voices, so an early `return` is a silence that can never end. The gate must
+   skip the REFILL, not the function.
+2. **The write pointer must keep its half-ring lead.** Leaving `g_ring_w` where
+   it was makes `lead` wrap on the next audible frame, `todo` go negative, and
+   the refill never run again. It is re-anchored to `play + RING_SAMPLES/2`.
+3. **`g_quiet_run` has to reset on the way OUT of quiet, not only inside the
+   loop.** If the loop body is skipped (todo <= 0) while audible, a stale
+   quiet-run would gate the very next silent frame before a ring of zeroes had
+   been written — looping the last fragment of sound forever.
+
+Verified with `FRUA_SNDTEST` (four effects + a 12-second song) under the gate:
+
+```
+sndtest: song voices live = 3
+b63snd: samples VOICED= 76510     b63snd: samples sfx = 79224
+b63snd: samples SILENT= 12624     <- just the one ring-fill it takes to latch
+```
+
+Audio fully intact; silence rendering down ~1600x. Boot-to-menu on the STE
+(same `start` path, fast-forward on in every arm):
+
+| arm | boot |
+|---|--:|
+| before | 13 s |
+| `FRUA_NOSOUND` (whole subsystem off) | 6 s |
+| **gated** | **6 s** |
+
+The gate recovers the entire cost the subsystem was imposing — it is now as
+cheap as not having sound at all, while still having sound.
+
+**The play-loop figure is NOT measurable by wall clock under fast-forward.**
+The post-fix 36-key drive completed in 12 s, but the driver's own keystroke
+pacing is ~0.3 s x 36 ~= 11 s of host sleep, so that drive is sleep-bound and
+saturates the instrument. The honest claim is the boot number plus the
+mechanism; a play-loop figure needs the emulated-time (t200) phase counters,
+not `date`.
+
+Two levers named in the previous commit are now RETIRED, not deferred: halving
+the STE sample rate and reworking `__mulsi3` out of the synth inner loop were
+both aimed at making it cheaper to render samples that should never have been
+rendered. `__mulsi3` at 21% of the profile remains unattributed and is NOT the
+synth — the silent path contains no multiply. That is a separate lead.

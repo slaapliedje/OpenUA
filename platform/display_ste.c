@@ -3047,6 +3047,9 @@ static void st_present(void)
 		}
 		st_prof_hot_dump();              /* #41: hot-row attribution window */
 		st_prof_b30b();                  /* B3.0b: compute-vs-contention sample */
+#ifdef FRUA_SNDPROF
+		{ extern void plat_sound_prof_dump(void); plat_sound_prof_dump(); }
+#endif
 	}
 #endif
 	st_flip_full();                          /* B4: show this page, advance */

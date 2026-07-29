@@ -31,6 +31,9 @@
 
 #include "plat_sound.h"
 #include "display.h"           /* dsp_vdo_cookie: Falcon-vs-TT gate */
+#ifdef FRUA_SNDPROF
+#include "dbglog.h"
+#endif
 
 static char *g_buf      = NULL;
 static long  g_buf_size = 0;
@@ -176,6 +179,10 @@ void plat_sound_set_vbl_hook(void (*fn)(void))
 static char                 *g_ring;            /* ST-RAM; the DMA loops on it  */
 static volatile long         g_ring_w;          /* next sample the VBL renders  */
 static volatile int          g_ring_live;       /* the loop is programmed + running */
+/* #63: samples of silence already committed to the ring. At >= RING_SAMPLES the
+ * whole buffer is zeroes and the refill has nothing left to say — see the long
+ * comment in plat_sound_vbl. Reset by anything that makes noise. */
+static volatile long         g_quiet_run;
 static const unsigned char * volatile g_ft_rec; /* the LIVE record, or NULL     */
 static unsigned long         g_ft_phase[4];
 
@@ -222,6 +229,53 @@ static long ring_play_index(void)
 	return (long)(a - base);
 }
 
+#ifdef FRUA_SNDPROF
+/* #63 follow-up. PC sampling put plat_sound_vbl at ~56% of the ST/STe play
+ * loop and FRUA_NOSOUND priced the whole subsystem at ~70% of wall — but
+ * neither says WHICH state that time was spent in. The synth renders a fixed
+ * ~410 samples every vblank whether or not anything is audible, so "the sound
+ * costs 70%" is compatible with two very different fixes:
+ *
+ *   idle-dominated  -> gate the mixer when nothing sounds. Free, no fidelity
+ *                      cost, and the loop below is pure waste.
+ *   voiced-dominated-> the four-tone synth itself is the cost. Only a cheaper
+ *                      inner loop or a lower sample rate helps, and the rate
+ *                      is an audible trade.
+ *
+ * Bucket the samples by the state they were rendered in. Accounted per CALL
+ * (~50/sec), not per sample, so the instrument cannot distort what it measures. */
+static long sp_snd_calls, sp_snd_silent, sp_snd_voiced, sp_snd_tone, sp_snd_sfx;
+
+void plat_sound_prof_dump(void)
+{
+	dbg_log_num("b63snd: render calls  = ", sp_snd_calls);
+	dbg_log_num("b63snd: samples SILENT= ", sp_snd_silent);
+	dbg_log_num("b63snd: samples VOICED= ", sp_snd_voiced);
+	dbg_log_num("b63snd: samples tone  = ", sp_snd_tone);
+	dbg_log_num("b63snd: samples sfx   = ", sp_snd_sfx);
+}
+#endif
+
+/* Is anything actually going to make noise? The four-tone record is written by
+ * the sequencer at interrupt time, so this is the same test synth_render makes
+ * — hoisted out so the vblank can decline to render silence sample by sample.
+ * See g_quiet_run in plat_sound_vbl for why that mattered so much. */
+static int synth_audible(void)
+{
+	const unsigned char *rec = (const unsigned char *)g_ft_rec;
+	int v;
+
+	if (g_tone_left > 0 || g_sfx_pos < g_sfx_len)
+		return 1;
+	if (rec == NULL)
+		return 0;
+	for (v = 0; v < 4; v++)
+		if (rd_be32_p(rec + FT_RATE(v)) != 0 &&
+		    rd_be32_p(rec + FT_WAVE(v)) != 0)
+			return 1;
+	return 0;
+}
+
 /* Render `n` samples of (4 wavetable voices + square tone + effect) into dst. */
 static void synth_render(char *dst, long n)
 {
@@ -250,6 +304,15 @@ static void synth_render(char *dst, long n)
 		if (inc[v] != 0)
 			voiced = 1;
 	}
+
+#ifdef FRUA_SNDPROF
+	sp_snd_calls++;
+	if (voiced)                     sp_snd_voiced += n;
+	if (g_tone_left > 0)            sp_snd_tone   += n;
+	if (g_sfx_pos < g_sfx_len)      sp_snd_sfx    += n;
+	if (!voiced && g_tone_left <= 0 && g_sfx_pos >= g_sfx_len)
+		sp_snd_silent += n;     /* rendered, inaudible, paid for anyway */
+#endif
 
 	for (i = 0; i < n; i++) {
 		long acc = 0;
@@ -283,6 +346,7 @@ void plat_sound_vbl(void)
 {
 	void (*hook)(void);
 	long play, lead, todo;
+	int  audible;
 
 	if (!g_ring_live)
 		return;
@@ -293,16 +357,50 @@ void plat_sound_vbl(void)
 		lead += RING_SAMPLES;
 	todo = (RING_SAMPLES / 2) - lead;       /* stay half a ring ahead */
 
-	while (todo > 0) {
-		long chunk = RING_SAMPLES - g_ring_w;
+	/* #63: DO NOT SYNTHESISE SILENCE. The DMA loop runs forever, so this
+	 * refill runs every vblank whether or not the game is making a sound —
+	 * and an instrumented HEIRS drive measured 26,633,924 samples rendered
+	 * of which 26,627,590 (99.976%) were inaudible: no voice was ever armed,
+	 * and the only audible samples all quarter were one UI beep. Each of
+	 * those cost the per-sample loop below (three state tests, two clamps, a
+	 * store) on a CPU with no cache, ~410 samples every frame, forever.
+	 *
+	 * Once the whole ring holds zeroes there is nothing left to write: the
+	 * DMA can loop over it indefinitely and still play silence. So zero it
+	 * ONCE on the way quiet, then leave it alone until something becomes
+	 * audible again. g_quiet_run counts the samples of silence already
+	 * committed; it resets the moment a voice, tone or effect appears, which
+	 * puts the full synth back on the very next vblank. */
+	audible = synth_audible();
+	if (audible)
+		g_quiet_run = 0;                /* full synth resumes THIS vblank */
 
-		if (chunk > todo)
-			chunk = todo;
-		synth_render(g_ring + g_ring_w, chunk);
-		g_ring_w += chunk;
+	if (!audible && g_quiet_run >= RING_SAMPLES) {
+		/* Hold the write point exactly half a ring ahead rather than
+		 * leaving it where it was. Letting it drift would make `lead`
+		 * wrap on the next audible frame, `todo` go negative, and the
+		 * refill never run again — silence that never recovers.
+		 *
+		 * Note this SKIPS THE REFILL, NOT THE FUNCTION: the sequencer
+		 * hook below is what arms the voices in the first place, so
+		 * returning early here would be a silence that can never end. */
+		g_ring_w = play + RING_SAMPLES / 2;
 		if (g_ring_w >= RING_SAMPLES)
-			g_ring_w = 0;
-		todo -= chunk;
+			g_ring_w -= RING_SAMPLES;
+	} else {
+		while (todo > 0) {
+			long chunk = RING_SAMPLES - g_ring_w;
+
+			if (chunk > todo)
+				chunk = todo;
+			if (!audible)
+				g_quiet_run += chunk;
+			synth_render(g_ring + g_ring_w, chunk);
+			g_ring_w += chunk;
+			if (g_ring_w >= RING_SAMPLES)
+				g_ring_w = 0;
+			todo -= chunk;
+		}
 	}
 
 	/* Then run the engine's sound task — the Mac VBL task that drives the
