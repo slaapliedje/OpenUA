@@ -401,59 +401,81 @@ tool palette and data model. It is lifted and **live** (reachable from the main
 menu via the `E` key, verified in Hatari); `geo.py` stays the fully
 headless-testable path because the editor's cell placement is mouse-driven.
 
-## Facing: the encoding is an 8-point compass, and the WALK IS REFLECTED
 
-**Encoding (settled 2026-07-29, from the engine's own data — no guessing).**
-`l67ca` picks the per-side art channel from `g_a5_27980[facing * 3]`, a table of
-NUL-terminated compass strings living in the DATA image. Read straight out of
-`g_a5_init_bytes` (A5 `-N` is `g_a5_init_bytes[31336 - N]`, so `-27980` is index
-3356):
+## Wall bytes: the LOW nibble is the texture, and 0 means INVISIBLE
+
+An edge byte is `passability << 4 | texture_group`.
+
+- **High nibble = passability.** 0 open, 1 secret door, 6..13 event-togglable,
+  14 solid wall, 15 a "Blocked: force/knock/pick" edge.
+- **Low nibble = the WALL TEXTURE GROUP.** `wall_slot_for_edge` maps 1..15 onto
+  the level's three wall groups. **0 draws nothing.**
+
+**★ A TEXTURELESS WALL BLOCKS BUT IS INVISIBLE, AND THAT WAS TASK #94.**
+`tools/dsn.py` authored `WALL_SOLID = 0xF0` — high nibble 15, so it blocked
+correctly, low nibble 0, so the renderer drew nothing for it. Every generated
+area therefore produced a first-person view that was **pixel-identical no
+matter what geometry was authored**: a sealed cell, a cell open on one edge, a
+corridor and a bare room all rendered the same viewport, **0 differing pixels
+of 47250**. Now `0xE1` (14 solid, texture group 1); the view varies **25.1%
+across a single step**, and a stone-block wall fills the frame at a dead end.
+
+Counts across all 26 HEIRS areas, which also corrects an earlier note in
+`dsn.py` claiming 0xF0 was "by far the commonest":
+
+| byte | hi / lo | count |
+|---|---|--:|
+| `0xE1` | 14 / 1 | **6179** |
+| `0xF0` | 15 / 0 | 3861 |
+| `0xEB` | 14 / 11 | 2651 |
+| `0xE6` | 14 / 6 | 2191 |
+
+`0xF0` is real — 17.8% of HEIRS edges have a zero low nibble — but it is the
+textureless blocker, almost certainly the outer map boundary, which blocks and
+is never seen. The walls a player looks at are high-nibble 14 with a NON-ZERO
+low nibble. **When choosing a wall byte, test VISIBILITY as well as BLOCKING:**
+the 0x10 -> 0xF0 change tested only the command bar and shipped an invisible
+wall for two days.
+
+## Facing: an 8-point compass — and an UNRESOLVED axis question
+
+**Encoding (settled 2026-07-29 from the engine's own data, no sweep needed).**
+`l67ca` picks its per-side art channel from `g_a5_27980[facing * 3]`, a table of
+NUL-terminated compass strings in the DATA image. Read out of
+`g_a5_init_bytes` (A5 `-N` is index `31336 - N`, so `-27980` is 3356):
 
 | f | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
 |---|---|---|---|---|---|---|---|---|
 | | N | NE | E | SE | S | SW | W | NW |
 
-`jt311`'s own comment confirms it independently — "the move keys 257..264 are
-engine directions 1..8 (NE,E,SE,S,SW,W,NW,N)", i.e. `d & 7` gives the same
-table. This replaces the queued four-value sweep and covers all eight.
+`jt311`'s comment confirms it independently — "engine directions 1..8
+(NE,E,SE,S,SW,W,NW,N)". This replaces the queued four-value sweep.
 
-**★ BUT THE PARTY DOES NOT WALK WHERE THE COMPASS SAYS.** Measured on the
-Falcon with a generated area whose entry facing was set explicitly, reading the
-HUD's `row,col`:
+**Measured, on the live Falcon build, reading the HUD's `row,col`:**
 
-| entry facing | compass says | party actually walks |
+| entry facing | compass name | displayed move |
 |---|---|---|
-| 0 | N | **W** (5,5 -> 5,4) |
-| 2 | E | **S** (5,5 -> 6,5) |
+| 0 | N | col−1 (5,5 -> 5,4) |
+| 2 | E | row+1 (5,5 -> 6,5) |
 
-That is `observed = 6 - f` — a REFLECTION about the NE-SW diagonal, not a
-rotation. A reflection is precisely what swapping the two axis deltas produces:
-`(dx,dy) -> (dy,dx)` maps N->W, E->S, S->E, W->N, which is the table above.
+That is `observed = 6 - f`, a reflection about the NE-SW diagonal — the
+signature of swapping the two axis deltas. `dir_dx`/`dir_dy` are a correct
+compass pair (`dir_dx` = COLUMN delta, `dir_dy` = ROW delta), yet `party_step`
+applies them crossed (`row += dir_dx`, `col += dir_dy`) and bounds-checks each
+against the other axis's limit. That function is debug-only, but the reflection
+was measured on the LIVE build, so the shipping mover has it too.
 
-The same swap is visible in the source. `dir_dx`/`dir_dy` are a correct compass
-pair (`dir_dx` = COLUMN delta, `dir_dy` = ROW delta — f=0 gives col+0/row-1 =
-north), but `party_step` applies them crossed:
+Also measured: the **passability gate and the step delta disagree**. With the
+party's cell open on byte 0 only and walled on the other three, the step
+SUCCEEDED and crossed a walled edge; with all four walled it BLOCKED. So the
+gate consults byte 0 when facing 0 while the step moves along another axis.
 
-```c
-nx = g_a5_12288 /* ROW */ + dir_dx[mf];   /* row += COLUMN delta */
-ny = g_a5_12287 /* COL */ + dir_dy[mf];   /* col += ROW delta    */
-```
-
-and then bounds-checks each against the other axis's limit. `g_a5_12288` is the
-ROW and `g_a5_12287` the COL — pinned by two independent writers (`l0bbc`'s
-`st[15]`/`st[14]`, and the `FRUA_ENTRY_ROW`/`COL` harness), the asm's own
-"party X/Y" comments being the source of the confusion this file already warns
-about.
-
-**NOT YET ESTABLISHED, and it matters:** `party_step` and `render_3d_view` are
-NOT the shipping path (the former is only called from a debug test block, the
-latter only under `FRUA_CORRIDOR`). The live renderer is `render_3d_faithful`
-and the live mover is `jt955`/`jt297`. The reflection above was measured on the
-LIVE build, so the live path has it too — but the MAP is stored column-major
-(`ds + 290 + (col*H + row)*6`), so a transposed map read would CANCEL a swapped
-delta and leave a self-consistent world that is merely mirrored with respect to
-the authored data. Walls would still block, corridors would still connect, and
-nothing would look wrong unless you compared a played area against its own
-editor layout. Determining which of those two it is — a real defect, or a pair
-of errors that cancel — is the open question. Do not "fix" one half without
-testing the other.
+**★ WHY THIS IS STILL OPEN, AND THE FLAW IN THE TEST.** The party was placed at
+`(row 5, col 5)` — a SYMMETRIC cell. Under a consistently transposed (row,col)
+convention between the tools and the engine, `(5,5)` maps to itself and the
+authored "north" edge lands exactly where the engine reads "north", so the
+experiment CANNOT distinguish a genuine reflection from a pair of transposes
+that cancel. **Redo it from an asymmetric cell** — e.g. `(row 3, col 7)` with a
+wall on exactly one edge — where a transposition is directly observable. Do not
+"fix" the delta before that: correcting one half of a cancelling pair would
+break every area that currently plays.

@@ -104,18 +104,31 @@ class Design:
             f.write(data)
 
 
-# A plain solid wall. The byte is `id << 4 | attribute` (see geo-format): id 15
-# is the ordinary stone wall, attribute 0 = no door.
+# A plain solid wall. The byte is `id << 4 | attribute`: the HIGH nibble is the
+# PASSABILITY code (0 open, 1 secret door, 14 solid wall, 15 a "Blocked:"
+# force/knock/pick edge) and the LOW nibble picks the WALL TEXTURE GROUP.
 #
 # ★ THIS USED TO BE 0x10, WHICH IS A SECRET DOOR, NOT A WALL. Wall id 1 is the
 # secret-door type: the engine renders it but announces "A SECRET DOOR!" on
 # approach and lets the party walk through. Every generated room was therefore
 # ringed with secret doors. Caught 2026-07-27 by putting one directly in the
 # party's face and reading the command bar: 0x10 gave the walk bar plus "A
-# SECRET DOOR!", 0xF0 gives "BLOCKED: BASH | EXIT". Real engine-authored areas
-# agree — 0xF0 is by far the commonest wall byte in HEIRS (3861 of them), and
-# 0x10 does not appear at all.
-WALL_SOLID = 0xF0
+# SECRET DOOR!", 0xF0 gives "BLOCKED: BASH | EXIT".
+#
+# ★★ THEN IT WAS 0xF0, WHICH BLOCKS BUT IS INVISIBLE (fixed 2026-07-29). Its
+# LOW NIBBLE IS 0 = no texture group, so the renderer draws nothing for it. A
+# generated area was therefore pixel-identical in the first-person view no
+# matter what geometry was authored — sealed cell, open-north-only, corridor
+# and bare room all rendered the SAME viewport, 0 differing pixels of 47250,
+# which is task #94's original symptom. The 0x10 -> 0xF0 change had tested
+# BLOCKING and never tested VISIBILITY.
+#
+# The note here also claimed 0xF0 was "by far the commonest wall byte in HEIRS
+# (3861)". Miscounted: across all 26 HEIRS areas 0xE1 leads with 6179, then
+# 0xF0 3861, 0xEB 2651, 0xE6 2191. 0xF0 is real but is the TEXTURELESS blocker
+# — almost certainly the outer map boundary, which blocks and is never seen.
+# The walls a player looks at are hi=14 with a NON-ZERO low nibble.
+WALL_SOLID = 0xE1
 
 # HDR[4..13] — the area's ART BINDING, and it must not be left zero.
 #
