@@ -1,39 +1,38 @@
 #!/usr/bin/env python3
-"""Build BOUNDTEST.DSN — a NON-SQUARE open room, to test the movement bounds check.
+"""Build BOUNDTEST.DSN — a NON-SQUARE open room (8 wide x 14 high, perimeter only).
 
-Why this exists (task #97). The party's forward step is applied with the two
-axis deltas crossed:
+★★ DO NOT USE THIS FIXTURE TO SETTLE AN AXIS QUESTION. It cannot, and #97/#98
+believed it could — which shipped an inverted forward step in v0.5.12-beta.
 
-    nx = ROW + dir_dx[f]     /* dir_dx is the COLUMN delta */
-    ny = COL + dir_dy[f]     /* dir_dy is the ROW    delta */
-    if (nx >= 0 && nx < w && ny >= 0 && ny < h) ...   /* each vs the OTHER limit */
+Why it cannot: THIS SCRIPT decides which GEO axis it calls the "row" (via
+`set_entry_point(idx, row, col, facing)` and `set_cell(c, r, ...)`), and the
+in-game HUD you read the result back from is labelled from the same assumption.
+So the fixture agrees with whatever you already believed. Four separate
+measurements on this file and WALKTEST were mutually consistent and all wrong
+together. Breaking the geometric symmetries — non-square map, asymmetric cell,
+five-step trajectory — was necessary and *still* not sufficient, because the
+labelling was never in the experiment.
 
-Two rounds of testing failed to pin it because both used a SQUARE 10x10 area:
+  * An axis/pairing question is settled from the Mac asm (the invariant is
+    tabulated in docs/coord-audit.md section 3) and confirmed on an
+    SSI-AUTHORED module, where events sit on squares a human author chose:
+    HEIRS entry 10,8 -> one step -> 11,8 announces "THE WEARY WANDERER".
+    Arriving at the right authored content is evidence no labelling can fake.
 
-  * round 1 put the party at (5,5), where row == col, so a (row,col) transpose
-    maps the cell to itself and cannot be seen;
-  * round 2 moved to (3,7) and ruled the display transpose out, but with
-    width == height the BOUNDS CHECK is still invisible — both limits are 10,
-    so a crossed pair behaves exactly like a correct one.
+What this fixture IS still good for: a completely open non-square room, i.e. a
+place where nothing legitimately blocks, so any refusal to move is the BOUNDS
+check rather than a wall. That is a real use — just not a directional one.
 
-A non-square room separates them. With w=8 and h=14 a party standing at
-ROW 9 has row > width, so a bounds test that compares a ROW-derived value
-against the WIDTH fails — and `party_step` returns with no message, which is
-exactly the silent no-move round 2 hit and could not explain.
+Two entry points, differing only in the first coordinate:
 
-Two entry points, differing ONLY in the row:
-
-    entry 0 — row  9, col 3   row >= w(8): FAILS a swapped bounds check
-    entry 1 — row  5, col 3   row <  w(8): passes either way  (the CONTROL)
-
-The room is otherwise completely open (perimeter only), so nothing legitimately
-blocks and any refusal is the bounds test. Select the entry with the design's
-"AT ENTRY POINT" setting, or drive both by regenerating with --entry.
+    entry 0 — 9, 3    (9 exceeds the 8-wide axis)
+    entry 1 — 5, 3    (in range on both axes — the CONTROL)
 
     python3 tools/mk_boundstest_design.py data/work/gamedata --current
     python3 tools/mk_boundstest_design.py data/work/gamedata --current --entry 1
 
-READ THE HUD's row,col after each key — never the key count.
+Read the HUD pair after each key, never the key count — and use PLAY_NUDGE=0,
+since beginplay's Right+Left nudge is net-zero only if both keys land.
 """
 import os
 import sys
