@@ -229,3 +229,41 @@ to play regardless of the output leaves.
 
 Related: [[band1-tail-triage]] (jt52 is the level-2 dispatcher lift),
 [[toolchain-no-softfloat-020]] (Mxalloc ST-RAM for DMA buffers).
+
+## #95: the walk step sound DOES reach the DMA — the earlier doubt was a bad drive
+
+Recorded because the negative result was believed for a while and was wrong.
+
+`JT[954]`'s step-commit calls `jt52(11)`, and a `FRUA_SNDPROF` drive had shown
+**zero sfx samples across a whole HEIRS walk**, which looked like a real gap.
+It was not: that drive sent arrow keys through `driver.sh` after `beginplay`,
+and HEIRS' modal entry chain (caravan messages, then a treasure screen that
+ignores Return) eats them — the party never took a step, so of course no step
+sound played. The same trap is documented in `platform/input.c`'s autoplay
+array, which exists to clear that chain; the drive simply was not using it.
+
+Re-run through the autoplay array with `FRUA_STEPSND` tracing every gate:
+
+```
+b95: STEP jt52(11), -17444 = 1     dispatcher takes the jt965 branch, not the poke
+b95: jt965 id        = 8
+b95:   jt1154 (on?)  = 1           sound enabled
+b95:   -3088 override= 1           resolves through the OVERRIDE library
+b95:   item resolved = 2590872     non-null
+b95:   reps*count    = 1           plays once
+b63snd: samples sfx  = 3714        and it reaches the ring
+```
+
+Every gate passes, three steps produce three effects, and the sample count
+checks out arithmetically: `SOUNDS.GLB` id 8 is **321 samples at 7407 Hz**
+(43 ms — a short click, which is what a footstep should be); resampled to the
+ring's 25033 Hz that is 1085 samples per step. The counter buckets per render
+call (~410 samples), so an effect spanning three calls scores ~1238, and
+3 x 1238 = 3714. Exactly the measurement.
+
+**Method note that generalises:** "the effect did not play" and "the code path
+never ran" look identical from a sample counter, and "the harness never reached
+the situation" looks identical to both. `FRUA_STEPSND` separates the first two
+(it names which of the four gates bailed) and `FRUA_SNDPROF` separates the
+third (no `STEP` line at all means the step never happened). Neither alone is
+enough — the first pass had only the second and drew the wrong conclusion.

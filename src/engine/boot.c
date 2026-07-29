@@ -15893,6 +15893,27 @@ static void jt297(void *rec_v, short key, long cb)
 		if (!g_geo_editor_active) {
 			unsigned char *gr = (unsigned char *)g_a5_28006;
 
+#ifdef FRUA_STEPSND
+			/* #95: does the walk step sound reach the DMA? It DOES
+			 * — verified 2026-07-29, one effect per step, 3714 ring
+			 * samples for three steps against 3255 predicted from
+			 * the bank (id 8 = 321 samples at 7407 Hz, resampled to
+			 * 25033). Kept because the earlier "no step sound"
+			 * suspicion came from a drive that never stepped, and
+			 * this is what distinguishes the two. Log the gate the
+			 * dispatcher is about to test, so a silent step says
+			 * WHICH branch swallowed it. Capped: a long drive would
+			 * flood the log. */
+			{
+				static short n95;
+
+				if (n95 < 8) {
+					n95++;
+					dbg_log_num("b95: STEP jt52(11), -17444 = ",
+					            (long)(unsigned char)g_a5_byte(-17444));
+				}
+			}
+#endif
 			jt52((short)11);
 			/* jt954's per-step scratch: re-arm the Blocked:-menu
 			 * attempt flags (-22727..-22724 = 1 — Bash/Pick retry at
@@ -24980,6 +25001,26 @@ static void jt965(short count, short id, short a, short b, short reps, short c)
 	PROBE("jt965");
 	(void)a; (void)b; (void)c;               /* read but unused, as on the Mac */
 
+#ifdef FRUA_STEPSND
+	/* The general "why is this effect silent?" tracer, not just #95's step
+	 * sound. Four ways an sfx dies here — the sound-off gate, the override
+	 * library picking a different bank, an item the library cannot resolve,
+	 * or a zero repeat count — and from outside they are indistinguishable
+	 * from each other and from "the call never happened". Pair it with
+	 * FRUA_SNDPROF, whose sfx sample count says whether the effect actually
+	 * reached the DMA ring after all four passed. */
+	{
+		static short m95;
+
+		if (m95 < 12) {
+			m95++;
+			dbg_log_num("b95: jt965 id        = ", (long)id);
+			dbg_log_num("b95:   jt1154 (on?)  = ", (long)jt1154_pg());
+			dbg_log_num("b95:   -3088 override= ",
+			            (long)(unsigned char)g_a5_byte(-3088));
+		}
+	}
+#endif
 	if (!jt1154_pg())                        /* 0x7df2 — sound enabled? */
 		return;
 
@@ -24988,6 +25029,17 @@ static void jt965(short count, short id, short a, short b, short reps, short c)
 	else                                     /* L7e4e */
 		item = jt468(id);
 
+#ifdef FRUA_STEPSND
+	{
+		static short k95;
+
+		if (k95 < 12) {
+			k95++;
+			dbg_log_num("b95:   item resolved = ", item);
+			dbg_log_num("b95:   reps*count    = ", (long)(reps * count));
+		}
+	}
+#endif
 	n = (short)(reps * count);               /* 0x7e5c */
 	for (;;) {                               /* 0x7e68 -> the test comes first */
 		n--;                             /* 0x7e7c */
