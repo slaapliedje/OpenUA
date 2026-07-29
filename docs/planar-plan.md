@@ -2754,3 +2754,54 @@ a two-line change and should not be attempted as one.
 **Status**: the gate stays (correct predicate, inert, comment says it is not a
 fix). The next piece of work is the rect conversion, and it now has a measured
 target: ~65% of full presents become 9-row updates.
+
+### #61 THE RECT CONVERSION IS A REGRESSION — reverted, and it corrects my own framing
+
+Built it: `qd_present_dirty()` collecting the announced runs and presenting them
+through the existing rect hook, with the cursor composited first so its band
+joins the set (otherwise a rect blit erases the cursor).
+
+**It renders perfectly.** Door, roster, compass, position, and all four lines of
+caravan text with the cyan highlight — captured and checked. And full presents
+fell **943 -> 47, a 95% reduction**, exactly as designed.
+
+**And the drive got much slower.** Two runs, both stopping at key 20 of 46 in
+270 s where the baseline reached 36 in 240 s. Identical stopping points suggest
+stalled rather than merely slowed; that was not run down further.
+
+First hypothesis — that issuing one rect per run paid N viewport composites,
+since `st_present_rect` ends every call with `st_vp_composite()` (~150 t200) —
+was **wrong**: coalescing to a single bounding span changed nothing.
+
+**★ THE FRAMING WAS WRONG, AND THE MEASUREMENT WAS ALREADY IN HAND.**
+
+    pass 1 rows SCANNED = 25280 over 720 presents = 35.1 of 200
+
+Pass 1 **already only scans the announced rows** — that is what the dirty-row
+work earlier in #63 achieved. So "a 9-row change triggers a 200-row present"
+was simply not true any more: it triggers a ~35-row scan that converts 0.8
+rows. The remaining full-present cost is the band branch and the fixed
+per-present overhead, not a 200-row sweep.
+
+Meanwhile the rect path is the DUMB one. `st_blit_rows` converts every row in
+the rect unconditionally — it has no shadow diff and no ownership skip, because
+the walk's 88x88 viewport rect always genuinely changes. Replacing a smart
+35-row scan that converts 0.8 rows with an unconditional convert of up to 100
+rows is a straight loss, and that is what the drive measured.
+
+**Reverted.** What survives is the census (diagnostic, instruction-identical
+when off), the `qd_dirty_any` predicate and the inert gate — all already
+committed and all still correct.
+
+**What this rules out, which is worth as much as a win**: the full-present path
+is not the crude thing the earlier entries assumed. It is already narrowed to
+announced rows and already skips per-row. Making the idle present "smaller"
+cannot help while the smaller path is less selective than the larger one. Any
+future attempt must give the rect path the same per-row shadow/ownership skip
+the full path has — at which point it is the full path restricted to a range,
+and the honest question becomes whether the remaining band + fixed overhead is
+worth the plumbing.
+
+**The door artefact is therefore still open**, and still worth its own fix: it
+is a correctness bug (stale chunky rows converted over the composite), not a
+throughput one, and it does not depend on this optimisation.
