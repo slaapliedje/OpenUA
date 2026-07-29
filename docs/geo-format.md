@@ -470,12 +470,44 @@ party's cell open on byte 0 only and walled on the other three, the step
 SUCCEEDED and crossed a walled edge; with all four walled it BLOCKED. So the
 gate consults byte 0 when facing 0 while the step moves along another axis.
 
-**★ WHY THIS IS STILL OPEN, AND THE FLAW IN THE TEST.** The party was placed at
-`(row 5, col 5)` — a SYMMETRIC cell. Under a consistently transposed (row,col)
-convention between the tools and the engine, `(5,5)` maps to itself and the
-authored "north" edge lands exactly where the engine reads "north", so the
-experiment CANNOT distinguish a genuine reflection from a pair of transposes
-that cancel. **Redo it from an asymmetric cell** — e.g. `(row 3, col 7)` with a
-wall on exactly one edge — where a transposition is directly observable. Do not
-"fix" the delta before that: correcting one half of a cancelling pair would
-break every area that currently plays.
+**Round 2, from an asymmetric cell (row 3, col 7), wall on the WEST edge only,
+facing 0.** Three new facts, and it is still not resolved:
+
+1. **The HUD readout is NOT transposed.** Authored `(row 3, col 7)` displays as
+   `3,7`. So whatever is crossed, it is not the display pair.
+2. **The party cannot step at all — silently.** Five consecutive forward keys:
+   position stays `3,7`, the clock stays 12:00, and NO "BLOCKED: BASH | EXIT"
+   bar appears. That is a THIRD behaviour, distinct from the two seen at (5,5):
+   there, "open on byte 0 only" moved (crossing a walled edge) and "sealed on
+   all four" blocked WITH the message.
+3. **The viewport shows a large near wall** although north is open and only the
+   west edge is walled — consistent with the view facing west, but a single
+   frame is not proof.
+
+Point 2 is the one that breaks the tidy story: **neither hypothesis predicts
+it.** If the engine reads the authored cell (index `col*H+row` = 73) it sees
+north open and should step; if it reads the transposed cell (37, which is open
+on every edge) it should also step. A silent refusal is not what either gives.
+
+**★ AND THERE IS A SECOND SYMMETRY I FAILED TO BREAK: THE MAP IS 10x10.** With
+`width == height`, the swapped bounds check (`nx` against `w`, `ny` against `h`)
+is unobservable — both limits are 10, so a crossed pair behaves identically to
+a correct one. A silent refusal with no message is exactly what a failed bounds
+test produces (`party_step` returns without a message when the destination is
+off-map), so the square map may be hiding the actual cause.
+
+**The next attempt must break BOTH symmetries at once:**
+
+- a **NON-SQUARE** area (e.g. 8 wide x 14 high) so `w != h`;
+- an **asymmetric cell** (`row != col`), well away from every edge;
+- a wall on exactly ONE edge;
+- and each of the four cardinal facings tried from that same cell, reading the
+  HUD after each — the direction that moves, and the one that refuses, together
+  pin the mapping in one run.
+
+Until then: the facing ENCODING is settled and trustworthy (0=N..7=NW), the
+reflection and the gate/delta disagreement are real measurements, but the CAUSE
+is not established. **Do not "fix" the delta.** Correcting one half of what may
+be a cancelling pair would break every area that currently plays, and the
+evidence does not yet say which half is wrong — or whether a third thing (the
+bounds check) is the real fault.
