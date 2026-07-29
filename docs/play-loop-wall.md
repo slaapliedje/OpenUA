@@ -1075,3 +1075,60 @@ NEW NIT (filed): after camp exit the right-hand panels show the AREA/MARK
 overlay ("MARK CELL WALL / CURRENT MARK AT COL x ROW y") instead of the
 roster — the camp cleanup's mode restore (-27990 = -27989) appears to land
 in the area-map mode. The 3D view + command bar are correct; panel only.
+
+## #87 FIXED — the list widget never remembered where it was scrolled to
+
+**Symptom (Falcon, user-reported):** after a memorize commit the camp grimoire
+picker showed stale rows. Reproduced exactly: with MERLIN in the party, camp ->
+MAGIC -> MEMORIZE, scroll to a 2nd-level spell and commit, and the ten-row page
+comes back as the same five rows twice —
+
+```
+slots 0-4:  READ MAGIC, SHIELD, 2ND LEVEL, DETECT INVIS, INVISIBILITY   (rows 10-14)
+slots 5-9:  READ MAGIC, SHIELD, 2ND LEVEL, DETECT INVIS, INVISIBILITY   (rows 10-14)
+```
+
+**It was never a missing erase.** `FRUA_LISTDIAG` on `l0264_c7` showed the paint
+was correct and complete; it was applied TWICE. The diag read
+`a=5, old_top=0, total=32, field4=10` — a five-row delta, small enough for the
+incremental **bit-scroll** path (`jt1126` shifts the on-screen cells, then only
+the newly exposed rows are painted). But the screen was ALREADY scrolled to
+top=5 from the previous invocation, so shifting it another five rows moved rows
+10-14 into slots 0-4 and then painted rows 10-14 into slots 5-9 again.
+
+**Root cause: `jt169` builds a fresh stack descriptor on every call and
+`memset`s it, so `desc+10` (the top row) was always 0 — while the SCREEN kept
+the previous invocation's scroll.** The delta was therefore computed against a
+top that had not been true since the list was first opened.
+
+Confirmed against the Mac binary rather than reasoned about. `L3600`'s field
+writes at `0x369e..0x36e8` pin `desc+0` at `fp-36`, so `desc+10` is `fp-26`,
+and the oracle round-trips it through the persistent A5 slot **-12656**:
+
+```
+3650:  movew %a5@(-12656),%fp@(-26)    ; SEED the top row on entry
+38c8:  movew %fp@(-26),%a5@(-12656)    ; STORE it back on exit
+```
+
+The lift had **neither**. It omitted the seed entirely, and on exit wrote back
+the value it had *saved on entry* (`saved_top`) — making -12656 a no-op
+save/restore that could never track the list, so even a correct seed would have
+read a stale 0 forever. Both halves restored; `saved_top` is gone.
+
+**Verified on the Falcon:** same drive, and the page now shows contiguous rows
+5-14 with the selection on INVISIBILITY. Before and after the commit are
+identical apart from the capacity grid going `0 2 1` -> `0 1 1` — which is
+right, because committing a memorize changes the capacity, not the grimoire.
+
+**This is a shared widget.** `jt169` backs every list in the game — roster,
+inventory, spells, design pickers — so the same double-scroll was available to
+any list re-entered with a non-zero selection. The regression drive exercised
+the roster list (arrow to the 5th entry, commit) and the camp menus on the way
+in; both correct.
+
+**Method note:** the first two hypotheses (a shorter rebuilt list; a missing
+rect erase) were both wrong and both *looked* right from the screenshot. The
+tail-clear diag settled it in one run by printing `t1=15, t3=14` — a degenerate
+rect, i.e. the loop had painted the whole page and had nothing left to clear.
+Screenshot evidence said "rows are stale"; the instrument said "rows were
+painted twice". Only the second is actionable.

@@ -29708,6 +29708,17 @@ static short l0264_c7(short a, short b, short mode_w, long ldesc_l)
 		retval = 1;
 	}
 
+#ifdef FRUA_LISTDIAG
+	/* #87: which of the three exits does a post-commit repaint take? The
+	 * early return paints NOTHING, and l0c82 always passes a/b read from
+	 * the same descriptor fields compared here, so `mode` alone decides. */
+	dbg_log_num("b87: l0264 mode      = ", (long)mode);
+	dbg_log_num("b87:   a / old_top   = ", (long)a * 1000 + old_top);
+	dbg_log_num("b87:   b / old_sel   = ", (long)b * 1000 + old_sel);
+	dbg_log_num("b87:   total/field4  = ", (long)total * 1000 + field4);
+	if (mode == 0 && old_top == a && old_sel == b)
+		dbg_log("b87:   -> EARLY RETURN, nothing painted");
+#endif
 	if (mode == 0 && old_top == a && old_sel == b)
 		return 0;                  /* nothing moved */
 
@@ -29804,6 +29815,12 @@ static short l0264_c7(short a, short b, short mode_w, long ldesc_l)
 	t1 = (short)((xbase + col4 - 8000) >> 2);
 	t2 = (short)(((ybase - 8000) >> 2) + visible);
 	t3 = (short)(((xbase - 8000) >> 2) + field4 - 1);
+#ifdef FRUA_LISTDIAG
+	/* This is the TAIL CLEAR: rows t1..t3 are the page rows the paint loop
+	 * did not reach (it breaks when the getter runs dry). If the list got
+	 * shorter, this is the call that must erase the surplus. */
+	dbg_log_num("b87:   tail clear rows= ", (long)t1 * 1000 + t3);
+#endif
 	jt103(t0, t1, (short)(t2 - 1), t3);
 
 	*(short *)(uintptr_t)(d + 12) = b;
@@ -30670,7 +30687,7 @@ static int jt169(long h1, long h2, short top, short left,
 	unsigned char *desc = (unsigned char *)descbuf;
 	long          buf116[32];                /* l206e row-pointer table (fp-116) */
 	unsigned char buf121 = 0, out_flag = 0;
-	short         count206e, node_count, picked, saved_top, vi;
+	short         count206e, node_count, picked, vi;
 	signed char   rc, verb;
 	long          node;
 	short         tb_top  = (short)(unsigned char)top;     /* fp@17 */
@@ -30694,7 +30711,6 @@ static int jt169(long h1, long h2, short top, short left,
 		g_a5_word(-12656) = *idx;
 		if (flag) *flag = 1;
 	}
-	saved_top = (short)g_a5_word(-12656);
 	g_a5_long(-12664) = head;
 
 	/* skip un-selectable (flagged) rows under the current selection */
@@ -30710,6 +30726,20 @@ static int jt169(long h1, long h2, short top, short left,
 
 	/* build the list descriptor */
 	memset(desc, 0, sizeof descbuf);
+	/* ★ #87: SEED THE TOP ROW FROM THE PERSISTENT A5 SLOT (Mac L3600 0x3650,
+	 * `movew %a5@(-12656),%fp@(-26)`; the field writes at 0x369e..0x36e8 pin
+	 * desc+0 at fp-36, so desc+10 IS fp-26). The descriptor is a fresh stack
+	 * buffer on every call, but the SCREEN keeps the previous invocation's
+	 * pixels — so -12656 is what tells this call where the list is actually
+	 * scrolled to. The lift memset it to 0 and never seeded it, which made
+	 * l0264_c7 compute its delta against a top of 0 that had not been true
+	 * since the list was first opened, and then apply an INCREMENTAL bit-
+	 * scroll to an already-scrolled screen. Re-entering a picker at row 14
+	 * scrolled the page a second time and left the top half duplicating the
+	 * bottom half — #87's "stale rows" (observed on the camp grimoire picker
+	 * after a memorize commit; the paint itself was always correct, it was
+	 * applied twice). */
+	*(short *)(desc + 10) = (short)g_a5_word(-12656);
 	*(short *)(desc + 0)  = (short)(tb_left * 4);
 	*(short *)(desc + 2)  = (short)(tb_top * 4);
 	*(short *)(desc + 4)  = (short)(tb_p22 - tb_left);
@@ -30784,7 +30814,12 @@ static int jt169(long h1, long h2, short top, short left,
 	*idx = *(short *)(desc + 12);
 	jt143(*idx, &out_flag);
 	if (next) *next = g_a5_long(-12660);
-	g_a5_word(-12656) = saved_top;
+	/* ★ #87: STORE THE TOP ROW BACK (Mac L3600 0x38c8,
+	 * `movew %fp@(-26),%a5@(-12656)`) — the other half of the round trip
+	 * opened above. The lift wrote back the value it had SAVED on entry,
+	 * making -12656 a no-op save/restore that could never track the list, so
+	 * even a correct seed would have read a stale 0 forever. */
+	g_a5_word(-12656) = *(short *)(desc + 10);
 	return verb;
 }
 /* JT[396] (CODE 3 + 0x3bda) — public entry for the case-insensitive
