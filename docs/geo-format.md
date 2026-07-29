@@ -524,3 +524,44 @@ the original `observed = 6 - f` was two points and a coincidence. Break every
 symmetry in the fixture before trusting a direction measurement, and take a
 TRAJECTORY (five steps, watch for the wrap) rather than single steps, because
 single steps are indistinguishable from a dropped key.
+
+## #98 FIXED: the forward step added each delta to the WRONG coordinate
+
+The Mac carries two 1-BASED delta tables in its DATA image (`l1908` normalises
+facing 0 to 8, so index 0 is padding). Read straight out of `g_a5_init_bytes`:
+
+| A5 slot | 1=NE | 2=E | 3=SE | 4=S | 5=SW | 6=W | 7=NW | 8=N | meaning |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|---|
+| `-11693` | −1 | 0 | +1 | +1 | +1 | 0 | −1 | −1 | **ROW delta** |
+| `-11684` | +1 | +1 | +1 | 0 | −1 | −1 | −1 | 0 | **COL delta** |
+
+Both are unambiguous against the compass (N = row−1/col 0, E = row 0/col+1).
+
+`jt297` was adding **`-11693` (the ROW delta) to `-12287`**, and `l0bbc` plus
+the event lookup both establish that **`-12287` is the COLUMN** (HEIRS pins it:
+entry reads `st[15]=10, st[14]=8`, and the caravan event sits on
+`cell(col=8, row=10)`). So facing NORTH walked WEST. The tables are now applied
+to the slots they belong to.
+
+**The macro names `JT297_ROW`/`JT297_COL` are still backwards, deliberately.**
+`l1908`'s contract is "arg1 → -12287, arg2 → -12288", and
+`play_can_pass(JT297_COL, JT297_ROW, ...)` is CORRECT precisely because the two
+wrongs cancel there. Renaming them would have broken that call site; the fix is
+one table base each, with the naming documented at the definition.
+
+**The passability gate was never wrong.** `play_forward_allowed` passes
+`(-12288, -12287)` to `jt210(row, col, dir)` — the correct pairing all along.
+That is why walls blocked correctly while the step went sideways, and why the
+two disagreed.
+
+**Verified:**
+
+- Controlled non-square fixture (8x14), entry `(row 5, col 3)` facing 0, nudge
+  off: `5,3 -> 4,3 -> 3,3 -> 2,3` — row decreasing, column constant. NORTH.
+  (Before: the column ran 3,2,1,0 and wrapped at the width.)
+- **HEIRS, the known-good corpus:** entry at `10,8`, the caravan BIGPIC and the
+  Skull Crag message fire exactly as before, the door screen renders, and the
+  walk goes `10,8 -> 10,9` — column increasing, EAST, correct for its authored
+  entry facing 2. Viewport tracks the move (40.7% of the crop changes).
+  Before the fix, facing 2 moved row+1 (south).
+- Four targets build; 412 host tests pass.
