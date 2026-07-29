@@ -2805,3 +2805,64 @@ worth the plumbing.
 **The door artefact is therefore still open**, and still worth its own fix: it
 is a correctness bug (stale chunky rows converted over the composite), not a
 throughput one, and it does not depend on this optimisation.
+
+### ★★ #61 FIXED — the viewport composite was one-shot, and there are TWO pages
+
+**The bug, in one line:** `st_vp_composite()` cleared `s_vp_active` on its first
+run — "one-shot per commit" — while the backend page-flips between NPAGES = 2
+pages, so only ONE of them ever received the composited viewport.
+
+The sequence that produces the artefact:
+
+1. A full present targets the BACK page and rebuilds it from `s_chunky`. The
+   viewport rows there are **frozen stale by design** — ADR-0016 B2.1 renders
+   the 3D view into the planar scratch and never into chunky (confirmed
+   earlier: `FRUA_R3DEXTENT` measured `render_3d_faithful` writing ZERO chunky
+   rows).
+2. `st_vp_composite()` then overlays the real viewport onto that page and
+   clears the flag. Flip. Correct frame on screen.
+3. The NEXT full present targets the OTHER page, rebuilds it from that same
+   stale chunky — and finds the composite already spent. Flip.
+4. **That page shows the previous 3D frame** until a new commit arrives.
+
+Which is exactly what the capture showed: the floor band and the stars
+reverting for one frame and coming back, everything else identical, because the
+stale chunky under the viewport holds the PREVIOUS 3D frame and only those
+pixels differ between the two.
+
+**The fix** is the idiom already used next door for `s_force_full`, which its
+own comment describes as "a COUNT of pages still owing the treatment (set to
+NPAGES on init/re-band, decremented as each present consumes one)". The
+viewport needs the same debt tracking — but **per page, not a count**, because
+`st_present_rect` composites the SHOWN page repeatedly without flipping and a
+plain counter would let it consume the other page's credit.
+
+    s_vp_owe[NPAGES]   pages that still need this commit's composite
+    s_vp_have          the scratch holds a valid rect
+
+`st_vp_commit` sets both; `st_vp_composite` clears the entry for whichever page
+`s_screen` currently names (the back page for a full present, the shown one for
+a rect); and the **force-full re-owes both**, because it rewrites both pages
+from `s_dt` — which does not carry the composite, since the composite writes
+the PAGE, not the accumulation buffer. `s_vp_active` keeps its exact former
+meaning for its other three consumers (the re-band quant overlay, the
+`content_same` veto, the rect-inside-viewport skip) so nothing else moves.
+
+**Verified:**
+
+| check | before | after |
+|---|--:|--:|
+| door region, consecutive frames | 2804 -> 2804 -> 0 (change and revert) | **0 across 9 frames** |
+| settled door frame vs the old build | — | **0 differing pixels** |
+| boot in-present / band / pass1 / force-full | 14596 / 6522 / 2526 / 4801 | 14586 / 6523 / 2527 / 4801 |
+
+The settled frame being byte-identical is the important one: the change removes
+a transient and alters nothing else. Boot is untouched because no viewport is
+active there. In play the cost is bounded by one extra composite per commit
+(~150 t200) — and that extra composite is precisely the work that was MISSING,
+which is why the second page was showing a stale frame.
+
+**On the earlier framing.** This is what the whole "extra redraws" thread was
+actually about, and it is a CORRECTNESS bug, not a throughput one — which is
+why the throughput attack (the rect conversion) failed while this succeeds. It
+also affects every double-buffered target, not just the STE.

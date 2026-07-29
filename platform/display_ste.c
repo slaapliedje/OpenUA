@@ -179,6 +179,22 @@ static unsigned char s_vp_scratch[(long)VP_SCR_PITCH * VP_MAX];
 static unsigned char s_vp_planes[ST_DEPTH * VP_PLANE_STRIDE * VP_MAX];
 static short         s_vp_x, s_vp_y, s_vp_w, s_vp_h;
 static short         s_vp_active;               /* a committed rect awaits composite */
+/* ★ #61: WHICH PAGES STILL OWE THE COMPOSITE.
+ *
+ * st_vp_composite was one-shot per commit — and there are NPAGES pages. A full
+ * present builds the BACK page from s_chunky, whose viewport rows are frozen
+ * stale by design (ADR-0016 B2.1: the 3D view renders into the planar scratch,
+ * never into chunky), then composites and flips. The NEXT full present targets
+ * the OTHER page, rebuilds it from that same stale chunky, and finds the
+ * composite already spent — so it flips in a page showing the PREVIOUS 3D
+ * frame. Observed on the HEIRS door as the floor band and the stars reverting
+ * for one frame and coming back (#61, reproduced 2026-07-28).
+ *
+ * Per-page rather than the `s_force_full` count idiom next door, because
+ * st_present_rect composites the SHOWN page without flipping and would
+ * otherwise consume the other page's credit. */
+static unsigned char s_vp_owe[NPAGES];          /* pages still owing it       */
+static short         s_vp_have;                 /* scratch holds a valid rect */
 static short         s_st_active;               /* this backend is the live one */
 static unsigned char *st_vp_scratch(short *pitch);
 static void           st_vp_commit(short x, short y, short w, short h);
@@ -1627,6 +1643,13 @@ static void st_dt_present_full(void)
 		s_screen        = s_page[s_back];
 		s_shadow        = s_shadow_pg[s_back];
 		s_force_full    = 0;
+		/* #61: this just rewrote BOTH pages from s_dt, which does not
+		 * carry the composited viewport (the composite writes the PAGE,
+		 * not s_dt). Both pages owe it again. */
+		if (s_vp_have) {
+			s_vp_owe[0] = 1;
+			s_vp_owe[1] = 1;
+		}
 		memset(s_pend, 0, sizeof s_pend);   /* #63: both pages are current */
 		s_pend_init     = 1;
 #ifdef FRUA_STPROF
@@ -2122,13 +2145,17 @@ static unsigned char *st_vp_scratch(short *pitch)
  * it (deferred so it runs AFTER any re-band, i.e. against the live palette). */
 static void st_vp_commit(short x, short y, short w, short h)
 {
-	if (w <= 0 || h <= 0) { s_vp_active = 0; return; }
+	if (w <= 0 || h <= 0) { s_vp_active = 0; s_vp_have = 0; return; }
 	if (x < 0 || y < 0 || x + w > VP_MAX || y + h > VP_MAX) {
 		s_vp_active = 0;                 /* out of the buffer's reach: skip */
+		s_vp_have   = 0;
 		return;
 	}
 	s_vp_x = x; s_vp_y = y; s_vp_w = w; s_vp_h = h;
 	s_vp_active = 1;
+	s_vp_have   = 1;
+	s_vp_owe[0] = 1;                         /* #61: EVERY page owes it */
+	s_vp_owe[1] = 1;
 }
 
 /* Convert EIGHT chunky pixels straight into their four ST-Low plane bytes.
@@ -2281,9 +2308,16 @@ static void st_vp_composite(void)
 	long t0;
 #endif
 
-	if (!s_vp_active)
-		return;
-	s_vp_active = 0;                         /* one-shot per commit */
+	/* #61: per PAGE, not per commit. s_screen names the page the caller is
+	 * writing — the back page for a full present, the shown one for a rect. */
+	{
+		short pg = (s_screen == s_page[1]) ? 1 : 0;
+
+		if (!s_vp_have || !s_vp_owe[pg])
+			return;
+		s_vp_owe[pg] = 0;
+	}
+	s_vp_active = 0;                         /* unchanged for the other users */
 	if (!s_have_pal)
 		return;                          /* no palette yet: nothing to map */
 #ifdef FRUA_STPROF
