@@ -373,6 +373,20 @@ typedef void (*qd_present_fn)(void);
 void          qd_set_present(qd_present_fn fn);
 void          qd_present(void);              /* call the registered hook */
 
+/* #61/#63 PRESENT CENSUS (diagnostic; adds output only). Routes every
+ * qd_present() call site through a tagged entry so the ORDERED sequence of
+ * presents can be read back — two in a row for one logical change is the
+ * thing being hunted, and only a sequence shows that.
+ *
+ * The tag is __FILE__[7], distinct for every calling file as the Makefile
+ * invokes the compiler: src/engine/boot.c -> 'i', compat/controls.c -> 'c',
+ * compat/menus.c -> 'm', compat/dialogs.c -> 'd', compat/windows.c -> 'w',
+ * src/main.c -> 'n'. Fragile against absolute paths — temporary by design. */
+#ifdef FRUA_PRESENTCENSUS
+void          qd_present_at(short line, char tag);
+#define qd_present() qd_present_at((short)__LINE__, (char)__FILE__[7])
+#endif
+
 /* Off-screen compose (#144): while suppressed, qd_present() defers to a
  * single commit. The engine's frame bracket (JT[108]/L38d0 begin,
  * l3994 commit) toggles this in lockstep with the -18395 compose flag,

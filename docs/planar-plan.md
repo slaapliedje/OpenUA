@@ -2581,3 +2581,73 @@ per site. The same instrument applies here: tag every path that reaches a FULL
 present, count them per screen, and find the ones that fire more than once for
 one logical change. That is measurable, platform-independent, and fixes cost
 and correctness together.
+
+### ★ THE PRESENT CENSUS — one site is 90% of all full presents
+
+Built the analogue of the `__LINE__` grab census that cracked the cursor
+problem: every `qd_present()` call site tagged with its line plus a one-char
+file discriminator (`__FILE__[7]`), logged as an **ordered trace** rather than
+per-site totals — because the thing being hunted is two presents for one
+logical change, which a total cannot show and a sequence can. Each call also
+records its OUTCOME, since a held or skipped present is not a redraw:
+`H` held/suppressed, `S` skipped clean (#152), `P` actually presented.
+
+**HEIRS drive, 40 keys, ~63 call sites in the codebase:**
+
+| | count |
+|---|--:|
+| calls | 1537 |
+| **presented** | **933** |
+| held / deferred | 486 |
+| skipped clean | 118 |
+
+**Presented, by site:**
+
+| site | presents |
+|---|--:|
+| **`src/engine/boot.c:24006`** | **838 (90%)** |
+| `compat/quickdraw.c:413` (the deferred commit) | 28 |
+| `boot.c:24144` | 20 |
+| `boot.c:16600` / `:17153` | 12 / 11 |
+| everything else | 1–7 each |
+
+**And the redundancy signature — consecutive present pairs:**
+
+    boot.c:24006 -> boot.c:24006     812   <-- SAME SITE, BACK TO BACK
+
+**`boot.c:24006` is a TIMER-DRIVEN IDLE PRESENT**, not a change-driven one: a
+port concession inside the modal pump so the engine's `l2c60` walk becomes
+visible during `jt453`/`l2d3e`, rate-limited to ~5 Hz (12 ticks). Its own
+comment already records one round of this — an unconditional present there made
+every typed glyph pay a full-frame diff+blit and starved the engine to 3
+characters a second. The rate limit fixed the starvation; it did not make the
+present conditional on anything having changed.
+
+**★ AND THE #152 CLEAN-SKIP IS NOT THE ANSWER — IT IS ALREADY WORKING.**
+Instrumented `g_qd_touched` on entry: **ZERO of the 811 presents ran on an
+untouched surface.** Every one had the surface genuinely marked dirty, so the
+skip cannot eat them. That closes the obvious hypothesis and points at the
+real chain:
+
+1. Something grabs the screen pointer during the modal pump.
+2. A grab sets `g_qd_touched` — unconditionally, and deliberately so: that is
+   the fix from the `qd_screen_pixels_nomark` trap, where suppressing it made
+   `qd_present()` skip a frame whose viewport composite was still pending.
+3. The 5 Hz idle present sees "touched" and does a FULL present.
+4. The full present converts ~0.8 rows. Nearly all of the work discovers that
+   nothing changed — which is exactly the pass-1 cost measured earlier.
+
+So `g_qd_touched` answers "did anyone take a pointer to the screen?" when the
+idle present needs "did any pixels actually change?". Those are different
+questions, and this is the THIRD time in #63 that conflating two signals has
+been the bug (see the `g_qd_touched` vs dirty-set note, and `s_replane`).
+
+**The fix this points to** is to gate the IDLE present — and only that one, not
+the real frame commits — on the dirty-row set having something in it, rather
+than on the touched boolean. The row set already knows, it is already
+maintained, and a visibility concession with nothing to show has nothing to
+present. That is a narrow change at one call site, and it is worth ~90% of the
+full presents on EVERY target, not just the ST.
+
+Not yet implemented: this entry is the census, and the next step is that gate
+plus an A/B on both the drive wall clock and the door-screen artefact.

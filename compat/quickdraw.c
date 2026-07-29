@@ -29,6 +29,9 @@
 #include "font_8x8.h"           /* qd_font_8x8 — fallback bitmap font */
 #include "mac_font.h"           /* g_mac_font — preferred when loaded */
 #include "input.h"              /* plat_mouse_pos — software cursor   */
+#ifdef FRUA_PRESENTCENSUS
+#include "dbglog.h"             /* #61/#63 present census trace */
+#endif
 
 void SetPt(Point *pt, short h, short v)
 {
@@ -472,14 +475,18 @@ short g_qdp_src;
 long  g_qdp_counts[8];
 #endif
 
-void qd_present(void)
+/* #61/#63 PRESENT CENSUS — see qd_present_at below. The body reports which of
+ * the three outcomes it took, because a held or skipped present is NOT a
+ * redraw and counting them together would overstate the problem.
+ *   'H' held/suppressed (deferred)  'S' skipped clean (#152)  'P' presented */
+static char qd_present_body(void)
 {
 	if (g_present_suppress || g_present_hold) {
 #ifdef FRUA_KBTRACE
 		g_kbt_qdsuppressed++;
 #endif
 		g_present_pending = 1;   /* defer to the commit */
-		return;
+		return 'H';
 	}
 #ifdef FRUA_KBTRACE
 	g_kbt_qdpresent++;
@@ -492,7 +499,7 @@ void qd_present(void)
 #ifdef FRUA_MONOPROF
 		g_qdp_counts[7]++;               /* clean presents skipped */
 #endif
-		return;
+		return 'S';
 	}
 #ifdef FRUA_MONOPROF
 	g_qdp_counts[g_qdp_src & 7]++;
@@ -515,6 +522,63 @@ void qd_present(void)
 	 * page, so those rows must stay dirty until a full present has given the
 	 * other page its turn. */
 	planar_dirty_reset();
+	return 'P';
+}
+
+/* #61/#63 PRESENT CENSUS. The extra full present that shows stale chunky rows
+ * through the composited viewport (the HEIRS door's floor band) is a redraw
+ * nobody asked for, and it costs on EVERY target — the Falcon pays it too and
+ * is merely fast enough that the artefact flashes past. There are ~63
+ * qd_present() call sites, 45 of them in the lifted engine, and WHICH site has
+ * never been recorded; only the total ever was.
+ *
+ * Same instrument that cracked the cursor blanket-marking in one run: tag each
+ * site with __LINE__ plus a one-char file discriminator. This logs an ORDERED
+ * TRACE rather than per-site totals, because the thing being hunted is two
+ * presents in a row for one logical change — a total cannot show that, a
+ * sequence can.
+ *
+ * Packed as tag*100000 + line: max 122*100000+99999 = 12.3M, well inside a
+ * long. (This encoding has silently wrapped twice in this task; it is checked
+ * this time.) */
+#ifdef FRUA_PRESENTCENSUS
+long g_pc_calls, g_pc_held, g_pc_skipped, g_pc_done, g_pc_touched;
+
+void qd_present_at(short line, char tag)
+{
+	/* Was the surface actually dirty on entry? 812 of 838 presents from the
+	 * 5 Hz idle site fire back-to-back with nothing between them, so if the
+	 * frame is unchanged the #152 clean-skip should be eating them — and it
+	 * is not. Sample g_qd_touched BEFORE the body clears it. */
+	short was_touched = g_qd_touched;
+	char out = qd_present_body();
+
+	if (out == 'P' && !was_touched)
+		dbg_log("pcCLEAN presented an untouched surface");
+	if (out == 'P' && was_touched)
+		g_pc_touched++;
+
+	g_pc_calls++;
+	if (out == 'H') g_pc_held++;
+	else if (out == 'S') g_pc_skipped++;
+	else g_pc_done++;
+	dbg_log_num(out == 'P' ? "pcP site = "
+	          : out == 'H' ? "pcH site = " : "pcS site = ",
+	            (long)(unsigned char)tag * 100000L + (long)line);
+}
+#endif
+
+/* The un-tagged entry: still present for any caller the macro does not cover
+ * (function pointers, and every build without the census).
+ * ★ #undef first — the census macro in quickdraw.h would otherwise rewrite
+ * this very DEFINITION into qd_present_at(__LINE__,...) and take an argument
+ * list the definition does not have. */
+#ifdef FRUA_PRESENTCENSUS
+#undef qd_present
+#endif
+void qd_present(void)
+{
+	(void)qd_present_body();
 }
 
 void qd_set_present_pages(short n)
