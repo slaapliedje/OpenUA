@@ -400,3 +400,60 @@ table and saves the same container — see [geo-editor](geo-editor.md) for its
 tool palette and data model. It is lifted and **live** (reachable from the main
 menu via the `E` key, verified in Hatari); `geo.py` stays the fully
 headless-testable path because the editor's cell placement is mouse-driven.
+
+## Facing: the encoding is an 8-point compass, and the WALK IS REFLECTED
+
+**Encoding (settled 2026-07-29, from the engine's own data — no guessing).**
+`l67ca` picks the per-side art channel from `g_a5_27980[facing * 3]`, a table of
+NUL-terminated compass strings living in the DATA image. Read straight out of
+`g_a5_init_bytes` (A5 `-N` is `g_a5_init_bytes[31336 - N]`, so `-27980` is index
+3356):
+
+| f | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---|---|---|---|---|---|---|---|
+| | N | NE | E | SE | S | SW | W | NW |
+
+`jt311`'s own comment confirms it independently — "the move keys 257..264 are
+engine directions 1..8 (NE,E,SE,S,SW,W,NW,N)", i.e. `d & 7` gives the same
+table. This replaces the queued four-value sweep and covers all eight.
+
+**★ BUT THE PARTY DOES NOT WALK WHERE THE COMPASS SAYS.** Measured on the
+Falcon with a generated area whose entry facing was set explicitly, reading the
+HUD's `row,col`:
+
+| entry facing | compass says | party actually walks |
+|---|---|---|
+| 0 | N | **W** (5,5 -> 5,4) |
+| 2 | E | **S** (5,5 -> 6,5) |
+
+That is `observed = 6 - f` — a REFLECTION about the NE-SW diagonal, not a
+rotation. A reflection is precisely what swapping the two axis deltas produces:
+`(dx,dy) -> (dy,dx)` maps N->W, E->S, S->E, W->N, which is the table above.
+
+The same swap is visible in the source. `dir_dx`/`dir_dy` are a correct compass
+pair (`dir_dx` = COLUMN delta, `dir_dy` = ROW delta — f=0 gives col+0/row-1 =
+north), but `party_step` applies them crossed:
+
+```c
+nx = g_a5_12288 /* ROW */ + dir_dx[mf];   /* row += COLUMN delta */
+ny = g_a5_12287 /* COL */ + dir_dy[mf];   /* col += ROW delta    */
+```
+
+and then bounds-checks each against the other axis's limit. `g_a5_12288` is the
+ROW and `g_a5_12287` the COL — pinned by two independent writers (`l0bbc`'s
+`st[15]`/`st[14]`, and the `FRUA_ENTRY_ROW`/`COL` harness), the asm's own
+"party X/Y" comments being the source of the confusion this file already warns
+about.
+
+**NOT YET ESTABLISHED, and it matters:** `party_step` and `render_3d_view` are
+NOT the shipping path (the former is only called from a debug test block, the
+latter only under `FRUA_CORRIDOR`). The live renderer is `render_3d_faithful`
+and the live mover is `jt955`/`jt297`. The reflection above was measured on the
+LIVE build, so the live path has it too — but the MAP is stored column-major
+(`ds + 290 + (col*H + row)*6`), so a transposed map read would CANCEL a swapped
+delta and leave a self-consistent world that is merely mirrored with respect to
+the authored data. Walls would still block, corridors would still connect, and
+nothing would look wrong unless you compared a played area against its own
+editor layout. Determining which of those two it is — a real defect, or a pair
+of errors that cancel — is the open question. Do not "fix" one half without
+testing the other.

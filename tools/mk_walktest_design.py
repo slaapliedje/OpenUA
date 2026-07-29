@@ -19,7 +19,8 @@ walk code.
     python3 tools/mk_walktest_design.py data/work/gamedata --current --corridor
 
 Then build with `-DFRUA_AUTOPLAY -DFRUA_AUTOWALK` and soak. READ THE POSITION
-READOUT, not the key count: the HUD prints `col,row`, so a screenshot proves
+READOUT, not the key count: the HUD prints `row,col` (measured 2026-07-29 --
+an earlier line here said col,row and was wrong), so a screenshot proves
 whether the party moved. That is the check the earlier runs lacked.
 
 `--corridor` gives the cells around the entry SIDE walls. The
@@ -101,7 +102,7 @@ def main(argv):
     print("  corridor walls: %s"
           % ("%d cells given side walls (viewport varies per step)" % len(SIDE_WALLED)
              if corridor else "none (viewport is STATIC — see the docstring)"))
-    print("  verify the walk by the HUD's col,row readout — never by the key count")
+    print("  verify the walk by the HUD's row,col readout — never by the key count")
     return 0
 
 
