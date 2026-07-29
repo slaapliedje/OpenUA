@@ -199,10 +199,12 @@ void planar_blit_stlow(unsigned char *const src_planes[], short src_stride,
 
 static unsigned char s_dirty_rows[PLANAR_DIRTY_MAX];
 static int           s_dirty_all = 1;
+static int           s_dirty_any;        /* #61: any row announced at all */
 
 void planar_touch_all(void)
 {
 	s_dirty_all = 1;
+	s_dirty_any = 1;
 }
 
 void planar_touch_rows(short y0, short y1)
@@ -212,6 +214,19 @@ void planar_touch_rows(short y0, short y1)
 	if (y0 >= y1)
 		return;
 	memset(s_dirty_rows + y0, 1, (size_t)(y1 - y0));
+	s_dirty_any = 1;
+}
+
+/* #61: did ANY writer announce a row since the last present?
+ *
+ * Distinct from g_qd_touched, which answers "did anyone take a POINTER to the
+ * screen" — a grab marks that flag whether or not a pixel changed, and it must
+ * (suppressing it once made qd_present skip a frame whose viewport composite
+ * was still pending). The engine's ~5 Hz idle present needs the other
+ * question, "did any pixels change", and this is it. */
+int planar_dirty_any(void)
+{
+	return s_dirty_all || s_dirty_any;
 }
 
 int planar_dirty_rows(const unsigned char **rows)
@@ -224,5 +239,6 @@ int planar_dirty_rows(const unsigned char **rows)
 void planar_dirty_reset(void)
 {
 	s_dirty_all = 0;
+	s_dirty_any = 0;
 	memset(s_dirty_rows, 0, sizeof s_dirty_rows);
 }

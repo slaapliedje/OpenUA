@@ -24002,7 +24002,39 @@ static long jt1134(void)
 		static long s_present_tick = -1;
 		long now = TickCount();
 
-		if (now - s_present_tick >= 12 || now < s_present_tick) {
+		/* ★ #61: AND ONLY IF SOMETHING ACTUALLY CHANGED.
+		 *
+		 * The census found this one site issuing 838 of 933 full
+		 * presents on a HEIRS drive — 90% — and firing back-to-back
+		 * with itself 812 times. It is a visibility concession, not a
+		 * frame commit, so with nothing drawn it has nothing to show.
+		 *
+		 * The rate limit above was NOT enough, and the #152 clean-skip
+		 * inside qd_present does not catch these either: measured, ZERO
+		 * of 811 presents ran on an untouched surface. g_qd_touched
+		 * answers "did anyone take a POINTER to the screen", which a
+		 * bare grab sets whether or not a pixel moved — and it has to,
+		 * or a frame with a pending viewport composite gets skipped.
+		 * qd_dirty_any() answers the question this site actually has:
+		 * did a writer announce any rows? Backed by FRUA_DIRTYCHECK
+		 * reading ZERO unannounced rows over a full drive, so the row
+		 * set is a trustworthy superset.
+		 *
+		 * The tick is only stamped when we DO present, so the first
+		 * change after an idle stretch shows immediately instead of
+		 * waiting out the remainder of a 12-tick window.
+		 *
+		 * ⚠ AS OF 2026-07-28 THIS GATE CHANGES NOTHING, MEASURED. The
+		 * A/B ran identical: 943 presents either way, 846 of them from
+		 * this site. So qd_dirty_any() is TRUE at essentially every
+		 * idle tick — something announces rows between every one of
+		 * them, and it has not been identified yet. The gate is kept
+		 * because it is the correct predicate for a visibility
+		 * concession, not because it has been shown to help; the win
+		 * arrives only once the announcer is found. Do not cite this
+		 * as a fix. */
+		if ((now - s_present_tick >= 12 || now < s_present_tick)
+		    && qd_dirty_any()) {
 			qd_present();
 			s_present_tick = now;
 		}

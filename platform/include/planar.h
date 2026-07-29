@@ -127,6 +127,7 @@ void planar_draw_target_register(int (*fn)(struct dsp_planar_dt *dt));
 void planar_touch_rows(short y0, short y1);      /* [y0, y1), surface coords */
 void planar_touch_all(void);
 int  planar_dirty_rows(const unsigned char **rows);  /* !0 = scan everything */
+int  planar_dirty_any(void);                     /* !0 = some row announced  */
 void planar_dirty_reset(void);
 
 /* --- draw-time plane store (ADR-0016 draw-time present model) -------------

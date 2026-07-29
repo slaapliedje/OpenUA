@@ -343,6 +343,14 @@ void qd_touch_rows(short y0, short y1)
 	planar_touch_rows(y0, y1);
 }
 
+/* #61: "did any pixels change since the last present?" — see planar_dirty_any.
+ * The engine's idle present asks this; it must NOT ask g_qd_touched, which a
+ * bare pointer grab sets. */
+int qd_dirty_any(void)
+{
+	return planar_dirty_any();
+}
+
 int qd_dirty_rows(const unsigned char **rows)
 {
 	return planar_dirty_rows(rows);

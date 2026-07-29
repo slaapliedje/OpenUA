@@ -2651,3 +2651,51 @@ full presents on EVERY target, not just the ST.
 
 Not yet implemented: this entry is the census, and the next step is that gate
 plus an A/B on both the drive wall clock and the door-screen artefact.
+
+### #61 THE IDLE-PRESENT GATE — landed, and it changes NOTHING yet
+
+Landed the gate the census pointed at: `qd_dirty_any()` (new, `planar_dirty_any`
+behind a shim wrapper, keeping the engine→compat→platform layer rule) so the
+5 Hz idle present at `boot.c:24028` only fires when a writer has actually
+announced rows. The tick is stamped only when it presents, so the first change
+after an idle stretch shows immediately rather than waiting out the window.
+
+**The A/B, same drive, same seed, back to back:**
+
+| | boot | presented | idle site | skipped |
+|---|--:|--:|--:|--:|
+| A — ungated | 13 s | 943 | **846** | 120 |
+| B — gated | 13 s | 943 | **846** | 119 |
+
+**Identical.** `qd_dirty_any()` is true at essentially every idle tick, so the
+gate never gates. The predicate is right; the premise — that the idle present
+often has nothing to show — is **wrong as measured**, or something announces
+rows continuously.
+
+**Three false steps worth recording, because two of them nearly published a
+wrong result:**
+
+1. **The first arm-B run reported `idle-site = 0` and looked like a total
+   success.** It was a stale grep: landing the gate added comment lines, so the
+   site moved from `boot.c:24006` to `:24028` and the packed value no longer
+   matched. The correct decode says 846, unchanged. A census keyed on line
+   numbers is invalidated by editing the file it measures — re-derive the key
+   from the run, never carry it across an edit.
+2. **Boot time read 113 s then 13 s for the same code**, which looked like a
+   catastrophic regression and was host load. Wall clock on this box is not a
+   usable A/B metric at that resolution; the present COUNT is deterministic and
+   is the one to quote.
+3. **`objdump -d | grep qd_dirty_any` returned 0** and briefly suggested the
+   gate had been compiled out. Cross-file calls are relocations: `objdump -dr`
+   or `nm` (`U _qd_dirty_any`) shows them. The gate was there all along.
+
+**What is NOT yet known**: which writer announces rows between idle ticks. The
+diagnostic that would name it — logging the all-flag and the dirty row count at
+each idle tick — was run for only 45 s of a ~200 s drive and never reached the
+modal pump, so it produced nothing. Re-run it over the full drive: an all-flag
+means a blanket `qd_touch_all` from an un-migrated grab; a count of 16 would be
+the cursor; a small odd count names a specific writer.
+
+The gate is kept because it is the correct predicate for a visibility
+concession, and it is inert rather than harmful. It is **not** a fix and the
+code says so.
