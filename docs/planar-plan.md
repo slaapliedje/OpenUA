@@ -2866,3 +2866,64 @@ which is why the second page was showing a stale frame.
 actually about, and it is a CORRECTNESS bug, not a throughput one — which is
 why the throughput attack (the rect conversion) failed while this succeeds. It
 also affects every double-buffered target, not just the STE.
+
+### ★★★ ST/STe: IT WAS NEVER THE ENGINE — THE SOFTWARE SYNTH IS ~70% OF WALL
+
+Asked to move from display work to "engine performance", the first job was to
+find out where the engine's time actually goes. Nobody had ever profiled the
+CPU on this target — every measurement in #63 was a display phase timer.
+
+**Method.** Hatari 2.6.1 has a CPU profiler, but over the command FIFO every
+debugger entry frees and re-allocates its buffers, so `profile stats`,
+`profile counts` and `profile symbols` all report an empty window (the data IS
+being collected — `r` shows a live per-instruction `3.44% (521487, ...)`
+annotation — it just cannot be listed this way). Fell back to the recipe this
+project already had: sample the PC repeatedly, map to symbols.
+
+90 samples, HEIRS play loop, mapped through the load base **0x18872** (derived
+twice from `$_exception_handler` and `.early_init`, both agreeing):
+
+| function | hits | share |
+|---|--:|--:|
+| **`plat_sound_vbl`** | 50 | **55.6%** |
+| `__mulsi3` (software 32-bit multiply) | 19 | **21.1%** |
+| `qd_nearest_color` | 7 | 7.8% |
+| `st_present` | 6 | 6.7% |
+| `__udivsi3` | 2 | 2.2% |
+| everything else | 6 | 6.6% |
+
+Note what is NOT there: the whole display path — `st_present`,
+`dc_plane_bridge_*` and `cursor_composite` together are **~10%**, consistent
+with the 13.6% measured by the phase timers, and confirming that work is done.
+
+**The control, because 90 samples is 90 samples.** `FRUA_NOSOUND`
+(release-guarded) makes `plat_sound_init` return -1 so the machine runs silent.
+Same drive, same seed, identical harness, back to back:
+
+| arm | boot | 36 keys |
+|---|--:|--:|
+| sound ON | 13 s | **223 s** |
+| sound OFF | 6 s | **67 s** |
+
+**3.3x faster overall, 2.2x faster to boot.** (223 - 67) / 223 = **the software
+synth is ~70% of ST/STe wall time.** The PC samples said 55.6% in the handler
+itself; the rest is the `__mulsi3` it calls, which is why that entry is second.
+
+**Why it costs so much.** `plat_sound_vbl` keeps a 2048-sample ring half full,
+which at the STE's 25033 Hz means **~410 samples rendered per VBL frame**, each
+one four-tone synthesis in software — on a CPU with no 32x32 multiply, so every
+voice step goes through `__mulsi3`.
+
+**This retires the framing of the last several sessions.** The ST/STe was never
+display-bound and is not "engine-bound" in the sense of game logic either. Two
+concrete levers, both untried:
+
+1. **Halve the sample rate.** The STE DMA supports 12517 Hz (rate code 1) as
+   well as the 25033 Hz currently selected — half the samples per frame, for a
+   period-appropriate loss of fidelity on an 8 MHz machine.
+2. **Get `__mulsi3` out of the inner loop.** 21% of the play loop is a libgcc
+   software multiply the 68000 needs because the synth works in 32-bit; a
+   16x16 `muls.w` formulation would cut most of it.
+
+Neither is attempted here — this entry is the measurement, and the measurement
+is that the target was in the wrong subsystem entirely.

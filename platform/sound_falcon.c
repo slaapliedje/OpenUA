@@ -103,6 +103,11 @@ int plat_sound_init(void)
 {
 	long r, vdo = dsp_vdo_cookie() >> 16;
 
+#ifdef FRUA_NOSOUND
+	/* #63 CONTROL ONLY (never ships): run silent, to price the software
+	 * four-tone synth that PC sampling put at ~56% of the ST/STe play loop. */
+	return -1;
+#endif
 	if (vdo == 3) {
 		g_snd_kind = SND_FALCON;
 		g_synth_hz = 24585L;

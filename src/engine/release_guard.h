@@ -79,6 +79,9 @@
 /* Added 2026-07-26 with the #48 BLiTTER measurement. Not a gameplay change, but
  * it stalls st_init for several seconds running its copy loops and grabs 128 KB
  * of ST-RAM to do it — on an 8 MHz machine that reads as a hung boot. */
+#ifdef FRUA_NOSOUND
+#error "FRUA_NOSOUND in a RELEASE build: the game would be SILENT. It exists only to price the software synth against the rest of the play loop (#63)."
+#endif
 #ifdef FRUA_BLITBENCH
 #error "FRUA_BLITBENCH in a RELEASE build: st_init would spend seconds benchmarking memory copies before the menu appears. It is the #48 BLiTTER-vs-CPU measurement harness."
 #endif
