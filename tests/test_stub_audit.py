@@ -224,3 +224,38 @@ def test_brace_in_a_char_literal_does_not_end_the_function(tmp_path):
     assert names == ['l2dca', 'after'], names
     assert _body(str(f), 'l2dca') == 'REAL'
     assert _body(str(f), 'after') == 'STUB'
+
+
+def test_a_shared_doc_reaches_past_a_MULTI_LINE_sibling(tmp_path):
+    """L4932 and L493a share a header naming both, but L4932's body spans
+    three lines — so the backward walk hit its bare `}`, matched none of the
+    skip patterns, and stopped. L493a was reported as the engine's ONLY
+    remaining live gap on that basis, for weeks (#103).
+
+    The one-line variant of this already passed
+    (test_a_shared_doc_comment_still_documents_the_second_function), which is
+    exactly why the multi-line hole survived: the feature looked tested.
+    """
+    f = tmp_path / 'x.c'
+    f.write_text('/* L4932 / L493a (CODE 21) — compiled-out no-ops in the\n'
+                 ' * shipping build (linkw/unlk/rts). */\n'
+                 'static void l4932(void)\n{\n\tPROBE("L4932");\n}\n'
+                 'static void l493a(short a, short b, short c)\n{\n'
+                 '\tPROBE("L493a");\n\t(void)a; (void)b; (void)c;\n}\n'
+                 '\nstatic void caller(void)\n{\n\tl4932();\n'
+                 '\tl493a(1, 2, 3);\n\t(void)0;\n}\n')
+    assert _triage_of(str(f), 'l4932') == 'noop'
+    assert _triage_of(str(f), 'l493a') == 'noop'
+
+
+def test_a_multi_line_sibling_does_not_leak_its_doc_to_a_neighbour(tmp_path):
+    """The jump-the-body walk must still require that the header NAMES us —
+    otherwise every function following a documented one inherits its doc."""
+    f = tmp_path / 'x.c'
+    f.write_text('/* L4932 (CODE 21) — a compiled-out no-op, linkw/unlk/rts. */\n'
+                 'static void l4932(void)\n{\n\tPROBE("L4932");\n}\n'
+                 'static void l7777(short a)\n{\n\tPROBE("L7777");\n\t(void)a;\n}\n'
+                 '\nstatic void caller(void)\n{\n\tl4932();\n'
+                 '\tl7777(1);\n\t(void)0;\n}\n')
+    assert _triage_of(str(f), 'l4932') == 'noop'
+    assert _triage_of(str(f), 'l7777') == 'live'   # undocumented — still a gap

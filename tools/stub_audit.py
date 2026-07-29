@@ -228,7 +228,7 @@ def mentions(doc, name):
     return any(re.search(p, doc, re.I) for p in pats)
 
 
-def doc_for(lines, sig_idx, name):
+def doc_for(lines, sig_idx, name, sibs=None):
     """The doc comment describing this function — possibly a SHARED one.
 
     jt260 and jt709 are both a bare Mac `rts` and sit under one header that
@@ -236,15 +236,28 @@ def doc_for(lines, sig_idx, name):
     jt709 looked undocumented and the triage called it a live gap. Walk past
     sibling definitions to find the header — but only accept it if it actually
     names us, or every function in a run would inherit its neighbour's doc.
+
+    ★ The walk must step over a MULTI-LINE sibling too, not just the one-line
+    form (#103). L4932 and L493a share a header that names both, but L4932's
+    body is spread over three lines, so walking up from L493a hit its bare `}`
+    — which matches none of the skip patterns — and stopped there. L493a was
+    reported as the engine's only remaining LIVE GAP for weeks on that basis.
+    `sibs` maps a definition's closing-brace line to its signature line, which
+    is what lets the walk jump the whole body; without it this degrades to the
+    old one-line-only behaviour.
     """
     cs, ce = doc_above(lines, sig_idx)
     if cs is not None:
         return cs, ce
     k = sig_idx - 1
-    while k >= 0 and (lines[k].strip() == '' or
-                      re.match(r'^static .*;\s*$', lines[k].strip()) or
-                      ONELINE_DEF.match(lines[k].strip())):
-        k -= 1
+    while k >= 0:
+        s = lines[k].strip()
+        if s == '' or re.match(r'^static .*;\s*$', s) or ONELINE_DEF.match(s):
+            k -= 1
+        elif sibs and k in sibs:
+            k = sibs[k] - 1          # jump over the sibling's whole body
+        else:
+            break
     if k < 0 or not lines[k].rstrip().endswith('*/'):
         return None, None
     end = k
@@ -254,6 +267,15 @@ def doc_for(lines, sig_idx, name):
         return None, None
     doc = ' '.join(' '.join(lines[k:end + 1]).split())
     return (k, end) if mentions(doc, name) else (None, None)
+
+
+def sibling_bodies(funcs):
+    """{closing-brace line: signature line} for every MULTI-LINE definition.
+
+    Lets doc_for walk backwards over a whole sibling body to reach a shared
+    header. One-line definitions are excluded — ONELINE_DEF already skips
+    those, and their open == close == sig would make this map ambiguous."""
+    return {cl: sg for _, sg, op, cl in funcs if cl != sg}
 
 
 def audit(path=SRC):
@@ -425,19 +447,29 @@ def triage(path=SRC):
     lines = load(path)
     funcs = parse_funcs(lines)
     status = {n: classify(lines, op, cl) for n, _, op, cl in funcs}
+    sibs = sibling_bodies(funcs)
     src = '\n'.join(lines)
     noop, live, dead = [], [], []
     for name, sig, op, cl in funcs:
         if status[name] != 'STUB':
             continue
-        cs, ce = doc_for(lines, sig, name)
+        cs, ce = doc_for(lines, sig, name, sibs)
         doc = ' '.join(' '.join(lines[cs:ce + 1]).split()) if cs is not None else ''
         for k in range(sig, min(op + 2, len(lines))):
             m = re.search(r'/\*(.*?)\*/', lines[k])
             if m:
                 doc += ' ' + m.group(1)
         hits = len(re.findall(r'\b%s\s*\(' % re.escape(name), src))
-        decls = len(re.findall(r'^static [^;\n]*\b%s\s*\([^;]*;\s*(?:/\*.*)?$'
+        # ★ EXCLUDE `{` FROM BOTH CHARACTER CLASSES, not just newlines (#103).
+        # `[^;]*` happily crosses newlines, so for a MULTI-LINE definition the
+        # pattern ran from the signature into the body and stopped at the first
+        # statement's `;` — counting the definition itself as a forward
+        # declaration. calls came out one too low, and a multi-line stub with
+        # exactly ONE caller was filed as "uncalled" (gates no behaviour) when
+        # it gates something. A definition always has its `{` before the body's
+        # first `;`, and a declaration never contains `{`, so excluding `{`
+        # separates them while still allowing a declaration to wrap lines.
+        decls = len(re.findall(r'^static [^;{]*\b%s\s*\([^;{]*;\s*(?:/\*.*)?$'
                                % re.escape(name), src, re.M))
         calls = max(hits - decls - 1, 0)
         row = (name, sig + 1, calls, ' '.join(doc.replace('/*', ' ').replace('*/', ' ').split()))

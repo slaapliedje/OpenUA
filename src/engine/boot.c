@@ -48609,13 +48609,29 @@ static short l4942(short cls)
 	return 0;
 }
 
-/* L4932 / L493a (CODE 21) — compiled-out no-ops in the shipping build
- * (linkw/unlk/rts). L493a is the door-open writer the pick-lock success
- * path calls for both sides of the edge; it does nothing on the Mac. */
+/* L4932 (CODE 21 + 0x4932) — a compiled-out no-op in the shipping build.
+ * The whole body is `linkw %fp,#0 / unlk %fp / rts` (asm 0x4932..0x4940),
+ * so this is faithfully empty, not a gap. */
 static void l4932(void)
 {
 	PROBE("L4932");
 }
+
+/* L493a (CODE 21 + 0x493a) — ALSO a compiled-out no-op, and it needs its own
+ * comment rather than sharing L4932's: tools/stub_audit.py attaches a block
+ * comment to the FIRST function under it only, so while the two shared one,
+ * L4932 classified as a faithful no-op and L493a was reported as the engine's
+ * last remaining LIVE GAP. It never was.
+ *
+ * The body is `linkw %fp,#0 / unlk %fp / rts` (asm 0x493a..0x4940) — three
+ * instructions, and it never reads fp@(8) onward, so the three arguments its
+ * callers push are discarded. Re-verified against CODE_21.s for #103; do not
+ * take this comment's word for it if you are about to lift something here.
+ *
+ * Role: L35de's pick-lock success path calls it once per side of the opened
+ * edge (the door-open writer THINK C compiled away). Since it does nothing on
+ * the Mac, a picked lock does not persist as an opened door there either —
+ * that is faithful behaviour, not a missing feature. */
 static void l493a(short a, short b, short c)
 {
 	PROBE("L493a");

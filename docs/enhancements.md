@@ -21,15 +21,36 @@ beta" (see the verification gap below), but no longer one with dead buttons.
 
 ## ★★ The measurement that lied — and the tool gap behind it
 
-`tools/stub_audit.py --stubs` reports:
+`tools/stub_audit.py --stubs` reports (2026-07-29, after the #103 parser fixes):
 
 ```
-2166 functions, 55 stub bodies
-  0 LIVE GAPS  (lifted code calls them)
- 35 faithful no-ops (the Mac body is empty too — leave them)
- 20 uncalled gaps
+56 stub bodies
+ 12 LIVE GAPS  (lifted code calls them)
+ 37 faithful no-ops (the Mac body is empty too — leave them)
+  7 uncalled gaps
   0 stale stub claims
 ```
+
+★ **THE "0 LIVE GAPS" THIS SECTION USED TO QUOTE WAS PARTLY AN ARTEFACT.** Two
+bugs in the tool, both fixed in #103 with regression tests:
+
+1. `calls = hits - decls - 1` used `[^;]*` in the forward-declaration pattern,
+   and `[^;]` matches newlines — so on a MULTI-LINE definition the pattern ran
+   from the signature into the body and stopped at the first statement's `;`,
+   counting the definition as its own declaration. Every multi-line stub with
+   exactly ONE caller came out at calls = 0 and was filed as **uncalled**
+   (harmless) when it gates real behaviour. That is where 12 of the "uncalled"
+   went. Excluding `{` as well as `;` separates the two forms.
+2. `doc_for`'s shared-header walk skipped blank lines, forward declarations and
+   ONE-LINE definitions, but not a multi-line sibling body — so `l493a` looked
+   undocumented under the header it shares with `l4932` and was reported as the
+   single remaining live gap. It is a genuine no-op (`linkw/unlk/rts` at CODE 21
+   0x493a, re-read for #103).
+
+The 12 are NOT yet triaged; several are diagnostics (`fc_cache_audit`) but at
+least `l0004_c6` (per-char basename builder, called from `jt130`) and `l7de0`
+(called from a live `if`) are real. Do not quote a live-gap figure from this
+file — rerun the tool.
 
 `tools/jt_progress.py`: **top-100 JT entries 100/100.**
 
@@ -66,8 +87,11 @@ deferred arm it found (`jt251` case 5) is lifted — see the P2 entry below. The
 two bare cases it found (`jt297` case 0 = no key, `jt601` case 1 = "self only")
 were both legitimate and now carry a one-line comment saying so.
 
-So the "0 live gaps" number can finally be read as a verdict rather than a
-floor — but only because a second measurement backs it. `--arms` exits non-zero
+So the arm count can be read as a verdict rather than a floor, because a second
+measurement backs it. **The live-gap count could not** — see the ★ above: it was
+depressed by a call-counting bug until #103, which is a reminder that "a second
+measurement" only helps when the two measure different things. `--arms` and
+`--stubs` shared no code, so `--arms` never cross-checked `--stubs`' arithmetic. `--arms` exits non-zero
 when a deferred arm exists, so it can gate CI the way `--quiet` does.
 
 ## P1 — player-visible, blocking a 1.0

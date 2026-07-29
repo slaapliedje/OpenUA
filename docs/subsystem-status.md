@@ -14,10 +14,17 @@ next target. It is the index over the queue of `docs/*-wall.md` scope docs.
   segment / layer), `docs/gap-analysis.md` (by play-flow the player
   experiences), `docs/jt-lift-progress.md` (auto-generated JT counts — the
   source of truth for numbers; rerun `python3 tools/jt_progress.py`).
-- Counts as of **2026-07-12** (regenerate: `python3 tools/jt_progress.py`,
-  `python3 tools/stub_audit.py --stubs`): **1200 done / 2 stub / 3 missing** of
-  1205 JT entries (1070 lifted + 55 noop + 75 alias). Stub bodies: 57 total —
-  36 faithful no-ops, **0 LIVE GAPS**, 21 uncalled.
+- Counts as of **2026-07-29** (regenerate: `python3 tools/jt_progress.py`,
+  `python3 tools/stub_audit.py --stubs`): **1201 done / 1 stub / 4 missing** of
+  1206 JT entries (1072 lifted + 54 noop + 75 alias). Stub bodies: 56 total —
+  37 faithful no-ops, **12 live gaps**, 7 uncalled.
+- ★ **The "0 LIVE GAPS" this line used to carry was partly a TOOL BUG**, fixed
+  in #103: `stub_audit`'s call counter treated every multi-line definition as
+  its own forward declaration, so a multi-line stub with exactly one caller
+  read as "uncalled" instead of live. 12 moved buckets when that was corrected.
+  They are not yet triaged — see the ★ block in `docs/enhancements.md`. This is
+  the THIRD time this line has gone stale in the optimistic direction; rerun the
+  tool, and treat a zero with suspicion.
 - **THE last live gap is CLOSED: `jt933`** (2026-07-12) — it was NOT a "take-
   commit" as the port's comment claimed, but the temple's **SERVICES screen**
   (Cure Light Wounds .. Resurrection, each priced through the L46f6 payment gate).
@@ -75,7 +82,7 @@ working code never calls. **Demand-driven, not gaps — lift on demand, don't gr
 | Dungeon **walk / movement** loop (arrows + turn) | 15/19 | ✅ | `play-loop-wall.md`, `play-movement-chain` (mem) |
 | Dungeon **3D render** (wall sets, perspective) | — | ✅ | `dungeon-view-wall.md` — #129 CLOSED 2026-07-02: frame-stomp fixed (stage 4), left-column clip not reproducible; residual chrome-gap residue → #144 |
 | Dungeon **HUD chrome** (roster/clock/compass/cmd bar) | — | 🟡 | `dungeon-hud-chrome-arch` (mem) — renders; `port_draw_play_frame` over-blit stand-in remains |
-| **Event dispatcher** (`l709e`, 39 arms) | 18/20 | ✅ | `play-loop-wall.md` — **the "~17 arms stub" claim was STALE** (2026-07-13); `stub_audit --stubs` reports **0 live gaps** engine-wide and none of the 20 uncalled stubs is an event arm. Regenerate from stub_audit, never from this table. |
+| **Event dispatcher** (`l709e`, 39 arms) | 18/20 | ✅ | `play-loop-wall.md` — **the "~17 arms stub" claim was STALE** (2026-07-13); `stub_audit --stubs` reports no event arm among either the live or the uncalled stubs (re-checked 2026-07-29 after #103 corrected the call counter — the 12 live gaps it now reports are elsewhere). Regenerate from stub_audit, never from this table. |
 
 ## 4. In-game — interactions / town  🟡
 
