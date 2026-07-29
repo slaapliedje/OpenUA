@@ -3080,3 +3080,116 @@ multiply) and it is not the display (3.7%).
   autoplay array, which clears the chain first — that is what it exists for.
 - **A per-window `wall` starts at the FIRST rect present**, so window 1 always
   spans whatever preceded the walk. Read windows 2+ for walk figures.
+
+## #96 part 2: 85% of every software multiply came from ONE line
+
+The PC-sampled profile put `__mulsi3` at 21% of the ST/STe play loop, but a
+leaf sample names the callee. `__mulsi3` has **253 static call sites** (207 in
+the lifted `boot.c`), so "which multiply" was unanswerable from sampling, and
+libgcc's routine is already optimal for a 68000 — three `mulu.w`, eleven
+instructions. There is nothing to win inside it. The only available win is to
+stop CALLING it.
+
+`platform/mulprof.c` (`FRUA_MULPROF`) is a return-address histogram over every
+software multiply. Two implementation notes that cost a round each:
+
+- **Defining `__mulsi3` ourselves does not link.** libgcc's `_mulsi3.o` is
+  pulled in regardless and the link dies on `multiple definition`. Use
+  `-Wl,--wrap=__mulsi3`: call sites go to `__wrap___mulsi3`, and
+  `__real___mulsi3` still does the arithmetic — so the instrument provably
+  cannot change a result.
+- **★ `__builtin_return_address(0)` RETURNS 0 UNDER `-fomit-frame-pointer`,**
+  which the whole build uses. The first run recorded a return address of zero
+  for every call — and because zero was also the table's "empty" sentinel, the
+  dump *skipped* the slot holding all the mass. The histogram looked plausible
+  and simply did not add up: 2.9M total calls against a top-24 summing to 13k.
+  Fixed with a per-object `-fno-omit-frame-pointer`, a separate `mp_used[]`
+  occupancy flag, and a `ZERO-ret` counter that would have named the fault
+  immediately. **A histogram that does not sum to its own total is telling you
+  it is broken — check that before reading the ranking.**
+
+HEIRS drive, 2,906,530 software multiplies, collisions 0.11%, top 24 covering
+99.9%. Aggregated by real function (compiler-local `.LBB*` labels filtered out
+of `nm` — leaving them in maps every site to a meaningless label, the same trap
+as the PC-sample pass):
+
+| function | calls | share |
+|---|--:|--:|
+| **`qd_nearest_color`** | **2,479,104** | **85.3%** |
+| `render_3d_faithful` | 271,040 | 9.3% |
+| `DrawChar` | 90,524 | 3.1% |
+| `st_reband` | 28,326 | 1.0% |
+| `qd_pixmap_fill` | 25,019 | 0.9% |
+| everything else | ~11,000 | 0.4% |
+
+`qd_nearest_color`'s three sites are 10 bytes apart — **one expression**:
+
+```c
+long d = dr * dr + dg * dg + db * db;   /* three __mulsi3 CALLS */
+```
+
+256 palette entries per lookup, three multiplies each: 768 software multiplies
+per colour resolved, 9,684 lookups in the drive.
+
+**Fix: a 511-entry table of squares, indexed by `delta + 255`.** The operands
+cannot leave a byte's range, so the products cannot exceed 65025. A table
+rather than `muls.w` for two reasons: a 16x16 multiply is still ~40-70 cycles on
+a 68000 against ~14 for an indexed word read, and a table cannot be silently
+undone by GCC failing to match the `mulhisi3` pattern. Plus an early exit on an
+exact match — the original loop's strict `<` means no later index could have
+displaced a zero-distance hit, so it returns the same index the full scan would.
+
+**Equivalence proved before measuring**: a host harness runs both
+implementations over 400 random palettes x 2000 queries, one query in four
+forced onto an exact palette entry, plus all-black / all-white degenerate
+palettes — **800,512 trials, 0 mismatches**. `qd_nearest_color` now contains
+zero multiply instructions of any kind.
+
+Same drive, same flags as the baseline above:
+
+| window | before | after | |
+|---|--:|--:|--:|
+| 1 (spans intro) | 223,317 | 174,552 | **−21.8%** |
+| 2 (pure walk) | 65,444 | 54,169 | **−17.2%** |
+| 3 (pure walk) | 29,020 | 25,581 | **−11.9%** |
+| *rect t200 (control)* | *416 / 477 / 477* | *415 / 477 / 477* | *unchanged* |
+| *composite t200 (control)* | *2854 / 2196 / 1669* | *2844 / 2200 / 1674* | *unchanged* |
+
+**−20% of the play path from one line**, and the two display phases that should
+be unaffected are unaffected to within 0.4% — which is what makes the headline
+number trustworthy rather than a re-measurement artefact.
+
+Note this also explains `qd_nearest_color`'s 7.8% of the original PC samples:
+it was both the top consumer of multiplies AND hot in its own right. The two
+findings were the same function seen from two directions.
+
+**Still live: `render_3d_faithful` at 9.3% and `DrawChar` at 3.1%** of the
+multiplies. Smaller, and both are single sites rather than a 256-iteration
+loop, so the ceiling is lower — but they are now the top of the list.
+
+### The build stamp was blind to a flag SWAP (found the hard way)
+
+The confirmatory `FRUA_MULPROF` re-run produced no `b96mul` output at all, and
+the reason is worth more than the run: `BUILDSTAMP` summarised `EXTRA_CFLAGS`
+as `$(words ...)$(firstword ...)` — a flag COUNT and the FIRST flag. Swapping
+`-DFRUA_SNDPROF` for `-DFRUA_MULPROF` keeps both, so the stamp did not change,
+nothing was purged, and — because no source file had changed either — make
+rebuilt nothing. `make` reported success and the "new" binary was the old one.
+
+**A flag-only change is invisible to make.** The stamp exists precisely to
+catch that, and this hole let it through. It now checksums the whole
+`EXTRA_CFLAGS` string.
+
+Audit of every A/B pair in this session against the hole, since a silent
+wrong-binary run would invalidate a result:
+
+| pair | stamps | verdict |
+|---|---|---|
+| gated vs `SNDNOGATE` | 6/`-DFRUA_STPROF` vs 7/`-DFRUA_STPROF` | differ → purged ✓ |
+| baseline vs nearest-colour fix | identical | but the change was a SOURCE edit, which make tracks normally ✓ |
+| nearest-colour vs MULPROF re-run | identical, and no source edit | nothing rebuilt ✗ |
+
+Only the confirmatory run was affected; the −20% measurement was driven by a
+source edit and stands. **The tell was `mulprof.o` at 152 bytes** — an object
+holding nothing but an `#ifdef` that did not fire. Check the artefact, not the
+`make` exit status.

@@ -18,7 +18,7 @@ MACHINE ?= falcon
 
 # Shared platform sources (machine-neutral): the chunky->planar converter is
 # pure 68k asm used by any bitplane display backend (AGA; a future STe).
-PLATFORM_SHARED := platform/c2p.S platform/planar.c
+PLATFORM_SHARED := platform/c2p.S platform/planar.c platform/mulprof.c
 
 ifeq ($(MACHINE),amiga)
 include toolchain/m68k-amigaos.mk
@@ -81,7 +81,15 @@ INCLUDE := -Isrc -Icompat/include -Iplatform/include -Ithird_party/c2p-68k/inclu
 # silently produced a binary with NO probe in it — a diagnostic that reports
 # nothing because it was never compiled, which is the exact trap that has cost
 # this project several emulator round-trips.
-BUILDSTAMP := $(MACHINE)-$(or $(CPU68K),default)-$(or $(FPU),nofpu)-$(or $(NOEMBED),embed)-planar$(or $(PLANAR),1)-probe$(or $(ENGINE_PROBE),0)-$(words $(EXTRA_CFLAGS))$(firstword $(EXTRA_CFLAGS))
+# ★ EXTRA_CFLAGS is checksummed, not summarised. It used to be
+# `$(words ...)$(firstword ...)` — a count and the first flag — which is blind
+# to SWAPPING one flag for another: -DFRUA_SNDPROF -> -DFRUA_MULPROF keeps both
+# the count and the first flag, so nothing was purged, nothing rebuilt, and the
+# "new" arm of an A/B was the OLD binary re-run. That produced a complete,
+# plausible set of measurements from the wrong build (2026-07-29, #96). A
+# checksum over the whole string cannot miss a flag change.
+EXTRA_CFLAGS_SUM := $(shell printf '%s' '$(EXTRA_CFLAGS)' | cksum | cut -d' ' -f1)
+BUILDSTAMP := $(MACHINE)-$(or $(CPU68K),default)-$(or $(FPU),nofpu)-$(or $(NOEMBED),embed)-planar$(or $(PLANAR),1)-probe$(or $(ENGINE_PROBE),0)-x$(EXTRA_CFLAGS_SUM)
 ifneq ($(shell cat .machine 2>/dev/null),$(BUILDSTAMP))
 $(shell find src compat platform third_party -name '*.o' -delete 2>/dev/null; \
         find src compat platform third_party -name '*.d' -delete 2>/dev/null; \
@@ -141,6 +149,19 @@ endif
 
 CFLAGS += $(EXTRA_CFLAGS)
 LDFLAGS += $(EXTRA_LDFLAGS)
+
+# #96 __mulsi3 attribution: redirect every software-multiply call site to the
+# counting wrapper in platform/mulprof.c. Defining __mulsi3 outright collides
+# with libgcc's _mulsi3.o ("multiple definition"), so wrap it — __real___mulsi3
+# still does the arithmetic, which is why the instrument cannot change a result.
+ifneq ($(findstring FRUA_MULPROF,$(EXTRA_CFLAGS)),)
+LDFLAGS += -Wl,--wrap=__mulsi3
+# __builtin_return_address(0) needs a frame pointer here, and the global build
+# uses -fomit-frame-pointer. Without this the wrapper records 0 for every call
+# site — which looks like a working histogram whose entries simply do not add
+# up to the total (2.9M calls against a top-24 summing to 13k).
+platform/mulprof.o: CFLAGS += -fno-omit-frame-pointer
+endif
 
 # Engine bring-up probe: instrument the engine's stubs so each logs its name
 # when called. Default off so production builds carry no logging spam.

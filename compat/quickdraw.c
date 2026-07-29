@@ -1751,24 +1751,58 @@ void qd_dump_palette(unsigned char *out768)
  * Color2Index does the same with an inverse table; the shim has 256
  * entries and an O(n) scan is fine for ad-hoc colour resolution.
  */
+/* #96: squares of 0..255. The distance below used to be three `long * long`
+ * products, and on the bare-68000 build every one of those is a CALL to
+ * libgcc's software multiply — 768 of them per lookup, 256 iterations x 3.
+ * Per-call-site attribution (FRUA_MULPROF) put this ONE expression at
+ * 2,479,104 of the program's 2,906,530 software multiplies: 85.3% of every
+ * 32x32 multiply the ST/STE executes, from a single line.
+ *
+ * The operands cannot exceed a byte's range, so the products cannot exceed
+ * 65025 and a 512-entry table indexed by (delta + 255) replaces the multiply
+ * with a word load. Table, not muls.w: a 16x16 multiply still costs ~40-70
+ * cycles on a 68000 against ~14 for an indexed word read, and a table cannot
+ * be quietly undone by GCC failing to match the mulhisi3 pattern. */
+static unsigned short g_sq511[511];
+static int            g_sq511_ready;
+
+static void qd_sq_init(void)
+{
+	short v;
+
+	for (v = -255; v <= 255; v++)
+		g_sq511[v + 255] = (unsigned short)(v * v);
+	g_sq511_ready = 1;
+}
+
 static unsigned char qd_nearest_color(const RGBColor *color)
 {
-	unsigned char r = (unsigned char)(color->red   >> 8);
-	unsigned char g = (unsigned char)(color->green >> 8);
-	unsigned char b = (unsigned char)(color->blue  >> 8);
+	short r = (short)(unsigned char)(color->red   >> 8);
+	short g = (short)(unsigned char)(color->green >> 8);
+	short b = (short)(unsigned char)(color->blue  >> 8);
 	unsigned char best = 0;
 	long          best_d = 0x7FFFFFFFL;
 	short         i;
 
+	if (!g_sq511_ready)
+		qd_sq_init();
+
 	for (i = 0; i < 256; i++) {
-		long dr = (long)r - g_palette[i].r;
-		long dg = (long)g - g_palette[i].g;
-		long db = (long)b - g_palette[i].b;
-		long d  = dr * dr + dg * dg + db * db;
+		short dr = (short)(r - (short)g_palette[i].r) + 255;
+		short dg = (short)(g - (short)g_palette[i].g) + 255;
+		short db = (short)(b - (short)g_palette[i].b) + 255;
+		long  d  = (long)g_sq511[dr] + (long)g_sq511[dg]
+		         + (long)g_sq511[db];
 
 		if (d < best_d) {
 			best_d = d;
 			best   = (unsigned char)i;
+			/* An exact match cannot be beaten, and the original
+			 * loop's strict `<` means no later index could have
+			 * displaced it either — so this returns the same index
+			 * the full scan would, having skipped the rest. */
+			if (d == 0)
+				break;
 		}
 	}
 	return best;

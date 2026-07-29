@@ -3087,6 +3087,9 @@ static void st_prof_play_dump(void)
 	 * sound cost stayed invisible for as long as its display cost did. */
 	{ extern void plat_sound_prof_dump(void); plat_sound_prof_dump(); }
 #endif
+#ifdef FRUA_MULPROF
+	{ extern void mul_prof_dump(void); mul_prof_dump(); }
+#endif
 	sp_rect_n = sp_rect_t = sp_vp_n = sp_vp_t = 0;
 	sp_vp_conv = sp_vp_blit = 0;
 }
