@@ -282,8 +282,19 @@ beginplay)
 	# ST (the walls/roster load lazily). A turn there and back (Right then Left
 	# = net-zero facing, same cell) forces two full redraws so the view is
 	# actually painted -- deterministic for a screenshot.
-	xdotool key Right; sleep "$d"; xdotool key Left; sleep "$d"
-	echo "hatari_ui: beginplay done -- in the dungeon, view nudged (screenshot to confirm)"
+	# ★ THE NUDGE IS TWO TURN KEYS, AND IT IS NOT FREE (#97). Right+Left is
+	# net-zero ONLY IF BOTH LAND. When one is dropped -- which happens
+	# reproducibly on some designs -- the party is left silently rotated 90
+	# degrees, and every direction measurement after it is wrong by a quarter
+	# turn with nothing on screen to say so. Two such runs produced an
+	# "observed = 6 - f" reflection that looked like an engine axis bug and
+	# was entirely this. Set PLAY_NUDGE=0 for ANY test that reads a direction.
+	if [[ "${PLAY_NUDGE:-1}" != "0" ]]; then
+		xdotool key Right; sleep "$d"; xdotool key Left; sleep "$d"
+		echo "hatari_ui: beginplay done -- in the dungeon, view nudged (screenshot to confirm)"
+	else
+		echo "hatari_ui: beginplay done -- in the dungeon, NUDGE SKIPPED (facing = authored)"
+	fi
 	;;
 click)
 	# Click a point on the Falcon display headlessly. X Y are pixels as seen

@@ -470,44 +470,57 @@ party's cell open on byte 0 only and walled on the other three, the step
 SUCCEEDED and crossed a walled edge; with all four walled it BLOCKED. So the
 gate consults byte 0 when facing 0 while the step moves along another axis.
 
-**Round 2, from an asymmetric cell (row 3, col 7), wall on the WEST edge only,
-facing 0.** Three new facts, and it is still not resolved:
+**RESOLVED (round 3, non-square map): THE DELTA PAIRING IS GENUINELY CROSSED.**
 
-1. **The HUD readout is NOT transposed.** Authored `(row 3, col 7)` displays as
-   `3,7`. So whatever is crossed, it is not the display pair.
-2. **The party cannot step at all — silently.** Five consecutive forward keys:
-   position stays `3,7`, the clock stays 12:00, and NO "BLOCKED: BASH | EXIT"
-   bar appears. That is a THIRD behaviour, distinct from the two seen at (5,5):
-   there, "open on byte 0 only" moved (crossing a walled edge) and "sealed on
-   all four" blocked WITH the message.
-3. **The viewport shows a large near wall** although north is open and only the
-   west edge is walled — consistent with the view facing west, but a single
-   frame is not proof.
+The two earlier rounds could not settle it because both used a SQUARE 10x10
+area — round 1 also sat on the symmetric cell (5,5). A **non-square 8 wide x 14
+high** room settles it. From `(row 5, col 3)` facing 0, nudge disabled, five
+steps:
 
-Point 2 is the one that breaks the tidy story: **neither hypothesis predicts
-it.** If the engine reads the authored cell (index `col*H+row` = 73) it sees
-north open and should step; if it reads the transposed cell (37, which is open
-on every edge) it should also step. A silent refusal is not what either gives.
+```
+5,3 -> 5,2 -> 5,1 -> 5,0 -> 5,7 -> 5,6
+```
 
-**★ AND THERE IS A SECOND SYMMETRY I FAILED TO BREAK: THE MAP IS 10x10.** With
-`width == height`, the swapped bounds check (`nx` against `w`, `ny` against `h`)
-is unobservable — both limits are 10, so a crossed pair behaves identically to
-a correct one. A silent refusal with no message is exactly what a failed bounds
-test produces (`party_step` returns without a message when the destination is
-off-map), so the square map may be hiding the actual cause.
+The ROW is constant and the COLUMN walks 3,2,1,0 and then **wraps 0 -> 7**.
+Wrapping at 8 is wrapping at the map WIDTH, which is what identifies that
+coordinate as the column — so the HUD pair really is `row,col`, and facing 0
+(compass **north**) is moving **west**. One model fits every observation taken:
 
-**The next attempt must break BOTH symmetries at once:**
+```
+ROW += dir_dx[f]        /* dir_dx is the COLUMN delta */
+COL += dir_dy[f]        /* dir_dy is the ROW    delta */
+```
 
-- a **NON-SQUARE** area (e.g. 8 wide x 14 high) so `w != h`;
-- an **asymmetric cell** (`row != col`), well away from every edge;
-- a wall on exactly ONE edge;
-- and each of the four cardinal facings tried from that same cell, reading the
-  HUD after each — the direction that moves, and the one that refuses, together
-  pin the mapping in one run.
+| run | authored | predicted | observed |
+|---|---|---|---|
+| WALKTEST 10x10 (5,5) f=0, nudge on | | 5,4 | 5,4 |
+| WALKTEST 10x10 (5,5) f=0, nudge off | | 5,4 | 5,4 |
+| WALKTEST 10x10 (5,5) f=2, nudge on | | 6,5 | 6,5 |
+| BOUNDTEST 8x14 (5,3) f=0, nudge off | | 5,2 | 5,2 |
 
-Until then: the facing ENCODING is settled and trustworthy (0=N..7=NW), the
-reflection and the gate/delta disagreement are real measurements, but the CAUSE
-is not established. **Do not "fix" the delta.** Correcting one half of what may
-be a cancelling pair would break every area that currently plays, and the
-evidence does not yet say which half is wrong — or whether a third thing (the
-bounds check) is the real fault.
+**The one apparent counter-example was the harness.** BOUNDTEST from `(9,3)`
+with the nudge ON walked `9,3 -> 8,3 -> 7,3 -> 6,3 -> 5,3`, row-first, which
+looked compass-correct. `beginplay` ends with Right+Left — net zero ONLY IF
+BOTH LAND. With the Right dropped the facing is 6, and the crossed formula then
+gives row-1: exactly what was seen. **`PLAY_NUDGE=0` now skips that nudge, and
+any test that reads a direction must use it.**
+
+**The bounds/wrap are CORRECT** — the column wrapped at the width, not at the
+height. Only the delta ASSIGNMENT is crossed. So this is not a cancelling pair:
+`party_step`'s `nx = ROW + dir_dx` / `ny = COL + dir_dy` is simply wrong, and
+the correction is to swap them (`ROW += dir_dy`, `COL += dir_dx`).
+
+**STILL DO NOT APPLY IT BLIND.** The passability gate reads the compass-correct
+edge (measured: a cell open on byte 0 only, walled on the other three, let the
+step through and crossed a walled edge; sealed on four blocked). Gate and delta
+therefore disagree, which is a real defect — but every module that plays today
+plays *through* the crossed delta, so changing it alters where existing designs
+send the party. Fix the delta and the gate together, and re-verify HEIRS end to
+end (its authored geometry is the only large known-good corpus).
+
+**Method note that cost three rounds.** A square map hides an axis swap; a
+symmetric cell hides a transpose; and TWO data points always fit a reflection —
+the original `observed = 6 - f` was two points and a coincidence. Break every
+symmetry in the fixture before trusting a direction measurement, and take a
+TRAJECTORY (five steps, watch for the wrap) rather than single steps, because
+single steps are indistinguishable from a dropped key.
