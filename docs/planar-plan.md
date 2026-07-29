@@ -2699,3 +2699,58 @@ the cursor; a small odd count names a specific writer.
 The gate is kept because it is the correct predicate for a visibility
 concession, and it is inert rather than harmful. It is **not** a fix and the
 code says so.
+
+### ★ #61 THE ANNOUNCER NAMED — it is the TYPEWRITER, and the waste is FULL-vs-RECT
+
+Re-ran the diagnostic over the whole drive (the 45 s version never reached the
+modal pump and produced nothing). Logging the dirty REGION rather than a bare
+count named it immediately:
+
+| ticks | dirty rows | |
+|--:|---|---|
+| 187 | 135-143 (9) | |
+| 165 | 143-151 (9) | text lines, |
+| 105 | 151-159 (9) | marching DOWN the |
+| 92 | 159-167 (9) | message area in |
+| 48 | 167-175 (9) | 8-pixel steps |
+| 37 | 175-183 (9) | |
+| 165 | 0-199 (200) | genuine scene changes |
+| 143 | ALL-flag | blanket `qd_touch_all` grabs |
+| 97 | nothing | the gate would skip these |
+
+Nine-row spans stepping 8 pixels at a time down rows 135-183 is **the
+typewriter** — `l435a` pacing narrative text a line at a time, exactly the
+mechanism the idle present was added to make visible.
+
+**So the premise behind the gate was wrong in an instructive way.** These
+presents are NOT idle and NOT spurious: something really did change and really
+does need showing. Only 97 of ~918 ticks had nothing at all. The gate is
+therefore correctly inert, and the earlier framing — "a timer presenting an
+unchanged screen" — was wrong. What is wasteful is the SHAPE of the response:
+
+**a 9-row change triggers a FULL 200-row present.**
+
+That closes the loop on every number measured in #63. Pass 1 diffs 200 rows to
+rediscover the 9 the dirty set has already named; the earlier phase split
+measured "~10 rows changed, 0.8 converted" per present, which is exactly these
+9-row text lines; and the door's floor band is a full present converting frozen
+chunky rows it had no reason to touch.
+
+**The fix this actually points to: make the idle present a RECT present bounded
+by the announced rows.** The information needed is already there — the dirty
+set names the 9 rows, `qd_present_rect` already exists, and the backend already
+has a rect path (the viewport composite uses it). Roughly 600 of ~918 presents
+are small spans that could take it; the 165 full-screen announcements and 143
+blanket ALL-flag ticks legitimately stay full.
+
+**One real complication, already documented at the reset site**: a rect present
+updates only the SHOWN page, so on the double-buffered ST the rows must stay
+dirty until a full present has given the other page its turn — which is why
+`qd_present_rect` deliberately does not call `planar_dirty_reset()`. A
+rect-ifed idle present therefore needs per-page bookkeeping, and the per-page
+`s_pend[][]` sets built earlier in #63 are exactly that mechanism. This is not
+a two-line change and should not be attempted as one.
+
+**Status**: the gate stays (correct predicate, inert, comment says it is not a
+fix). The next piece of work is the rect conversion, and it now has a measured
+target: ~65% of full presents become 9-row updates.
