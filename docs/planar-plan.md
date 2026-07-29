@@ -2395,3 +2395,74 @@ the duplicate `s_used_idx` pass is ~11 s and the un-split remainder
 (`st_build_hw_palette`, `st_compute_slot_reps`) ~16 s — then the 4218 t200 of
 genuine row conversion, which is inherent to a re-quant and only reducible by
 rebanding less often.
+
+### #63 B3.2 STABLE-SLOT ALIGNMENT REWRITTEN — and slot 0 is the BORDER
+
+**First, a correction to the previous entry.** It said the alignment "exists to
+prevent exactly this and is not achieving it", pointing at the user-reported
+grey flash. That was wrong. The alignment permutes `s_band_pal` AND
+`s_band_remap` **together**, so index v keeps its exact colour: it is a pure
+renumber and the rendered pixels are invariant under it. It cannot cause a
+visible palette change. The flash must come from the median cut choosing
+different representative COLOURS, which is a separate problem.
+
+What the alignment does govern is how many indices keep their slot NUMBER,
+which is what decides whether a row can skip re-conversion after a re-band.
+
+**Two defects in the original:**
+
+1. **Wrong objective.** It minimised palette-position COLOUR DISTANCE — a
+   proxy. The thing that matters, and the thing `used moved` measures, is how
+   many used CLUT indices keep their slot. Where two old positions hold
+   near-identical colours, distance cannot tell them apart but the indices
+   sitting on them can.
+2. **Order-dependent greedy.** Old position 0 got first pick of all sixteen and
+   position 15 took the leftovers, so one arbitrary early choice could displace
+   a later exact correspondence and cascade.
+
+Replaced with a 16x16 table of how many used indices move from old slot p to
+new slot n, matched strongest-correspondence-first (greedy max-first, not full
+Hungarian — the table is dominated by a few large cells and this is a few
+thousand cycles). Needs the live index->slot map from before the re-quant, so
+`s_remap_prev` is snapshotted at the top of `st_reband` — taken there rather
+than maintained at the bottom so it also captures anything `st_patch_new_ink`
+changed since.
+
+**★ SLOT 0 IS THE ST'S BORDER COLOUR REGISTER.** Letting the correspondence
+greedy have position 0 changed the border from black to olive — **174976
+differing pixels** in the menu grab, every one of them OUTSIDE the 320x200
+image, where no pixel index is involved at all. The renumber is invariant for
+pixels and NOT for the border. The original code's order dependence — walking
+old positions 0..15, so position 0 always got first pick by colour — was, for
+this one slot, load-bearing. Position 0 is now claimed by colour first,
+deliberately and with a comment saying why, and the correspondence matching
+gets the other fifteen.
+
+**Measured (10 boot rebands):**
+
+| | original | rewrite, slot 0 free | rewrite, slot 0 pinned (shipped) |
+|---|--:|--:|--:|
+| total `used moved` | 515 | 420 | **441 (−14%)** |
+| rows skippable / 2000 | 555 (27.8%) | 721 (36.1%) | — |
+| menu frame vs before | — | **174976 px differ** | **0 px — identical** |
+| align cost | 106 t200 | — | 132 t200 (+0.13 s) |
+
+**★ AND IT BUYS NO TIME TODAY. Stated plainly because the temptation is to
+report the 14% and stop.** `ff rowbuilds` is 4217 t200 before and after —
+nothing currently exploits a stable slot, because a re-band calls
+`st_dt_epoch_reset()` and the force-full rebuilds every row regardless.
+
+**The follow-on that would spend it is closed, on cost rather than ceiling.**
+Detecting whether a row contains a moved index is a 320-byte table-lookup scan
+— the same shape as the new-ink scan, measured at 146 cycles/byte, so **1.17
+t200 per row against a calibrated `st_dt_build_row` of 1.487**. At the improved
+36.1% skippable that is `1.17 + 0.639 x 1.487 = 2.12` per row versus 1.487
+today: **43% WORSE**. The detection costs nearly as much as the rebuild it
+avoids. A partial rebuild only becomes viable if row->index membership is
+already known without scanning, i.e. maintained at draw time, which is more
+state and more per-write cost.
+
+So this change ships as a correctness-of-intent fix at negligible cost (0.065%
+of the boot), better on its own metric, with a latent border hazard now
+documented — not as a performance win. It pays off only if the epoch reset ever
+becomes partial.
