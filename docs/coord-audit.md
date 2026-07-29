@@ -103,3 +103,79 @@ flag bits (bit 7 'single-row'?) — item data is 88 bytes = 11 full
 arm does with these exact glyphs (dump pixels host-side via
 tools/hlib_extract.py first — they may be mostly index 255 with the
 face expected from a different CLUT range).
+
+---
+
+# 3. MAP-CELL axis convention (#100, 2026-07-29)
+
+A different axis from everything above: not screen (v, h) but which of the
+two **map** coordinates is which. This section exists because a wrong answer
+here shipped in v0.5.12-beta.
+
+## The invariant, straight from the asm
+
+Two adjacent A5 bytes hold the party cell. Every faithful site treats them
+in exactly one way, and it is not a matter of opinion:
+
+| role | slot | delta table | bounds vs | in the cell index |
+|---|---|---|---|---|
+| A | `-12287` | `-11693` | `ds[2]` | the term **multiplied** by `ds[3]` |
+| B | `-12288` | `-11684` | `ds[3]` | the term **added** (stride 1) |
+
+    cell = ds + 290 + (A * ds[3] + B) * 6 + edge
+
+Evidence, all cross-checked (do not re-derive from the DATA tables alone —
+that is what went wrong):
+
+- **`L5baa`** (CODE 7+0x5baa, 0x5bb4/0x5bd0): arg1 bounded by `ds[3]`,
+  arg2 by `ds[2]`. So `jt210(arg1, arg2, dir)` takes B first, A second.
+- **`L5bfa`** = jt210 (0x5c86..0x5c92): `a0@(3) * fp@(11) + fp@(9)` — arg2
+  is the multiplied term.
+- **`L23ee`** = jt312 (0x23f6): `-12287 * a0@(3) + -12288`, both
+  sign-extended bytes.
+- **`L1c3e`** = jt297 (0x1d6a..0x1db8): `d1 = -12287 + (-11693)[facing]`,
+  `d2 = -12288 + (-11684)[facing]`, pushed `d2` then `d1`; and **`L1908`**
+  (0x199a) stores its arg2 to `-12287`, arg3 to `-12288`.
+- **`L14d8`** = jt292 (0x14ea/0x14fe/0x1566): the same two tables added to
+  the same two axis roles, in an entirely separate function.
+
+## What the NAMES say, and why you must ignore them
+
+The port calls slot A "col" and slot B "row" in most comments, and
+`ds[2]`/`ds[3]` "width"/"height". **The delta tables say the opposite.**
+Indexed 1..8 (`l1908` normalises facing 0 to 8) the pair is a clean 8-point
+compass ring — index 8 = N gives `(-1, 0)`, index 2 = E gives `(0, +1)` —
+which makes `-11693` the ROW delta, and the Mac adds `-11693` to slot A.
+By that reading **A is the row**, `ds[3]` is the width, and the map is
+row-major.
+
+Both namings are internally consistent; the engine does not care. **The
+pairing is what matters**, and the pairing is the table above. Renaming
+everything is a large, purely cosmetic diff that would risk exactly the
+bug it looks like it prevents — left alone deliberately.
+
+★ Where the names DO matter is `tools/geo.py` / `tools/dsn.py`: they label
+the GEO file's axes independently, and a generated fixture inherits their
+labelling. That is why a synthetic map cannot settle this question and why
+#97/#98 went wrong on one. **Settle axis questions on an SSI-authored
+module** (HEIRS), never on a generated one.
+
+## Audit result
+
+Every map-index site was checked against the invariant. Two defects:
+
+1. **`jt297`** — v0.5.12-beta swapped the two tables (#98), inverting a
+   faithful lift so the party stepped along the wrong axis. **Reverted**;
+   the pairing now matches `L1c3e` byte for byte.
+2. **`jt312`** (`boot.c` ~14957) — computed `-12288 * ds[3] + -12287`, the
+   transpose of `L23ee`, and read both operands unsigned. It picked the
+   floor/ceiling backdrop of a *different* cell on every square where the
+   two coordinates differ, and could index past the map on a non-square
+   one. **Fixed** — a real, pre-existing bug, and the only one the sweep
+   found.
+
+Verified clean (arithmetic matches the invariant): `l5baa`, `jt210`/`l5bfa`,
+`jt201`, `jt212`, `jt197`, `l5fc0`, `jt236`, `jt292` (faithful to L14d8),
+`jt311`, `l35de`, `l06e2`/`l0788` and the L3a1a/L4430 automap callers (those
+were corrected in an earlier pass and their comments cite the Mac push
+order), `l49dc_c11`'s `rec[1] * lvl[3] + rec[0]`.

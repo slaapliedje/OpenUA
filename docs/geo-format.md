@@ -437,131 +437,80 @@ low nibble. **When choosing a wall byte, test VISIBILITY as well as BLOCKING:**
 the 0x10 -> 0xF0 change tested only the command bar and shipped an invisible
 wall for two days.
 
-## Facing: an 8-point compass — and an UNRESOLVED axis question
+## Facing: an 8-point compass — and the axis question, SETTLED
 
-**Encoding (settled 2026-07-29 from the engine's own data, no sweep needed).**
-`l67ca` picks its per-side art channel from `g_a5_27980[facing * 3]`, a table of
-NUL-terminated compass strings in the DATA image. Read out of
-`g_a5_init_bytes` (A5 `-N` is index `31336 - N`, so `-27980` is 3356):
+**Encoding (settled 2026-07-29 from the engine's own data).** `l67ca` picks its
+per-side art channel from `g_a5_27980[facing * 3]`, a table of NUL-terminated
+compass strings in the DATA image. Read out of `g_a5_init_bytes` (A5 `-N` is
+index `31336 - N`, so `-27980` is 3356):
 
 | f | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
 |---|---|---|---|---|---|---|---|---|
 | | N | NE | E | SE | S | SW | W | NW |
 
 `jt311`'s comment confirms it independently — "engine directions 1..8
-(NE,E,SE,S,SW,W,NW,N)". This replaces the queued four-value sweep.
+(NE,E,SE,S,SW,W,NW,N)". `l1908` normalises facing 0 to 8, so the two step-delta
+tables are indexed 1..8, with index 0 unused padding.
 
-**Measured, on the live Falcon build, reading the HUD's `row,col`:**
+### The step deltas — the pairing, from the asm
 
-| entry facing | compass name | displayed move |
-|---|---|---|
-| 0 | N | col−1 (5,5 -> 5,4) |
-| 2 | E | row+1 (5,5 -> 6,5) |
-
-That is `observed = 6 - f`, a reflection about the NE-SW diagonal — the
-signature of swapping the two axis deltas. `dir_dx`/`dir_dy` are a correct
-compass pair (`dir_dx` = COLUMN delta, `dir_dy` = ROW delta), yet `party_step`
-applies them crossed (`row += dir_dx`, `col += dir_dy`) and bounds-checks each
-against the other axis's limit. That function is debug-only, but the reflection
-was measured on the LIVE build, so the shipping mover has it too.
-
-Also measured: the **passability gate and the step delta disagree**. With the
-party's cell open on byte 0 only and walled on the other three, the step
-SUCCEEDED and crossed a walled edge; with all four walled it BLOCKED. So the
-gate consults byte 0 when facing 0 while the step moves along another axis.
-
-**RESOLVED (round 3, non-square map): THE DELTA PAIRING IS GENUINELY CROSSED.**
-
-The two earlier rounds could not settle it because both used a SQUARE 10x10
-area — round 1 also sat on the symmetric cell (5,5). A **non-square 8 wide x 14
-high** room settles it. From `(row 5, col 3)` facing 0, nudge disabled, five
-steps:
+The Mac's forward step is `L1c3e` (jt297) at 0x1d6a..0x1db8:
 
 ```
-5,3 -> 5,2 -> 5,1 -> 5,0 -> 5,7 -> 5,6
+d1 = a5@(-12287) + a5@(-11693)[facing]
+d2 = a5@(-12288) + a5@(-11684)[facing]
+push 1, facing, d2, d1, rec   ->   jsr L1908
 ```
 
-The ROW is constant and the COLUMN walks 3,2,1,0 and then **wraps 0 -> 7**.
-Wrapping at 8 is wrapping at the map WIDTH, which is what identifies that
-coordinate as the column — so the HUD pair really is `row,col`, and facing 0
-(compass **north**) is moving **west**. One model fits every observation taken:
+and `L1908` at 0x199a stores its arg2 (`d1`) to `-12287` and arg3 (`d2`) to
+`-12288`. So:
 
-```
-ROW += dir_dx[f]        /* dir_dx is the COLUMN delta */
-COL += dir_dy[f]        /* dir_dy is the ROW    delta */
-```
+> **`-12287` takes the `-11693` table. `-12288` takes the `-11684` table.**
 
-| run | authored | predicted | observed |
-|---|---|---|---|
-| WALKTEST 10x10 (5,5) f=0, nudge on | | 5,4 | 5,4 |
-| WALKTEST 10x10 (5,5) f=0, nudge off | | 5,4 | 5,4 |
-| WALKTEST 10x10 (5,5) f=2, nudge on | | 6,5 | 6,5 |
-| BOUNDTEST 8x14 (5,3) f=0, nudge off | | 5,2 | 5,2 |
+`jt292` (Mac `L14d8`, 0x14ea/0x14fe) adds the same two tables to the same two
+axis roles in a completely separate function, which is the independent
+confirmation. The full invariant — bounds, index, both delta tables — is
+tabulated in **`docs/coord-audit.md` §3**; read that before touching any
+map-cell arithmetic.
 
-**The one apparent counter-example was the harness.** BOUNDTEST from `(9,3)`
-with the nudge ON walked `9,3 -> 8,3 -> 7,3 -> 6,3 -> 5,3`, row-first, which
-looked compass-correct. `beginplay` ends with Right+Left — net zero ONLY IF
-BOTH LAND. With the Right dropped the facing is 6, and the crossed formula then
-gives row-1: exactly what was seen. **`PLAY_NUDGE=0` now skips that nudge, and
-any test that reads a direction must use it.**
+### ⚠️ #97 and #98 GOT THIS BACKWARDS — and v0.5.12-beta shipped it
 
-**The bounds/wrap are CORRECT** — the column wrapped at the width, not at the
-height. Only the delta ASSIGNMENT is crossed. So this is not a cancelling pair:
-`party_step`'s `nx = ROW + dir_dx` / `ny = COL + dir_dy` is simply wrong, and
-the correction is to swap them (`ROW += dir_dy`, `COL += dir_dx`).
+The two tables really are a clean compass pair (`-11693` = row delta, `-11684`
+= column delta), so "the Mac adds `-11693` to `-12287`" means **`-12287` is the
+row**. #98 instead assumed `-12288` was the row — taking that from how
+`tools/geo.py` labels the GEO file's axes — and swapped the tables to match.
+That inverted a faithful lift: the shipping build then stepped along the wrong
+axis. Reverted in #100; the pairing above is what the engine does again.
 
-**STILL DO NOT APPLY IT BLIND.** The passability gate reads the compass-correct
-edge (measured: a cell open on byte 0 only, walled on the other three, let the
-step through and crossed a walled edge; sealed on four blocked). Gate and delta
-therefore disagree, which is a real defect — but every module that plays today
-plays *through* the crossed delta, so changing it alters where existing designs
-send the party. Fix the delta and the gate together, and re-verify HEIRS end to
-end (its authored geometry is the only large known-good corpus).
+The engine is self-consistent under **either** set of names. Nothing downstream
+cares whether you call `-12287` the row or the column, as long as every site
+pairs it with `-11693`, bounds it against `ds[2]`, and multiplies it by `ds[3]`
+in the cell index. The port's comments are not uniform about the names; the
+arithmetic is. Trust the arithmetic.
 
-**Method note that cost three rounds.** A square map hides an axis swap; a
-symmetric cell hides a transpose; and TWO data points always fit a reflection —
-the original `observed = 6 - f` was two points and a coincidence. Break every
-symmetry in the fixture before trusting a direction measurement, and take a
-TRAJECTORY (five steps, watch for the wrap) rather than single steps, because
-single steps are indistinguishable from a dropped key.
+### ★ Method: never settle an axis question on a generated fixture
 
-## #98 FIXED: the forward step added each delta to the WRONG coordinate
+This cost three rounds of measurement and one bad release, and every failure
+was the same failure:
 
-The Mac carries two 1-BASED delta tables in its DATA image (`l1908` normalises
-facing 0 to 8, so index 0 is padding). Read straight out of `g_a5_init_bytes`:
+- A **square** map hides an axis swap — both bounds are equal.
+- A **symmetric cell** (5,5) hides a transpose — it maps to itself.
+- **Two data points always fit a reflection.** The original `observed = 6 - f`
+  was two points and a coincidence.
+- And the one that actually did the damage: **`tools/geo.py` and `tools/dsn.py`
+  label the axes themselves.** A fixture they generate, read back through a HUD
+  whose labels come from the same assumption, cannot disprove that assumption.
+  Every "measurement" on BOUNDTEST/WALKTEST was circular.
 
-| A5 slot | 1=NE | 2=E | 3=SE | 4=S | 5=SW | 6=W | 7=NW | 8=N | meaning |
-|---|--:|--:|--:|--:|--:|--:|--:|--:|---|
-| `-11693` | −1 | 0 | +1 | +1 | +1 | 0 | −1 | −1 | **ROW delta** |
-| `-11684` | +1 | +1 | +1 | 0 | −1 | −1 | −1 | 0 | **COL delta** |
+**Settle axis questions on an SSI-authored module.** HEIRS is the known-good
+corpus: its events sit where a human author placed them, so reaching the right
+content is evidence no labelling can fake. The confirming run for #100 was
+exactly that — entry at `10,8` fires the caravan chain, one step forward lands
+on `11,8` and the square announces **"THE WEARY WANDERER"**, a named building
+in Skull Crag, with the doorway advancing in the 3D view and the clock ticking.
 
-Both are unambiguous against the compass (N = row−1/col 0, E = row 0/col+1).
-
-`jt297` was adding **`-11693` (the ROW delta) to `-12287`**, and `l0bbc` plus
-the event lookup both establish that **`-12287` is the COLUMN** (HEIRS pins it:
-entry reads `st[15]=10, st[14]=8`, and the caravan event sits on
-`cell(col=8, row=10)`). So facing NORTH walked WEST. The tables are now applied
-to the slots they belong to.
-
-**The macro names `JT297_ROW`/`JT297_COL` are still backwards, deliberately.**
-`l1908`'s contract is "arg1 → -12287, arg2 → -12288", and
-`play_can_pass(JT297_COL, JT297_ROW, ...)` is CORRECT precisely because the two
-wrongs cancel there. Renaming them would have broken that call site; the fix is
-one table base each, with the naming documented at the definition.
-
-**The passability gate was never wrong.** `play_forward_allowed` passes
-`(-12288, -12287)` to `jt210(row, col, dir)` — the correct pairing all along.
-That is why walls blocked correctly while the step went sideways, and why the
-two disagreed.
-
-**Verified:**
-
-- Controlled non-square fixture (8x14), entry `(row 5, col 3)` facing 0, nudge
-  off: `5,3 -> 4,3 -> 3,3 -> 2,3` — row decreasing, column constant. NORTH.
-  (Before: the column ran 3,2,1,0 and wrapped at the width.)
-- **HEIRS, the known-good corpus:** entry at `10,8`, the caravan BIGPIC and the
-  Skull Crag message fire exactly as before, the door screen renders, and the
-  walk goes `10,8 -> 10,9` — column increasing, EAST, correct for its authored
-  entry facing 2. Viewport tracks the move (40.7% of the crop changes).
-  Before the fix, facing 2 moved row+1 (south).
-- Four targets build; 412 host tests pass.
+One harness trap, still live: `beginplay` ends with a Right+Left turn nudge
+that is net-zero **only if both keys land**. A dropped Right leaves the party
+rotated 90°, which once produced a perfectly clean compass-correct run from a
+crossed build. **`PLAY_NUDGE=0` skips it, and any test that reads a direction
+must use it.**

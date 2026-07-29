@@ -14954,7 +14954,13 @@ static void jt312(unsigned char *page)
 	if (!qd_screen_pixels_nomark(&px, &pitch, &sw, &sh) || px == 0)
 		return;
 
-	cell = (short)((long)(short)g_a5_12288 * ds[3] + (short)g_a5_12287);
+	/* Mac L23ee 0x23f6: (signed) -12287 * ds[3] + (signed) -12288 — the same
+	 * cell index jt297/jt236/jt210/l5baa use. This site had the two operands
+	 * TRANSPOSED (and read them unsigned), so on any cell where the two
+	 * coordinates differ it fetched the backdrop of a different cell, and on
+	 * a non-square map it could index past the map entirely (#100). */
+	cell = (short)((long)(short)(signed char)g_a5_12287 * ds[3]
+	               + (short)(signed char)g_a5_12288);
 	g_a5_byte(-12284) = (unsigned char)(l04d6(cell) & 127);
 
 	/* Load the level's three wall groups (Wall1-3 = ds[4..6]) into the
@@ -15768,31 +15774,42 @@ static void jt297(void *rec_v, short key, long cb)
 	fp4    = (rec[4] == 0 && rec[9] != 0) ? 1 : 0;
 	facing = (short)g_a5_byte(-12286);
 
-	/* ★ THE MACRO NAMES ARE BACKWARDS AND THE CALL SITES RELY ON IT (#98).
-	 * `l0bbc` and the event lookup both treat -12288 as the ROW and -12287 as
-	 * the COL (pinned by HEIRS: entry reads st[15]=10 st[14]=8, and the
-	 * caravan event sits on cell(col=8,row=10)). These two macros say the
-	 * opposite, and l1908's contract is "arg1 -> -12287, arg2 -> -12288".
-	 * Renaming them would break `play_can_pass(JT297_COL, JT297_ROW, ...)`
-	 * below, which is CORRECT precisely because the two wrongs cancel. Left
-	 * as-is deliberately; read JT297_ROW as "the -12287 slot".
+	/* ★ THE PAIRING IS THE MAC'S. DO NOT "FIX" IT AGAIN — #98 DID, AND WAS
+	 * WRONG (reverted in #100). Read the asm before touching these four
+	 * lines; the DATA tables alone cannot settle it.
 	 *
-	 * What was NOT correct is which delta table each one added. The Mac's
-	 * two tables (read out of the DATA image, 1-BASED — l1908 normalises
-	 * facing 0 to 8) are unambiguous:
+	 * Mac L1c3e 0x1d6a..0x1db8, verbatim:
 	 *
-	 *   A5 -11693 = ROW delta:  N=-1 E=0 S=+1 W=0
-	 *   A5 -11684 = COL delta:  N=0 E=+1 S=0 W=-1
+	 *   d1 = a5@(-12287) + a5@(-11693)[facing]
+	 *   d2 = a5@(-12288) + a5@(-11684)[facing]
+	 *   push 1, facing, d2, d1, rec  ->  jsr L1908
 	 *
-	 * The ROW delta was being added to -12287 — the true COLUMN — so facing
-	 * NORTH walked WEST. Measured on a non-square 8x14 map: from (row 5,
-	 * col 3) the column ran 3,2,1,0 and wrapped 0->7 at the map WIDTH, with
-	 * the row untouched (#97). The tables are now applied to the slots they
-	 * belong to: -12287 (col) takes -11684, -12288 (row) takes -11693. */
-	#define JT297_ROW ((short)(signed char)g_a5_byte(-12287))   /* the COL slot */
-	#define JT297_COL ((short)(signed char)g_a5_byte(-12288))   /* the ROW slot */
-	#define JT297_FWD_ROW ((short)(JT297_ROW + (signed char)g_a5_byte(-11684 + g_a5_byte(-12286))))
-	#define JT297_FWD_COL ((short)(JT297_COL + (signed char)g_a5_byte(-11693 + g_a5_byte(-12286))))
+	 * and L1908 0x199a stores its arg2 (d1) to -12287 and arg3 (d2) to
+	 * -12288. So -12287 takes -11693 and -12288 takes -11684, full stop.
+	 * Cross-checked against jt292 (Mac L14d8 0x14ea/0x14fe), which adds the
+	 * same two tables to the same two axis roles.
+	 *
+	 * Why #98 got it backwards: the tables ARE a clean 8-point compass ring
+	 * (index 1..8 = NE,E,SE,S,SW,W,NW,N; l1908 normalises facing 0 to 8),
+	 * and -11693 IS the row delta and -11684 the column delta —
+	 *
+	 *   -11693:  N=-1 E=0 S=+1 W=0        (row)
+	 *   -11684:  N=0 E=+1 S=0 W=-1        (col)
+	 *
+	 * — so the Mac adding -11693 to -12287 means **-12287 IS THE ROW** and
+	 * -12288 the column. #98 instead assumed -12288 was the row (from the
+	 * tools' labelling of the GEO file) and swapped the tables to match,
+	 * which inverted a faithful lift. The engine is self-consistent under
+	 * either NAME; what is fixed is the pairing, and the pairing is above.
+	 *
+	 * The macro names below therefore read backwards: JT297_ROW is the
+	 * -12287 slot. Left that way deliberately —
+	 * `play_can_pass(JT297_COL, JT297_ROW, ...)` further down passes
+	 * (-12288, -12287), which is the order jt210/l5baa want. */
+	#define JT297_ROW ((short)(signed char)g_a5_byte(-12287))
+	#define JT297_COL ((short)(signed char)g_a5_byte(-12288))
+	#define JT297_FWD_ROW ((short)(JT297_ROW + (signed char)g_a5_byte(-11693 + g_a5_byte(-12286))))
+	#define JT297_FWD_COL ((short)(JT297_COL + (signed char)g_a5_byte(-11684 + g_a5_byte(-12286))))
 
 	switch (key) {
 	case 264:                                /* forward */
