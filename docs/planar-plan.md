@@ -3193,3 +3193,32 @@ Only the confirmatory run was affected; the −20% measurement was driven by a
 source edit and stands. **The tell was `mulprof.o` at 152 bytes** — an object
 holding nothing but an `#ifdef` that did not fire. Check the artefact, not the
 `make` exit status.
+
+### Confirmation: the multiply count fell by exactly the attributed amount
+
+Re-run with `FRUA_MULPROF` after the fix (and after the BUILDSTAMP repair, so
+the binary is actually the new one — `mulprof.o` at 3022 bytes, not 152):
+
+```
+before      2,906,530
+predicted   2,906,530 - 2,479,104 = 427,426
+MEASURED                            427,341     (0.02% off)
+```
+
+−85.3%, and the residual matches the attribution to within noise. That is the
+strongest form of confirmation available here: the histogram predicted the
+post-fix total before the fix was measured, and it was right.
+
+The remaining 427k, re-ranked:
+
+| function | calls | share of what's left |
+|---|--:|--:|
+| `render_3d_faithful` | 271,040 | 63.4% |
+| `DrawChar` | 90,524 | 21.2% |
+| `st_reband` | 28,326 | 6.6% |
+| `qd_pixmap_fill` | 25,019 | 5.9% |
+
+Whether any of these is worth doing is now a smaller question than it looks:
+the whole software-multiply population is 1/7 of what it was, so even
+eliminating `render_3d_faithful`'s share entirely is worth roughly a seventh of
+what `qd_nearest_color` was. Measure before building.
