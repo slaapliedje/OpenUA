@@ -164,6 +164,23 @@ static const struct ap_key g_ap[] = {
 	{ 0x48, 0,    420 },    /* Up    — step 5                        */
 	{ 0x4D, 0,    360 },    /* Right — turn                          */
 	{ 0x48, 0,    420 },    /* Up    — step 6                        */
+	/* #96: six steps yield exactly EIGHT rect presents, which is one
+	 * b63play window — and that window's `wall` starts at the FIRST rect
+	 * present, so it spans the whole modal intro and reports the walk's
+	 * display share against a wall that is mostly not walking. Steps 7..18
+	 * exist purely so the SECOND and THIRD dumps are pure walk. */
+	{ 0x4B, 0,    360 }, { 0x48, 0,    420 },   /* 7  */
+	{ 0x4D, 0,    360 }, { 0x48, 0,    420 },   /* 8  */
+	{ 0x48, 0,    420 },                        /* 9  */
+	{ 0x4B, 0,    360 }, { 0x48, 0,    420 },   /* 10 */
+	{ 0x4D, 0,    360 }, { 0x48, 0,    420 },   /* 11 */
+	{ 0x48, 0,    420 },                        /* 12 */
+	{ 0x4B, 0,    360 }, { 0x48, 0,    420 },   /* 13 */
+	{ 0x4D, 0,    360 }, { 0x48, 0,    420 },   /* 14 */
+	{ 0x48, 0,    420 },                        /* 15 */
+	{ 0x4B, 0,    360 }, { 0x48, 0,    420 },   /* 16 */
+	{ 0x4D, 0,    360 }, { 0x48, 0,    420 },   /* 17 */
+	{ 0x48, 0,    420 },                        /* 18 */
 #endif
 };
 #define AP_N ((short)(sizeof g_ap / sizeof g_ap[0]))

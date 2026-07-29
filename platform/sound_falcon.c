@@ -375,6 +375,9 @@ void plat_sound_vbl(void)
 	if (audible)
 		g_quiet_run = 0;                /* full synth resumes THIS vblank */
 
+#ifdef FRUA_SNDNOGATE
+	g_quiet_run = 0;                        /* #96 A/B arm: gate disabled */
+#endif
 	if (!audible && g_quiet_run >= RING_SAMPLES) {
 		/* Hold the write point exactly half a ring ahead rather than
 		 * leaving it where it was. Letting it drift would make `lead`

@@ -3010,3 +3010,73 @@ the STE sample rate and reworking `__mulsi3` out of the synth inner loop were
 both aimed at making it cheaper to render samples that should never have been
 rendered. `__mulsi3` at 21% of the profile remains unattributed and is NOT the
 synth — the silent path contains no multiply. That is a separate lead.
+
+## #96 re-baseline: the display layer is 3.7% of the ST/STe play path
+
+Every share figure in the #63 sections above was measured against a wall that
+was mostly software synth. With the silence gate in, those denominators are all
+wrong, so the whole play loop was re-measured in EMULATED time (t200) with the
+gate as the only variable. `FRUA_SNDNOGATE` restores the old behaviour; the
+arms' `display_ste.o` is byte-identical (`objdump | md5sum`), so nothing in the
+display path differs between them.
+
+Drive: HEIRS via `FRUA_AUTOPLAY + FRUA_AUTOWALK + FRUA_AUTOWALK_TREASURE`,
+`FRUA_RNGSEED=12345`, three `b63play` windows of 8 rect presents each. The walk
+script was extended from 6 steps to 18 for this: six steps yield exactly ONE
+window, and that window's `wall` starts at the first rect present, so it spans
+the whole modal intro and reports the walk's share against a wall that is
+mostly not walking. Windows 2 and 3 are pure walk.
+
+| window | arm | rect t200 | composite t200 | wall t200 | display per 1000 |
+|---|---|--:|--:|--:|--:|
+| 1 (spans intro) | gate OFF | 1081 | 7373 | 554726 | 1 |
+| 1 | **gate ON** | 416 | 2854 | **223317** | 1 |
+| 2 (pure walk) | gate OFF | 1229 | 5524 | 164881 | 7 |
+| 2 | **gate ON** | 476 | 2196 | **65444** | 7 |
+| 3 (pure walk) | gate OFF | 1237 | 4486 | 74037 | 16 |
+| 3 | **gate ON** | 477 | 1669 | **29020** | 16 |
+
+**1. The gate is worth ~2.5x on the PLAY loop, not just the boot.** 2.48x,
+2.52x, 2.55x across three independent windows — the boot's 13 s -> 6 s was not
+a boot-specific effect. Window 1 also reproduced to within 0.05% of a separate
+earlier run (416 vs 418, 2854 vs 2852), which is the determinism control.
+
+**2. ★ EVERY PHASE TIMER IN THIS FILE HAS BEEN MEASURING THE SYNTH.** The
+display code did not change between arms — the object is byte-identical — yet
+`rect t200` fell 1237 -> 477 and `composite t200` 4486 -> 1669, both ~2.6x, the
+same factor as the wall. The timers bracket a region with two `_hz_200` reads,
+and the synth's vblank fires inside that bracket and is charged to whatever was
+running. So the historical figures ("in-present 32.5% of play", "pass 1 is 54%
+of a present") were part display, part interrupt load, in an unknown mix. They
+are not wrong about ORDERING, but their absolute values cannot be carried
+forward. **`display per 1000` is identical in both arms (1, 7, 16)** precisely
+because the interrupt was charged proportionally to everything.
+
+**3. The whole display layer is 3.7% of the play path.** Summed over the gated
+run's three windows: wall 317781 t200, full presents 3575 (48 of them), rect
+presents 1369, composites 6719 — **11663 t200 total, 3.7%** (an upper bound:
+any composite running inside a rect present is counted twice).
+
+**So the two remaining pass-1 levers are RETIRED.** Dropping the shadow compare
+and having writers note `!s_used_idx[c]` at stamp time both target pass 1,
+which lives inside FULL presents — and full presents are 3575 t200, **1.1% of
+the play path**. Perfect execution of both is worth well under one percent. The
+same applies to any further c2p or banding tuning: there is nothing left to win
+on the ST/STe display path.
+
+**Where the other 96% goes is now the open question**, and it is engine work,
+not display work. The `__mulsi3` 21% from the PC-sampled profile is part of it
+and remains unattributed — it is not the synth (the silent path contains no
+multiply) and it is not the display (3.7%).
+
+**Method notes worth keeping:**
+- **`st_prof_hot_dump` does not fire after the boot** (its window is 16 FULL
+  presents), so any counter read from it post-menu is STALE. Two readings
+  agreeing is not evidence of anything. `b63play` is the play-loop instrument;
+  `plat_sound_prof_dump` is now called from BOTH so the walk reports too.
+- **Scripted arrow keys through `driver.sh` do not walk HEIRS.** The entry
+  chain is modal (caravan messages, then a treasure screen that ignores
+  Return), so the keys are eaten and the drive silently samples menus. Use the
+  autoplay array, which clears the chain first — that is what it exists for.
+- **A per-window `wall` starts at the FIRST rect present**, so window 1 always
+  spans whatever preceded the walk. Read windows 2+ for walk figures.

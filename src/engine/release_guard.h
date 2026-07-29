@@ -82,6 +82,9 @@
 #ifdef FRUA_NOSOUND
 #error "FRUA_NOSOUND in a RELEASE build: the game would be SILENT. It exists only to price the software synth against the rest of the play loop (#63)."
 #endif
+#ifdef FRUA_SNDNOGATE
+#error "FRUA_SNDNOGATE in a RELEASE build: the synth would go back to rendering ~410 samples of silence every vblank whether or not anything is audible — measured at 2.5x the whole ST/STe play loop (#96). Output is identical, which is exactly why this must never ship silently: it is the #96 A/B arm, not a mode."
+#endif
 #ifdef FRUA_BLITBENCH
 #error "FRUA_BLITBENCH in a RELEASE build: st_init would spend seconds benchmarking memory copies before the menu appears. It is the #48 BLiTTER-vs-CPU measurement harness."
 #endif

@@ -3081,6 +3081,12 @@ static void st_prof_play_dump(void)
 	if (wall > 0)
 		dbg_log_num("b63play: display per 1000= ",
 		            (sp_rect_t * 1000L) / wall);
+#ifdef FRUA_SNDPROF
+	/* #96/#95: the synth's own bucket counts, on the WALK path. The
+	 * full-present dump never fires here, which is exactly how the walk's
+	 * sound cost stayed invisible for as long as its display cost did. */
+	{ extern void plat_sound_prof_dump(void); plat_sound_prof_dump(); }
+#endif
 	sp_rect_n = sp_rect_t = sp_vp_n = sp_vp_t = 0;
 	sp_vp_conv = sp_vp_blit = 0;
 }
