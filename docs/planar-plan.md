@@ -2318,3 +2318,80 @@ Also fixed on the way: `st_buf_differs` was defined next to `st_row_differs`,
 which lives inside the `FRUA_PLANAR` block, while `st_present` calls it on
 every build — the 020 Falcon and FPU targets failed to compile. It now sits
 above the guard with the other shared helpers.
+
+### #63 (1) THE FORCE-FULL WAS 92% ROW BUILDS — and half of a "row build" was a scan that cannot fire
+
+The plan for item (1) was "skip the rows whose indices did not move after a
+re-quant". **Measure the ceiling first** — and the ceiling closed the plan.
+
+**Rows that could skip, per boot reband (every index in the row unmoved):**
+
+| reband | used idx | moved | rows skippable |
+|---|--:|--:|--:|
+| 1, 3 | 1 | 0 | 200 / 200 (a one-colour screen) |
+| 2, 4, 5, 7, 8, 9 | 22–130 | most | **0 / 200** |
+| 6 | 223 | 214 | 24 / 200 |
+| 10 | 22 | **2** | 131 / 200 |
+
+**Six of ten rebands can skip exactly nothing**, and reband 10 — with 91% of
+its indices UNMOVED — still only skips 65% of rows, because one moved index
+anywhere in 320 pixels disqualifies the row. 555 of 2000 rows, ~27%, worth
+~10 s. #89 reached the same verdict from index churn alone; the row-level
+number is the one that actually decides it, and it is worse than the index
+number suggests.
+
+**So the force-full was split instead, and that found the real thing:**
+
+| force-full component | t200 | s | share |
+|---|--:|--:|--:|
+| **row builds** | 6920 | **34.6 s** | **92%** |
+| copies (192 KB x 10, BLiTTER) | 589 | 2.9 s | 8% |
+
+The copies are fine — ~12 cycles/byte, proper blitter speed, and `ste: blitter
+= 1` confirms it is in use. (An earlier inference that they ran at memcpy speed
+was arithmetic, not measurement, and was wrong.) The cost is 2000 row builds at
+**3.46 t200 each against a calibrated `st_dt_build_row` of 1.487** — so more
+than half of a "row build" was not the conversion.
+
+**★ IT WAS THE NEW-INK SCAN, LOOKING FOR SOMETHING THAT CANNOT BE THERE.**
+`st_reband` captures `s_used_idx` from the very frame it is about to
+re-convert, so during the force-full that follows, every one of the 200 scans
+is guaranteed to come up empty — and *because* it comes up empty,
+`s_dt_new_ink` stays 0, the `< 4` gate never closes, and all 200 rows pay the
+full 320-byte scan. A one-line `s_ink_fresh` flag skips it.
+
+**Measured, matched flags, clean run:**
+
+| | after item (2) | after item (1) |
+|---|--:|--:|
+| in-present | 17283 | **14576** (−15.7%) |
+| band | 6511 | 6511 (control, unchanged) |
+| pass 1 | 2523 | 2525 (control, unchanged) |
+| force-full | 7512 | **4801** (−36%) |
+| ff row builds | 6920 | **4218** (−39%) |
+| ff copies | 589 | 580 |
+
+**−2702 t200 = −13.5 s**, entirely in the row builds, with both other phases
+flat — the controls that make it believable. Menu frame **byte-identical**
+(md5 match, 0 differing pixels): the flag only omits a detector in the one
+place it provably cannot fire.
+
+**Cumulative on the boot, this session:** in-present 17913 -> 14576 t200,
+**−16.7 s of a ~200 s boot, ~8.4%**, across items (2) and (1). The force-full
+is no longer the largest phase; `band` (6511) is.
+
+**And the fourth confounder of the session, same family as the other three.**
+The reading that made item (1) look like it had also inflated `band` (6511 ->
+7631) was the ROWS-SKIPPABLE ceiling probe I had just added — a 64000-pixel
+pass per reband, sitting INSIDE the band timer. It was removed once it had
+answered its question, both because it had served its purpose and because
+leaving instrumentation inside a phase timer poisons every later reading of
+that phase. Running tally of things that faked a result this session: a printf,
+an ablation that moved a control path, a diagnostic build flag, and now a
+probe inside the timer it was next to.
+
+**What is left on the boot**, in order: `band` at 6511 t200 (32.6 s) — of which
+the duplicate `s_used_idx` pass is ~11 s and the un-split remainder
+(`st_build_hw_palette`, `st_compute_slot_reps`) ~16 s — then the 4218 t200 of
+genuine row conversion, which is inherent to a re-quant and only reducible by
+rebanding less often.

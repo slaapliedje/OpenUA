@@ -96,6 +96,18 @@ static unsigned char           s_band_remap[ST_NBANDS * 256];
  * CLUT matches this snapshot would reproduce the same palettes: skip it. */
 static unsigned char           s_clut_banded[256 * 3];
 static short                   s_banded_valid;
+
+/* #63(1): "s_used_idx was just rebuilt FROM THIS FRAME, so the scan cannot
+ * find anything." st_reband captures s_used_idx from the very pixels it is
+ * about to re-convert, so during the force-full that follows it, every one of
+ * the 200 new-ink scans is guaranteed to come up empty — and because it comes
+ * up empty, s_dt_new_ink stays 0, the `< 4` gate never closes, and all 200
+ * rows pay the full 320-byte scan. Measured at 11.7 s of a 200 s boot spent
+ * looking for ink that cannot be there.
+ *
+ * NOT set by st_patch_new_ink's force-full: that one's scan stopped early at
+ * the gate, so unpatched unseen indices may genuinely remain in the frame. */
+static short         s_ink_fresh;
 /* ADR-0016 B3.2 (stable-slot alignment). A re-band re-runs the median-cut, which
  * normally renumbers the 16 slots arbitrarily. We instead PERMUTE the new slots to
  * best-match the previous palette's positions, so a colour that persists across the
@@ -252,6 +264,7 @@ static long sp_p1_cmpwords, sp_p1_inkbytes, sp_p1_built;
  * s_used_idx capture right after it, and the viewport overlay memcpy. Time
  * them apart before touching any of them. */
 static long sp_rb_vpcopy, sp_rb_quant, sp_rb_used, sp_rb_align, sp_rb_ffull;
+static long sp_rb_ffrows, sp_rb_ffcopy;   /* force-full: builds vs the 192 KB */
 static long sp_rb_n;
 static long sp_cal_cmp, sp_cal_ink, sp_cal_bld, sp_cal_loop;  /* bench t200   */
 static short sp_ph1cal_done;
@@ -928,6 +941,9 @@ static void st_reband(void)
 	 * unreachable ever since this decision. */
 	(void)first;
 	s_force_full   = 1;
+	/* #63(1): s_used_idx above was captured from THIS frame, so the
+	 * force-full's per-row new-ink scan cannot find anything. Skip it. */
+	s_ink_fresh    = 1;
 }
 
 #ifdef FRUA_PLANAR
@@ -1061,6 +1077,7 @@ static unsigned char s_ink_idx[256];    /* index seen unmapped this present  */
 static short         s_ink_n;           /* distinct indices recorded         */
 static short         s_ink_over;        /* blew INK_MAX -> full re-quant     */
 
+
 /* Does a 320-byte surface row differ? (#63)
  *
  * This is THE hot primitive of the whole backend. The full present compares
@@ -1173,7 +1190,7 @@ static int st_dt_ready_row(short y)
 	 *
 	 * Recording identities inside the gate is free, so that is what happens:
 	 * one lookup per byte in the common case, exactly as before. */
-	if (s_dt_new_ink < 4) {
+	if (!s_ink_fresh && s_dt_new_ink < 4) {
 		const unsigned char *p   = crow;
 		const unsigned char *end = crow + ST_W;
 		const unsigned char *tab = s_used_idx;
@@ -1491,7 +1508,7 @@ static void st_dt_present_full(void)
 		/* #63: the force-full branch `goto log`s past the pass-1 timer, so
 		 * every reband's whole-frame rebuild landed in the UNATTRIBUTED
 		 * remainder of in-present (46% of the boot). Name it. */
-		long tff = Supexec(st_prof_hz200);
+		long tff = Supexec(st_prof_hz200), tfc;
 #endif
 		for (y = 0; y < ST_H; y++)
 #ifdef FRUA_STPROF
@@ -1502,6 +1519,14 @@ static void st_dt_present_full(void)
 		/* The single most expensive copy the backend does: 2 x 32000 plane
 		 * bytes + 2 x 64000 shadow bytes, and the one shape where the
 		 * BLiTTER measured a clear 3.76x. One Supexec for all four. */
+#ifdef FRUA_STPROF
+		/* #63(1): the 200 row builds and the 192 KB of copies are very
+		 * different problems — row skipping can only touch the first.
+		 * Split them before choosing. */
+		sp_rb_ffrows += Supexec(st_prof_hz200) - tff;
+		tfc = Supexec(st_prof_hz200);
+#endif
+		s_ink_fresh = 0;          /* one force-full only */
 		if (s_use_blt)
 			Supexec(st_dt_blit_forcefull_super);
 		else
@@ -1515,7 +1540,8 @@ static void st_dt_present_full(void)
 		memset(s_pend, 0, sizeof s_pend);   /* #63: both pages are current */
 		s_pend_init     = 1;
 #ifdef FRUA_STPROF
-		sp_rb_ffull += Supexec(st_prof_hz200) - tff;
+		sp_rb_ffcopy += Supexec(st_prof_hz200) - tfc;
+		sp_rb_ffull  += Supexec(st_prof_hz200) - tff;
 #endif
 		goto log;
 	}
@@ -2831,6 +2857,8 @@ static void st_present(void)
 		dbg_log_num("b63rb:   used_idx scan = ", sp_rb_used);
 		dbg_log_num("b63rb:   slot align    = ", sp_rb_align);
 		dbg_log_num("b63rb:   FORCE-FULL    = ", sp_rb_ffull);
+			dbg_log_num("b63rb:     ff rowbuilds= ", sp_rb_ffrows);
+			dbg_log_num("b63rb:     ff copies   = ", sp_rb_ffcopy);
 		/* #63 PASS-1 ATTRIBUTION. Exact work counters x calibrated unit
 		 * costs. `residual` is pass1 minus gather minus all four: if it
 		 * is near zero the model is complete and pass 1 is fully named;
