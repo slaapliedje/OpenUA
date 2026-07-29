@@ -2530,3 +2530,54 @@ in this entry so it can be re-added deliberately rather than left resident.
 (`FRUA_AUTOWALK_TREASURE`) and capture frames either side of the reband that
 fires there, with the two probes temporarily back in. Until that exists, any
 change to the median cut would be tuning against an unreproduced symptom.
+
+### ★ #61 REPRODUCED — the HEIRS door screen, frame-accurate and headless
+
+Drove HEIRS to the entry 3D view (`FRUA_AUTOWALK_TREASURE`) and captured at 2 s
+intervals **at real speed** — fast-forward compresses a transient into fewer
+host frames and would have hidden it.
+
+**The evidence is three frames:**
+
+| pair | differing pixels in the 3D viewport |
+|---|--:|
+| e64 -> e66 | 2804 |
+| e66 -> e70 | 2804 |
+| **e64 -> e70** | **0** |
+
+The viewport changes and changes **back**. That is not a scene change, a
+re-quant or a palette shift — it is a transient, and the first and last frames
+are byte-identical.
+
+**What changes**, from the difference mask: scattered single pixels in the sky
+(stars) and **one solid band of the floor**. A floor pixel goes
+`srgb(136,136,136)` -> `srgb(17,17,34)` -> back; a wall pixel three rows up is
+unchanged throughout. **17,17,34 is the dark backdrop colour** — the value
+sitting in the chunky surface *underneath* the composited viewport.
+
+So the band is briefly showing STALE CHUNKY CONTENT through the viewport, which
+is #61's suspected mechanism confirmed: the viewport composite is one-shot, and
+an extra full present between commit and flip converts the frozen chunky rows
+back over the composited planes. One present later the composite runs again and
+the floor returns.
+
+**★ THE FRAMING THIS SETTLES.** The extra present is not merely a cost on the
+8 MHz machines — it is a CORRECTNESS bug that fires on every target, because
+every target composites a viewport over a chunky surface. The Falcon pays the
+same redundant full present; it is simply fast enough that the artefact flashes
+by. So the redraw census is not an ST optimisation, it is the shared root of
+both the performance ceiling and the visible glitches.
+
+**A trap that nearly cost this hunt.** The first attempt used the `FRUA_STPROF`
+build, which BLANKS the HEIRS viewport entirely (~10 extra Supexec per present
+on a timing-sensitive path — the #91 sensitivity, already recorded). The
+captured frames showed an empty BIGPIC area, which looks exactly like a render
+bug and is not one. **Visual hunts must use a build WITHOUT the phase timers**;
+correlating them with reband logs means two runs, not one.
+
+**Next: a present-call-site census.** The cursor problem earlier in #63 was
+cracked in one run by tagging `qd_screen_pixels` with `__LINE__` and counting
+per site. The same instrument applies here: tag every path that reaches a FULL
+present, count them per screen, and find the ones that fire more than once for
+one logical change. That is measurable, platform-independent, and fixes cost
+and correctness together.
