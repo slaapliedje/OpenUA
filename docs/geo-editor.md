@@ -53,8 +53,30 @@ the item coordinates have to be known in advance. Measured, for the **MAP** menu
 A drag that releases on the separator leaves the menu open with no selection —
 which is how these were measured, since the open menu can then be screenshotted.
 
-**Getting in:** main menu `E` → picker (the area list shows OVERLAND 01..04 then
-DUNGEON 01.. for areas 1..4 / 5..) → `click` OPEN at (62, 439) → the canvas.
+**Getting in:** main menu `E` → picker → `click` OPEN at (62, 439) → the canvas.
+
+★ **THE ENTRY PICKER'S LIST IS EMPTY — the old claim here that it "shows
+OVERLAND 01..04 then DUNGEON 01.." is WRONG** (re-driven 2026-07-29, #101, with
+10 designs installed and 11 areas in HEIRS: zero rows drawn, just the header,
+the MAP EDITOR / design / area caption and OPEN|CANCEL). So on entry OPEN can
+only accept the current area — which is why this recipe works at all, and why
+the mistake went unnoticed. The list that IS populated is the in-editor one:
+
+**Switching areas:** inside the editor, `click` FILE at (85, 68) to drop the
+pulldown, then `drag 85 68 100 89` onto **OPEN..** — that pops the same dialog
+with all 11 rows (OVERLAND 01–04, DUNGEON 01–07), the current one highlighted
+and a working scrollbar. `click` a row, then `click` OPEN at (62, 439). Verified
+DUNGEON 01 (WD 19 HT 19) → DUNGEON 06 "KEEP -- ENDGAME" (WD 28 HT 20): new
+automap, new 3D view, compass re-reads N. FILE items, measured: OPEN.. y=89,
+SAVE 109, WRITE TO... 129, COPY FROM... 149, REVERT TO SAVED 169, GLOBAL INFO
+209, PRINT 229, LEAVE 268 (title x≈85, items x≈100).
+
+**jt244 is never called.** A full-session coverage probe
+(`EXTRA_CFLAGS=-DFRUA_ENGINE_PROBE_ONCE`, read `DBG.LOG`) over entry + both
+loads logs `L0004_22` → `L0096` → `jt243` → `jt248`, and `jt233` for the area
+load — never `jt244`, and never `jt325` on this path. `l0096` case 19 is
+compiled and correct; the open question is which handler is supposed to RETURN
+19, not who receives it.
 Verified 2026-07-26 against a `tools/geo.py`-authored 9x9 room: the editor drew
 the room and its perimeter walls correctly and reported `WD 9 HT 9`, which
 cross-validates the offline GEO writer against the engine's own reader.

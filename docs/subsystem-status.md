@@ -145,7 +145,7 @@ editor DEPTH gap is the map editor's area bring-up.
 | Event / zone / map-step editing (jt254/253/248/249/258) | 2 | ✅ | `event-editor-wall.md` — lifted; l0096 dispatcher wired |
 | **Art Gallery** / picture editor (jt269 + l040c; import jt259) | 10 | ✅ | l040c dialog tree lifted + LIVE-validated 2026-07-11 |
 | **Monster / NPC** record editor (jt263 → jt325 type 54/57) | 10/9 | 🟡 | opens + renders monster art; edit round-trip untested |
-| **Map (GEO) editor** (jt242/jt243) | 11 | ✅ | `geo-editor-wall.md` — lifted; picker opens, **OPEN bus-errors on the empty -12300 area block** (jt244/mode-19 area-load never triggered) ← the editor's last DEPTH gap |
+| **Map (GEO) editor** (jt242/jt243) | 11 | ✅ | `geo-editor.md` — **the "OPEN bus-errors" claim is DEAD (re-driven live 2026-07-29, #101).** `E` opens the editor with FILE/MAP/UTILITIES, the automap, the 3D preview, WD/HT and the tool palette; FILE → OPEN.. switches areas (DUNGEON 01 19×19 → DUNGEON 06 28×20, new automap + new view). jt244/mode-19 really is never triggered, but nothing needs it — the load runs through `jt233` (l0096 case 9). Residual: the ENTRY picker's list body is EMPTY (see below) |
 | Editor record panels (jt281/282/286) | 22 | ✅ | lifted (CODE 22 alias block) |
 
 ---
@@ -175,10 +175,14 @@ label fix — all DONE. And combat is **runtime-validated end-to-end** (re-confi
 2026-07-11, §5). The frontier is now a short tail of DEPTH gaps + player-facing
 polish:
 
-1. **Map editor area-load** — the last editor DEPTH gap. 3 of 4 editors open
-   live; the map editor's OPEN bus-errors on the empty `-12300` block because the
-   jt244/mode-19 area-load is never triggered. Trace the Mac's mode-2 first-entry
-   (how jt248's pick reaches jt244). `geo-editor-wall.md` / `geo-editor-phase-c`.
+1. ~~**Map editor area-load**~~ — **CLOSED 2026-07-29 (#101).** It was never
+   bus-erroring: all four editors open, the map editor loads areas, and an
+   in-editor area switch works. jt244 is wired at `l0096` case 19 but no drivable
+   path emits command 19; `jt233` (case 9) does the load. What IS still open is
+   narrower and new: the map editor's **entry** picker renders an empty list
+   (10 designs installed, 11 areas in HEIRS, zero rows drawn), so on entry you
+   can only accept the current area — the in-editor FILE → OPEN.. list is fully
+   populated. `geo-editor.md`.
 2. **Player-facing runtime gaps** — inventory/equip
    (`inventory-subsystem-wall.md`), the remaining `l709e` event arms (~17), and
    **audio (MUTED)** = the CODE 5 sound cluster jt965/974/1064 (`audio-wall.md`):

@@ -18135,9 +18135,18 @@ static short jt241(short cmd, long *flagsp, unsigned char *rec)
  * area-load transition: jt325 pulls the area block in, then either the
  * string-table is (re)initialised (jt195=l4db4 + the two cell-array
  * resets) or the party is placed at the entry cell and the art rebound.
- * jt244's caller is the CODE 22 L0004 area-command dispatcher, still
- * unlifted — so jt244 is `unused` for now (leaf-first; the visible
- * payoff lands when that dispatcher is lifted). #151. */
+ *
+ * ★ THE OLD NOTE HERE ("jt244's caller is the CODE 22 L0004 area-command
+ * dispatcher, still unlifted") IS WRONG and was for months. `l0096` IS
+ * lifted and compiled, and it calls jt244 at its case 19. What is actually
+ * true (measured live for #101, coverage probe over a full editor session):
+ * NO DRIVABLE PATH EMITS COMMAND 19, so jt244 never executes. The map
+ * editor's area load goes through `jt233` (l0096 case 9) instead — FILE ->
+ * OPEN.. pops the area list, and jt233 does the pick and the load itself.
+ * Loading a second area inside the editor was driven end to end (DUNGEON 01
+ * 19x19 -> DUNGEON 06 28x20, new automap + new 3D view) with jt244 never
+ * hit. So `unused` is behaviourally right for the wrong reason; the open
+ * question is who is SUPPOSED to emit 19, not who receives it. #151. */
 static void  jt316(void);
 static void  jt317(void);
 static void  jt351(void);
@@ -90649,8 +90658,15 @@ static short l243_finalize(unsigned char *h, long *rec, short scratch)
  * faithfully lifted.  Arm map (share = common target):  1→L12fc  3→L126e  5→L11c0
  * 8→L0ef2  9→L0fce  11→L0bf8  12→L0de4  20→L0dac ; {10,14,15,17}→L0cee ; {13,19}→L1290 ;
  * {2,4,6,7,16,18,default}→L136e.  Helper subtree l068a/l36f6/l4144_c11/l16ae lifted
- * alongside.  Every JT[3]/JT[1] table decoded with jt3_extract/jt1_extract.  jt243 is
- * DCE'd until jt315's selection dispatch wires l0004_22. */
+ * alongside.  Every JT[3]/JT[1] table decoded with jt3_extract/jt1_extract.
+ *
+ * ★ LIVE, not DCE'd — the old "DCE'd until jt315's selection dispatch wires
+ * l0004_22" tail is stale (that wiring landed 2026-07-11).  Driven end to end
+ * for #101: main menu `E` -> l0004_22(7) -> l0096 case 2 -> here, the editor
+ * comes up with FILE/MAP/UTILITIES, the automap, the 3D preview, WD/HT and the
+ * SELECT/LEFT/PLACE/RIGHT/UNDO/MARK palette, and FILE -> OPEN.. switches areas
+ * (DUNGEON 01 19x19 -> DUNGEON 06 28x20).  The `unused` attribute below is
+ * vestigial; left in place only to keep this commit to the claims. */
 static short jt243(short cmd, long *rec, void *area) __attribute__((unused));
 static short jt243(short cmd, long *rec, void *area)
 {
@@ -91008,8 +91024,14 @@ static short jt242(short cmd, long *desc, void *area)
  * pushed 0L is its p14 (NULL); jt264/jt269/jt270 take their by-ref args as
  * long, matching their lifts.  `res` is fp@(-2), a persistent stack local: the
  * exit arms leave it untouched, so word@4 on loop exit is a don't-care.  This
- * replaces the earlier 2-arm partial (cases 4/14 only).  DCE'd until l0004_22
- * is wired into jt315's menu selection.
+ * replaces the earlier 2-arm partial (cases 4/14 only).
+ *
+ * ★ LIVE — the old "DCE'd until l0004_22 is wired into jt315's menu selection"
+ * tail is stale; that landed 2026-07-11 and #101 confirmed it live with a
+ * coverage probe (L0004_22 -> L0096 -> jt243 all logged from main-menu `E`).
+ * Arms OBSERVED firing so far: 2 (jt243, the map editor) and 9 (jt233, the
+ * area picker + load).  Case 19 (jt244) has NEVER been seen — nothing on any
+ * drivable path returns 19 into word@4.  See jt244's banner.
  */
 static short l0096(unsigned char *ctx)
 {
