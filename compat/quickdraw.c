@@ -29,7 +29,7 @@
 #include "font_8x8.h"           /* qd_font_8x8 — fallback bitmap font */
 #include "mac_font.h"           /* g_mac_font — preferred when loaded */
 #include "input.h"              /* plat_mouse_pos — software cursor   */
-#if defined(FRUA_PRESENTCENSUS) || defined(FRUA_NCPROF)
+#if defined(FRUA_PRESENTCENSUS) || defined(FRUA_NCPROF) || defined(FRUA_REBAKEVERIFY)
 #include "dbglog.h"             /* #61/#63 present census; #122 nc histogram */
 #endif
 
@@ -284,6 +284,7 @@ static void cursor_composite(void);
 static void cursor_restore(void);
 static void qd_cursor_tick(void);            /* lazily push the VBL cursor sprite */
 static void qd_rebake_color_pointer(void);   /* re-resolve cursor to live CLUT */
+static void qd_rebake_range(short first, short count);  /* #123 incremental form */
 
 /* #144 off-screen compose: coalesce the intermediate presents a screen
  * emits while it builds a frame in visible steps. The engine's faithful
@@ -1758,7 +1759,10 @@ void qd_set_palette(const RGBColor *colors, short first, short count)
 	if (dsp == NULL || !dsp->hw_palette) {
 		qd_touch_all(); QDT(3);
 	}
-	qd_rebake_color_pointer();      /* keep the colour cursor true to the CLUT */
+	/* #123: incremental — see qd_rebake_range. 98% of writes touch <= 16 of
+	 * 256 entries, so re-scanning the whole palette for all 16 cursor
+	 * colours was ~16x more work than the write justifies. */
+	qd_rebake_range(first, count);  /* keep the colour cursor true to the CLUT */
 }
 
 /* Debug accessor: copy the live shim CLUT out as 256 packed RGB triples.
@@ -2198,24 +2202,165 @@ static void qd_derive_mono_cursor(const unsigned char *raw,
  * changes per screen (boot wall palette -> UI palette -> dungeon ...), so this
  * must re-run on every qd_set_palette or the baked colours drift (e.g. the grey
  * sword blade renders purple against the wall palette it was first baked on). */
-static void qd_rebake_color_pointer(void)
+/* #123: the cursor's 16 baked indices, kept ACROSS palette writes so a partial
+ * write can be answered incrementally. qd_set_palette is called 3,279 times in
+ * a play window and 98% of those touch <= 16 of the 256 entries (mean 8) — the
+ * old code re-scanned all 256 for all 16 colours every time, 4096 distance
+ * evaluations to re-decide answers that provably could not have moved.
+ * qd_nearest_color was 26-34% of the ST play loop and 87.5% of its calls came
+ * from here (#122). */
+static unsigned char s_bake_idx[16];    /* the chosen palette index per colour */
+static long          s_bake_d[16];      /* and its distance, to compare against */
+static short         s_bake_valid;      /* 0 => the next rebake must be full    */
+#ifdef FRUA_REBAKEVERIFY
+static unsigned long g_rbv_checks, g_rbv_bad;
+#endif
+
+/* Distance exactly as qd_nearest_color computes it — same table, same terms.
+ * Kept as one helper so the two paths cannot drift apart. */
+static long qd_bake_dist(short r, short g, short b, short i)
 {
-	unsigned char map[16];
-	short          i;
+	short dr = (short)(r - (short)g_palette[i].r) + 255;
+	short dg = (short)(g - (short)g_palette[i].g) + 255;
+	short db = (short)(b - (short)g_palette[i].b) + 255;
+
+	return (long)g_sq511[dr] + (long)g_sq511[dg] + (long)g_sq511[db];
+}
+
+/* Re-decide cursor colour `c` over the WHOLE palette. Semantics must match
+ * qd_nearest_color exactly: strict `<` keeps the LOWEST index among equal
+ * minima, and an exact match short-circuits. */
+static void qd_bake_full_one(short c)
+{
+	short r = (short)g_color_cursor.pal[c * 3 + 0];
+	short g = (short)g_color_cursor.pal[c * 3 + 1];
+	short b = (short)g_color_cursor.pal[c * 3 + 2];
+	long  best_d = 0x7FFFFFFFL;
+	short best = 0, i;
+
+	for (i = 0; i < 256; i++) {
+		long d = qd_bake_dist(r, g, b, i);
+
+		if (d < best_d) {
+			best_d = d;
+			best   = i;
+			if (d == 0)
+				break;
+		}
+	}
+	s_bake_idx[c] = (unsigned char)best;
+	s_bake_d[c]   = best_d;
+}
+
+/* Rebuild the composited cursor image from the baked indices. */
+static void qd_bake_apply(void)
+{
+	short i;
+
+	for (i = 0; i < 16 * 16; i++) {
+		unsigned char v = g_color_cursor.raw[i];
+		g_color_cursor.img[i] = (v == 0xFF)
+		                      ? 0xFF : s_bake_idx[v & 0x0F];
+	}
+}
+
+/* Re-bake after a palette write of [first, first+count).
+ *
+ * ★ EXACTLY EQUIVALENT TO THE FULL SCAN, not an approximation, and the reason
+ * is worth stating: if a colour's chosen index lies OUTSIDE the written range
+ * then that palette entry did not change, so its distance is still valid and
+ * only the newly-written entries can beat it. If the chosen index lies INSIDE
+ * the range its distance may have GROWN, and nothing local can tell us by how
+ * much relative to the other 255 — so that one colour gets a full rescan.
+ *
+ * ★ THE TIE RULE IS LOAD-BEARING. qd_nearest_color uses strict `<`, so it
+ * keeps the LOWEST index among equal minima. Comparing a changed entry with
+ * `d < best_d` alone would keep the OLD index on a tie even when the new one
+ * is lower, and the cursor would differ from what a full scan produces. Hence
+ * the explicit `(d == best_d && i < best_idx)` arm. */
+static void qd_rebake_range(short first, short count)
+{
+	short c;
 
 	if (!g_color_cursor.loaded)
 		return;
-	for (i = 0; i < 16; i++) {
-		RGBColor c;
-		c.red   = (unsigned short)(g_color_cursor.pal[i * 3 + 0] * 257);
-		c.green = (unsigned short)(g_color_cursor.pal[i * 3 + 1] * 257);
-		c.blue  = (unsigned short)(g_color_cursor.pal[i * 3 + 2] * 257);
-		map[i]  = qd_nearest_color(&c);
+	if (!g_sq511_ready)
+		qd_sq_init();
+
+#ifdef FRUA_NOINCREBAKE
+	s_bake_valid = 0;                       /* A/B arm: always full */
+#endif
+	if (!s_bake_valid || count >= 256 || first < 0) {
+		for (c = 0; c < 16; c++)
+			qd_bake_full_one(c);
+		s_bake_valid = 1;
+		qd_bake_apply();
+		return;
 	}
-	for (i = 0; i < 16 * 16; i++) {
-		unsigned char v = g_color_cursor.raw[i];
-		g_color_cursor.img[i] = (v == 0xFF) ? 0xFF : map[v & 0x0F];
+
+	for (c = 0; c < 16; c++) {
+		short r, g, b, i, lim;
+
+		if (s_bake_idx[c] >= first && s_bake_idx[c] < first + count) {
+			qd_bake_full_one(c);    /* its own entry moved */
+			continue;
+		}
+		r = (short)g_color_cursor.pal[c * 3 + 0];
+		g = (short)g_color_cursor.pal[c * 3 + 1];
+		b = (short)g_color_cursor.pal[c * 3 + 2];
+		lim = (short)(first + count);
+		for (i = first; i < lim; i++) {
+			long d = qd_bake_dist(r, g, b, i);
+
+			if (d < s_bake_d[c]
+			 || (d == s_bake_d[c] && i < (short)s_bake_idx[c])) {
+				s_bake_d[c]   = d;
+				s_bake_idx[c] = (unsigned char)i;
+			}
+		}
 	}
+#ifdef FRUA_REBAKEVERIFY
+	/* ★ EQUIVALENCE PROOF, not a smoke test: after every incremental update,
+	 * recompute all 16 from scratch and compare. Same discipline as #96's
+	 * squares table (800,512 trials, 0 mismatches) — a wrong incremental
+	 * result would be a cursor whose colours quietly drift, which no
+	 * screenshot check would reliably catch. The full answer is then KEPT, so
+	 * a verifying build stays correct even if the incremental path is wrong. */
+	{
+		unsigned char prev_i[16];
+		long          prev_d[16];
+		short         k;
+
+		for (k = 0; k < 16; k++) {
+			prev_i[k] = s_bake_idx[k];
+			prev_d[k] = s_bake_d[k];
+		}
+		for (k = 0; k < 16; k++)
+			qd_bake_full_one(k);
+		for (k = 0; k < 16; k++) {
+			g_rbv_checks++;
+			if (prev_i[k] != s_bake_idx[k]) {
+				g_rbv_bad++;
+				dbg_log_num("b123ver: MISMATCH colour= ", (long)k);
+				dbg_log_num("b123ver:   incremental  = ", (long)prev_i[k]);
+				dbg_log_num("b123ver:   full scan    = ", (long)s_bake_idx[k]);
+			}
+			(void)prev_d;
+		}
+		if ((g_rbv_checks % 4000UL) == 0) {
+			dbg_log_num("b123ver: checks         = ", (long)g_rbv_checks);
+			dbg_log_num("b123ver: MISMATCHES     = ", (long)g_rbv_bad);
+		}
+		qd_bake_apply();
+	}
+#endif
+	qd_bake_apply();
+}
+
+static void qd_rebake_color_pointer(void)
+{
+	s_bake_valid = 0;               /* callers here want a fresh bake */
+	qd_rebake_range(0, 256);
 }
 
 void qd_install_color_pointer(short w, short h, short hotx, short hoty,

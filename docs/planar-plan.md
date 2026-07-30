@@ -3593,3 +3593,46 @@ the ST play loop**. Worth building, and the equivalence is provable rather than
 empirical, which is the right property for something in the cursor path.
 
 NOT BUILT HERE — this entry is the go/no-go measurement only.
+
+### #123b BUILT — the incremental rebake, 15.6x measured
+
+`qd_rebake_range(first, count)` replaces the unconditional full rebake. It
+keeps `s_bake_idx[16]` / `s_bake_d[16]` across palette writes and, when the
+write is partial, compares the 16 cursor colours against only the CHANGED
+entries — falling back to a full rescan for any colour whose own chosen index
+was inside the written range.
+
+**Equivalence proved before measuring** (`FRUA_REBAKEVERIFY` recomputes all 16
+from scratch after every incremental update and compares): **24,000 checks, 0
+mismatches**. The verifying build keeps the full answer, so it stays correct
+even if the incremental path is wrong — the same discipline as #96's squares
+table.
+
+**★ THE TIE RULE WAS THE TRAP.** `qd_nearest_color` uses strict `<`, so it
+keeps the LOWEST index among equal minima. Comparing a changed entry with
+`d < best_d` alone keeps the OLD index on a tie even when the new one is lower,
+which diverges from a full scan. Hence the explicit
+`(d == best_d && i < best_idx)` arm.
+
+**Measured A/B, one flag apart (`FRUA_NOINCREBAKE`), identical windows:**
+
+| arm | rebake cycles | share |
+|---|--:|--:|
+| full rebake | 1,173,709,304 | **33.4%** |
+| incremental | 75,113,050 | **2.2%** |
+
+**15.6x, against a predicted ~16x.**
+
+★ **Read the totals correctly.** The window is fixed in VBL, i.e. in TIME, so
+total cycles are ~constant by construction (3.51G vs 3.37G) and the freed work
+shows up as REDISTRIBUTION — `st_present`'s share rises to 58.7% because the
+denominator shrank, not because it got slower. **A wall-clock claim needs a
+work-boxed drive** (time to complete a fixed sequence), not this time-boxed
+one. What is established here is that the rebake's own cost fell 15.6x and
+~31 points of the play loop were freed for other work.
+
+★ **And a harness trap that produced a wrong number first:** `ab_run.sh`
+REBUILDS, so aggregating the OFF log against the binary left behind by the ON
+build mis-attributes every address — it read 14.3% instead of 33.4%. Aggregate
+each arm's log against ITS OWN binary; `st_aggregate.py` takes the binary as
+its second argument for exactly this reason.
