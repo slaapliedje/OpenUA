@@ -71129,30 +71129,242 @@ static short jt284(short y, short x)
  * The heavy editor internals stay PROBE stubs with faithful signatures;
  * jt290's own CFG is a full lift. */
 
-/* L1240 (CODE 22 + 0x1240) — the tool-0 click with the editor unlocked (the
- * wall-pencil EDIT arm, ~1.4KB). Returns jt290's verdict byte.
- * ★ THIS IS WHY THE MAP EDITOR CANNOT EDIT. Reachable jt290 <- {l1d10, l1d88}
- * <- {l1a1c, l2836, l3380, l3654} <- l28d4 <- jt243 <- l0096, and #101 drove
- * l28d4 live: the editor opens, renders, navigates and switches areas, but the
- * click that would place a wall lands here and returns 1 without writing
- * anything. The biggest of the six remaining gaps, and the one a user would
- * notice first. */
+/* L1240 (CODE 22 + 0x1240, 0x1240..0x14d6 = 662 bytes) — the tool-0 click with
+ * the editor UNLOCKED: place a wall on cell (y, x) and keep the four shared
+ * edges consistent. FULL LIFT (#107); the old "~1.4KB" size note was an
+ * overestimate — the arm ends at the `unlk` before entry_jt292.
+ *
+ * This was the reason the map editor could not EDIT. #101 drove l28d4 live, so
+ * the editor opened, rendered, navigated and switched areas, and the click that
+ * would place a wall arrived here and returned 1 having written nothing.
+ *
+ * Every callee was ALREADY LIFTED — four of them under their JT names, which is
+ * exactly the `docs/lxxxx-jt-aliases.md` trap CLAUDE.md warns about: L475e =
+ * jt276, L07be = jt305, L1798 = jt299, L423e = jt279 (and L05ca/L0614/L04d6 are
+ * present under their lXXXX names). Nothing new had to be lifted underneath.
+ *
+ * Structure, faithful to the asm:
+ *
+ *  1. `place` = (flag != 0) ? 0 : rec[12] — the wall value the brush paints,
+ *     or 0 when `flag` says "erase" (0x124c..0x1262).
+ *  2. For dir = 2,4,6,8 (0x1270..0x1366): step the neighbour cell with the
+ *     SAME two delta tables and the SAME axis pairing as jt292 (A5 -11693 on
+ *     the axis bounded by ds[2] and multiplied by ds[3], -11684 on the other —
+ *     see docs/coord-audit.md §3, and do NOT "fix" it); skip an off-map
+ *     neighbour; `opp` = the far side of the shared edge (dir+4 wrapped to
+ *     1..8); read the neighbour's wall (l05ca) and push it into the holder
+ *     (l16e0); and when EXACTLY ONE of {neighbour wall, place} is zero — i.e.
+ *     one side has a wall and the other does not — write `place` into the
+ *     neighbour's opposite edge (l0614) and flag that something changed.
+ *  3. 0x136a: if the brush is placing (not erasing) and the target cell is
+ *     both occupied (jt276) and has a backdrop code (l04d6), REFUSE: set the
+ *     record up as a mode-5 prompt (rec word@6 = 2, rec word@0 = 5), park the
+ *     cursor at A5 -11702/-11701 and repaint via jt305, then return -1.
+ *  4. 0x13e0: otherwise, when `adv` is set and something changed, advance the
+ *     view — jt218 re-resolves the neighbour window and, if it scrolled, the
+ *     whole map recomposes (jt299); if it did not, only the changed wall is
+ *     drawn (jt279) plus the party marker (jt213) when the party is standing
+ *     on this very cell (rec[46]/rec[47]/rec[48]). Either way jt312 re-renders.
+ *
+ * Returns 1 normally, -1 on the refusal in step 3 — jt290 passes that straight
+ * out as its verdict byte. */
 static short l1240(long ctx, short y, short x, short adv, short flag)
 {
+	const unsigned char *ds = (const unsigned char *)(uintptr_t)
+	                          g_a5_long(-12300);
+	unsigned char *rec = (unsigned char *)(uintptr_t)*(long *)(uintptr_t)ctx;
+	unsigned char  refused = 0;             /* fp@(-18) */
+	unsigned char  changed = 0;             /* fp@(-17) */
+	unsigned char  place;                   /* fp@(-16) */
+	short          dir, cell;
+
 	PROBE("L1240");
-	(void)ctx; (void)y; (void)x; (void)adv; (void)flag;
-	return 1;
+	place = (unsigned char)(((flag & 0xff) != 0) ? 0 : rec[12]);
+
+	for (dir = 2; dir <= 8; dir += 2) {         /* 0x1266 / 0x1360 */
+		short ny = (short)((signed char)g_a5_byte(-11693 + dir) + y);
+		short nx = (short)((signed char)g_a5_byte(-11684 + dir) + x);
+		short opp, nbcell;
+		unsigned char nb_wall;
+
+		if (ny < 0 || ny >= (short)ds[2])       /* 0x1298..0x12ae */
+			continue;
+		if (nx < 0 || nx >= (short)ds[3])       /* 0x12b2..0x12c8 */
+			continue;
+		opp = (short)(dir + 4);                 /* 0x12cc */
+		if (opp > 8)
+			opp = (short)(opp - 8);
+		nbcell = (short)((short)ds[3] * ny + nx);          /* 0x12e2 */
+
+		nb_wall = (unsigned char)l05ca(nbcell, opp);       /* 0x1300 */
+		l16e0(ctx, dir, (short)(nb_wall & 255));           /* 0x1318 */
+
+		/* 0x131e..0x133e: exactly one side zero (wall vs none). */
+		if (((nb_wall == 0) ? 1 : 0) != ((place == 0) ? 1 : 0)) {
+			l0614(nbcell, opp, (short)place);          /* 0x1350 */
+			changed = 1;
+		}
+	}
+
+	cell = (short)((short)ds[3] * y + x);                      /* 0x136a */
+
+	if (place != 0 && jt276(cell) != 0 && l04d6(cell) != 0) {  /* 0x1380.. */
+		refused = 1;                                       /* 0x13a2 */
+		*(short *)(rec + 6) = 2;                           /* 0x13b0 */
+		*(short *)rec       = 5;                           /* 0x13bc */
+		g_a5_byte(-11702) = (unsigned char)y;              /* 0x13be */
+		g_a5_byte(-11701) = (unsigned char)x;              /* 0x13c4 */
+		jt305(rec, (char)1, (char)0);                      /* 0x13d6 */
+	} else if ((adv & 0xff) != 0 && changed != 0) {            /* 0x13e0 */
+		signed char cy = (signed char)y;                   /* fp@(-13) */
+		signed char cx = (signed char)x;                   /* fp@(-14) */
+
+		/* `wrap` is -1 here because 0x1408..0x1410 is seq/negb/extw; the
+		 * sibling tail in jt290 passes 1 for the same expression. Both are
+		 * correct — l5368 only tests `(wrap & 0xff) != 0`. */
+		if (jt218(&cy, &cx,                                /* 0x1432 */
+		          (short *)&g_a5_word(-11706),
+		          (short *)&g_a5_word(-11704),
+		          (short)(unsigned char)g_a5_byte(-11708),
+		          (short)(unsigned char)g_a5_byte(-11707),
+		          (short)(rec[4] == 0 ? -1 : 0)) != 0) {
+			jt299(ctx, 0);                             /* 0x1444 */
+		} else {
+			jt279(y, x,                                /* 0x1474 */
+			      (short)(unsigned char)g_a5_byte(-11708),
+			      (short)(unsigned char)g_a5_byte(-11707),
+			      (short)rec[5]);
+			if ((short)(signed char)rec[46] == x       /* 0x1482 */
+			 && (short)(signed char)rec[47] == y)      /* 0x1494 */
+				jt213(y, x, (short)rec[48]);       /* 0x14b6 */
+		}
+		jt312((unsigned char *)(uintptr_t)ctx);            /* 0x14c2 */
+	}
+
+	return (short)(refused ? -1 : 1);                          /* 0x14c8 */
 }
 
-/* L0ee6 (CODE 22 + 0x0ee6) — the tool-0 click with the editor LOCKED (the
- * play-map select/move arm, ~860B). Same reachability as its sibling l1240
- * above (jt290 <- ... <- l28d4 <- jt243), so on a locked map a click selects
- * and moves nothing. Lift it with l1240 — they are the two halves of one
- * decision. */
+/* L0ee6 (CODE 22 + 0x0ee6, 0x0ee6..0x123e = 858 bytes) — the tool-0 click with
+ * the editor LOCKED: stamp ONE named edge of cell (y, x) and, when the record
+ * asks for it, mirror the same edit onto the neighbour across that edge. FULL
+ * LIFT (#107), the other half of l1240's decision.
+ *
+ * Two near-identical passes, which is why it is 858 bytes of very repetitive
+ * asm:
+ *
+ *  1. 0x0eea..0x0f86 — THIS cell. Capture the old edge into the record's undo
+ *     band (rec[21] = jt285 low nibble, rec[23] = l05ca wall) BEFORE writing,
+ *     then write the two halves of the edge: jt277 gets rec[10], l0614 gets
+ *     rec[12] — or 0 for both when `flag` says erase.
+ *  2. 0x0f88..0x10a8 — when `adv` is set, advance/redraw: jt218 re-resolves the
+ *     window and a scroll recomposes everything (jt299); otherwise redraw just
+ *     this cell (jt295) and the party marker (jt213) when the party stands
+ *     here. ★ The marker test FORKS on rec[4]: a wilderness/play record
+ *     (rec[4]==0) compares the live party cell A5 -12288/-12287 and uses facing
+ *     -12286, while an editor record compares rec[46]/rec[47] with rec[48].
+ *     l1240 has only the second form. Either way jt312 re-renders.
+ *  3. 0x10aa..0x123a — the MIRROR, gated on rec[19] == 1. Step the neighbour
+ *     across side `c` with the same delta tables (and the same axis pairing —
+ *     docs/coord-audit.md §3), bail if it is off-map, and repeat pass 1 on the
+ *     opposite edge with the OTHER four record fields: undo into rec[22]/rec[24],
+ *     write rec[11] via jt277 and rec[13] via l0614. Then jt295 + jt213 for the
+ *     neighbour. No jt218/jt312 on this pass.
+ *
+ * ★ CODE 22 + 0x0524 is jt285, NOT the port's `l0524`. `l0524` in this file is
+ * CODE 2 + 0x524 (a case-5 record handler taking three args) — the exact
+ * (CODE, offset) collision CLAUDE.md warns about, and calling it here would
+ * have compiled and silently done something unrelated. The asm's 2-word call
+ * shape is what caught it. Same for L056c = jt277 and L3998 = jt295. */
 static void l0ee6(long ctx, short y, short x, short c, short adv, short flag)
 {
+	const unsigned char *ds = (const unsigned char *)(uintptr_t)
+	                          g_a5_long(-12300);
+	unsigned char *rec;
+	short cell, ny, nx, opp;
+
 	PROBE("L0ee6");
-	(void)ctx; (void)y; (void)x; (void)c; (void)adv; (void)flag;
+	cell = (short)((short)ds[3] * y + x);              /* 0x0eea */
+
+	/* Undo band first: the old edge, captured before the write. The asm
+	 * re-reads *(long *)ctx before EACH call and stores through the value it
+	 * held then (fp@(-14)), so the record pointer is refetched per call. */
+	rec = (unsigned char *)(uintptr_t)*(long *)(uintptr_t)ctx;
+	rec[21] = (unsigned char)jt285(cell, c);           /* 0x0f10 */
+	rec = (unsigned char *)(uintptr_t)*(long *)(uintptr_t)ctx;
+	rec[23] = (unsigned char)l05ca(cell, c);           /* 0x0f2e */
+
+	rec = (unsigned char *)(uintptr_t)*(long *)(uintptr_t)ctx;
+	jt277(cell, c, (short)(((flag & 0xff) != 0) ? 0 : rec[10]));   /* 0x0f5c */
+	rec = (unsigned char *)(uintptr_t)*(long *)(uintptr_t)ctx;
+	l0614(cell, c, (short)(((flag & 0xff) != 0) ? 0 : rec[12]));   /* 0x0f82 */
+
+	if ((adv & 0xff) != 0) {                           /* 0x0f88 */
+		signed char cy = (signed char)y;           /* fp@(-1) */
+		signed char cx = (signed char)x;           /* fp@(-2) */
+
+		rec = (unsigned char *)(uintptr_t)*(long *)(uintptr_t)ctx;
+		if (jt218(&cy, &cx,                        /* 0x0fd2 */
+		          (short *)&g_a5_word(-11706),
+		          (short *)&g_a5_word(-11704),
+		          (short)(unsigned char)g_a5_byte(-11708),
+		          (short)(unsigned char)g_a5_byte(-11707),
+		          (short)(rec[4] == 0 ? -1 : 0)) != 0) {
+			jt299(ctx, 0);                     /* 0x0fe4 */
+		} else {
+			rec = (unsigned char *)(uintptr_t)*(long *)(uintptr_t)ctx;
+			jt295(y, x,                        /* 0x1014 */
+			      (short)(unsigned char)g_a5_byte(-11708),
+			      (short)(unsigned char)g_a5_byte(-11707),
+			      (short)rec[5]);
+			if (rec[4] == 0) {                 /* 0x1022 — play record */
+				if ((short)(signed char)g_a5_byte(-12288) == x
+				 && (short)(signed char)g_a5_byte(-12287) == y)
+					jt213(y, x,        /* 0x1056 */
+					      (short)(unsigned char)
+					      g_a5_byte(-12286));
+			} else {                           /* L105e — editor record */
+				if ((short)(signed char)rec[46] == x
+				 && (short)(signed char)rec[47] == y)
+					jt213(y, x, (short)rec[48]);  /* 0x1098 */
+			}
+		}
+		jt312((unsigned char *)(uintptr_t)ctx);    /* 0x10a4 */
+	}
+
+	/* L10aa — the mirror onto the neighbour, only when the record asks. */
+	rec = (unsigned char *)(uintptr_t)*(long *)(uintptr_t)ctx;
+	if (rec[19] != 1)
+		return;
+
+	ny  = (short)((signed char)g_a5_byte(-11693 + c) + y);     /* 0x10be */
+	nx  = (short)((signed char)g_a5_byte(-11684 + c) + x);     /* 0x10d2 */
+	opp = (short)(c + 4);                                      /* 0x10e6 */
+	if (opp > 8)
+		opp = (short)(opp - 8);
+	if (ny < 0 || ny >= (short)ds[2])                          /* 0x10fc.. */
+		return;
+	if (nx < 0 || nx >= (short)ds[3])                          /* 0x1116.. */
+		return;
+	cell = (short)((short)ds[3] * ny + nx);                    /* 0x1130 */
+
+	rec = (unsigned char *)(uintptr_t)*(long *)(uintptr_t)ctx;
+	rec[22] = (unsigned char)jt285(cell, opp);                 /* 0x1156 */
+	rec = (unsigned char *)(uintptr_t)*(long *)(uintptr_t)ctx;
+	rec[24] = (unsigned char)l05ca(cell, opp);                 /* 0x1174 */
+
+	rec = (unsigned char *)(uintptr_t)*(long *)(uintptr_t)ctx;
+	jt277(cell, opp, (short)(((flag & 0xff) != 0) ? 0 : rec[11]));  /* 0x11a2 */
+	rec = (unsigned char *)(uintptr_t)*(long *)(uintptr_t)ctx;
+	l0614(cell, opp, (short)(((flag & 0xff) != 0) ? 0 : rec[13]));  /* 0x11c8 */
+
+	rec = (unsigned char *)(uintptr_t)*(long *)(uintptr_t)ctx;
+	jt295(ny, nx,                                              /* 0x11f4 */
+	      (short)(unsigned char)g_a5_byte(-11708),
+	      (short)(unsigned char)g_a5_byte(-11707),
+	      (short)rec[5]);
+	if ((short)(signed char)rec[46] == nx                      /* 0x11fc */
+	 && (short)(signed char)rec[47] == ny)
+		jt213(ny, nx, (short)rec[48]);                     /* 0x1236 */
 }
 
 /* jt290's CODE 22 helpers — ALL JT exports already lifted elsewhere

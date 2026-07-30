@@ -71,6 +71,26 @@ automap, new 3D view, compass re-reads N. FILE items, measured: OPEN.. y=89,
 SAVE 109, WRITE TO... 129, COPY FROM... 149, REVERT TO SAVED 169, GLOBAL INFO
 209, PRINT 229, LEAVE 268 (title x≈85, items x≈100).
 
+**★ l1240 + l0ee6 ARE LIFTED (#107) BUT NOT RUNTIME-VERIFIED.** Those two are
+the tool-0 click — the reason the editor could render and navigate but not EDIT.
+Both are now full lifts from the asm (CODE 22 0x1240..0x14d6 and
+0x0ee6..0x123e), every callee resolved and every push order checked. What is
+NOT done is a live round trip: place a wall, FILE -> SAVE, read the edge byte
+back with `tools/geo.py`. Do not claim the editor edits until that runs.
+
+Where the drive stalled, so the next attempt starts ahead: on a
+`mk_walktest_design.py`-generated design, `E` -> click OPEN (62,439) does NOT
+reach the canvas — it lands on a **WALLS / OBSTRUCTIONS chooser** (15 wall
+swatches on the left; a radio list OPEN / OPEN SECRET / BLOCKED / FALSE DOOR /
+LOCKED / LOCKED SECRET / LOCKED WIZARD / LOCKED WIZARD SECRET / LOCKED KEY1..8
+on the right, with OPEN|CANCEL in the title bar at y≈78). Clicks at (85,78) and
+(285,78) moved the pointer but did not commit, and the panel is drawn over
+un-erased remnants of the previous screen (sprite garbage along the top, the
+picker's button row still reading "PLEASE SELECT AN ADVENTURE"). That
+composition state smells like the generated-design art gap (#94/#106), not the
+click handler. **HEIRS reaches the canvas directly** — use it, backing up just
+the one GEO file first.
+
 **jt244 is never called.** A full-session coverage probe
 (`EXTRA_CFLAGS=-DFRUA_ENGINE_PROBE_ONCE`, read `DBG.LOG`) over entry + both
 loads logs `L0004_22` → `L0096` → `jt243` → `jt248`, and `jt233` for the area
