@@ -37,11 +37,17 @@ name.)
   the conversion for the rows they own (ADR-0016). Shipping on **all three**:
   ST/STE, Amiga ECS and Amiga AGA. Falcon (VIDEL) and Amiga RTG stay chunky by
   design — they are chunky-native, so there is nothing to convert. **The TT030
-  is NOT chunky** (TT-Low is 320x480 in 8 word-interleaved bitplanes) and still
-  converts every row of every frame; it is a planar target that has not had the
-  native-planar treatment yet, deliberately — a 32 MHz 030 can sort of play
-  as-is, so the effort went to the machines that cannot. See the TT section at
-  the end of `docs/planar-plan.md`.
+  is NOT chunky** (TT-Low is 320x480 in 8 word-interleaved bitplanes). It no
+  longer converts every row of every frame: #99 gave it the dirty-row present and
+  found that `qd_set_palette`'s unconditional `qd_touch_all()` was forcing a full
+  frame ~1x per present, which also blocked the #152 clean-present skip. A new
+  `dsp_backend_t.hw_palette` flag (set ONLY by the TT, whose planes hold the index
+  and whose palette is hardware) took the same drive from 95,092 converted rows to
+  5,792 — 619 of 651 presents now skipped entirely — with six frames
+  pixel-identical. The draw-time WRITER half of ADR-0016 is still not done on the
+  TT, deliberately: that layer is `#ifdef FRUA_PLANAR`, which the Atari 020 build
+  (ONE binary for Falcon + TT) does not define, and only ~6% of the conversion
+  work is left to win. See the TT section at the end of `docs/planar-plan.md`.
   Note that "native planar" removes the conversion only for rows a writer
   actually stamped. An earlier measurement (2026-07-26) put that at "~47% of
   presented ST rows still convert", attributed to reband epoch-resets — **read

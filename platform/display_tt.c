@@ -33,6 +33,7 @@
 #include "display.h"
 #include "dbglog.h"
 #include "c2p32.h"
+#include "planar.h"
 
 #define TT_W        320
 #define TT_H        480
@@ -49,6 +50,7 @@ static unsigned char  g_chunky[TT_W * ENGINE_H];
 static dsp_surface_t  g_surface;
 static short          g_save_shift = -1;
 static void          *g_save_phys, *g_save_log;
+static unsigned char  s_seeded;             /* #99: see tt_present below */
 
 /* Convert one 16-pixel-aligned span of a chunky row into TT interleaved
  * planes at `dst` (8 words per 16-pixel group: plane 0..7), then the caller
@@ -98,6 +100,7 @@ static int tt_init(short want_w, short want_h)
 	    (((uintptr_t)g_screen_raw + 255) & ~(uintptr_t)255);
 	memset(g_screen, 0, SCREEN_BYTES);      /* black letterbox borders */
 	memset(g_chunky, 0, sizeof g_chunky);
+	s_seeded = 0;                           /* #99: first present converts all */
 
 	g_save_shift = EgetShift();
 	g_save_phys  = Physbase();
@@ -155,9 +158,98 @@ static void tt_blit_rows(short x0, short w, short y0, short h)
 	}
 }
 
+/* --- #99: the dirty-row present ------------------------------------------
+ *
+ * The TT is a bitplane machine, so ADR-0016 applies to it, but it had none of
+ * the machinery: this backend converted ALL 200 rows on EVERY present.
+ *
+ * The cheapest correct win needs no draw-time writers at all. The shim already
+ * maintains a per-row dirty set (`qd_touch_rows` / `qd_touch_all` in
+ * compat/quickdraw.c, storage in platform/planar.c) and it is already sized for
+ * this backend — planar.h's PLANAR_DIRTY_MAX is 512 precisely because "TT-low is
+ * 320x480". Nothing consumed it here. So: convert only the rows that changed.
+ *
+ * WHY THAT IS SAFE HERE, AND CHEAPER THAN ON THE ST. This backend is
+ * SINGLE-BUFFERED (the backend struct's last field is 1) — there is exactly one
+ * screen and it persists between presents. A row nobody wrote therefore still
+ * holds correct planes from the previous present, so a clean row can be skipped
+ * ENTIRELY: no transpose and no store. The ST cannot do that, which is why it
+ * carries a per-PAGE pending set (s_pend[NPAGES]) — with two pages a row must be
+ * rebuilt once per page before it may be considered clean.
+ *
+ * Two invariants this leans on, both pre-existing:
+ *   - `s_seeded` forces the first present to convert everything (nothing is on
+ *     screen yet, and the dirty set says nothing about that).
+ *   - The shim's default is CONSERVATIVE: anything that cannot name its rows —
+ *     above all qd_screen_pixels, which hands out a raw pointer — calls
+ *     qd_touch_all(), and planar_dirty_rows() then reports "scan everything".
+ *     A writer that narrows without announcing would leave a row stale; that is
+ *     the same contract the ST and Amiga backends already run under, and
+ *     FRUA_DIRTYCHECK is the instrument that polices it.
+ *
+ * The dirty set is reset by qd_present() AFTER the backend runs, so this only
+ * reads it. qd_present_rect deliberately does NOT reset, and tt_present_rect
+ * below stays dirty-agnostic: it writes the screen directly, so its rows are
+ * already correct, and if they are also flagged this present re-converts them —
+ * wasteful, never wrong. */
+/* (s_seeded is declared up with the other statics so tt_init can clear it.) */
+
+#ifdef FRUA_TTPROF
+static long s_ttp_presents, s_ttp_rows, s_ttp_full;
+#endif
+
 static void tt_present(void)
 {
-	tt_blit_rows(0, TT_W, 0, ENGINE_H);
+	const unsigned char *drows;
+	short y, y0;
+#ifdef FRUA_TTPROF
+	long conv = 0;
+#endif
+
+	if (!s_seeded || planar_dirty_rows(&drows)) {
+		tt_blit_rows(0, TT_W, 0, ENGINE_H);
+		s_seeded = 1;
+#ifdef FRUA_TTPROF
+		conv = ENGINE_H;
+		s_ttp_full++;
+#endif
+	} else {
+		/* Coalesce dirty runs: one call per contiguous band, which is the
+		 * shape the shim actually reports (a text line, a panel, the
+		 * viewport) rather than scattered singles. */
+		for (y = 0; y < ENGINE_H; ) {
+			if (!drows[y]) { y++; continue; }
+			y0 = y;
+			while (y < ENGINE_H && drows[y])
+				y++;
+			tt_blit_rows(0, TT_W, y0, (short)(y - y0));
+#ifdef FRUA_TTPROF
+			conv += (y - y0);
+#endif
+		}
+	}
+#ifdef FRUA_TTPROF
+	s_ttp_rows += conv;
+	if (++s_ttp_presents % 16 == 0) {
+		dbg_file_num("ttprof: presents ", s_ttp_presents);
+		dbg_file_num("ttprof:   full    ", s_ttp_full);
+		dbg_file_num("ttprof:   rows    ", s_ttp_rows);
+		dbg_file_num("ttprof:   rows/pr ", s_ttp_rows / s_ttp_presents);
+		/* WHO forced the full presents. Same six counters the ST backend
+		 * dumps (#63) — needs FRUA_STPROF for the QDT() macro to compile to
+		 * anything, so build with BOTH to get attribution. */
+		{
+			extern long g_qdt_hits[8];
+			dbg_file_num("ttqdt:  0 grab   ", g_qdt_hits[0]);
+			dbg_file_num("ttqdt:  1 fill   ", g_qdt_hits[1]);
+			dbg_file_num("ttqdt:  2 blit   ", g_qdt_hits[2]);
+			dbg_file_num("ttqdt:  3 palette", g_qdt_hits[3]);
+			dbg_file_num("ttqdt:  4 cursor ", g_qdt_hits[4]);
+			dbg_file_num("ttqdt:  5 glyph  ", g_qdt_hits[5]);
+			dbg_file_num("ttqdt:  6 SKIPPED clean present ", g_qdt_hits[6]);
+		}
+	}
+#endif
 }
 
 static void tt_present_rect(short x, short y, short w, short h)
@@ -204,6 +296,10 @@ static const dsp_backend_t tt_backend = {
 	tt_present_rect,
 	tt_set_palette,
 	1,                      /* single-buffered: present writes the live screen */
+	1,                      /* #99 hw_palette: planes hold the index, EsetPalette
+	                         * does the rest — a palette change cannot invalidate
+	                         * a converted row. See display.h for the proof and
+	                         * the measurement. */
 };
 
 const dsp_backend_t *dsp_backend_tt(void)

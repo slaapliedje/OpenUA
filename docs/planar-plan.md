@@ -832,28 +832,111 @@ flagged BOTH may have been a hole in one present and a mismatch in another. Per-
 present resolution needs a per-present reset; the x=0 signature and the reband
 count are what carry the conclusion, not the BOTH classification on its own.
 
-### TT030 — NOT YET NATIVE PLANAR (added to the plan 2026-07-26)
+### TT030 — DONE BY A CHEAPER ROUTE (#99, 2026-07-29): -94% CONVERSION WORK
 
-`platform/display_tt.c` converts **every row of every frame**, unconditionally:
-TT-Low is 320x480 in 8 word-interleaved bitplanes, the engine's 320x200 chunky
-frame is line-doubled into it, and `tt_c2p_span` runs over the lot. None of
-ADR-0016's draw-time machinery (dt buffer, ownership, row skip) reaches this
-backend.
+**Result: the same drive went from 95,092 converted rows to 5,792 — a 16.4x
+reduction — with all six verification frames PIXEL-IDENTICAL.** Two changes, and
+the smaller one is the interesting one.
 
-It is a planar machine, so the ADR applies to it in principle. It was left out
-deliberately, not by oversight: **a 32 MHz 68030 has enough raw power to sort of
-play as-is**, which is exactly what the ST/STe and Amiga ECS lack — so the
-scarce effort went where the machines could not cope. That reasoning still
-holds; this entry exists so the gap is recorded rather than rediscovered.
+Where it started: `platform/display_tt.c` converted **every row of every frame**,
+unconditionally, and none of ADR-0016's machinery reached it.
 
-Notes for whoever picks it up:
-- The AGA port (#86) is the closest template — 8 planes, and if the TT palette
-  is used as an identity map the remap collapses the same way AGA's did, which
-  is what made AGA ~90 lines instead of ST's several hundred.
-- The line-doubling is the wrinkle AGA did not have: a draw-time writer stamps
-  one source row that must land in two planar lines.
-- Do the reband work above FIRST if it lands — on the evidence, ownership is
-  worth little while the epoch is being reset every other present.
+**1. The dirty-row present (the obvious half).** The shim already maintains a
+per-row dirty set — `qd_touch_rows`/`qd_touch_all`, storage in
+`platform/planar.c` — and `planar.h` already sized it for this backend
+(`PLANAR_DIRTY_MAX` is 512 "because TT-low is 320x480"). Nothing consumed it
+here. The TT can go FURTHER than the ST with it, too: this backend is
+single-buffered, so a row nobody wrote still holds correct planes and can be
+skipped entirely, where the ST must rebuild a row once per page before it counts
+as clean.
+
+**2. ★ THE PALETTE WAS FORCING A FULL FRAME, AND THAT WAS THE REAL BLOCKER.**
+Landing (1) alone changed almost nothing: measured in play, **456 of 480 presents
+were still full** at ~198 rows each. The `QDT` attribution counters (the #63
+instrument, previously dumped only by the ST backend) named the culprit
+immediately — over 480 presents:
+
+| site | hits |
+|---|---|
+| 3 **palette** | **521** |
+| 5 glyph | 1260 (mostly `qd_touch_rows` — #63's pass-1 work) |
+| 1 fill | 266 |
+| 0 grab | 10 |
+| 4 cursor | 0 |
+
+`qd_set_palette` called `qd_touch_all()` **unconditionally** — more than once per
+present. On most backends that is right, because the on-screen bytes encode the
+COLOUR: VIDEL blits through a LUT into a 16bpp screen, and the ST/ECS backends
+quantise 256 indices down to 16/32 slots so a new palette changes the remap and
+every plane bit is suspect. **The TT is neither.** TT-low is 8 planes = 256
+colours, `tt_c2p_span` transposes the raw chunky index with no remap, and
+`tt_set_palette` gives CLUT entry i the colour of index i — so plane value ==
+chunky index == CLUT slot, and `EsetPalette` alone makes the change visible. Same
+identity that made the AGA port (#86) short.
+
+So `dsp_backend_t` gained **`hw_palette`** ("a palette change is applied by
+hardware and does not invalidate converted pixels"); only the TT sets it. Every
+other backend's initialiser is a positional literal that stops before the new
+field, so they all get 0 = the old behaviour, by construction.
+
+**The second-order effect is bigger than the first-order one.** `qd_touch_all`
+also sets `g_qd_touched`, which gates the #152 clean-present skip
+(`!g_qd_touched && g_present_pages == 1`). That gate already existed and already
+applied to single-buffered backends — the palette site was simply keeping the TT
+permanently "touched" so it could never fire. With the flag in place, for an
+identical drive:
+
+| metric | before | after |
+|---|---|---|
+| palette `touch_all`s | 521 | **0** |
+| presents reaching the backend | 480 | **32** |
+| presents skipped clean (QDT 6) | 0 | **619** |
+| rows converted, total | 95,092 | **5,792** |
+| rows per backend present | ~198 | 181 |
+
+Most of the win is whole presents never happening; the dirty-row scan contributes
+the ~10% on the 32 that remain.
+
+**Verified** (TT, Hatari `--machine tt`, TOS 3.06, 32 MHz 030 + 68882): six frames
+— main menu, Game Settings, monster list, monster record editor, the HEIRS
+caravan BIGPIC event, and a 3D walk frame with the roster/compass HUD — all
+**0 differing pixels** against the pre-change binary. Falcon main menu also 0
+differing pixels (it shares the binary; `hw_palette` is 0 there so the shim path
+is byte-for-byte the old one), and the STE 68000 planar build still boots its
+quantised path. Four targets build, 417 tests pass.
+
+**WHAT WAS NOT DONE, DELIBERATELY: the draw-time WRITER half of ADR-0016.** On
+the TT the writers still paint chunky and the present converts; they do not stamp
+planes. Two reasons, both worth recording:
+
+- It is not a display-file change. The whole draw-time writer layer in
+  `compat/quickdraw.c` is `#ifdef FRUA_PLANAR`, which the Atari 020 build does
+  not define — and that build is ONE BINARY shared by the Falcon and the TT, so
+  it cannot be selected per machine at compile time. The runtime contract already
+  handles this correctly (`dsp_planar_draw_target()` returns 0 on VIDEL, so
+  writers keep their chunky path), and the AGA release proves an 020 build can
+  carry `-DFRUA_PLANAR`. So the route exists; it just enables a large amount of
+  code in the Falcon's binary and needs its own verification pass.
+- The headroom left is small. 94% of the conversion work is already gone, and
+  #96 measured the display layer at only 3.7% of the ST play path — a 32 MHz 030
+  has far more slack than that.
+
+**NOT measured: wall-clock on the TT.** Everything above counts conversion WORK
+(rows, presents). Under Hatari the host, not the emulated CPU, sets the frame
+pace, so a wall-clock claim would be worthless here; it wants real hardware.
+
+★ Trap found on the way: **`FRUA_STPROF` does not compile without
+`FRUA_PLANAR`** — its ST profiling block references the planar-only `s_dt`,
+`s_pend`, `st_row_differs` and `st_dt_build_row`. It has only ever been used on
+the 68000 ST build, where PLANAR is implied. So the `QDT` instrument in
+`compat/quickdraw.c` now answers to `FRUA_STPROF` **or** `FRUA_TTPROF`; the
+display_ste.c breakage itself is left alone (not this task's scope).
+
+Reproduce: `make EXTRA_CFLAGS=-DFRUA_TTPROF`, then
+`HATARI_ARGS="--machine tt" driver.sh start` + `beginplay`; the counters land in
+`data/work/gamedata/DBG.LOG` every 16 presents (cumulative — difference
+successive windows, and remember the BOOT is ~16 presents of legitimate
+whole-screen repaints, so never read window 1 as steady state).
 
 ### #89 REBAND ATTRIBUTION — RAN 2026-07-26. BOTH PLANNED THREADS CLOSED NEGATIVE.
 

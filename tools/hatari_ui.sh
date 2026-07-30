@@ -79,6 +79,19 @@ if [ -z "${FALCON_TOS:-}" ]; then
 		done
 		FALCON_TOS="${FALCON_TOS:-/usr/share/hatari/tos206us.img}"
 		;;
+	*"--machine tt "*)
+		# TT030: TOS 3.06 is the TT's own release. Needed for the TT-shifter
+		# backend (#99) — without this arm a TT run fell through to the
+		# default and booted FALCON TOS 4.04 on a TT, which is the same
+		# wrong-ROM trap the STE arm above exists to prevent.
+		for f in /usr/share/hatari/tos306us.img \
+		         "$HOME/Downloads/tos306us.img" \
+		         "$HOME/Downloads/Atari/tos306us.img" \
+		         /usr/share/hatari/etos512us.img; do
+			[ -s "$f" ] && { FALCON_TOS="$f"; break; }
+		done
+		FALCON_TOS="${FALCON_TOS:-/usr/share/hatari/tos306us.img}"
+		;;
 	*"--machine st "*|*"--machine megast "*)
 		for f in /usr/share/hatari/tos104us.img \
 		         "$HOME/Downloads/Atari/tos104us.img" \

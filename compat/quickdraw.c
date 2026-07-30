@@ -369,7 +369,11 @@ static int qd_is_screen_pm(const PixMap *pm)
 	    && pm->baseAddr == (*spm)->baseAddr;
 }
 
-#ifdef FRUA_STPROF
+/* #99: FRUA_TTPROF wants the same attribution counters, and FRUA_STPROF
+ * cannot be compiled on an 020 build (its ST profiling block references the
+ * FRUA_PLANAR-only s_dt/s_pend/st_dt_build_row). So the QDT instrument answers
+ * to EITHER flag. */
+#if defined(FRUA_STPROF) || defined(FRUA_TTPROF)
 /* #63: WHICH write path marks the surface touched? The backend's full-present
  * row scan is 76% of a present, and the #152 skip that should suppress it on a
  * single-buffered backend (STE is one) almost never fires — so something marks
@@ -1729,7 +1733,14 @@ void qd_set_palette(const RGBColor *colors, short first, short count)
 	dsp = dsp_detect();
 	if (dsp != NULL && dsp->set_palette != NULL)
 		dsp->set_palette(tmp, first, count);
-	qd_touch_all();                  /* #152: mapping may re-render pixels */ QDT(3);
+	/* #152: on most backends the mapping change re-renders pixels, so the whole
+	 * frame must be reconverted. #99: NOT on a backend whose screen holds the
+	 * INDEX and whose palette is hardware (the TT) — there EsetPalette above is
+	 * the entire update. This was the single biggest forced-full source measured
+	 * on the TT: 521 touch_alls in 480 presents. See dsp_backend_t.hw_palette. */
+	if (dsp == NULL || !dsp->hw_palette) {
+		qd_touch_all(); QDT(3);
+	}
 	qd_rebake_color_pointer();      /* keep the colour cursor true to the CLUT */
 }
 

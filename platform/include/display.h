@@ -62,6 +62,36 @@ typedef struct dsp_backend {
 	 * be unconditional and cost single-buffered backends a full no-op
 	 * screen diff per recompose (#151). */
 	short pages;
+
+	/* #99: 1 = a palette change is applied by HARDWARE and does NOT
+	 * invalidate pixels already converted to the screen.
+	 *
+	 * The shim's qd_set_palette used to call qd_touch_all() unconditionally,
+	 * which forces the next present to re-convert the whole frame. On most
+	 * backends that is right, because the on-screen bytes encode the COLOUR
+	 * and not the index:
+	 *   - VIDEL blits the 8bpp surface through a LUT into a 16bpp screen, so
+	 *     new palette entries mean new screen words;
+	 *   - the ST/STe and Amiga ECS backends QUANTISE a 256-index surface down
+	 *     to 16/32 slots, so a new palette changes the index->slot remap and
+	 *     every plane bit is potentially stale.
+	 * The TT is neither. TT-low is 8 planes = 256 colours, tt_c2p_span
+	 * transposes the raw chunky index with no remap, and tt_set_palette gives
+	 * CLUT entry i the colour of index i — so plane value == chunky index ==
+	 * CLUT slot, and EsetPalette alone makes the change visible. This is the
+	 * same identity that made the AGA port (#86) short.
+	 *
+	 * MEASURED (#99, TT, 480 presents in play): the palette site accounted for
+	 * 521 touch_all calls — more than one per present — and was single-handedly
+	 * why the dirty-row present never fired. 456 of 480 presents were full.
+	 *
+	 * Conservative by construction: every backend initialiser is a positional
+	 * literal that stops before this field, so they all get 0 = "a palette
+	 * change DOES invalidate my pixels", which is the old behaviour. Only a
+	 * backend that has proven the identity should set it. AGA looks eligible on
+	 * the same argument but has NOT been measured or verified here, so it is
+	 * deliberately left at 0. */
+	short hw_palette;
 } dsp_backend_t;
 
 /* Probe the host machine and return the best available backend, or NULL. */
