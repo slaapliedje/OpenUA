@@ -169,8 +169,9 @@ def test_probe_only_in_the_past_tense_is_not_a_claim(tmp_path):
 
 
 def _triage_of(src, name):
-    noop, live, dead = stub_audit.triage(src)
-    for bucket, rows in (('noop', noop), ('live', live), ('dead', dead)):
+    noop, live, dead, ruled = stub_audit.triage(src)
+    for bucket, rows in (('noop', noop), ('live', live), ('dead', dead),
+                         ('ruled', ruled)):
         if any(r[0] == name for r in rows):
             return bucket
     return None
@@ -259,3 +260,48 @@ def test_a_multi_line_sibling_does_not_leak_its_doc_to_a_neighbour(tmp_path):
                  '\tl7777(1);\n\t(void)0;\n}\n')
     assert _triage_of(str(f), 'l4932') == 'noop'
     assert _triage_of(str(f), 'l7777') == 'live'   # undocumented — still a gap
+
+
+def test_not_a_gap_tag_moves_a_stub_out_of_the_live_bucket(tmp_path):
+    """A PLATFORM RULING is not a gap: the Mac body does real work, but the
+    port cannot and should not reproduce it (a _Gestalt probe with no Gestalt,
+    an _Eject with nothing ejectable). NOOP_RE's prose patterns cannot tell
+    those from an unfinished leaf, so they need an explicit tag (#105)."""
+    f = tmp_path / 'x.c'
+    f.write_text('/* L7de0 — NOT-A-GAP: a _Gestalt feature probe with no Gestalt\n'
+                 ' * to ask on this target, so 0 is the faithful answer. */\n'
+                 'static short l7de0(void)\n{\n\tPROBE("L7de0");\n\treturn 0;\n}\n'
+                 '\nstatic void caller(void)\n{\n\tif (l7de0()) return;\n'
+                 '\t(void)0;\n}\n')
+    assert _triage_of(str(f), 'l7de0') == 'ruled'
+
+
+def test_an_untagged_platform_claim_is_still_a_live_gap(tmp_path):
+    """The tag is deliberately a HARD marker, not prose. Matching phrases like
+    "no equivalent" would let any leaf be silenced by a hopeful sentence, and
+    stale optimistic comments are this repo's recurring failure."""
+    f = tmp_path / 'x.c'
+    f.write_text('/* L7de0 — a Gestalt probe; there is no equivalent on this\n'
+                 ' * platform and it is unreachable anyway. */\n'
+                 'static short l7de0(void)\n{\n\tPROBE("L7de0");\n\treturn 0;\n}\n'
+                 '\nstatic void caller(void)\n{\n\tif (l7de0()) return;\n'
+                 '\t(void)0;\n}\n')
+    assert _triage_of(str(f), 'l7de0') == 'live'
+
+
+def test_an_ifdef_pair_does_not_invent_a_live_gap(tmp_path):
+    """boot.c defines fc_cache_audit TWICE — a real body and an empty `{ }` —
+    under opposite arms of one #ifdef. The status map was keyed by NAME, so it
+    kept only the last verdict (STUB) and the REAL body passed the STUB filter
+    too, reported as a live gap that does not exist. That phantom row is why
+    #103's first count was 12 and not 11 (#105)."""
+    f = tmp_path / 'x.c'
+    f.write_text('/* dbg_thing — a debug self-test. */\n'
+                 'static void dbg_thing(void)\n{\n\tshort i;\n'
+                 '\tfor (i = 0; i < 4; i++)\n\t\tg_counter += i;\n}\n'
+                 '/* NOT-A-GAP: the compiled-out arm of the same self-test. */\n'
+                 'static void dbg_thing(void) { }\n'
+                 '\nstatic void caller(void)\n{\n\tdbg_thing();\n\t(void)0;\n}\n')
+    noop, live, dead, ruled = stub_audit.triage(str(f))
+    assert [r[0] for r in live] == [], live
+    assert [r[0] for r in ruled] == ['dbg_thing'], ruled

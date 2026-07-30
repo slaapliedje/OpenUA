@@ -21,15 +21,28 @@ beta" (see the verification gap below), but no longer one with dead buttons.
 
 ## ★★ The measurement that lied — and the tool gap behind it
 
-`tools/stub_audit.py --stubs` reports (2026-07-29, after the #103 parser fixes):
+`tools/stub_audit.py --stubs` reports (2026-07-29, after #103's parser fixes
+and #105's triage):
 
 ```
-56 stub bodies
- 12 LIVE GAPS  (lifted code calls them)
- 37 faithful no-ops (the Mac body is empty too — leave them)
+54 stub bodies
+  6 LIVE GAPS  (lifted code calls them — all reachable from a live root)
+ 37 faithful no-ops    (the Mac body is empty too — leave them)
+  4 platform rulings   (NOT-A-GAP: — printed with their reason; verify the gate)
   7 uncalled gaps
   0 stale stub claims
 ```
+
+**The six real ones, with why they matter** (#105 walked each caller chain):
+
+| stub | reachable from | consequence |
+|---|---|---|
+| `l1240` | `jt290 ← … ← l28d4 ← jt243 ← l0096` | **the map editor cannot EDIT** — the wall-pencil click returns 1 and writes nothing (~1.4KB) |
+| `l0ee6` | same chain | locked-map click selects/moves nothing (~860B) |
+| `l341a` | `jt392 ← … ← jt315` | every "save as" picks nothing. The "no GEMDOS equivalent" excuse expired in 0.5.8 — the GEM selector exists now |
+| `l4e8a` | `jt230 ← jt325_tail ← jt325` | every record editor answers "not found" to the −13038 lookup (#88's table) |
+| `l501e` | `jt226 ← jt325_tail ← jt325` | "scroll list to row n" does nothing. Read with #87: that stored the position, this would move it |
+| `jt1150` | `jt295 ← l1908` (play walk) | mark-rect-dirty. Probably SUPERSEDED by `platform/`'s own dirty tracking — check whether anything consumes the Mac list before lifting |
 
 ★ **THE "0 LIVE GAPS" THIS SECTION USED TO QUOTE WAS PARTLY AN ARTEFACT.** Two
 bugs in the tool, both fixed in #103 with regression tests:
@@ -47,10 +60,19 @@ bugs in the tool, both fixed in #103 with regression tests:
    single remaining live gap. It is a genuine no-op (`linkw/unlk/rts` at CODE 21
    0x493a, re-read for #103).
 
-The 12 are NOT yet triaged; several are diagnostics (`fc_cache_audit`) but at
-least `l0004_c6` (per-char basename builder, called from `jt130`) and `l7de0`
-(called from a live `if`) are real. Do not quote a live-gap figure from this
-file — rerun the tool.
+★ **The first count of this was 12, and 12 was wrong too** — in the other
+direction. #105 resolved it: **one row was a phantom** (`status` was keyed by
+NAME, and `fc_cache_audit` has two definitions under opposite arms of one
+`#ifdef`, so the REAL body inherited the empty one's STUB verdict and was
+reported as a gap that does not exist); **`l0004_c6` was lifted** (15
+instructions — it STRIPS the 17 filename-hostile characters at A5 −31268 out of
+a design name; the old comment called it an "append", which is why it read like
+a deferrable leaf); and **four are platform rulings**, now tagged `NOT-A-GAP:`
+with their gate — `l7de0` (a `_Gestalt` probe for selector `'SAVR'`, trap
+`$A1AD`, with no Gestalt to ask), `jt1052` (`_Eject`, nothing ejectable),
+`l0370` (gated off by `g_a5_2347 != 0`), `fc_cache_audit` (a debug self-test's
+compiled-out arm). Do not quote a live-gap figure from this file — rerun the
+tool.
 
 `tools/jt_progress.py`: **top-100 JT entries 100/100.**
 

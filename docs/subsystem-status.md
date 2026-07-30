@@ -16,8 +16,11 @@ next target. It is the index over the queue of `docs/*-wall.md` scope docs.
   source of truth for numbers; rerun `python3 tools/jt_progress.py`).
 - Counts as of **2026-07-29** (regenerate: `python3 tools/jt_progress.py`,
   `python3 tools/stub_audit.py --stubs`): **1201 done / 1 stub / 4 missing** of
-  1206 JT entries (1072 lifted + 54 noop + 75 alias). Stub bodies: 56 total —
-  37 faithful no-ops, **12 live gaps**, 7 uncalled.
+  1206 JT entries (1072 lifted + 54 noop + 75 alias). Stub bodies: 54 total —
+  37 faithful no-ops + 4 platform rulings, **6 live gaps**, 7 uncalled. The six
+  are named with their reachability and consequence in `docs/enhancements.md`;
+  the biggest is `l1240` — **the map editor renders and navigates but cannot
+  EDIT**, because the wall-pencil click is a stub.
 - ★ **The "0 LIVE GAPS" this line used to carry was partly a TOOL BUG**, fixed
   in #103: `stub_audit`'s call counter treated every multi-line definition as
   its own forward declaration, so a multi-line stub with exactly one caller

@@ -281,6 +281,12 @@ def sibling_bodies(funcs):
 def audit(path=SRC):
     lines = load(path)
     funcs = parse_funcs(lines)
+    # Keyed by name here ON PURPOSE: the stale-claim check below looks a claim's
+    # NAMED TARGET up, and a comment names a function, not a definition. Where a
+    # name has two definitions (the fc_cache_audit #ifdef pair) "is it lifted?"
+    # is ambiguous by construction, and last-wins is the conservative answer —
+    # it reports the claim rather than silently dropping it. The triage map is
+    # keyed by definition instead; see the note there (#105).
     status = {n: classify(lines, op, cl) for n, _, op, cl in funcs}
 
     stale, seen = [], set()
@@ -313,6 +319,22 @@ def audit(path=SRC):
                 stale.append({'host': name, 'comment': (cs + 1, ce + 1),
                               'target': t, 'self': t == name, 'claim': sent})
     return funcs, status, stale
+
+
+# ★ An EXPLICIT ruling, deliberately not prose-matched (#105). The Mac body here
+# does real work, but the port cannot and should not reproduce it — a _Gestalt
+# feature probe with no Gestalt to ask, an _Eject with nothing ejectable, a path
+# gated off by a port-side constant, the compiled-out arm of a debug self-test.
+# Those are decisions, not gaps, and NOOP_RE's prose patterns cannot tell them
+# from an unfinished leaf.
+#
+# It is a hard tag rather than a phrase because the alternative — matching
+# "unreachable"/"no equivalent" in prose — lets any leaf be silenced by a
+# hopeful sentence, and stale optimistic comments are this repo's documented
+# recurring failure. `--stubs` PRINTS every ruling with its reason so the claim
+# stays in front of a reviewer, and each one must name its GATE (the condition
+# that would make it a gap again).
+NOTAGAP_RE = re.compile(r'NOT-A-GAP:')
 
 
 # A body that is empty ON THE MAC TOO is not a gap — the comment says so.
@@ -446,12 +468,19 @@ def triage(path=SRC):
     """Split the stub bodies into faithful-no-op / live gap / uncalled gap."""
     lines = load(path)
     funcs = parse_funcs(lines)
-    status = {n: classify(lines, op, cl) for n, _, op, cl in funcs}
+    # ★ KEY THE STATUS MAP ON THE DEFINITION, NOT THE NAME (#105). boot.c has
+    # two `fc_cache_audit` definitions — a real body and an empty `{ }` — under
+    # opposite arms of one #ifdef. A name-keyed dict kept only the LAST verdict
+    # (STUB), so the REAL body passed the STUB filter too and was reported as a
+    # live gap that does not exist. Same collision class CLAUDE.md warns about
+    # for lXXXX offsets recurring across CODE segments; here it is an #ifdef
+    # pair. That bogus row is why the first count of this was 12, not 11.
+    status = {sg: classify(lines, op, cl) for _n, sg, op, cl in funcs}
     sibs = sibling_bodies(funcs)
     src = '\n'.join(lines)
-    noop, live, dead = [], [], []
+    noop, live, dead, ruled = [], [], [], []
     for name, sig, op, cl in funcs:
-        if status[name] != 'STUB':
+        if status[sig] != 'STUB':
             continue
         cs, ce = doc_for(lines, sig, name, sibs)
         doc = ' '.join(' '.join(lines[cs:ce + 1]).split()) if cs is not None else ''
@@ -473,13 +502,15 @@ def triage(path=SRC):
                                % re.escape(name), src, re.M))
         calls = max(hits - decls - 1, 0)
         row = (name, sig + 1, calls, ' '.join(doc.replace('/*', ' ').replace('*/', ' ').split()))
-        if NOOP_RE.search(doc):
+        if NOTAGAP_RE.search(doc):
+            ruled.append(row)
+        elif NOOP_RE.search(doc):
             noop.append(row)
         elif calls:
             live.append(row)
         else:
             dead.append(row)
-    return noop, live, dead
+    return noop, live, dead, ruled
 
 
 def main():
@@ -518,16 +549,22 @@ def main():
         return 1 if by.get('deferred') else 0
 
     if a.stubs:
-        noop, live, dead = triage(a.file)
-        print('%d stub bodies: %d faithful no-ops (NOT gaps), '
-              '%d live gaps, %d uncalled gaps\n'
-              % (len(noop) + len(live) + len(dead), len(noop), len(live), len(dead)))
+        noop, live, dead, ruled = triage(a.file)
+        print('%d stub bodies: %d faithful no-ops + %d platform rulings '
+              '(NOT gaps), %d live gaps, %d uncalled gaps\n'
+              % (len(noop) + len(live) + len(dead) + len(ruled),
+                 len(noop), len(ruled), len(live), len(dead)))
         print('=== LIVE GAPS — lifted code calls these, so they gate behaviour ===')
         for n, l, c, d in sorted(live, key=lambda r: -r[2]):
             print('  %-10s line %-6d %2d call(s)' % (n, l, c))
         print('\n=== UNCALLED GAPS ===')
         for n, l, c, d in sorted(dead):
             print('  %-10s line %-6d' % (n, l))
+        print('\n=== PLATFORM RULINGS (NOT-A-GAP: ...) — VERIFY THE GATE, do not '
+              'just trust the tag ===')
+        for n, l, c, d in sorted(ruled):
+            why = d.split('NOT-A-GAP:', 1)[1] if 'NOT-A-GAP:' in d else d
+            print('  %-14s line %-6d %2d call(s) %s' % (n, l, c, why.strip()[:88]))
         print('\n=== FAITHFUL NO-OPS (the Mac body is empty too — leave them) ===')
         print('  ' + ', '.join(sorted(n for n, _, _, _ in noop)))
         return 0

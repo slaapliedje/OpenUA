@@ -22156,6 +22156,26 @@ static void jt1168(Rect *touched)
 	}
 }
 
+/* L7de0 (CODE 4 + 0x7de0) — NOT-A-GAP: a Mac _Gestalt feature probe that can
+ * only answer "absent" on Atari/Amiga, so returning 0 IS the faithful answer.
+ *
+ * Read from the asm 0x7de0..0x7e3c (#105). Structure:
+ *
+ *   if (!A5[-2]) return 0;                  // feature already ruled out
+ *   if (A5[-3] < 0)                         // trap availability not probed yet
+ *       A5[-3] = L7d12();                   // = is trap $A1AD implemented?
+ *   if (!A5[-3]) { A5[-2] = 0; return 0; }  // no _Gestalt at all -> disable
+ *   if (L7cfa('SAVR', &resp) == noErr && (resp & 2)) return 1;
+ *   A5[-2] = 0; return 0;                   // selector absent -> disable
+ *
+ * L7cfa is `_Gestalt` itself (trap $A1AD) and L7d12 is the cached
+ * "is that trap implemented?" test. So this asks a third-party Gestalt
+ * selector 'SAVR' whether bit 1 of its response is set. Its caller `l3e38`
+ * uses a 1 to `ValidRect` and SKIP the page present entirely — i.e. "something
+ * else owns the screen right now, don't draw over it".
+ *
+ * There is no Gestalt and no such selector on our targets, so the answer is
+ * permanently "absent" and the port must always present normally. 0. */
 static signed char l7de0(void) __attribute__((unused));
 static signed char l7de0(void)
 {
@@ -24668,8 +24688,10 @@ static void jt1140(char b)
 	g_a5_byte(-806) = (unsigned char)b;
 }
 
-/* JT[1052] (CODE 5+0x5af0) — _Eject: no ejectable media exists on
- * the GEMDOS mount (the flat-dir/GetVol ruling) — noErr. */
+/* JT[1052] (CODE 5+0x5af0) — NOT-A-GAP: _Eject, and no ejectable media exists
+ * on the GEMDOS mount (the flat-dir/GetVol ruling), so noErr is the whole
+ * correct implementation. Its one caller jt1142 ejects after a volume walk;
+ * with a single flat mount there is nothing to eject and nothing to report. */
 static short jt1052(short vref, long namePtr) __attribute__((unused));
 static short jt1052(short vref, long namePtr)
 {
@@ -66818,10 +66840,14 @@ typedef unsigned char (*glib_load_cb)(short refnum, void *spec);
  * non-zero finalize, and L157c / jt1152 / jt1142 / jt1121 are the disk-retry
  * dialog the port (files on GEMDOS disk) never enters. Lifted with the save
  * path + the loader's disk-swap UI. */
-/* L341a (CODE 3+0x341a) — the Mac SFPutFile save dialog ("File to
- * save" picker; no GEMDOS equivalent yet). Leaf PROBE stub. The
- * L322c volume split and L31fc name tail are already lifted near
- * the top of the file. */
+/* L341a (CODE 3+0x341a) — the Mac SFPutFile save dialog ("File to save"
+ * picker). LIVE GAP, and the cheapest of the six left after #105's triage:
+ * reachable jt392 <- {jt128, l17e2, l36e0_c10} <- {jt259, jt315, jt584, jt987},
+ * i.e. from the main menu. Returning 0 means every "save as" silently picks
+ * nothing. ★ The old "no GEMDOS equivalent yet" excuse EXPIRED in v0.5.8-beta:
+ * the Atari GEM file selector shipped for uainst, so there is now something to
+ * route this to. The L322c volume split and L31fc name tail are already lifted
+ * near the top of the file. */
 static short l341a(const char *prompt, const char *dflt,
                    long ftype, long creator)
 {
@@ -67508,10 +67534,14 @@ static short jt228(void)
 	return 0;
 }
 
-/* L4e8a (CODE 7+0x4e8a) — the -13038 record lookup jt230 wraps
- * (returns a 0-based index or < -1). Leaf PROBE stub pending its
- * own lift; -2 = "not found" keeps jt230's contract (-2 + no
- * adjust = still negative). */
+/* L4e8a (CODE 7+0x4e8a) — the -13038 record lookup jt230 wraps (returns a
+ * 0-based index or < -1). LIVE GAP: reachable jt230 <- jt325_tail <- jt325 <-
+ * the four record editors (jt250/jt251/jt253/jt263), so every record editor
+ * currently answers "not found" to this query. -2 keeps jt230's contract
+ * (-2 + no adjust = still negative) so nothing crashes, it just never finds.
+ * NB -13038 is the same record table #88 fixed (a never-assigned static was
+ * shadowing the A5 slot) — that unblocked the event editor; this is the lookup
+ * over it. */
 static short l4e8a(long a, long b)
 {
 	PROBE("L4e8a");
@@ -71099,8 +71129,14 @@ static short jt284(short y, short x)
  * The heavy editor internals stay PROBE stubs with faithful signatures;
  * jt290's own CFG is a full lift. */
 
-/* L1240 (CODE 22 + 0x1240) — the tool-0 click with the editor unlocked
- * (the wall-pencil edit arm, ~1.4KB). Returns jt290's verdict byte. */
+/* L1240 (CODE 22 + 0x1240) — the tool-0 click with the editor unlocked (the
+ * wall-pencil EDIT arm, ~1.4KB). Returns jt290's verdict byte.
+ * ★ THIS IS WHY THE MAP EDITOR CANNOT EDIT. Reachable jt290 <- {l1d10, l1d88}
+ * <- {l1a1c, l2836, l3380, l3654} <- l28d4 <- jt243 <- l0096, and #101 drove
+ * l28d4 live: the editor opens, renders, navigates and switches areas, but the
+ * click that would place a wall lands here and returns 1 without writing
+ * anything. The biggest of the six remaining gaps, and the one a user would
+ * notice first. */
 static short l1240(long ctx, short y, short x, short adv, short flag)
 {
 	PROBE("L1240");
@@ -71108,8 +71144,11 @@ static short l1240(long ctx, short y, short x, short adv, short flag)
 	return 1;
 }
 
-/* L0ee6 (CODE 22 + 0x0ee6) — the tool-0 click with the editor locked
- * (the play-map select/move arm, ~860B). */
+/* L0ee6 (CODE 22 + 0x0ee6) — the tool-0 click with the editor LOCKED (the
+ * play-map select/move arm, ~860B). Same reachability as its sibling l1240
+ * above (jt290 <- ... <- l28d4 <- jt243), so on a locked map a click selects
+ * and moves nothing. Lift it with l1240 — they are the two halves of one
+ * decision. */
 static void l0ee6(long ctx, short y, short x, short c, short adv, short flag)
 {
 	PROBE("L0ee6");
@@ -71389,8 +71428,20 @@ static void jt299(long holder, short b)
 	jt308(holder);
 }
 
-/* JT[1150] (CODE 4+0x61fc) — mark a screen rect dirty for the next
- * present. Leaf PROBE stub pending its own lift. */
+/* JT[1150] (CODE 4+0x61fc) — mark a screen rect dirty for the next present.
+ * LIVE GAP but the LEAST likely to matter: reachable jt295 <- {jt290, l1822,
+ * l1908, l1d88}, and l1908 is the PLAY walk commit, so this runs on every step.
+ * It is probably superseded rather than missing — `platform/` does its own
+ * dirty-row/present tracking (ADR-0005/ADR-0016) and does not read the Mac's
+ * rect list, which is why an empty implementation has never shown a visible
+ * fault. ★ Do not lift it on sight: first establish whether anything in the
+ * port CONSUMES the Mac dirty list. If nothing does, tag it a SUPERSEDED
+ * ruling; until someone checks, it stays a gap.
+ *
+ * (Careful with the wording in here: stub_audit's prose matcher treats the
+ * words describing an empty Mac body as a classification, so saying the
+ * obvious three-letter phrase in this comment silently reclassifies the
+ * function. It did exactly that once while this note was being written.) */
 static void jt1150(short top, short left, short bottom, short right)
 {
 	PROBE("jt1150");
@@ -71587,20 +71638,46 @@ static void jt365(void)
 	      (long)(uintptr_t)&g_a5_byte(-18876));
 }
 
-/* L0004 (CODE 6+0x0004 — NOT the lifted menu-selection l0004,
- * hence the _c6 suffix) — append one classified character to the
- * name buffer jt130 builds. Leaf PROBE stub pending its own
- * lift. */
+/* L0004 (CODE 6+0x0004 — NOT the lifted menu-selection l0004, hence the _c6
+ * suffix) — DELETE every occurrence of character `ch` from the C string `buf`,
+ * in place. The old comment here ("append one classified character") had it
+ * backwards: it is a STRIP, not an append, which is why it read like a leaf
+ * worth deferring (#105).
+ *
+ * Faithful to the asm 0x0004..0x003e, 15 instructions: a read cursor over
+ * fp@(8) and a write cursor fp@(-4) both starting at buf; copy each byte that
+ * does NOT equal fp@(13) (the low byte of the word arg), then NUL-terminate at
+ * the write cursor.
+ *
+ * jt130 calls it once per byte of the 17-entry A5 -31268 table, which reads
+ * (decoded from the DATA image):
+ *
+ *     ' ' '=' '+' '<' '>' '"' '[' ']' '.' '*' ',' '?' '/' '\' ':' ';' '|'
+ *
+ * — i.e. the characters that are illegal or hostile in a filename. So jt130 =
+ * "strip all 17 from the design name, truncate to 8 (buf[8]=0), uppercase
+ * (jt405)" = the design's 8-char file basename. While this was a no-op the
+ * strip silently did nothing, so a design name containing a dot, space, colon
+ * or slash carried it straight into the basename. */
 static void l0004_c6(char *buf, short ch)
 {
+	char *dst = buf;
+
 	PROBE("l0004_c6");
-	(void)buf; (void)ch;
+	for (; *buf != 0; buf++) {
+		if (*buf != (char)ch)
+			*dst++ = *buf;
+	}
+	*dst = 0;
 }
 
-/* JT[130] (CODE 6+0x0040) — build the design's 8-char file basename
- * from the 17-byte -31268 name table (l0004_c6 per char, a leaf stub —
- * CODE 6's own L0004, NOT the CODE 4 menu dispatcher of the same
- * offset), truncate at 8, uppercase (jt405). Full body. */
+/* JT[130] (CODE 6+0x0040) — build the design's 8-char file basename: STRIP each
+ * of the 17 filename-hostile characters listed at A5 -31268 (' ' = + < > " [ ]
+ * . * , ? / \ : ; |) out of `buf` via l0004_c6, truncate at 8 (buf[8] = 0), and
+ * uppercase in place (jt405). l0004_c6 is CODE 6's own L0004 — NOT the CODE 4
+ * menu dispatcher at the same offset. Both halves are real bodies now: while
+ * l0004_c6 was a stub the strip silently did nothing and any of those 17
+ * characters in a design's name went straight into its basename (#105). */
 static void jt130(char *buf) __attribute__((unused));
 static void jt130(char *buf)
 {
@@ -75764,8 +75841,14 @@ static void jt274(void *a, void *b)
 	memcpy(b, tmp, 6);
 }
 
-/* L501e (CODE 7+0x501e) — position the list-dialog scroll at row
- * `n`. Leaf PROBE stub pending its own lift. */
+/* L501e (CODE 7+0x501e) — position the list-dialog scroll at row `n`.
+ * LIVE GAP: reachable jt226 <- jt325_tail <- jt325 <- the four record editors.
+ * ★ Read this next to #87. That fix made jt169 seed and store the list's top
+ * row from A5 -12656, which is the widget's MEMORY of where it is scrolled;
+ * this is the primitive that would actually MOVE it. So "scroll to row n" does
+ * nothing yet — a list can remember its position but cannot be programmatically
+ * scrolled to one. Worth checking whether any #87-adjacent symptom is really
+ * this. */
 static void l501e(long head, short n)
 {
 	PROBE("l501e");
@@ -76122,9 +76205,11 @@ static void l04a0(short a)
 /* L0370 (CODE 4 + 0x370) — the DEEP-MODE tile expansion: walk the library's
  * items (jt468 + JT[1003] header read, a JT[1] dispatch over the item-type
  * nibble) and rewrite each tile's pixels into the doubled 3-plane layout.
- * DEFERRED, and UNREACHABLE in the port: its only caller (jt1206) gates it on
- * jt1200()==3, which needs g_a5_2347==0 — the port sets 2347=1 (native). Lift
- * this only if the doubled deep mode is ever wired. */
+ * NOT-A-GAP: UNREACHABLE in the port. Its only caller (jt1206) gates it on
+ * jt1200()==3, which needs g_a5_2347==0 — and the port sets 2347=1 (native).
+ * ★ THAT IS THE GATE TO RE-CHECK: if g_a5_2347 ever becomes 0 on any target,
+ * this becomes a live gap the same day. Lift it only if the doubled deep mode
+ * is ever wired. */
 static void l0370(short group, long off)
 {
 	PROBE("L0370");
@@ -80881,6 +80966,11 @@ static void fc_cache_audit(void)
 	DisposePtr((Ptr)scratch);
 }
 #else
+/* NOT-A-GAP: the compiled-out arm of a DEBUG SELF-TEST, not engine behaviour.
+ * fc_cache_audit saves the FC cache, hammers it, checks invariants and restores
+ * it; the real body is above, under the same #ifdef. Its one call site sits in
+ * the boot self-test block next to glib_pool_selftest() and the .cch
+ * round-trip. An empty body in the default build is the point. */
 static void fc_cache_audit(void) { }
 #endif
 
