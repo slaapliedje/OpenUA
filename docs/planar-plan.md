@@ -3636,3 +3636,44 @@ REBUILDS, so aggregating the OFF log against the binary left behind by the ON
 build mis-attributes every address — it read 14.3% instead of 33.4%. Aggregate
 each arm's log against ITS OWN binary; `st_aggregate.py` takes the binary as
 its second argument for exactly this reason.
+
+## #124 THE BOOT, PROFILED — flat, and division is the top item
+
+86 s on an 8 MHz STE is the most user-facing number in the project and it had
+never been profiled with a trustworthy instrument (the old boot analysis used
+the phase timers #120 discredited). Window: program start to `menu: modal up`.
+
+| function | share of program cycles |
+|---|--:|
+| `__udivsi3` | **10.6%** |
+| `ui_glib_blit` | 10.0% |
+| `jt1007` | 8.3% |
+| `st_reband` | 7.8% |
+| `plat_ticks` | **5.8%** |
+| `l112c` | 5.5% |
+| `qd_planar_bridge_rect` | 5.2% |
+| `GetNextEvent` | 5.0% |
+| `fill_common` | 4.4% |
+| `unpackbits` | 3.9% |
+
+594.8M program cycles (74.2 s) plus **24.5% outside the program** — TOS, i.e.
+GEMDOS file I/O, which is expected for a load-heavy phase and mostly not ours.
+
+**The boot is FLAT.** No single item dominates the way `qd_nearest_color` did
+in the play loop; the cost is spread across art decode (`ui_glib_blit`,
+`unpackbits`, `fill_common`), the quantiser (`st_reband`) and division. That
+matters for expectations: there is no one change here worth 15x.
+
+**Two items stand out as worth chasing anyway:**
+
+1. **`__udivsi3` at 10.6%** — software DIVISION, and the exact shape of the
+   `__mulsi3` find that became `qd_nearest_color` and −20% of the play path.
+   The playbook already exists: `platform/mulprof.c` + `-Wl,--wrap`, which
+   names the call site in one run. libgcc's routine is not the problem; the
+   calls are. **This is the highest-confidence next step in the project.**
+2. **`plat_ticks` at 5.8%** — reading the system tick should not cost a
+   twentieth of the boot. That smells like a spin/poll loop rather than real
+   work, and it is cheap to check.
+
+`st_reband` at 7.8% is the quantiser and was already known to dominate parts of
+the boot; it is now sized honestly rather than by the phase timers.
