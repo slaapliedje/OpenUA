@@ -71,6 +71,60 @@ automap, new 3D view, compass re-reads N. FILE items, measured: OPEN.. y=89,
 SAVE 109, WRITE TO... 129, COPY FROM... 149, REVERT TO SAVED 169, GLOBAL INFO
 209, PRINT 229, LEAVE 268 (title x≈85, items x≈100).
 
+## ★ THE EDIT FIRES. THE SAVE CORRUPTS THE FILE. (#108, 2026-07-29)
+
+Driven live on HEIRS DUNGEON 01 (19x19), coverage probe on
+(`EXTRA_CFLAGS=-DFRUA_ENGINE_PROBE_ONCE`, read `data/work/gamedata/DBG.LOG`).
+
+**The click path works.** Clicking the **PLACE** button at (265, 439) — NOT a
+grid click; a click in the automap only fires `jt1080`, the blocked cue — logs
+exactly the lifted call order:
+
+```
+jt290 -> L0ee6 -> jt285 -> L05ca -> jt277 -> L0614 -> jt295 -> jt296
+      -> jt1150 -> jt213 -> L5752 -> jt321
+```
+
+i.e. capture the undo band (jt285 low nibble, l05ca wall), write both halves of
+the edge (jt277 = rec[10], l0614 = rec[12]), redraw the cell and the party
+marker. The automap repainted (1828 px changed). It took **l0ee6**, not l1240,
+because `l4900()` reports the editor LOCKED — reaching l1240 needs the main
+menu's UNLOCK EDITOR first.
+
+**But FILE -> SAVE produces a broken file.** `GEO005.DAT` after a save differs
+from the original in **exactly two bytes**, and they are the second half of the
+`FORM` magic:
+
+```
+offset 2: 0x52 0x4d  ('RM')  ->  0x84 0xef
+```
+
+Every other byte of the 12962 is identical — so the serialiser round-trips the
+whole area faithfully and then lands a stray 16-bit write at buffer offset 2,
+leaving a file that is no longer a valid FORM container. `tools/geo.py` and the
+engine's own loader both key on that magic.
+
+Two consequences, and one thing NOT established:
+
+- The save is a **data-loss bug**: an author who edits and saves gets an
+  unloadable area. Chain to audit: `l0742 -> l07c2 -> l0854 -> l0878 ->
+  l0ad0`/`l0a4e -> jt129`. `l0ad0` writes the tag as one 4-byte `jt406` from a
+  `long` parameter, which cannot half-fail, so the clobber is something else
+  writing a word at +2 — start by dumping the buffer immediately after
+  `l0ad0`'s FORM write.
+- It is **NOT from #107**: nothing in that save chain calls l1240 or l0ee6
+  (grep-checked), which are only reachable from jt290's tool-0 arm. This is a
+  code-path argument, not an A/B experiment.
+- **Whether the cell edit reached the buffer is still unknown.** The placed
+  value may simply have equalled what was already there — the panel read
+  obstruction OPEN / MOVEMENT BLOCKED, plausibly the cell's existing state — so
+  a correct save would also produce no cell-byte change. Re-run with a
+  distinctive obstruction (BLOCKED, or LOCKED KEY1) selected first.
+
+★ **BACK UP THE ONE GEO FILE BEFORE ANY SAVE TEST.** This run corrupted HEIRS'
+GEO005.DAT and restored it from a checksum-verified copy; without that backup
+the sample module would have been left unloadable.
+
 **★ l1240 + l0ee6 ARE LIFTED (#107) BUT NOT RUNTIME-VERIFIED.** Those two are
 the tool-0 click — the reason the editor could render and navigate but not EDIT.
 Both are now full lifts from the asm (CODE 22 0x1240..0x14d6 and
