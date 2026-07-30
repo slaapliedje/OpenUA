@@ -3305,3 +3305,72 @@ Whether any of these is worth doing is now a smaller question than it looks:
 the whole software-multiply population is 1/7 of what it was, so even
 eliminating `render_3d_faithful`'s share entirely is worth roughly a seventh of
 what `qd_nearest_color` was. Measure before building.
+
+## #117 THE ATARI-WINS SWEEP AGAINST THE AMIGA BACKENDS
+
+#116 found a **1.6x sitting unported for weeks** — Paula never got #96's
+silence gate. That is a process failure, not a one-off: a fix lands on the
+platform being profiled and nobody checks the other one. So every optimisation
+from this campaign was walked against `platform/amiga/`.
+
+| Atari win | Amiga status |
+|---|---|
+| **Silence gate (#96)** | **WAS MISSING → ported (#116), boot 203s → 125s, audio unchanged** |
+| **`memcmp` → long-wise row compare (#63)** | **WAS MISSING → ported here (3 sites in `display_ecs.c`)** |
+| `qd_nearest_color` squares table (#96 pt 2) | SHARED — `compat/quickdraw.c`, in the Amiga link line. Already had it |
+| Dirty-row / draw-time planar (ADR-0016) | Already on ECS + AGA |
+| #61 idle-present gate (`qd_dirty_any`) | SHARED — `boot.c` |
+| `hw_palette` (#99) | **ECS is INELIGIBLE, AGA is a NO-OP — see below** |
+| Timer-B raster split (#63) | ST hardware. The copper reloads per band for free; no analogue |
+| Viewport composite (#63) | ST-specific mechanism (`s_vp_scratch` + `planar_blit_stlow`). Amiga has none — a design question, not an unported fix |
+| AGA row-diffing vs a shadow | Deliberately not done, with reasons, in `display_aga.c` |
+
+### `hw_palette` — eligible is not the same as useful
+
+`display.h` says *"AGA looks eligible on the same argument but has NOT been
+measured or verified here."* Walking it:
+
+- **ECS is INELIGIBLE.** It quantises 256 colours to 32, so a plane value is a
+  BAND SLOT, not the index. Changing the CLUT changes which slot a pixel should
+  map to — the pixels genuinely do need re-rendering. `hw_palette = 1` there
+  would be a correctness bug, not an optimisation. (It already has its own
+  narrower answer: `ecs_repalette()` for the content-unchanged case.)
+- **AGA is eligible and it would still do nothing.** 8 planes = 256 colours,
+  remap is the identity, palette is in the copper — the TT's argument exactly.
+  But `aga_present` never consults the dirty-row list: it walks all `AGA_H` rows
+  unconditionally. The `qd_touch_all()` it would suppress costs AGA nothing, and
+  the #152 clean-present skip is `pages == 1` only, which AGA is not.
+
+**So the flag stays 0 on both, and now for a stated reason rather than for want
+of measurement.** Anyone re-reading `display.h`'s "AGA looks eligible" should
+stop here: the colour-model argument is sound, the work argument is not.
+
+### The row compare: mechanism confirmed, win NOT measurable here
+
+`memcmp` was the wrong primitive on the ST (93 cycles/byte against 30 for the
+same compare written long-wise; swapping it HALVED the full present). ECS still
+called it in three places — the present's row diff, the draw-time stamp check,
+and the full-surface `content_same` test.
+
+**Bebbo's `memcmp` is byte-wise too** — disassembled, it is the same
+`moveb`/`moveb`/`cmpb`/`beq` loop as MiNTLib's — so the 3x mechanism is real on
+this target and not an artefact of one libc.
+
+**But boot-to-menu did not move: 125 s before, 125 s after.** That is expected
+rather than disappointing, and this file already says why: the boot is the
+REBANDS, not the row diffing, and the ST measured this fix as ~13% of *play*
+time. There is no play-loop instrument on the Amiga (the phase counters are
+`FRUA_STPROF`, Atari-only), and a scripted key drive is sleep-bound by the
+driver's own pacing — the trap #96 recorded.
+
+**Kept on the ST's own precedent for its `content_same` swap: semantically
+identical, strictly cheaper in the worst case, not a win worth claiming.**
+Verified pixel-identical (0 of 408960, two independent frames) so it is at
+least provably free. A real figure needs an Amiga play-loop instrument, which
+is the honest next step for anyone wanting to bank it.
+
+★ **One build trap:** the helper first landed inside `#ifdef FRUA_PLANAR`,
+where the ECS 68000 build (which implies it) linked fine and the **AGA 020
+build did not** — two of the three call sites are outside that block. `static`
+plus a missing definition reads as `undefined reference`, not a compile error.
+Build every target, not the one you are measuring.

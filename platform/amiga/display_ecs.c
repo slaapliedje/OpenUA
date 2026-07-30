@@ -379,6 +379,36 @@ static void ecs_repalette(void)
 	memcpy(e_clut_quant, s_clut, sizeof e_clut_quant);
 }
 
+/* #117: "did this row change?" — the ST's st_row_differs, ported. `memcmp` is
+ * the wrong primitive on a 68000: timed back to back on the ST over the real
+ * 64000-byte surface it ran 93 cycles/byte against 30 for the same compare
+ * written long-wise, and swapping it HALVED the full present there (322 ->
+ * 168 t200, in-present 32.5% -> 19.1% of play). A bare ECS machine is a 7 MHz
+ * 68000 — slower than the STE that measurement came from.
+ *
+ * Both operands are AllocMem'd (>= 8-byte aligned) and ECS_W is 320, a
+ * multiple of 4, so every row start is long-aligned. That matters: an
+ * unaligned long read here would be an address error, not a slow path.
+ *
+ * Early-exits, like the ST's, so the common "differs in the first few words"
+ * case never scans the row. */
+static int ecs_row_differs(const unsigned char *a, const unsigned char *b,
+                           long bytes)
+{
+#ifdef FRUA_ROWDIFF_MEMCMP
+	return memcmp(a, b, (size_t)bytes) != 0;   /* A/B arm, one flag apart */
+#else
+	const long *p = (const long *)(const void *)a;
+	const long *q = (const long *)(const void *)b;
+	long        w, n = bytes / 4;
+
+	for (w = 0; w < n; w++)
+		if (p[w] != q[w])
+			return 1;
+	return 0;
+#endif
+}
+
 #ifdef FRUA_PLANAR
 /* --- draw-time plane path (ADR-0016 B4, ST-backend parity) ---------------
  *
@@ -422,6 +452,7 @@ static void remap_rect(short x, short y, short w, short h);
 
 /* Prepare row y of e_dt: NEW-INK scan, then skip (writer-stamped) or bridge
  * (remap + c2p the row into e_dt). Returns 1 if bridged. */
+
 static int ecs_dt_ready_row(short y)
 {
 	const unsigned char *crow = s_chunky + (long)y * ECS_W;
@@ -432,7 +463,7 @@ static int ecs_dt_ready_row(short y)
 		if (!e_used_idx[crow[x]])
 			e_new_ink++;
 	if (e_dt_rowcov[y] == ECS_W
-	    && memcmp(e_dt_idx + (long)y * ECS_W, crow, ECS_W) == 0)
+	    && !ecs_row_differs(e_dt_idx + (long)y * ECS_W, crow, ECS_W))
 		return 0;
 	remap_rect(0, y, ECS_W, 1);
 	for (p = 0; p < ECS_DEPTH; p++)
@@ -599,8 +630,8 @@ static void ecs_present(void)
 			dbg_log("ecs: quant skipped (CLUT unchanged)");
 			s_dirty = 0;
 		} else if (!s_force_full
-		           && memcmp(s_chunky, s_shadow,
-		                     (long)ECS_W * ECS_H) == 0
+		           && !ecs_row_differs(s_chunky, s_shadow,
+		                               (long)ECS_W * ECS_H)
 		           && !ecs_remap_split()) {
 			/* Content unchanged: remaps stay valid, only slot->RGB
 			 * moved — copper reload, no re-quant, no re-render. */
@@ -616,8 +647,9 @@ static void ecs_present(void)
 		for (p = 0; p < ECS_DEPTH; p++)
 			planes[p] = front + (ULONG)p * ECS_PITCH * ECS_H;
 		for (y = 0; y < ECS_H; y++) {
-			if (memcmp(s_chunky + (long)y * ECS_W,
-			           s_shadow + (long)y * ECS_W, ECS_W) == 0)
+			if (!ecs_row_differs(s_chunky + (long)y * ECS_W,
+			                     s_shadow + (long)y * ECS_W,
+			                     ECS_W))
 				continue;
 #ifdef FRUA_PLANAR
 			if (e_dt != NULL && s_have_pal) {
