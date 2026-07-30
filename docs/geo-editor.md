@@ -91,7 +91,51 @@ marker. The automap repainted (1828 px changed). It took **l0ee6**, not l1240,
 because `l4900()` reports the editor LOCKED — reaching l1240 needs the main
 menu's UNLOCK EDITOR first.
 
-**But FILE -> SAVE produces a broken file.** `GEO005.DAT` after a save differs
+### ROOT CAUSE FOUND, CORRUPTION STOPPED, SAVE STILL DOES NOT SAVE (#109)
+
+`l07c2` does `h = jt1004()` — the GEO arena at A5 -4582 — and hands `h` to the
+serialiser as `ctx`. `l0ad0`/`l0a4e` then take **`*(long *)ctx` as the write
+cursor**. But at save time that arena still holds the area file as LOADED
+(`jt127` reads it in at offset 0), so the "cursor" is the file's own first long:
+`'FORM'` = 0x464F524D, a bogus address. Every chunk write goes there (nowhere),
+the arena keeps the loaded copy untouched, and the cursor cell — which OVERLAPS
+the magic — is incremented by each chunk. Then `jt129` flushes the arena.
+
+The arithmetic is exact, which is what makes this certain rather than plausible:
+
+```
+8 + 8 + (8+0x122) + (8+0xd80) + (8+0x7d0) + (8+0x1c00) = 0x32A2 = 12962
+0x464F524D + 0x32A2                                    = 0x464F84EF
+observed first long after a save                       = 0x464F84EF
+```
+
+And the live guard printed the cursor it was handed: **1179603533 = 0x464F524D**,
+against arena 0x230DE8 size 37888. So the edit never failed — **the
+serialisation never landed in the arena at all**, which also answers #108's open
+question about the cell byte.
+
+**What is fixed:** `jt1002` now stores the arena size at A5 -4576 (Mac 0x2846,
+which the port had dropped), and `l0ad0` refuses to serialise through a cursor
+outside `[arena, arena+size)`. A save now leaves the file byte-identical instead
+of mangling it. **Deliberate divergence:** the Mac follows its "Unable to write
+geo in Save3DMap." alert with `JT[69]` = ExitToShell; on a guard trip the port
+alerts and returns instead, because killing the editor would cost the author
+every other unsaved area for what is a port bug. A genuine `l0854` failure still
+exits as the Mac does.
+
+**What is NOT fixed: saving still writes nothing.** Where the cursor is supposed
+to live is unresolved and must not be guessed — three readings conflict. The Mac
+pushes `jt1004()`'s VALUE (`L07c2` 0x07d8 is `movel %fp@(-8),%sp@-`, not `pea`),
+`jt1002` stores a raw `NewPtr` in -4582, and `jt129` flushes 12962 bytes from
+that same `h` — so the payload and the cursor cell want the same four bytes and
+one of the three must be wrong. Seeding `*(long *)h = h` is provably NOT the
+answer: the first tag write lands on the cursor cell and the next increment
+re-reads 'FORM'. Next step is to instrument the LOAD side (`l720a`) and see
+whether it leaves a cursor anywhere.
+
+Historical detail (the original measurement):
+
+**FILE -> SAVE produced a broken file.** `GEO005.DAT` after a save differed
 from the original in **exactly two bytes**, and they are the second half of the
 `FORM` magic:
 

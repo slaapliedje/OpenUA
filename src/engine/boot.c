@@ -997,6 +997,10 @@ static void  jt1002(long size)
 {
 	PROBE("jt1002");
 	g_a5_long(-4582) = jt421(size);
+	/* Mac 0x2846: `movel %fp@(8),%a5@(-4576)` — the arena SIZE, which the
+	 * port had been dropping. Restored for #109: it is the only bound the
+	 * Save-3D-Map writers can sanity-check their cursor against. */
+	g_a5_long(-4576) = size;
 }
 
 /* JT[1061] (CODE 5 + 0x6456, 38 sites) — _SwapMMUMode ($A05D) glue:
@@ -90033,6 +90037,41 @@ static short l2836(void *holder_v)
  * NOTE the jt406 Mac ABI is copy(SRC,dst) so the port call swaps to
  * jt406(dst=*ctx, src=&value).  Returns 1, or 0 if ctx / *ctx is null.  A leaf of
  * the l0878 GEO writer. */
+/* Set by the #109 cursor guard below so l07c2 can tell "the port refused to
+ * serialise" apart from a genuine disk write failure. */
+static unsigned char g_geo_save_refused;
+
+/* ★ #109 — THE SAVE-3D-MAP CURSOR GUARD. Not in the Mac; a data-loss stop.
+ *
+ * MEASURED: `FILE -> SAVE` in the map editor rewrote GEO005.DAT with its own
+ * previous contents plus a corrupted first long — 0x464F524D ('FORM') became
+ * 0x464F84EF, and 0x84EF - 0x524D is EXACTLY 0x32A2 = 12962, the sum of every
+ * cursor increment this file's chunk writers make (8 + 8 + 8+0x122 + 8+0xd80 +
+ * 8+0x7d0 + 8+0x1c00). That is not a coincidence, it is the mechanism:
+ *
+ *   l07c2 does `h = jt1004()` = the GEO arena (A5 -4582) and passes h as `ctx`.
+ *   l0ad0/l0a4e take `*(long *)ctx` as the write cursor. But at save time the
+ *   arena still holds the area file as LOADED (jt127 reads it in at offset 0),
+ *   so the "cursor" is the file's own first long — 'FORM' — a bogus address.
+ *   Every chunk write goes there (nowhere), the arena keeps the loaded copy
+ *   untouched, and the cursor cell (which OVERLAPS the magic) is bumped by the
+ *   full 12962. Then jt129 flushes the arena, writing the old bytes back with
+ *   a mangled magic. Nothing the author edited was ever serialised.
+ *
+ * WHAT IS STILL UNKNOWN is where the cursor is SUPPOSED to live. The Mac pushes
+ * jt1004()'s value (L07c2 0x07d8 `movel %fp@(-8),%sp@-`, not `pea`), jt1002
+ * stores a raw NewPtr in -4582, and jt129 flushes from that same h — so the
+ * payload and the cursor cell appear to want the same four bytes, and one of
+ * those three readings must be wrong. Do NOT guess: seeding `*(long *)h = h`
+ * is provably wrong (the first tag write lands on the cursor cell and the next
+ * increment re-reads 'FORM').
+ *
+ * So this guard does the one thing that is certainly correct: refuse to
+ * serialise through an implausible cursor. Returning 0 makes l0854 return -1,
+ * and l07c2 then takes the MAC'S OWN failure branch — l036a("Unable to write
+ * geo in Save3DMap.") + jt69 — instead of writing a broken file. An author
+ * gets the engine's error dialog and keeps their area. Remove this only
+ * together with a real fix for the cursor. */
 static short l0ad0(void *ctx_v, long tag, long len) __attribute__((unused));
 static short l0ad0(void *ctx_v, long tag, long len)
 {
@@ -90040,6 +90079,21 @@ static short l0ad0(void *ctx_v, long tag, long len)
 
 	if (ctx == NULL || *(long *)ctx == 0)                    /* 0x0ad4 / 0x0ade */
 		return 0;
+	{
+		unsigned long base = (unsigned long)g_a5_long(-4582);
+		unsigned long size = (unsigned long)g_a5_long(-4576);
+		unsigned long cur  = (unsigned long)*(long *)ctx;
+
+		if (base != 0 && size != 0
+		    && (cur < base || cur + (unsigned long)len > base + size)) {
+			g_geo_save_refused = 1;
+			dbg_log("GEO save REFUSED: arena cursor out of range");
+			dbg_log_num("  cursor  ", (long)cur);
+			dbg_log_num("  arena   ", (long)base);
+			dbg_log_num("  size    ", (long)size);
+			return 0;
+		}
+	}
 	jt406((void *)(uintptr_t)*(long *)ctx, &tag, (short)4);  /* 0x0af4 — tag */
 	*(long *)ctx += 4;                                       /* 0x0b00 */
 	jt406((void *)(uintptr_t)*(long *)ctx, &len, (short)4);  /* 0x0b10 — length */
@@ -90154,8 +90208,20 @@ static void l07c2(short num)
 
 	jt209((short)1);                                         /* 0x07ca */
 	h = jt1004();                                            /* 0x07d0 — write buffer */
+	g_geo_save_refused = 0;
 	if (l0854((void *)(uintptr_t)h) < 0) {                   /* 0x07dc — serialize */
 		l036a(ua_strs_at(0x2a42));                       /* 0x07ec — "Unable to write geo…" */
+		/* ★ DELIBERATE DIVERGENCE (#109). The Mac follows the alert with
+		 * JT[69], which is ExitToShell — correct for a real disk failure,
+		 * but this failure is the PORT'S OWN cursor guard tripping, and
+		 * killing the editor would cost the author every other unsaved
+		 * area too. So on a guard trip: alert, decline to write, and let
+		 * them carry on. A genuine l0854 failure still exits as the Mac
+		 * does. Revert this whole branch once the cursor is fixed. */
+		if (g_geo_save_refused) {
+			dbg_log("l07c2: save declined (guard) — NOT exiting");
+			return;
+		}
 		jt69();                                          /* 0x07f2 */
 	}
 	w = 12962;                                               /* 0x07f6 */
