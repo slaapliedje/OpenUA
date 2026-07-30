@@ -3478,3 +3478,44 @@ the ranked addresses are the top 400 by cycles, not the full set; and 12–19% o
 ranked cycles are TOS ROM, now reported separately rather than silently folded
 into the last program symbol (`__etext`) — which is what the first cut of
 `st_aggregate.py` did, and it read as 12–20% of "our" time.
+
+### #121 `qd_nearest_color` — the obvious caller is NOT the caller
+
+The cycle profile puts `qd_nearest_color` at **26–34% of the ST play loop**,
+second only to the present, and #96's squares table did not touch that: it
+removed the MULTIPLIES from the distance term, leaving a 256-entry linear scan
+per lookup.
+
+**The obvious suspect was `qd_rebake_color_pointer`** — 16 × `qd_nearest_color`
+= 4096 distance evaluations per call, invoked unconditionally from
+`qd_set_palette`, which #99 measured firing **more than once per present** (521
+touch_alls in 480 presents on the TT). `display_ecs.c` already carries an
+"identical CLUT would reproduce identical bands" guard for the engine's
+defensive re-installs, so hoisting that test into the shim looked free.
+
+**Measured A/B, one flag apart, identical windows, no key injection:**
+
+| arm | `qd_nearest_color` cycles |
+|---|--:|
+| gate OFF | 1,192,704,348 (33.8%) |
+| gate ON | 1,192,912,620 (33.8%) |
+
+**Identical to 0.02% — the guard does nothing, so it was reverted rather than
+shipped with a comment claiming it targeted a third of the play loop.** Either
+the engine's `qd_set_palette` traffic genuinely carries a changed CLUT every
+time, or the rebake is simply not where the calls come from. The remaining live
+callers are `RGBForeColor` and `RGBBackColor` (`compat/quickdraw.c` ~2502/2515),
+one scan each, called per colour change during text and UI drawing — which fits
+an idle play screen repainting its HUD. The PICT-decode sites are not on the
+play path.
+
+**Next step is an instrumented count, not another guess.** A return-address
+histogram over `qd_nearest_color` (the `FRUA_MULPROF` pattern) would name the
+caller in one run — and note that pattern's own trap: `__builtin_return_address`
+returns 0 under `-fomit-frame-pointer`, which the whole build uses.
+
+★ **Method note worth more than the negative result: the first before/after
+here was invalid** and looked like a 28% REGRESSION. The two runs differed in
+whether xdotool keys were injected, and under fast-forward host-paced keys land
+at unpredictable emulated times. Any A/B on this instrument must hold key
+injection constant — or inject none, as the arms above do.
