@@ -405,17 +405,36 @@ shots)
 	# "garbage"/black-viewport captures that look like crashes but aren't).
 	# Grab repeatedly until two consecutive frames settle (pixel diff below
 	# THRESH), so we only save a fully-rendered frame. Falls back to the last
-	# grab on timeout. Usage: shots <out.png> [thresh=200] [maxtries=30]
+	# grab on timeout.
+	# Usage: shots <out.png> [thresh=200] [maxtries=30] [gap=0.4]
+	#
+	# ★ STABLE IS NOT SETTLED, and GAP is how you tell them apart (#106).
+	# This loop declares success after ONE quiet interval of `gap` seconds. That
+	# is right for a progressive repaint (the slow full-screen c2p), and WRONG
+	# for a screen that goes quiet in the middle of its build: the editor's area
+	# picker paints its plates, then spends ~2 s enumerating each area's header
+	# with the frame PERFECTLY STILL, then paints the rows. At gap=0.4 this
+	# returns the half-built dialog and reports stable=1 — which is how #101
+	# concluded "the entry picker draws an empty list" and asserted it was "not a
+	# timing artefact: the frame was stable". It was stable. It was not finished.
+	#
+	# No pixel heuristic can distinguish "quiet because done" from "quiet because
+	# busy with I/O", and there is no log marker for this dialog. So when you
+	# screenshot anything that loads files as it opens, RAISE THE GAP past the
+	# I/O: `shots out.png 200 30 2` needs two grabs 2 s apart to match, which the
+	# mid-build frame cannot do because the rows land in between. Cheap insurance
+	# — and if a dialog ever needs more than that, grab twice by hand and diff.
 	OUT="${1:-/tmp/frua-shot.png}"
 	THRESH="${2:-200}"
 	TRIES="${3:-30}"
+	GAP="${4:-0.4}"
 	WID="$(cat "$STATE/wid" 2>/dev/null)" || WID="$(find_window)"
 	PREV="$STATE/shotprev.png"
 	CUR="$STATE/shotcur.png"
 	im_grab "$WID" "$PREV"
 	stable=0
 	for _ in $(seq 1 "$TRIES"); do
-		sleep 0.4
+		sleep "$GAP"
 		im_grab "$WID" "$CUR"
 		[[ -f "$CUR" && "$(stat -c%s "$CUR")" -gt 2000 ]] || continue
 		d="$(im_compare "$PREV" "$CUR" \
@@ -476,7 +495,7 @@ quit)
 	echo "hatari_ui: quit"
 	;;
 *)
-	die "usage: start | wait <regex> [n] [timeout] | key <keysym>... | dbg <debugger-cmd> | shot <png> | shots <png> [thresh] [tries] | dump [png] | log | quit | stop
+	die "usage: start | wait <regex> [n] [timeout] | key <keysym>... | dbg <debugger-cmd> | shot <png> | shots <png> [thresh] [tries] [gap] [thresh] [tries] | dump [png] | log | quit | stop
   env: HATARI_BIN=hrdb (tattlemuss debugger fork)  READY_MARKER=<regex>|-  READY_TIMEOUT=<s>"
 	;;
 esac

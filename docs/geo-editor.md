@@ -58,12 +58,38 @@ which is how these were measured, since the open menu can then be screenshotted.
 
 **Getting in:** main menu `E` → picker → `click` OPEN at (62, 439) → the canvas.
 
-★ **THE ENTRY PICKER'S LIST IS EMPTY — the old claim here that it "shows
-OVERLAND 01..04 then DUNGEON 01.." is WRONG** (re-driven 2026-07-29, #101, with
-10 designs installed and 11 areas in HEIRS: zero rows drawn, just the header,
-the MAP EDITOR / design / area caption and OPEN|CANCEL). So on entry OPEN can
-only accept the current area — which is why this recipe works at all, and why
-the mistake went unnoticed. The list that IS populated is the in-editor one:
+★★ **THE ENTRY PICKER IS FINE — AND #101's "IT IS EMPTY" WAS A SCREENSHOT
+TAKEN TOO EARLY** (#106, settled 2026-07-30). It draws all 11 rows (OVERLAND
+01-04, DUNGEON 01-07) with the current row highlighted and a working scrollbar.
+The history is worth keeping because the mistake is subtle and cost two entries
+in this file saying opposite things:
+
+- This doc first said the list was populated. #101 re-drove it, saw no rows, and
+  overwrote that with "the list IS EMPTY" plus the explicit reasoning **"it is
+  not a timing artefact: the frame was stable."**
+- The frame *was* stable. It was not *finished*. The dialog builds in stages —
+  bare plates, then chrome/caption/buttons, then the row body — and between the
+  stages it spends ~2 s enumerating each area's header with the screen
+  PERFECTLY STILL. `shots` declares a frame settled after ONE quiet interval of
+  0.4 s, so it returned the half-built dialog and printed `stable=1`.
+- Proved by bisection, not argument: the #101-era binary (`b6c1acf3`) and HEAD
+  produce **pixel-identical** frames both at t=0 (bare plates) and at t=6 s
+  (full list) — 0 differing pixels at each. Nothing was ever broken and no
+  commit fixed it. t=0 vs t=6 differ by 39,180 pixels.
+- Reproducible on demand: `shots out.png` right after `key e` returns the
+  half-built frame; `shots out.png 200 30 2` (a 2-second gap, see below)
+  returns the full list, pixel-identical to the settled frame.
+
+★ **THE HARNESS LESSON, which generalises past this dialog: STABLE IS NOT
+SETTLED.** No pixel-stability heuristic can tell "quiet because finished" from
+"quiet because busy with I/O", and this dialog emits no log marker to wait on
+(`menu: modal up` comes from `menu_run`; a Toolbox modal never logs it). So when
+screenshotting anything that loads files as it opens, raise `shots`' fourth
+argument — the GAP — past the I/O: two grabs 2 s apart cannot both match a
+mid-build frame, because the rows land in between. Default stays 0.4 s for the
+progressive-repaint case it was written for.
+
+For switching areas the in-editor route is still the more useful one:
 
 **Switching areas:** inside the editor, `click` FILE at (85, 68) to drop the
 pulldown, then `drag 85 68 100 89` onto **OPEN..** — that pops the same dialog

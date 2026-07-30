@@ -99,6 +99,8 @@ D=.claude/skills/run-falcon-port/driver.sh
 "$D" dump /tmp/frua.png    # PREFERRED screenshot: Hatari's OWN screendump (clean,
                            #   cropped, no X grab; robust in fullscreen). See below.
 "$D" shots /tmp/frua.png   # X-grab screenshot (waits for the frame to settle)
+"$D" shots /tmp/f.png 200 30 2   # ...with a 2s GAP: for dialogs that load files
+                                 #   as they open (see the STABLE IS NOT SETTLED gotcha)
 "$D" key e                 # send keystrokes — MENU HAS LETTER ACCELERATORS (e=Edit
                            #   Modules, p=Play); inside dialogs n=NEXT, p=PREV
 "$D" click 150 298         # click a display pixel (works: --mousewarp no). See Gotchas
@@ -334,6 +336,25 @@ brought up Xvfb, e.g. `DISPLAY=:99 make test-slow`.
   known P1 bug that **never existed**. For anything transient use **`shot`**
   (immediate) ~1s after the keypress, and build `-DFRUA_MSGTRACE` to log the
   exact string and the dwell. `shots` remains correct for STATIC screens.
+- **★★ AND THE MIRROR FAILURE: `shots` CALLS A HALF-BUILT SCREEN "STABLE".**
+  The one above is `shots` grabbing too LATE; this is it grabbing too EARLY, and
+  it cost the tracker a phantom bug (#106) for three days. `shots` declares the
+  frame settled after ONE quiet interval of **0.4 s**. A dialog that loads files
+  as it opens goes quiet IN THE MIDDLE of its build: the map editor's area picker
+  paints its plates, spends ~2 s enumerating each area's header with the screen
+  perfectly still, then paints the rows. `shots` returns the empty-bodied dialog
+  and prints `stable=1`. That is how "the ENTRY picker draws an empty list"
+  became a filed bug complete with the reasoning *"it is not a timing artefact:
+  the frame was stable"* — the frame was stable, it was not FINISHED. Bisection
+  settled it: the accusing binary and HEAD are pixel-identical at t=0 and at
+  t=6 s, so nothing was ever broken.
+  **STABLE IS NOT SETTLED.** No pixel heuristic can separate "quiet because done"
+  from "quiet because busy with I/O", and a Toolbox modal logs no `menu: modal
+  up` to wait on. So for anything that opens a file list, pass the GAP (4th arg):
+  `shots out.png 200 30 2` needs two grabs **2 s apart** to match, which a
+  mid-build frame cannot do because the rows land in between. Verified on this
+  exact dialog: gap 0.4 -> the half-built frame, gap 2 -> the full 11-row list,
+  pixel-identical to the settled one.
 - **`SDL_VIDEODRIVER=x11`** is load-bearing for screenshots; the harness sets it.
 - Boot speed varies with host load (~12s here at `--fast-forward`); the
   "Your system is too slow … sound samples" warning is cosmetic.
