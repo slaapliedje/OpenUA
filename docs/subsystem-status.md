@@ -16,17 +16,27 @@ next target. It is the index over the queue of `docs/*-wall.md` scope docs.
   source of truth for numbers; rerun `python3 tools/jt_progress.py`).
 - Counts as of **2026-07-30** (regenerate: `python3 tools/jt_progress.py`,
   `python3 tools/stub_audit.py --stubs`): **1201 done / 1 stub / 4 missing** of
-  1206 JT entries (1072 lifted + 54 noop + 75 alias). Stub bodies: 54 total —
-  38 faithful no-ops + 5 platform rulings, **3 live gaps**, 8 uncalled. They are
-  named with their reachability and consequence in `docs/enhancements.md`.
-  `l1240` (the map editor's wall-pencil) closed in #108; `l341a` was never a gap
-  at all (#111 — its guard is unreachable, and the "every save as picks nothing"
-  claim was false). The three left are `l4e8a`, `l501e` and `jt1150`.
+  1206 JT entries (1072 lifted + 54 noop + 75 alias). Stub bodies: 52 total —
+  39 faithful no-ops + 5 platform rulings, **0 live gaps**, 8 uncalled.
+  `--arms`: 0 deferred, 0 bare case.
+- ⚠️ **This is the FOURTH "0 live gaps" and the first three were artefacts** —
+  see the table in `docs/enhancements.md` for how each of the five was settled.
+  What is different: none was closed by the tool changing its mind. #108 lifted
+  two; #111 enumerated all four `JT[392]` call sites and showed `l341a`'s guard
+  unreachable; #112/#113 lifted `l4e8a`/`l501e` (the add/delete pair of the
+  6-bit string pool — NOT the "lookup" and "list scroll" their comments
+  claimed) with a round-trip harness; #114 read `jt1150`'s Mac body and found
+  `linkw/unlk/rts`. **A zero still means no reachable PROBE stub body, NOT
+  feature-complete.**
 - ★ **A THIRD stub_audit parser bug (#111): a TRAILING comment on a `return`
   made a stub body read REAL.** It hid two more bodies, both benign — but it
   could have hidden a live gap. Fixed + pinned by four regression tests. Treat
-  every count on this page as regenerate-only; that is now three separate
-  parser faults in the optimistic direction.
+  every count on this page as regenerate-only; that is three separate parser
+  faults, all in the optimistic direction.
+- ★ **Four of the five stubs above were described by GUESSING from the name.**
+  Three of those descriptions were wrong outright, and the speculation is also
+  what kept `jt1150` on the books — a comment that claims a real function stops
+  `stub_audit` filing a stub where it belongs. Describe bodies you have read.
 - ★ **The "0 LIVE GAPS" this line used to carry was partly a TOOL BUG**, fixed
   in #103: `stub_audit`'s call counter treated every multi-line definition as
   its own forward declaration, so a multi-line stub with exactly one caller

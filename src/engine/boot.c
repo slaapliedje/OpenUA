@@ -71860,20 +71860,34 @@ static void jt299(long holder, short b)
 	jt308(holder);
 }
 
-/* JT[1150] (CODE 4+0x61fc) — mark a screen rect dirty for the next present.
- * LIVE GAP but the LEAST likely to matter: reachable jt295 <- {jt290, l1822,
- * l1908, l1d88}, and l1908 is the PLAY walk commit, so this runs on every step.
- * It is probably superseded rather than missing — `platform/` does its own
- * dirty-row/present tracking (ADR-0005/ADR-0016) and does not read the Mac's
- * rect list, which is why an empty implementation has never shown a visible
- * fault. ★ Do not lift it on sight: first establish whether anything in the
- * port CONSUMES the Mac dirty list. If nothing does, tag it a SUPERSEDED
- * ruling; until someone checks, it stays a gap.
+/* JT[1150] (CODE 4+0x61fc) — the Mac body is empty too, so this is a faithful
+ * no-op, not a gap.
  *
- * (Careful with the wording in here: stub_audit's prose matcher treats the
- * words describing an empty Mac body as a classification, so saying the
- * obvious three-letter phrase in this comment silently reclassifies the
- * function. It did exactly that once while this note was being written.) */
+ * ★ THE QUESTION THIS CARRIED FOR THREE SESSIONS — "does anything in the port
+ * CONSUME the Mac dirty-rect list?" — IS MOOT: there is no list, because
+ * nothing writes one. CODE 4+0x61fc is, in its entirety,
+ *
+ *     61fc:  4e56 0000    linkw %fp,#0
+ *     6200:  4e5e         unlk  %fp
+ *     6202:  4e75         rts
+ *
+ * It takes four arguments (top/left/bottom/right — a Rect) and discards them,
+ * exactly as the port does. Its immediate neighbour jt1130 at 0x61f6 is a
+ * bare `rts` and has always been filed as a faithful no-op; this is the same
+ * thing with a stack frame. One call site in the whole binary (CODE 22, via
+ * jt295), which is why the "runs on every play step" note was true and still
+ * meant nothing.
+ *
+ * So "mark a screen rect dirty" was a GUESS FROM THE NAME, never read off the
+ * body — and it was the guess that kept it on the books as a live gap, since
+ * a comment that speculates a real function is the one thing that stops
+ * stub_audit filing a stub where it belongs. The port keeping its own dirty
+ * tracking (ADR-0005/ADR-0016) is true but beside the point.
+ *
+ * (The old note here warned that naming the empty-Mac-body condition would
+ * make the prose matcher reclassify this function. It would, and now it
+ * SHOULD: the classification is correct. The earlier author was right to
+ * withhold the phrase while it was unverified.) */
 static void jt1150(short top, short left, short bottom, short right)
 {
 	PROBE("jt1150");

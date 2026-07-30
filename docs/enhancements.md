@@ -25,25 +25,45 @@ beta" (see the verification gap below), but no longer one with dead buttons.
 #105's triage and #111's trailing-comment fix):
 
 ```
-54 stub bodies
-  3 LIVE GAPS  (lifted code calls them — all reachable from a live root)
- 38 faithful no-ops    (the Mac body is empty too — leave them)
+52 stub bodies
+  0 LIVE GAPS
+ 39 faithful no-ops    (the Mac body is empty too — leave them)
   5 platform rulings   (NOT-A-GAP: — printed with their reason; verify the gate)
   8 uncalled gaps
   0 stale stub claims
 ```
 
-**The six #105 named, and what became of them** (#105 walked each caller chain;
-the ones still open are the last three rows):
+`--arms` agrees: 0 deferred, 0 bare case.
 
-| stub | reachable from | consequence |
+### ⚠️ This is the FOURTH "0 live gaps" — why this one is different
+
+The three before it were artefacts, and this file's own ★ block below explains
+two of them. So read the zero with the history in mind. What is different is
+that **none of the four was closed by the tool changing its mind** — each was
+resolved by reading the Mac body or enumerating call sites, and the counting
+bug that depressed the earlier zeros is fixed and pinned by regression tests:
+
+| stub | verdict | how it was settled |
 |---|---|---|
-| ~~`l1240`~~ | `jt290 ← … ← l28d4 ← jt243 ← l0096` | ✅ **CLOSED (#108)** — the wall-pencil click writes; the edit fires |
-| ~~`l0ee6`~~ | same chain | ✅ **CLOSED (#108)** |
-| ~~`l341a`~~ | `jt392 ← … ← jt315` | ⛔ **NOT A GAP — the row was wrong (#111).** See below |
-| `l4e8a` | `jt230 ← jt325_tail ← jt325` | every record editor answers "not found" to the −13038 lookup (#88's table) |
-| `l501e` | `jt226 ← jt325_tail ← jt325` | "scroll list to row n" does nothing. Read with #87: that stored the position, this would move it |
-| `jt1150` | `jt295 ← l1908` (play walk) | mark-rect-dirty. Probably SUPERSEDED by `platform/`'s own dirty tracking — check whether anything consumes the Mac list before lifting |
+| ~~`l1240`~~ / ~~`l0ee6`~~ | ✅ lifted (#108) | the wall-pencil click writes; the edit fires |
+| ~~`l341a`~~ | ⛔ never a gap (#111) | all 4 `JT[392]` call sites enumerated — the `'%'` guard is unreachable |
+| ~~`l4e8a`~~ | ✅ lifted (#112) | it ADDS a pooled string; 9-case write→read round-trip, 0 mismatches |
+| ~~`l501e`~~ | ✅ lifted (#113) | it DELETES one; freed bytes match to the byte, freed slot is reused |
+| ~~`jt1150`~~ | ⛔ faithful no-op (#114) | the Mac body is `linkw/unlk/rts` — read, not inferred |
+
+**Two of the five were never gaps, and both were mislabelled the same way: a
+comment that GUESSED a function from its name.** "Every save as picks nothing",
+"the −13038 record lookup", "position the list-dialog scroll at row n",
+"mark a screen rect dirty" — four descriptions, none of them read off the body,
+and three of them wrong. `l4e8a` and `l501e` turned out to be the add/delete
+pair of the 6-bit string pool, with no lookup and no list anywhere near them.
+A speculative comment is worse than none: it is also the one thing that keeps
+`stub_audit` from filing a stub where it belongs, which is precisely how
+`jt1150` stayed on the books for three sessions.
+
+The residual risk is unchanged and worth restating: **a zero here means no
+PROBE stub body is reachable, not that the port is feature-complete.** Read it
+with the `--arms` count and with the caveat block further down.
 
 ### ★ `l341a` — "every save as picks nothing" was FALSE, and so was "live gap"
 
