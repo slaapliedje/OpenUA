@@ -1714,6 +1714,13 @@ void PenPat(const Pattern *pat)
  */
 static dsp_color_t g_palette[256];
 
+#ifdef FRUA_NCPROF
+/* #123: qd_set_palette's `count` distribution. Incremental rebaking is only
+ * worth building if partial writes are common — one counter decides it. */
+static unsigned long nc_sp_calls, nc_sp_count_sum, nc_sp_full;
+static unsigned long nc_sp_b16, nc_sp_b32, nc_sp_b64, nc_sp_b128, nc_sp_b255;
+#endif
+
 void qd_set_palette(const RGBColor *colors, short first, short count)
 {
 	const dsp_backend_t *dsp;
@@ -1724,6 +1731,16 @@ void qd_set_palette(const RGBColor *colors, short first, short count)
 		return;
 	if (first >= 256 || count > 256 || first + count > 256)
 		return;
+#ifdef FRUA_NCPROF
+	nc_sp_calls++;
+	nc_sp_count_sum += (unsigned long)count;
+	if (count == 256)     nc_sp_full++;
+	else if (count <= 16) nc_sp_b16++;
+	else if (count <= 32) nc_sp_b32++;
+	else if (count <= 64) nc_sp_b64++;
+	else if (count <= 128) nc_sp_b128++;
+	else                  nc_sp_b255++;
+#endif
 	for (i = 0; i < count; i++) {
 		tmp[i].r = (unsigned char)(colors[i].red   >> 8);
 		tmp[i].g = (unsigned char)(colors[i].green >> 8);
@@ -1822,6 +1839,15 @@ void nc_prof_dump(void)
 	for (i = 0; i < NC_SLOTS; i++)
 		if (nc_used[i])
 			sum += nc_hit[i];
+	dbg_log_num("b123sp: set_palette   = ", (long)nc_sp_calls);
+	dbg_log_num("b123sp:   count==256  = ", (long)nc_sp_full);
+	dbg_log_num("b123sp:   count<=16   = ", (long)nc_sp_b16);
+	dbg_log_num("b123sp:   count<=32   = ", (long)nc_sp_b32);
+	dbg_log_num("b123sp:   count<=64   = ", (long)nc_sp_b64);
+	dbg_log_num("b123sp:   count<=128  = ", (long)nc_sp_b128);
+	dbg_log_num("b123sp:   count<=255  = ", (long)nc_sp_b255);
+	dbg_log_num("b123sp:   mean count  = ",
+	            nc_sp_calls ? (long)(nc_sp_count_sum / nc_sp_calls) : 0L);
 	dbg_log_num("b122nc: total calls   = ", (long)nc_calls);
 	dbg_log_num("b122nc: histogram sum = ", (long)sum);   /* must ~= total */
 	dbg_log_num("b122nc: collisions    = ", (long)nc_collide);

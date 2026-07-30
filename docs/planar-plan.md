@@ -3558,3 +3558,38 @@ writes all 256, the idea dies, and that is one counter, not a rewrite.
 take it in `qd_nearest_color` and pass it in. And the builtin returns 0 under
 `-fomit-frame-pointer`, which the whole build carries, so the Makefile adds
 `-fno-omit-frame-pointer` to that one object under `FRUA_NCPROF`.
+
+### #123 `count` DISTRIBUTION — 98% of palette writes touch <= 16 entries
+
+The one counter that decides whether incremental rebaking is worth building:
+
+| `qd_set_palette` calls | 3,279 |
+|---|--:|
+| `count == 256` (full) | **15** (0.5%) |
+| `count <= 16` | **3,214** (98.0%) |
+| `count <= 32` | 36 |
+| `count <= 64` | 3 |
+| `count <= 255` | 11 |
+| **mean count** | **8** |
+
+**The rebake scans 256 entries x 16 cursor colours = 4096 distance evaluations
+when, on average, EIGHT palette entries changed.** Nearly all of that work is
+re-deciding answers that provably cannot have moved.
+
+**The incremental form is exactly equivalent, not an approximation.** Keep
+`best_idx[c]` and `best_d[c]` per cursor colour. On a write of `[first,
+first+count)`:
+
+- if `best_idx[c]` is OUTSIDE the range, that entry's colour did not change, so
+  `best_d[c]` is still valid — only the changed entries can beat it, and
+  comparing the 16 colours against `count` entries is the whole job;
+- if `best_idx[c]` IS inside the range, its distance may have grown, so that
+  one colour needs a full rescan.
+
+At mean count 8, a colour's best falls in the changed window ~3% of the time,
+so a typical call costs `16*8` plus about half a full rescan — **roughly 256
+evaluations against 4096, a ~16x cut** on a function measured at **26-34% of
+the ST play loop**. Worth building, and the equivalence is provable rather than
+empirical, which is the right property for something in the cursor path.
+
+NOT BUILT HERE — this entry is the go/no-go measurement only.
