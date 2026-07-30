@@ -90033,56 +90033,53 @@ static short l2836(void *holder_v)
 
 /* L0ad0 (CODE 11 + 0x0ad0) — write one IFF chunk HEADER into the Save-3D-Map
  * output buffer: the 4-byte tag then the 4-byte length, advancing the write
- * cursor ctx[0] by 8.  ctx[0] is the current buffer pointer (jt406 memcpy dest);
+ * cursor *ctx by 8.  *ctx is the current write position (jt406 memcpy dest);
  * NOTE the jt406 Mac ABI is copy(SRC,dst) so the port call swaps to
  * jt406(dst=*ctx, src=&value).  Returns 1, or 0 if ctx / *ctx is null.  A leaf of
- * the l0878 GEO writer. */
+ * the l0878 GEO writer.
+ *
+ * ★ #110 — ctx IS A POINTER TO A POINTER, and the pointer it points at is
+ * l0878's OWN PARAMETER SLOT.  Mac L0878 0x0892 / 0x08b2 / 0x091c / … all push
+ * `pea %fp@(8)` — the ADDRESS of the by-value buffer argument — never
+ * `movel %fp@(8),%sp@-`.  So the cursor is a stack local that l0878 bumps as it
+ * writes, and the buffer itself is never used to store it.  Getting this wrong
+ * (passing the buffer pointer by value, so *ctx read the buffer's FIRST FOUR
+ * BYTES) is what made the port's save serialise through the loaded file's own
+ * 'FORM' magic — see the guard note below. */
 /* Set by the #109 cursor guard below so l07c2 can tell "the port refused to
  * serialise" apart from a genuine disk write failure. */
 static unsigned char g_geo_save_refused;
 
-/* ★ #109 — THE SAVE-3D-MAP CURSOR GUARD. Not in the Mac; a data-loss stop.
+/* ★ #109/#110 — THE SAVE-3D-MAP CURSOR BOUNDS GUARD. Not in the Mac; retained
+ * as a backstop over a bug that is now FIXED, because the failure mode was
+ * silent author data loss.
  *
- * MEASURED: `FILE -> SAVE` in the map editor rewrote GEO005.DAT with its own
- * previous contents plus a corrupted first long — 0x464F524D ('FORM') became
- * 0x464F84EF, and 0x84EF - 0x524D is EXACTLY 0x32A2 = 12962, the sum of every
- * cursor increment this file's chunk writers make (8 + 8 + 8+0x122 + 8+0xd80 +
- * 8+0x7d0 + 8+0x1c00). That is not a coincidence, it is the mechanism:
+ * The bug (#109 measured it, #110 root-caused it): the port passed l0878's
+ * buffer pointer to l0ad0/l0a4e BY VALUE, so `*(long *)ctx` read the first four
+ * bytes OF THE ARENA instead of a stack cursor. At save time the arena still
+ * holds the area file as LOADED (jt198 -> jt127 reads it in at offset 0), so the
+ * "cursor" was the file's own first long, 'FORM' = 0x464F524D. Every chunk write
+ * went to that bogus address, the arena kept the loaded copy untouched, and the
+ * cursor cell — which OVERLAPS the magic — was bumped by the full 12962. Then
+ * jt129 flushed the arena, writing the old bytes back with a mangled magic:
+ * observed 0x464F524D -> 0x464F84EF, and 0x84EF - 0x524D is EXACTLY 0x32A2 =
+ * 12962 = 8 + 8 + 8+0x122 + 8+0xd80 + 8+0x7d0 + 8+0x1c00, the sum of every
+ * cursor increment these writers make. Nothing the author edited was serialised.
  *
- *   l07c2 does `h = jt1004()` = the GEO arena (A5 -4582) and passes h as `ctx`.
- *   l0ad0/l0a4e take `*(long *)ctx` as the write cursor. But at save time the
- *   arena still holds the area file as LOADED (jt127 reads it in at offset 0),
- *   so the "cursor" is the file's own first long — 'FORM' — a bogus address.
- *   Every chunk write goes there (nowhere), the arena keeps the loaded copy
- *   untouched, and the cursor cell (which OVERLAPS the magic) is bumped by the
- *   full 12962. Then jt129 flushes the arena, writing the old bytes back with
- *   a mangled magic. Nothing the author edited was ever serialised.
- *
- * WHAT IS STILL UNKNOWN is where the cursor is SUPPOSED to live. The Mac pushes
- * jt1004()'s value (L07c2 0x07d8 `movel %fp@(-8),%sp@-`, not `pea`), jt1002
- * stores a raw NewPtr in -4582, and jt129 flushes from that same h — so the
- * payload and the cursor cell appear to want the same four bytes, and one of
- * those three readings must be wrong. Do NOT guess: seeding `*(long *)h = h`
- * is provably wrong (the first tag write lands on the cursor cell and the next
- * increment re-reads 'FORM').
- *
- * So this guard does the one thing that is certainly correct: refuse to
- * serialise through an implausible cursor. Returning 0 makes l0854 return -1,
- * and l07c2 then takes the MAC'S OWN failure branch — l036a("Unable to write
- * geo in Save3DMap.") + jt69 — instead of writing a broken file. An author
- * gets the engine's error dialog and keeps their area. Remove this only
- * together with a real fix for the cursor. */
-static short l0ad0(void *ctx_v, long tag, long len) __attribute__((unused));
-static short l0ad0(void *ctx_v, long tag, long len)
+ * The fix is in l0878: the cursor is its own parameter slot, taken by ADDRESS
+ * (Mac `pea %fp@(8)`). With that in place this guard can no longer trip — the
+ * cursor starts at the arena base and the image is exactly `size`-bounded. It
+ * stays because a future mis-lift here corrupts a design file rather than
+ * crashing, and that is the one class of bug worth paying a compare for. */
+static short l0ad0(unsigned char **ctx, long tag, long len) __attribute__((unused));
+static short l0ad0(unsigned char **ctx, long tag, long len)
 {
-	unsigned char *ctx = (unsigned char *)ctx_v;             /* fp@(8) */
-
-	if (ctx == NULL || *(long *)ctx == 0)                    /* 0x0ad4 / 0x0ade */
+	if (ctx == NULL || *ctx == NULL)                         /* 0x0ad4 / 0x0ade */
 		return 0;
 	{
 		unsigned long base = (unsigned long)g_a5_long(-4582);
 		unsigned long size = (unsigned long)g_a5_long(-4576);
-		unsigned long cur  = (unsigned long)*(long *)ctx;
+		unsigned long cur  = (unsigned long)(uintptr_t)*ctx;
 
 		if (base != 0 && size != 0
 		    && (cur < base || cur + (unsigned long)len > base + size)) {
@@ -90094,32 +90091,31 @@ static short l0ad0(void *ctx_v, long tag, long len)
 			return 0;
 		}
 	}
-	jt406((void *)(uintptr_t)*(long *)ctx, &tag, (short)4);  /* 0x0af4 — tag */
-	*(long *)ctx += 4;                                       /* 0x0b00 */
-	jt406((void *)(uintptr_t)*(long *)ctx, &len, (short)4);  /* 0x0b10 — length */
-	*(long *)ctx += 4;                                       /* 0x0b1c */
+	jt406(*ctx, &tag, (short)4);                             /* 0x0af4 — tag */
+	*ctx += 4;                                               /* 0x0b00 */
+	jt406(*ctx, &len, (short)4);                             /* 0x0b10 — length */
+	*ctx += 4;                                               /* 0x0b1c */
 	return 1;
 }
 
 /* L0a4e (CODE 11 + 0x0a4e) — write one full IFF chunk (header via l0ad0 then the
- * `len` bytes of `data`) into the Save-3D-Map buffer, advancing ctx[0]; if `len`
+ * `len` bytes of `data`) into the Save-3D-Map buffer, advancing *ctx; if `len`
  * is odd it appends a zero pad byte.  Returns 1, or 0 if ctx/*ctx null or the
- * header write fails.  A leaf of the l0878 GEO writer. */
-static short l0a4e(void *ctx_v, long tag, const void *data, long len) __attribute__((unused));
-static short l0a4e(void *ctx_v, long tag, const void *data, long len)
+ * header write fails.  A leaf of the l0878 GEO writer.  ctx is a pointer to the
+ * caller's cursor variable — see l0ad0's #110 note. */
+static short l0a4e(unsigned char **ctx, long tag, const void *data, long len) __attribute__((unused));
+static short l0a4e(unsigned char **ctx, long tag, const void *data, long len)
 {
-	unsigned char *ctx = (unsigned char *)ctx_v;             /* fp@(8) */
-
-	if (ctx == NULL || *(long *)ctx == 0)                    /* 0x0a52 */
+	if (ctx == NULL || *ctx == NULL)                         /* 0x0a52 */
 		return 0;
 	if (l0ad0(ctx, tag, len) == 0)                           /* 0x0a72 */
 		return 0;
-	jt406((void *)(uintptr_t)*(long *)ctx, data, (short)len);/* 0x0a90 — chunk data */
-	*(long *)ctx += len;                                     /* 0x0a9c */
+	jt406(*ctx, data, (short)len);                           /* 0x0a90 — chunk data */
+	*ctx += len;                                             /* 0x0a9c */
 	if (len & 1) {                                           /* 0x0aa2 — btst #0, odd len */
 		unsigned char pad = 0;                           /* fp@(-1) */
-		jt406((void *)(uintptr_t)*(long *)ctx, &pad, (short)1);  /* 0x0abc — pad */
-		*(long *)ctx += 1;                               /* 0x0ac8 */
+		jt406(*ctx, &pad, (short)1);                     /* 0x0abc — pad */
+		*ctx += 1;                                       /* 0x0ac8 */
 	}
 	return 1;
 }
@@ -90131,19 +90127,27 @@ static short l0a4e(void *ctx_v, long tag, const void *data, long len)
  * = g_a5_-13038, STRG<0x1c00> = g_a5_-13034.  The 8 HDR words at ds+272 are stored
  * big-endian: byte-swap them (jt1180) around the HDR write and swap back after.
  * JT[192]=l4e3a re-points the string cursors around the STRG write.  Returns 1 on
- * success, 0 on a null ctx or any chunk-write failure.  A leaf of l0854. */
+ * success, 0 on a null ctx or any chunk-write failure.  A leaf of l0854.
+ *
+ * ★ #110 — `cur` IS THE WRITE CURSOR AND IT LIVES HERE, in this frame. The Mac
+ * hands each chunk writer `pea %fp@(8)`, the address of its own by-value buffer
+ * argument, and lets them bump it. Do not pass the buffer pointer down by value:
+ * the writers would then use the BUFFER'S first four bytes as the cursor, which
+ * at save time are the loaded file's 'FORM' magic. That was the #109 data-loss
+ * bug. l07c2's copy of the pointer is unaffected, so its jt129 flush still
+ * starts at the true arena base. */
 static short l0878(void *ctx_v) __attribute__((unused));
 static short l0878(void *ctx_v)
 {
-	unsigned char *ctx = (unsigned char *)ctx_v;             /* fp@(8) */
+	unsigned char *cur = (unsigned char *)ctx_v;             /* fp@(8) — the cursor */
 	unsigned char *ds  = (unsigned char *)(uintptr_t)g_a5_long(-12300);
 	short idx;
 
-	if (ctx == NULL)                                         /* 0x087c */
+	if (cur == NULL)                                         /* 0x087c */
 		return 0;
-	if (l0ad0(ctx, 0x464f524dL, 0x329aL) == 0)               /* 0x0896 — 'FORM' */
+	if (l0ad0(&cur, 0x464f524dL, 0x329aL) == 0)              /* 0x0896 — 'FORM' */
 		return 0;
-	if (l0ad0(ctx, 0x414d4f44L, 0x3292L) == 0)               /* 0x08b6 — 'AMOD' */
+	if (l0ad0(&cur, 0x414d4f44L, 0x3292L) == 0)              /* 0x08b6 — 'AMOD' */
 		return 0;
 
 	for (g_a5_byte(-22307) = 0; (signed char)g_a5_byte(-22307) < 8;   /* 0x08c8 — swap HDR words */
@@ -90152,7 +90156,7 @@ static short l0878(void *ctx_v)
 		*(short *)(ds + idx * 2 + 272) = jt1180(*(short *)(ds + idx * 2 + 272));
 	}
 
-	if (l0a4e(ctx, 0x48445220L, ds, 0x122L) == 0) {          /* 0x0920 — 'HDR ' */
+	if (l0a4e(&cur, 0x48445220L, ds, 0x122L) == 0) {         /* 0x0920 — 'HDR ' */
 		for (g_a5_byte(-22307) = 0; (signed char)g_a5_byte(-22307) < 8;   /* 0x0932 — swap back */
 		     g_a5_byte(-22307)++) {
 			idx = (signed char)g_a5_byte(-22307);
@@ -90166,14 +90170,14 @@ static short l0878(void *ctx_v)
 		*(short *)(ds + idx * 2 + 272) = jt1180(*(short *)(ds + idx * 2 + 272));
 	}
 
-	if (l0a4e(ctx, 0x4d415020L, ds + 290, 0xd80L) == 0)      /* 0x09d4 — 'MAP ' */
+	if (l0a4e(&cur, 0x4d415020L, ds + 290, 0xd80L) == 0)     /* 0x09d4 — 'MAP ' */
 		return 0;
-	if (l0a4e(ctx, 0x454e4352L,                              /* 0x09f8 — 'ENCR' */
+	if (l0a4e(&cur, 0x454e4352L,                             /* 0x09f8 — 'ENCR' */
 	          (void *)(uintptr_t)g_a5_long(-13038), 0x7d0L) == 0)
 		return 0;
 
 	l4e3a((void *)(uintptr_t)g_a5_long(-13034));             /* 0x0a0c */
-	if (l0a4e(ctx, 0x53545247L,                              /* 0x0a24 — 'STRG' */
+	if (l0a4e(&cur, 0x53545247L,                             /* 0x0a24 — 'STRG' */
 	          (void *)(uintptr_t)g_a5_long(-13034), 0x1c00L) == 0) {
 		l4e3a((void *)(uintptr_t)g_a5_long(-13034));     /* 0x0a30 */
 		return 0;
@@ -90211,13 +90215,15 @@ static void l07c2(short num)
 	g_geo_save_refused = 0;
 	if (l0854((void *)(uintptr_t)h) < 0) {                   /* 0x07dc — serialize */
 		l036a(ua_strs_at(0x2a42));                       /* 0x07ec — "Unable to write geo…" */
-		/* ★ DELIBERATE DIVERGENCE (#109). The Mac follows the alert with
-		 * JT[69], which is ExitToShell — correct for a real disk failure,
-		 * but this failure is the PORT'S OWN cursor guard tripping, and
-		 * killing the editor would cost the author every other unsaved
-		 * area too. So on a guard trip: alert, decline to write, and let
-		 * them carry on. A genuine l0854 failure still exits as the Mac
-		 * does. Revert this whole branch once the cursor is fixed. */
+		/* ★ DELIBERATE DIVERGENCE (#109), kept as a backstop (#110). The
+		 * Mac follows the alert with JT[69] = ExitToShell, which is right
+		 * for a real disk failure. But if the PORT'S OWN bounds guard in
+		 * l0ad0 is what failed, that is a port bug, and killing the editor
+		 * would cost the author every other unsaved area on the way out.
+		 * So a guard trip alerts, declines to write, and lets them carry
+		 * on; a genuine l0854 failure still exits as the Mac does. With
+		 * the #110 cursor fix in place the guard should never trip — if
+		 * this branch is ever seen in DBG.LOG, the writers regressed. */
 		if (g_geo_save_refused) {
 			dbg_log("l07c2: save declined (guard) — NOT exiting");
 			return;

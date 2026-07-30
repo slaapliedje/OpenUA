@@ -29,9 +29,12 @@ below), but the editor's own mouse path is drivable.
 
 **Pulldown menus — the two traps.** Both cost a boot on 2026-07-26:
 
-- **A plain `click` on an already-open menu does NOT select.** Mac menus commit
-  on the mouse RELEASE inside the item, so you must `drag` from the menu title
-  to the item in one gesture. Clicking an open menu just moves the pointer.
+- **A plain `click` on an already-open menu does NOT select** *unless the item is
+  already highlighted.* Mac menus commit on the mouse RELEASE inside the item, so
+  `drag` from the menu title to the item. The `drag` alone often leaves the menu
+  open with the item highlighted; a following `click` on that highlighted item
+  then commits (this is the gesture the #110 save test used). A click on an
+  UNhighlighted open menu just dismisses it.
 - **`Escape` closes the whole EDITOR**, not just the open menu — it drops you
   back to the main menu and you have to walk in from `E` again.
 
@@ -71,7 +74,7 @@ automap, new 3D view, compass re-reads N. FILE items, measured: OPEN.. y=89,
 SAVE 109, WRITE TO... 129, COPY FROM... 149, REVERT TO SAVED 169, GLOBAL INFO
 209, PRINT 229, LEAVE 268 (title x≈85, items x≈100).
 
-## ★ THE EDIT FIRES. THE SAVE CORRUPTS THE FILE. (#108, 2026-07-29)
+## ★ THE EDIT FIRES AND THE SAVE WORKS (#108 / #109 / #110, 2026-07-29)
 
 Driven live on HEIRS DUNGEON 01 (19x19), coverage probe on
 (`EXTRA_CFLAGS=-DFRUA_ENGINE_PROBE_ONCE`, read `data/work/gamedata/DBG.LOG`).
@@ -91,7 +94,62 @@ marker. The automap repainted (1828 px changed). It took **l0ee6**, not l1240,
 because `l4900()` reports the editor LOCKED — reaching l1240 needs the main
 menu's UNLOCK EDITOR first.
 
-### ROOT CAUSE FOUND, CORRUPTION STOPPED, SAVE STILL DOES NOT SAVE (#109)
+### SAVE WORKS (#110) — the cursor is the writer's own parameter slot
+
+`l0878` hands each chunk writer **`pea %fp@(8)`** — the ADDRESS of its own
+by-value buffer argument — at 0x0892, 0x08b2, 0x091c, 0x09d0, 0x09f4 and 0x0a20.
+It is the ordinary `write_chunk(&p, tag, len)` idiom: the cursor is a stack local
+that `l0878` bumps as it writes, and the buffer's own bytes are never used to
+store it. The port had passed the buffer pointer down BY VALUE, so `*(long *)ctx`
+read the first four bytes OF THE ARENA — which at save time are the loaded file's
+`'FORM'` magic. That one instruction is the whole of #109 and #110.
+
+Fixing it reconciles all three readings that had looked contradictory:
+
+| reading | why it is fine |
+|---|---|
+| `l07c2` pushes `jt1004()`'s VALUE (0x07d8 `movel`, not `pea`) | correct — `l0878` is the one that takes an address, of its own copy |
+| `jt1002` stores a raw `NewPtr` (JT[421] -> JT[1028] = `_NewPtr`) in -4582 | correct — the arena is a plain buffer with no header |
+| `jt129` flushes 12962 bytes from that same `h` | correct — `l0878` mutated only its own stack slot, so `l07c2`'s `h` still points at the true base |
+
+1.2 is byte-identical here (only the JT permutation differs), so this was never
+a version issue.
+
+**Verified live on HEIRS, area 5 (`GEO005.DAT`), Falcon/TOS 4.04:**
+
+- `l0878: cur 2295572` == `arena 2295572` — the cursor starts at the arena base.
+- Every chunk written, no bounds-guard trip, no `ERRMODAL`.
+- The file is **12962 bytes** and the chunk walk is EXACT:
+  `FORM 0x329a / AMOD 0x3292 / HDR 0x122 @24 / MAP 0xd80 @322 / ENCR 0x7d0 @3786
+  / STRG 0x1c00 @5794` -> offset 12962 == EOF. Magic intact.
+- **Exactly ONE byte differs from the pre-save file**: offset 1301, `5 -> 0`.
+  That is MAP-relative 979 = cell 163, edge 1; at WD 19 cell 163 is A 8 / B 11.
+  So the writer round-trips the entire area faithfully and lands precisely the
+  one cell edge the author edited — nothing else moves.
+- Re-opening the area in the running editor loads it cleanly (full canvas,
+  automap, viewport; no reject, no alert).
+
+★ **`FILE -> SAVE` IS GATED ON `jt318()`, THE DIRTY FLAG** —
+`*(unsigned char *)g_a5_long(-11714)`. `l0742` returns immediately when it is 0,
+so **a save with no edit does nothing at all** and the files stay byte-identical.
+Do not read that as a passing round-trip: it is a non-event. Always click PLACE
+(`click 265 439`) first, then save, and confirm `jt318 == 1`. An hour went into
+"the save is broken again" that was only this gate. The trace to instrument is
+`l2dbe` (group/sub) -> `l0742` (num, jt318) -> `l0878`; the working menu gesture
+is `drag 85 67 100 109` (to highlight) then `click 100 109` — a click on an
+unhighlighted pulldown just dismisses it.
+
+★ **`dbg_log`/`dbg_log_num` go to the CONSOLE, not `DBG.LOG`** — only
+`dbg_file_*` writes the file (`platform/dbglog.c`: `SINK_CON` vs `SINK_FILE`).
+Read `/tmp/frua-ui/conout.log` (or `driver.sh log`) for `dbg_log` output. A stale
+`DBG.LOG` left over from an earlier session is easy to mistake for fresh
+evidence — check its mtime before believing it.
+
+The bounds guard from #109 stays as a backstop; with the cursor fixed it can no
+longer trip, so a `save declined (guard)` line in the log means the writers
+regressed.
+
+### How it was found (#109 — corruption stopped, cause not yet known)
 
 `l07c2` does `h = jt1004()` — the GEO arena at A5 -4582 — and hands `h` to the
 serialiser as `ctx`. `l0ad0`/`l0a4e` then take **`*(long *)ctx` as the write
@@ -123,15 +181,16 @@ alerts and returns instead, because killing the editor would cost the author
 every other unsaved area for what is a port bug. A genuine `l0854` failure still
 exits as the Mac does.
 
-**What is NOT fixed: saving still writes nothing.** Where the cursor is supposed
-to live is unresolved and must not be guessed — three readings conflict. The Mac
-pushes `jt1004()`'s VALUE (`L07c2` 0x07d8 is `movel %fp@(-8),%sp@-`, not `pea`),
-`jt1002` stores a raw `NewPtr` in -4582, and `jt129` flushes 12962 bytes from
-that same `h` — so the payload and the cursor cell want the same four bytes and
-one of the three must be wrong. Seeding `*(long *)h = h` is provably NOT the
-answer: the first tag write lands on the cursor cell and the next increment
-re-reads 'FORM'. Next step is to instrument the LOAD side (`l720a`) and see
-whether it leaves a cursor anywhere.
+At this point saving still wrote nothing, and where the cursor belonged looked
+unresolvable: the Mac pushes `jt1004()`'s VALUE, `jt1002` stores a raw `NewPtr`,
+and `jt129` flushes from that same `h`, so the payload and the cursor cell seemed
+to want the same four bytes. Seeding `*(long *)h = h` is provably NOT the answer
+(the first tag write lands on the cursor cell and the next increment re-reads
+'FORM'), and it was left alone rather than guessed at. **Resolved in #110 above:
+the missing piece was one addressing mode inside `l0878`, so none of the three
+readings had to be wrong.** The lesson worth keeping is that the contradiction
+was real evidence of a missing fourth fact, not a reason to pick a plausible fix
+for a data path.
 
 Historical detail (the original measurement):
 
@@ -159,11 +218,9 @@ Two consequences, and one thing NOT established:
 - It is **NOT from #107**: nothing in that save chain calls l1240 or l0ee6
   (grep-checked), which are only reachable from jt290's tool-0 arm. This is a
   code-path argument, not an A/B experiment.
-- **Whether the cell edit reached the buffer is still unknown.** The placed
-  value may simply have equalled what was already there — the panel read
-  obstruction OPEN / MOVEMENT BLOCKED, plausibly the cell's existing state — so
-  a correct save would also produce no cell-byte change. Re-run with a
-  distinctive obstruction (BLOCKED, or LOCKED KEY1) selected first.
+- **Whether the cell edit reached the buffer** was open here; #110 settled it —
+  the edit lands, and the saved file differs from the original in exactly the one
+  cell edge byte (offset 1301, cell 163 edge 1).
 
 ★ **BACK UP THE ONE GEO FILE BEFORE ANY SAVE TEST.** This run corrupted HEIRS'
 GEO005.DAT and restored it from a checksum-verified copy; without that backup
