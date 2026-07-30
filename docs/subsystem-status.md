@@ -110,7 +110,7 @@ working code never calls. **Demand-driven, not gaps — lift on demand, don't gr
 | **Treasure / vault / pickup** (picker, reward, vault I/O) | 19/20 | ✅ | `treasure-event-wall.md` — screen + reward + vault live; **jt933 TEMPLE SERVICES lifted + Hatari-verified 2026-07-12** |
 | **Tavern** (drink/listen/fight) | 20 | ✅ | `treasure-event-wall.md` (case 7 `l4f9a`) |
 | **Temple** (take-text/donate + **SERVICES**) | 20/12 | ✅ | `treasure-event-wall.md` — jt933 services screen + L46f6 payment gate LIVE (2026-07-12) |
-| **Inn** (`l398a`, case 29) | 20 | 🔴 | gated on rest (`jt957`); shell clean, core is camp |
+| **Inn** (`l398a`, case 29) | 20 | ✅ | STALE RED corrected 2026-07-30: `l398a` is lifted and wired at `l709e` case 29, is not in `stub_audit`'s stub set, and the inn/tavern pair was verified for v0.5.7 (#79/#80). The "gated on rest" note dated from before `jt957` landed |
 | **Rest / camp** (menu, REST action, clock/heal) | 21 | 🟡 | `code21-camp-wall.md` — menu + REST + MAGIC-menu lifted; spell screens stub |
 | **Spell memorization** (4 magic screens) | 21 | ✅ | `code21-camp-wall.md` — `l06d6`/`l0bc6`/`l0df2`/`l1374` + `l1e44` + Alter `l2d7e` stub |
 | **Inventory / item-list / equip** (sheet items, ITEMS/TRADE/DROP) | 9 + 19 | ✅ | `inventory-subsystem-wall.md` ← **NEXT FOCUSED TASK**. NB: `jt893` (ITEMS dispatcher) now has a structural body |
@@ -148,7 +148,7 @@ save A → Begin Adventuring. Remaining = render polish, not logic.
 | **Event pictures / portraits** (PIC/SPRIT/CPIC/bigpic) | 20/6/5 | 🟡 | `event-pictures-wall.md` — runtime pipeline (`l442e`→…→`l6e58`) FAITHFUL + works; 2 open bugs are composition-ordering + buffer-sharing, NOT palette math. CODE 10 = the picture EDITOR (deferred), not the runtime path |
 | **Audio / music / sound** (.slb engine) | 5/6 | ✅ | `audio-wall.md` — dispatch + bank-load lifted, every output leaf stubbed → MUTED. FRUA uses the Device Manager (`_Write`), NOT the Sound Manager. Falcon DMA HAL already exists; needs the engine→HAL glue. Multi-part |
 
-## 7. Editor / authoring tools  ✅ LIVE + menu-wired (map-editor area-load 🔴)
+## 7. Editor / authoring tools  ✅ LIVE + menu-wired + DRIVEN END-TO-END
 
 The authoring track is now LIVE (2026-07-11). jt315's selection dispatch is
 wired AND label-corrected (JT[452] index decode): all four editor menu items
