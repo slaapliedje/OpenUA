@@ -80,10 +80,34 @@ static short                 g_tone_amp;
 static UBYTE                 g_saved_led;       /* filter state to restore    */
 static int                   g_inited;
 
+/* #116: samples of silence already committed to the ring — see the gate in
+ * plat_sound_vbl. At >= RING_SAMPLES the whole ring is zeroes and there is
+ * nothing left to write. */
+static volatile long         g_quiet_run;
+
 static unsigned long rd_be32_p(const unsigned char *p)
 {
 	return ((unsigned long)p[0] << 24) | ((unsigned long)p[1] << 16)
 	     | ((unsigned long)p[2] << 8)  |  (unsigned long)p[3];
+}
+
+/* Is anything actually going to make a sound this frame? Cheap enough to run
+ * every vblank: four rate/wave pairs plus two counters. Mirrors the Falcon
+ * backend's synth_audible() exactly — same record, same fields. */
+static int synth_audible(void)
+{
+	const unsigned char *rec = (const unsigned char *)g_ft_rec;
+	int v;
+
+	if (g_tone_left > 0 || g_sfx_pos < g_sfx_len)
+		return 1;
+	if (rec == NULL)
+		return 0;
+	for (v = 0; v < 4; v++)
+		if (rd_be32_p(rec + FT_RATE(v)) != 0 &&
+		    rd_be32_p(rec + FT_WAVE(v)) != 0)
+			return 1;
+	return 0;
 }
 
 /* Render `n` samples of (4 wavetable voices + square tone + effect) into
@@ -156,6 +180,7 @@ int plat_sound_init(void)
 
 	g_ring_w    = RING_SAMPLES / 2;         /* start half a ring ahead */
 	g_ring_play = 0;
+	g_quiet_run = 0;                        /* #116: render from cold */
 	for (v = 0; v < 4; v++)
 		g_ft_phase[v] = 0;
 
@@ -293,6 +318,7 @@ void plat_sound_vbl(void)
 {
 	void (*hook)(void);
 	long lead, todo;
+	int  audible;
 
 	if (!g_ring_live)
 		return;
@@ -306,16 +332,53 @@ void plat_sound_vbl(void)
 		lead += RING_SAMPLES;
 	todo = (RING_SAMPLES / 2) - lead;       /* stay half a ring ahead */
 
-	while (todo > 0) {
-		long chunk = RING_SAMPLES - g_ring_w;
+	/* #116: DO NOT SYNTHESISE SILENCE — the Falcon backend's #96 gate,
+	 * ported. Paula loops the ring forever, so this refill runs every
+	 * vblank whether or not the game is making a sound, and FRUA is silent
+	 * for almost all of a session: the Atari instrumentation measured
+	 * 99.976% of rendered samples inaudible. Each one costs the per-sample
+	 * loop (voice tests, tone, effect, two clamps, a store) on a 7 MHz
+	 * 68000 with no cache, ~227 samples every frame, forever.
+	 *
+	 * Once the whole ring holds zeroes there is nothing left to write —
+	 * the DMA can loop it indefinitely and still play silence. So zero it
+	 * ONCE on the way quiet, then leave it alone until something becomes
+	 * audible again. g_quiet_run counts the silence already committed and
+	 * resets the instant a voice, tone or effect appears, which puts the
+	 * full synth back on the very next vblank. */
+	audible = synth_audible();
+	if (audible)
+		g_quiet_run = 0;                /* full synth resumes THIS vblank */
 
-		if (chunk > todo)
-			chunk = todo;
-		synth_render(g_ring + g_ring_w, chunk);
-		g_ring_w += chunk;
+#ifdef FRUA_SNDNOGATE
+	g_quiet_run = 0;                        /* A/B arm: gate disabled */
+#endif
+	if (!audible && g_quiet_run >= RING_SAMPLES) {
+		/* Hold the write point exactly half a ring ahead rather than
+		 * leaving it where it was. Letting it drift would make `lead`
+		 * wrap on the next audible frame, `todo` go negative, and the
+		 * refill never run again — silence that never recovers.
+		 *
+		 * This SKIPS THE REFILL, NOT THE FUNCTION: the sequencer hook
+		 * below is what arms the voices in the first place, so
+		 * returning early here would be a silence that cannot end. */
+		g_ring_w = g_ring_play + RING_SAMPLES / 2;
 		if (g_ring_w >= RING_SAMPLES)
-			g_ring_w = 0;
-		todo -= chunk;
+			g_ring_w -= RING_SAMPLES;
+	} else {
+		while (todo > 0) {
+			long chunk = RING_SAMPLES - g_ring_w;
+
+			if (chunk > todo)
+				chunk = todo;
+			if (!audible)
+				g_quiet_run += chunk;
+			synth_render(g_ring + g_ring_w, chunk);
+			g_ring_w += chunk;
+			if (g_ring_w >= RING_SAMPLES)
+				g_ring_w = 0;
+			todo -= chunk;
+		}
 	}
 
 	hook = s_vbl_hook;
