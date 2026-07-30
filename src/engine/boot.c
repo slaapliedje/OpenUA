@@ -67616,6 +67616,9 @@ static short jt228(void)
  * monster NAME at bytes 96..111, the design name — never come through here,
  * which is why that round-trip passed with this stubbed.) */
 static void jt196(long src, long dst);          /* = L4aee, the 6-bit packer */
+#ifdef FRUA_STRTEST
+static void jt226(long head, short n);          /* the delete half, for strtest_run */
+#endif
 static short l4e8a(long pool_l, long text_l)
 {
 	const char    *text = (const char *)(uintptr_t)text_l;
@@ -67726,6 +67729,57 @@ static void strtest_run(void)
 		}
 	}
 	dbg_file_num("STRTEST: mismatches=", (long)bad);
+
+	/* --- #113: delete (jt226 -> l501e) closes the gap the other way ---
+	 * Free two strings from the MIDDLE, then re-read every survivor. A
+	 * wrong count or a wrong direction in the closing memmove corrupts
+	 * everything above the hole, so the survivors above index 2 are the
+	 * real assertion. Then re-add into a freed slot: the length table
+	 * must hand back slot 2 and the pool must still read clean. */
+	{
+		short used_before = *(short *)((char *)pool + 4);
+		short reused;
+
+		jt226((long)(uintptr_t)pool, id[2]);   /* "ABC" */
+		jt226((long)(uintptr_t)pool, id[5]);   /* the 30-char one */
+		dbg_file_num("STRTEST: used before del=", (long)used_before);
+		dbg_file_num("STRTEST: used after  del=",
+		             (long)*(short *)((char *)pool + 4));
+		for (i = 0; i < 9; i++) {
+			if (i == 2 || i == 5 || id[i] <= 0)
+				continue;
+			back[0] = 0;
+			l4fbe(pool, (short)(id[i] - 1), back);
+			if (jt396(back, (char *)(uintptr_t)cases[i]) == 0) {
+				dbg_file_str("STRTEST: DEL FAIL want=", cases[i]);
+				dbg_file_str("STRTEST:          got =", back);
+				bad++;
+			}
+		}
+		reused = jt230((long)(uintptr_t)pool,
+		               (long)(uintptr_t)"REUSED SLOT");
+		dbg_file_num("STRTEST: re-add id=", (long)reused);
+		back[0] = 0;
+		if (reused > 0)
+			l4fbe(pool, (short)(reused - 1), back);
+		if (jt396(back, "REUSED SLOT") == 0) {
+			dbg_file_str("STRTEST: REUSE FAIL got =", back);
+			bad++;
+		}
+		/* and every earlier survivor must STILL be intact after the
+		 * re-add opened a gap inside the compacted pool */
+		for (i = 0; i < 9; i++) {
+			if (i == 2 || i == 5 || id[i] <= 0)
+				continue;
+			back[0] = 0;
+			l4fbe(pool, (short)(id[i] - 1), back);
+			if (jt396(back, (char *)(uintptr_t)cases[i]) == 0) {
+				dbg_file_str("STRTEST: POST FAIL want=", cases[i]);
+				bad++;
+			}
+		}
+		dbg_file_num("STRTEST: total mismatches=", (long)bad);
+	}
 }
 #endif
 
@@ -76219,22 +76273,59 @@ static void jt274(void *a, void *b)
 	memcpy(b, tmp, 6);
 }
 
-/* L501e (CODE 7+0x501e) — position the list-dialog scroll at row `n`.
- * LIVE GAP: reachable jt226 <- jt325_tail <- jt325 <- the four record editors.
- * ★ Read this next to #87. That fix made jt169 seed and store the list's top
- * row from A5 -12656, which is the widget's MEMORY of where it is scrolled;
- * this is the primitive that would actually MOVE it. So "scroll to row n" does
- * nothing yet — a list can remember its position but cannot be programmatically
- * scrolled to one. Worth checking whether any #87-adjacent symptom is really
- * this. */
-static void l501e(long head, short n)
+/* L501e (CODE 7+0x501e) — DELETE string `n` from a design's packed string
+ * table: close its gap, free its slot, shrink the used count. Full lift, and
+ * the exact counterpart of l4e8a (which opens the gap and fills it).
+ *
+ * ★ THE OLD COMMENT HERE ("position the list-dialog scroll at row n") WAS
+ * WRONG, in the same way and in the same cluster as l4e8a's was. There is no
+ * list and no scrolling anywhere in the body: it binds the string-table
+ * cursors with l4ab6 and edits the pool. The invitation to "read this next to
+ * #87" was chasing a resemblance between two things that have nothing to do
+ * with each other — #87 really is about the list widget's remembered top row.
+ *
+ *   size = lengths[n]                   its packed byte count
+ *   off  = l4a30(n)                     its offset in the packed data
+ *   jt406 closes the gap: everything above off+size slides DOWN by size
+ *   lengths[n] = 0                      the slot is free again
+ *   used -= size
+ *
+ * Out-of-range `n` is a silent no-op, as on the Mac. Note it does NOT clear
+ * -12324 the way l4e8a does — faithful; the Mac leaves that to the next
+ * l4ab6 rebind.
+ *
+ * The caller is the same jt325_tail write-back loop l4e8a serves, and the two
+ * make sense only together: when an edited field ALREADY holds a string id the
+ * loop frees the old text (here) before storing the new (l4e8a), and a cmd-5
+ * delete frees it outright. With this stubbed, every such free leaked its
+ * slot and its bytes — 400 slots and a fixed region, so a long editing
+ * session would eventually have hit l4e8a's -3/-2 and started refusing
+ * strings, with the abandoned-commit modal that follows from it. */
+static void l501e(long pool_l, short n)
 {
+	unsigned char *lt, *data;
+	short         *hdr;
+	short          size, off;
+
 	PROBE("l501e");
-	(void)head; (void)n;
+	l4ab6((void *)(uintptr_t)pool_l);
+	if (n < 0 || n >= 400)
+		return;
+	lt   = (unsigned char *)(uintptr_t)g_a5_long(-12314);
+	data = (unsigned char *)(uintptr_t)g_a5_long(-12318);
+	hdr  = (short *)(uintptr_t)g_a5_long(-12304);
+	size = (short)lt[n];
+	off  = l4a30(n);
+	/* Mac pushes (src, dst, n); jt406's port spelling is (dst, src, n) —
+	 * the 2026-07-14 argument-order audit's swap, as in l4e8a. */
+	jt406(data + off, data + off + size,
+	      (short)(hdr[2] - (off + size)));
+	lt[n] = 0;
+	hdr[2] = (short)(hdr[2] - size);
 }
 
-/* JT[226] (CODE 7+0x0200) — scroll the list dialog to 1-based row
- * `n` (L501e on n-1). Full call shape over the leaf stub. */
+/* JT[226] (CODE 7+0x0200) — free the 1-based string id `n` (L501e on
+ * n-1). Full call shape over the lifted body. */
 static void jt226(long head, short n) __attribute__((unused));
 static void jt226(long head, short n)
 {
