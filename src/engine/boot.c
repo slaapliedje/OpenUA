@@ -27031,6 +27031,10 @@ static void draw_title_panel(unsigned char *px, short pitch, short sw, short sh,
 	}
 }
 
+#ifdef FRUA_STRTEST
+static void strtest_run(void);   /* #112 l4e8a round-trip, defined by jt230 */
+#endif
+
 /* menu_run — the reusable DLItem menu runner shared by every menu screen.
  *
  * Restores the menu display state (jt1135 scale 2 + the UI palette), paints
@@ -27131,6 +27135,9 @@ static short menu_run(const menu_item_t *items, short n, void *proc,
 	qd_present();
 
 	dbg_log("menu: modal up");           /* harness readiness marker */
+#ifdef FRUA_STRTEST
+	strtest_run();                       /* #112: l4e8a write -> l4fbe read */
+#endif
 #ifdef FRUA_AUTOPLAY
 	{ extern volatile int g_ap_armed; g_ap_armed = 1; }  /* start the headless auto-drive */
 #endif
@@ -67569,19 +67576,87 @@ static short jt228(void)
 	return 0;
 }
 
-/* L4e8a (CODE 7+0x4e8a) — the -13038 record lookup jt230 wraps (returns a
- * 0-based index or < -1). LIVE GAP: reachable jt230 <- jt325_tail <- jt325 <-
- * the four record editors (jt250/jt251/jt253/jt263), so every record editor
- * currently answers "not found" to this query. -2 keeps jt230's contract
- * (-2 + no adjust = still negative) so nothing crashes, it just never finds.
- * NB -13038 is the same record table #88 fixed (a never-assigned static was
- * shadowing the A5 slot) — that unblocked the event editor; this is the lookup
- * over it. */
-static short l4e8a(long a, long b)
+/* L4e8a (CODE 7+0x4e8a) — ADD a string to a design's packed string table and
+ * return the slot it landed in. Full lift.
+ *
+ * ★ THE OLD COMMENT HERE ("the -13038 record lookup") WAS WRONG ON BOTH
+ * COUNTS, and it sent #105's triage down the wrong chain. The body never
+ * touches -13038: it works over the string-table cursors l4ab6 binds
+ * (-12322 base / -12304 header / -12314 length table / -12318 packed data),
+ * and it does not LOOK anything UP — it allocates a slot, opens a gap, and
+ * writes. The pool it edits is whatever the CALLER passes, which at the one
+ * live site is A5 -13034.
+ *
+ * This is the WRITE half of the 6-bit string subsystem whose read half
+ * (l4a30 offset / jt191=l4c88 unpack / l4fbe fetch) is already lifted, and
+ * the format is the one documented above l4a30: a 6-byte header (capacity
+ * at +0, bytes-used at +4), a 400-entry length table at +6 (one byte each,
+ * 0 = free slot, 255 = unused marker l4a30 skips), then the packed data
+ * at +406.
+ *
+ *   len  = strlen(text) + 1               the NUL is encoded too
+ *   size = (len * 3 + 3) / 4              4 chars pack into 3 bytes
+ *   slot = l4a30(free)                    byte offset of the free slot
+ *   jt406 opens a `size` gap at slot, jt196 (= L4aee, the packer — an
+ *   ALIAS, do not re-lift) writes the 6-bit form, the length table records
+ *   `size`, used += size, and -12324 (the "table is current" cache flag
+ *   l4ab6 also clears) is invalidated.
+ *
+ * Returns the 0-based slot, or -3 (all 400 slots taken), -2 (string longer
+ * than 255, or it would not fit the region), -1 (empty). jt230 wraps it into
+ * the 1-based string id the records store.
+ *
+ * WHAT THE STUB COST: its one caller is jt325_tail's field write-back loop,
+ * which does `id = jt230(pool, text)` for every edited string field and then
+ * `l06e0(desc, id)`. A negative id there is not "not found" — the loop reads
+ * it as a FULL string table: with `status == 1 && cmd != 0` it raises the
+ * L3876(256) error modal and ABANDONS the whole commit, and otherwise files
+ * the field as id 0, i.e. drops the text. So pooled string fields could not
+ * be edited at all. (The fixed-width in-record strings #102 verified — the
+ * monster NAME at bytes 96..111, the design name — never come through here,
+ * which is why that round-trip passed with this stubbed.) */
+static void jt196(long src, long dst);          /* = L4aee, the 6-bit packer */
+static short l4e8a(long pool_l, long text_l)
 {
+	const char    *text = (const char *)(uintptr_t)text_l;
+	unsigned char *lt;                      /* -12314 length table   */
+	unsigned char *data;                    /* -12318 packed data    */
+	short         *hdr;                     /* -12304 region header  */
+	short          len, size, free_i = -3, slot, i;
+
 	PROBE("L4e8a");
-	(void)a; (void)b;
-	return -2;
+	l4ab6((void *)(uintptr_t)pool_l);       /* bind/refresh the cursors */
+	len = (short)(jt423(text) + 1);
+
+	lt = (unsigned char *)(uintptr_t)g_a5_long(-12314);
+	for (i = 0; i < 400; i++)
+		if (lt[i] == 0) {
+			free_i = i;
+			break;
+		}
+
+	size = (short)((len * 3 + 3) / 4);
+
+	if (free_i == -3)
+		return -3;                      /* no free slot */
+	hdr = (short *)(uintptr_t)g_a5_long(-12304);
+	if (len > 255 || (short)(size + hdr[2]) > hdr[0])
+		return -2;                      /* too long, or the region is full */
+	if (len == 0)
+		return -1;                      /* jt423 said -1: nothing to store */
+
+	slot = l4a30(free_i);
+	data = (unsigned char *)(uintptr_t)g_a5_long(-12318);
+	/* Open the gap. The Mac pushes (src, dst, n) here; jt406's port
+	 * spelling is (dst, src, n) — the swap the 2026-07-14 argument-order
+	 * audit settled across all 141 sites. Physically: shift everything
+	 * from `slot` to the end of the used region UP by `size`. */
+	jt406(data + slot + size, data + slot, (short)(hdr[2] - slot));
+	jt196(text_l, (long)(uintptr_t)(data + slot));
+	lt[free_i] = (unsigned char)size;
+	hdr[2] = (short)(hdr[2] + size);
+	g_a5_byte(-12324) = 0;
+	return free_i;
 }
 
 /* JT[230] (CODE 7+0x0110) — l4e8a lookup with the 0-based -> 1-based
@@ -67596,8 +67671,64 @@ static short jt230(long a, long b)
 	w = l4e8a(a, b);
 	if (w >= -1)
 		w++;
+#ifdef FRUA_STRTEST
+	dbg_file_str("STRTEST: jt230 text=", (const char *)(uintptr_t)b);
+	dbg_file_num("STRTEST: jt230 id  =", (long)w);
+#endif
 	return w;
 }
+
+#ifdef FRUA_STRTEST
+/* #112 verification harness — pure diagnostic, writes to its OWN buffer and
+ * never touches the design's table. Adds several strings through the new
+ * l4e8a and reads every one back through the already-lifted l4fbe/l4c88, so
+ * a wrong pack, a wrong slot offset or a wrong gap-shift all show up as a
+ * mismatch. The strings are chosen so the LAST group is a partial one at each
+ * of the four phase positions (len%4 = 0..3) and so an early insert is
+ * followed by later ones — that is what exercises jt406's shift, which no
+ * single-string test would reach. */
+static void strtest_run(void)
+{
+	static char pool[7168];
+	static const char *const cases[] = {
+		"A", "AB", "ABC", "ABCD", "ABCDE",
+		"THE GOBLIN SNARLS AND ATTACKS!",
+		"", "^ LOOKS TIRED", "Z"
+	};
+	char  back[300];
+	short id[9];
+	short i, bad = 0;
+
+	(void)l4db4(pool, (short)sizeof pool);
+	for (i = 0; i < 9; i++) {
+		id[i] = jt230((long)(uintptr_t)pool,
+		              (long)(uintptr_t)cases[i]);
+		dbg_file_num("STRTEST: add id=", (long)id[i]);
+	}
+	/* read back AFTER every insert, so each string has had later ones
+	 * shifted in around it */
+	for (i = 0; i < 9; i++) {
+		if (id[i] <= 0) {
+			if (cases[i][0] != 0) {          /* "" may legally fail */
+				dbg_file_num("STRTEST: FAIL no id at ", (long)i);
+				bad++;
+			}
+			continue;
+		}
+		back[0] = 0;
+		l4fbe(pool, (short)(id[i] - 1), back);
+		if (jt396(back, (char *)(uintptr_t)cases[i]) == 0) {
+			dbg_file_str("STRTEST: FAIL want=", cases[i]);
+			dbg_file_str("STRTEST:      got =", back);
+			bad++;
+		} else {
+			dbg_file_str("STRTEST: ok  ", back);
+		}
+	}
+	dbg_file_num("STRTEST: mismatches=", (long)bad);
+}
+#endif
+
 
 /* JT[344] (CODE 8+0x54fa) — reset the menu registry: clear the menu
  * count (-10474) and the flag byte (-10473). Full lift (band 7). */
@@ -80461,6 +80592,9 @@ L2be6:
 
 	/* ---- Field write-back loop (L2daa): commit edited item strings ---- */
 	stg = (unsigned char *)(uintptr_t)g_a5_long(-11660);
+#ifdef FRUA_STRTEST
+	dbg_file_num("STRTEST: writeback nstr=", (long)*(short *)(stg + 456));
+#endif
 	for (i = 0; i < *(short *)(stg + 456); i++) {
 		short off;
 		desc[0] = 51;
