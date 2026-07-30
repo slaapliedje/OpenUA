@@ -43,22 +43,28 @@ def load_symbols(path):
 
 def main():
     text = open(LOG, errors='replace').read()
-    m = re.search(r'PROGRAM_TEXT:\s*0x([0-9a-f]+)', text)
+    m = re.search(r'PROGRAM_TEXT:\s*0x([0-9a-f]+)-0x([0-9a-f]+)', text)
     base = int(m.group(1), 16) if m else 0x018872
+    # ★ AND THE END. Without it every TOS ROM address (0xe0xxxx) lands past the
+    # last program symbol and is silently attributed to `__etext`, which read as
+    # 12-20% of "our" cycles. TOS is real work but it is not ours; count it
+    # separately so the program shares are shares OF THE PROGRAM.
+    top = int(m.group(2), 16) if m else 0x1199e6
 
     syms = load_symbols(BIN)
     if not syms:
         sys.exit('no symbols from %s — build without stripping' % BIN)
     addrs = [s[0] for s in syms]
 
-    agg, total = {}, 0
+    agg, total, other = {}, 0, 0
     for line in text.splitlines():
         m = re.match(r'^0x([0-9a-f]+)\s+[\d.]+%\s+(\d+)', line)
         if not m:
             continue
         a, cyc = int(m.group(1), 16), int(m.group(2))
-        if a < base:
-            continue                      # TOS / cartridge, not ours
+        if a < base or a > top:
+            other += cyc                  # TOS ROM / cartridge / outside .text
+            continue
         i = bisect.bisect_right(addrs, a - base) - 1
         name = syms[i][1] if i >= 0 else '?'
         agg[name] = agg.get(name, 0) + cyc
@@ -66,8 +72,10 @@ def main():
 
     if not total:
         sys.exit('no profile rows found — did the close breakpoint fire?')
-    print('cycles in the ranked addresses: %d (%.1f s at 8.02 MHz)\n'
+    print('program cycles in the ranked addresses: %d (%.1f s at 8.02 MHz)'
           % (total, total / 8021247.0))
+    print('outside the program (TOS ROM etc): %d (%.1f%% of ranked)\n'
+          % (other, 100.0 * other / (total + other) if total + other else 0))
     print('%-34s %14s %7s' % ('function', 'cycles', 'share'))
     for k, v in sorted(agg.items(), key=lambda x: -x[1])[:20]:
         print('%-34s %14d %6.1f%%' % (k, v, 100.0 * v / total))

@@ -3437,3 +3437,44 @@ still a 256-entry linear scan per lookup**, and it is now the second-largest
 consumer in the play loop. The right next question is not "make the scan
 faster" but "why is it called so often" — the same shape as the multiply find,
 where the win came from removing the calls rather than optimising the callee.
+
+### #120 RECONCILED — "3.7%" NEVER MEASURED THE DISPLAY LAYER
+
+Both instruments, same build, same drive, two windows.
+
+| | `b63play: display per 1000` | cycle profile: display + conversion |
+|---|--:|--:|
+| **walk-phase window** | **2–8** (0.2–0.8%) | **~71%** (`qd_pixmap_fill` 21.8 + `qd_planar_bridge_rect` 19.9 + `c2p4st_32` 16.1 + `st_c2p_span` 9.4 + `st_present` 4.4) |
+| **idle-at-play window** | **44–45** (4.4%) | **~75%** (`st_present` 24.6 + `c2p4st_32` 23.4 + `st_c2p_span` 20.2 + `dc_plane_bridge_span` 7.0) |
+
+**The counter swings 20x between the two windows while the cycle profile barely
+moves. It is not measuring what its name says.** Its source is one line:
+
+```c
+dbg_log_num("b63play: display per 1000= ", (sp_rect_t * 1000L) / wall);
+```
+
+`sp_rect_t` accumulates time inside **`st_present_rect` ONLY**. It excludes
+full presents (`st_present`), and it excludes `qd_pixmap_fill`,
+`qd_planar_bridge_rect` and the c2p entry points, which are where the cycles
+actually are. So the figure means "**the rect-present path's share of wall**",
+not "the display layer's share of play" — and on the walk that path is a small,
+highly variable slice.
+
+**#96's 3.7% was a different, better sum** — done by hand across three windows
+(`full presents 3575 + rect 1369 + composites 6719 of 317781 wall`) — so it did
+include full presents. But it landed at 3.7% because that drive contained only
+**48 full presents**, and it still omits the fill/bridge work. It was never
+wrong about what it added up; it was wrong as a statement about the play loop.
+
+**CONSEQUENCE: "the ST/STe display path is finished, there is nothing left to
+win" is RETRACTED.** It rested on 3.7%. Display and conversion are the dominant
+cost in both windows measured here. The `#96` claim that the two remaining
+pass-1 levers are "worth well under one percent" was derived from the same
+denominator and needs redoing.
+
+**Caveats, stated so the next person can attack them:** each window is one run;
+the ranked addresses are the top 400 by cycles, not the full set; and 12–19% of
+ranked cycles are TOS ROM, now reported separately rather than silently folded
+into the last program symbol (`__etext`) — which is what the first cut of
+`st_aggregate.py` did, and it read as 12–20% of "our" time.
