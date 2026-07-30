@@ -161,6 +161,13 @@ LDFLAGS += -Wl,--wrap=__mulsi3
 # site — which looks like a working histogram whose entries simply do not add
 # up to the total (2.9M calls against a top-24 summing to 13k).
 platform/mulprof.o: CFLAGS += -fno-omit-frame-pointer
+
+# #122: same reason as mulprof above — __builtin_return_address(0) returns 0
+# under -fomit-frame-pointer, which the default flags carry. Only this object
+# needs the frame pointer, and only when the histogram is compiled in.
+ifneq ($(findstring FRUA_NCPROF,$(EXTRA_CFLAGS)),)
+compat/quickdraw.o: CFLAGS += -fno-omit-frame-pointer
+endif
 endif
 
 # Engine bring-up probe: instrument the engine's stubs so each logs its name

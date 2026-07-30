@@ -3519,3 +3519,42 @@ here was invalid** and looked like a 28% REGRESSION. The two runs differed in
 whether xdotool keys were injected, and under fast-forward host-paced keys land
 at unpredictable emulated times. Any A/B on this instrument must hold key
 injection constant — or inject none, as the arms above do.
+
+### #122 THE HISTOGRAM NAMES IT: `qd_rebake_color_pointer`, 87.5% of calls
+
+`FRUA_NCPROF` (in `compat/quickdraw.c`, modelled on `platform/mulprof.c`) is a
+return-address histogram over `qd_nearest_color`. All three of mulprof's
+self-checks pass, which is what makes the ranking readable: **histogram sum ==
+total calls (60000), 0 collisions, 0 ZERO-ret**.
+
+| caller | calls | share |
+|---|--:|--:|
+| `qd_rebake_color_pointer` | 52,502 | **87.5%** |
+| `cursor_composite` (+0xfc) | 3,749 | 6.2% |
+| `cursor_composite` (+0x114) | 3,749 | 6.2% |
+
+**★ THIS DOES NOT CONTRADICT #121 — IT EXPLAINS IT.** #121 added a "skip the
+rebake if the CLUT did not change" guard and measured NO difference, and
+concluded the rebake was not the caller. It is the caller; the guard simply
+never fired, because **the CLUT genuinely changes on essentially every
+`qd_set_palette`**. Both measurements are true and the pair is more informative
+than either: the traffic is real, not defensive re-installs.
+
+So the cost is intrinsic to the current design: **16 lookups x a 256-entry scan
+= 4096 distance evaluations per rebake, ~3,281 rebakes in the window**, i.e.
+~13.4M scan iterations. Deferring the rebake to `cursor_composite` would NOT
+help — 3,281 rebakes against 3,749 composites is already ~1:1.
+
+**The lever that remains is incremental rebaking.** `qd_set_palette` takes
+`(first, count)`, so a partial CLUT write only invalidates a cursor colour's
+answer if a CHANGED entry is now nearer, or if that colour's previous best was
+itself among the changed. That turns 16x256 into 16xcount plus a rare full
+rescan. **Check `count`'s real distribution first** — if the engine always
+writes all 256, the idea dies, and that is one counter, not a rewrite.
+
+★ Two traps in building the histogram, both caught before it ran:
+`__builtin_return_address(0)` read inside the helper yields an address inside
+`qd_nearest_color` itself (every call lands on one slot, "it calls itself") —
+take it in `qd_nearest_color` and pass it in. And the builtin returns 0 under
+`-fomit-frame-pointer`, which the whole build carries, so the Makefile adds
+`-fno-omit-frame-pointer` to that one object under `FRUA_NCPROF`.

@@ -29,8 +29,8 @@
 #include "font_8x8.h"           /* qd_font_8x8 — fallback bitmap font */
 #include "mac_font.h"           /* g_mac_font — preferred when loaded */
 #include "input.h"              /* plat_mouse_pos — software cursor   */
-#ifdef FRUA_PRESENTCENSUS
-#include "dbglog.h"             /* #61/#63 present census trace */
+#if defined(FRUA_PRESENTCENSUS) || defined(FRUA_NCPROF)
+#include "dbglog.h"             /* #61/#63 present census; #122 nc histogram */
 #endif
 
 void SetPt(Point *pt, short h, short v)
@@ -1786,6 +1786,96 @@ static void qd_sq_init(void)
 	g_sq511_ready = 1;
 }
 
+/* --- #122: which code CALLS qd_nearest_color? ----------------------------
+ * The cycle profile puts it at 26-34% of the ST play loop, second only to the
+ * present, and #96's squares table already removed the multiplies — what is
+ * left is a 256-entry linear scan per lookup, so the win has to be fewer
+ * CALLS. #121 disproved the obvious suspect (qd_rebake_color_pointer) with an
+ * A/B that moved nothing, so guessing is over: count the callers.
+ *
+ * Same shape as platform/mulprof.c, including the traps it recorded:
+ *  - direct-indexed, never a linear scan (this runs on every lookup);
+ *  - occupancy is its OWN flag, because a return address of 0 is exactly what
+ *    a broken __builtin_return_address produces and using 0 as the empty
+ *    sentinel made that failure invisible;
+ *  - a ZERO-ret counter, which names that fault immediately;
+ *  - collisions counted rather than resolved: small fraction => trustworthy.
+ * ★ __builtin_return_address(0) RETURNS 0 UNDER -fomit-frame-pointer, which
+ * the whole build uses. The Makefile adds -fno-omit-frame-pointer to THIS
+ * object when FRUA_NCPROF is defined. If ZERO-ret is non-zero, that failed.
+ * ★ A histogram that does not sum to its own total is telling you it is
+ * broken — check that before reading the ranking. */
+#ifdef FRUA_NCPROF
+#define NC_SLOTS  128
+#define NC_IDX(r) (((unsigned long)(r) >> 2) & (NC_SLOTS - 1))
+static unsigned long nc_ret[NC_SLOTS];
+static unsigned long nc_hit[NC_SLOTS];
+static unsigned char nc_used[NC_SLOTS];
+static unsigned long nc_calls, nc_collide, nc_zeroret, nc_next_dump = 20000UL;
+
+void nc_prof_dump(void);
+void nc_prof_dump(void)
+{
+	unsigned long i, shown;
+	unsigned long prev = 0xFFFFFFFFUL, previ = 0, sum = 0;
+
+	for (i = 0; i < NC_SLOTS; i++)
+		if (nc_used[i])
+			sum += nc_hit[i];
+	dbg_log_num("b122nc: total calls   = ", (long)nc_calls);
+	dbg_log_num("b122nc: histogram sum = ", (long)sum);   /* must ~= total */
+	dbg_log_num("b122nc: collisions    = ", (long)nc_collide);
+	dbg_log_num("b122nc: ZERO-ret calls= ", (long)nc_zeroret);
+	dbg_log_num("b122nc: ANCHOR runtime= ", (long)(unsigned long)&nc_prof_dump);
+	for (shown = 0; shown < 12; shown++) {
+		unsigned long best = 0, bi = NC_SLOTS;
+
+		for (i = 0; i < NC_SLOTS; i++) {
+			if (!nc_used[i])
+				continue;
+			if (nc_hit[i] > prev || (nc_hit[i] == prev && i <= previ))
+				continue;
+			if (bi == NC_SLOTS || nc_hit[i] > best) {
+				best = nc_hit[i];
+				bi   = i;
+			}
+		}
+		if (bi == NC_SLOTS)
+			break;
+		dbg_log_num("b122nc: site ret     = ", (long)nc_ret[bi]);
+		dbg_log_num("b122nc:   calls      = ", (long)nc_hit[bi]);
+		prev = best; previ = bi;
+	}
+}
+
+/* ★ THE RETURN ADDRESS IS TAKEN IN qd_nearest_color AND PASSED IN, not read
+ * here. Read here, __builtin_return_address(0) yields the address inside
+ * qd_nearest_color itself — every call would land on one slot and the
+ * histogram would say "qd_nearest_color calls qd_nearest_color". Level 1
+ * would nominally reach the real caller but needs frame pointers the whole
+ * way up; passing it is exact and cheap. */
+static void nc_prof_note(unsigned long ret)
+{
+	unsigned long i = NC_IDX(ret);
+
+	nc_calls++;
+	if (ret == 0)
+		nc_zeroret++;
+	if (!nc_used[i]) {
+		nc_used[i] = 1;
+		nc_ret[i]  = ret;
+		nc_hit[i]  = 1;
+	} else if (nc_ret[i] == ret)
+		nc_hit[i]++;
+	else
+		nc_collide++;
+	if (nc_calls >= nc_next_dump) {
+		nc_next_dump = nc_calls + 20000UL;
+		nc_prof_dump();
+	}
+}
+#endif
+
 static unsigned char qd_nearest_color(const RGBColor *color)
 {
 	short r = (short)(unsigned char)(color->red   >> 8);
@@ -1795,6 +1885,9 @@ static unsigned char qd_nearest_color(const RGBColor *color)
 	long          best_d = 0x7FFFFFFFL;
 	short         i;
 
+#ifdef FRUA_NCPROF
+	nc_prof_note((unsigned long)__builtin_return_address(0));
+#endif
 	if (!g_sq511_ready)
 		qd_sq_init();
 
