@@ -64,7 +64,9 @@ m68k-amigaos-objdump -d src/engine/boot.o | grep -cE 'muls\.l|bfextu|bfins'
 ## Run it (amiberry)
 
 The run harness is **amiberry** (installed here as the
-`com.blitterstudio.amiberry` flatpak). You need a Kickstart 3.1/3.2 ROM and an
+`com.blitterstudio.amiberry` flatpak). You need a Kickstart ROM (3.1/3.2 for
+development; the measured minimum is 2.0 for ECS and 3.0 for AGA — see the
+Kickstart matrix at the end of this file) and an
 AGA machine config (A1200). Point amiberry at a hard-drive directory containing
 `frua` plus the game data, and boot. A dedicated run skill/driver
 (`.claude/skills/run-amiga-port/`) is TODO — see the Falcon
@@ -267,3 +269,77 @@ Harness gotchas (for the future run-amiga skill):
   display (grant `flatpak override --user --socket=x11` first on a
   Wayland session). Screenshot with `import -window <id>` on `:0`.
 - The engine is launched by the mount's `S/User-Startup` (`frua`).
+
+## Kickstart requirements — MEASURED (#43, 2026-07-30)
+
+Both Amiga binaries were booted against real Kickstart ROMs in amiberry,
+headless on Xvfb, with the mount's WB3.2 `S/Startup-sequence` swapped for a
+one-line `frua` so the ENGINE is what is under test rather than Workbench.
+
+| build | KS 1.3 (V34) | KS 2.05 (V37) | KS 3.0 (V39) | KS 3.1 (V40) | KS 3.2 (V47) |
+|---|---|---|---|---|---|
+| **ECS / 68000** (`release-amiga-ecs`) | ✗ | ✅ menu | — | ✅ menu | ✅ menu |
+| **AGA / 020** (`release-amiga`) | — | — | ✅ menu | ✅ menu | ✅ menu |
+
+"✅ menu" = the main menu rendered, confirmed from a screenshot (~223k non-black
+pixels, matching the 3.2 control), not merely from a log line — see the trap
+below.
+
+**So: the ECS build needs Kickstart 2.0+, and the AGA build needs 3.0+.** The
+release notes may state that; previously they claimed nothing.
+
+**What actually blocks Kickstart 1.3** — and it is neither of the two things the
+code made it look like:
+
+```
+utility.library failed to load
+frua failed returncode 20
+```
+
+`utility.library` arrived in V36 (Kickstart 2.0) — it is absent from the NDK's
+own `lib/fd13/` set — and the C runtime startup opens it *before* `main()`, so
+the engine never runs a single instruction. Not graphics.library, and not
+`StackSwap`: the boot dies long before either. Supporting 1.3 therefore starts
+at the crt0/link level, not in `platform/amiga/`, and is a much bigger job than
+"lower an OpenLibrary version".
+
+**The V39 request in the ECS backend was INERT, and is now honest.**
+`ecs_init` asked for `graphics.library` **39** (Kickstart 3.0) — inherited from
+`display_aga.c`, where V39 is genuine (AA detection via `ChipRevBits0`). The ECS
+backend calls exactly two graphics.library functions, **`LoadView` and
+`WaitTOF`**, both present since Kickstart 1.2; everything else is a hand-built
+copper list and direct register pokes. The request never fired because `GfxBase`
+is already open by the time `ecs_init` runs — measured on 2.05, where the ECS
+build reaches the menu with `GfxBase->lib_Version == 37`. It is now `33`, so the
+stated dependency matches the real one and a future link-order change cannot
+silently cost every 2.x machine (2.x machines being exactly the ECS audience).
+Re-verified on 2.05 and 3.2 after the change: no regression.
+
+### Reproducing
+
+`~/Amiberry/Configurations/openua-ks{13,205,310}.uae` are copies of
+`openua-ecs.uae` with the ROM swapped (`amiga-os-130.rom`,
+`amiga-os-205-a600.rom`, `amiga-os-310-a600.rom`) and `cpu_speed=max` — a
+Kickstart *API* matrix does not care about 7 MHz timing fidelity, and at
+`cpu_speed=real` a single 68000 boot takes over four minutes. `openua-aga{300,310}.uae`
+do the same to `openua.uae`. Launch exactly as the run-amiga-port driver does:
+`flatpak run --env=SDL_VIDEODRIVER=x11 com.blitterstudio.amiberry --log --config <conf> -G`
+(`-f` is not a config flag; amiberry ignores it and boots its default, which
+looks exactly like a ROM failure).
+
+★ **THREE TRAPS, all the same shape: a signal that fires before the work is
+done.** Every one of them produced a wrong verdict that a screenshot corrected.
+
+1. **`menu: modal up` is not in the Amiga `DBG.LOG`** for the ECS/68000 build —
+   `dbg_log` goes to the console sink, only `dbg_file_*` reaches the file. Using
+   it as the pass criterion reported the KNOWN-GOOD 3.2 control as a failure.
+   The ECS build's last file line is `snd: VBL sound task installed`. (The AGA
+   build *does* log it, which makes the inconsistency easy to miss.)
+2. **The menu paints long after that last log line.** Grabbing 4 s later caught
+   a black screen with only the cursor and made three good boots look broken.
+3. **A "lots of non-black pixels" heuristic is not "the menu is up"** — it
+   passes on the stone backdrop alone, and on Kickstart 1.3 it passes on the
+   white AmigaDOS error console. Compare against a known-good frame, or read it.
+
+The honest recipe: boot, wait generously (a 68000 ECS boot to menu took ~180 s
+even at `cpu_speed=max` on a loaded host), grab, and LOOK at the frame.

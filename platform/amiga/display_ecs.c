@@ -188,9 +188,21 @@ static int ecs_init(short want_w, short want_h)
 {
 	(void)want_w; (void)want_h;
 
+	/* ★ #43: ask for what this backend ACTUALLY uses — V33. It calls exactly
+	 * two graphics.library functions, LoadView and WaitTOF, both present since
+	 * Kickstart 1.2; everything else is a hand-built copper list and direct
+	 * register pokes. The 39 here was inherited from display_aga.c, where V39
+	 * is genuine (AA chipset detection via ChipRevBits0).
+	 *
+	 * It was INERT in practice — GfxBase is already open by the time ecs_init
+	 * runs, so this call never fired; measured on Kickstart 2.05, where the
+	 * ECS build boots to the main menu with GfxBase->lib_Version == 37. But a
+	 * link-order change that stopped pre-opening GfxBase would have silently
+	 * cost every 2.x machine, and 2.x machines are exactly the ECS audience.
+	 * Asking for 33 makes the stated dependency match the real one. */
 	if (GfxBase == NULL)
 		GfxBase = (struct GfxBase *)
-		    OpenLibrary((CONST_STRPTR)"graphics.library", 39);
+		    OpenLibrary((CONST_STRPTR)"graphics.library", 33);
 	if (GfxBase == NULL) {
 		dbg_log("ecs: graphics.library open failed");
 		return 1;
