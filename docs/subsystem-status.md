@@ -144,10 +144,10 @@ editor DEPTH gap is the map editor's area bring-up.
 | Subsystem | CODE | Status | Wall / scope doc |
 |-----------|:----:|:------:|------------------|
 | **Editor menu wiring** (Game Settings/Edit Modules/Art Gallery/Monster Editor) | 22 | ✅ | `jt325-record-editor-phase-d` (mem) — 2026-07-11, all 4 open correctly (JT[452] index decode) |
-| **Game Settings** record editor (jt251 → jt325_tail) | 9/22 | ✅ | `jt325-record-editor-wall.md` — renders + pages + commits |
+| **Game Settings** record editor (jt251 → jt325_tail) | 9/22 | ✅ | `jt325-record-editor-wall.md` — renders + pages + commits, and the **field EDIT round-trip is verified** (#102, 2026-07-29): PLATINUM 100→777 and the design name both survive a cold reboot; byte-exact in `GAME001.DAT` |
 | Event / zone / map-step editing (jt254/253/248/249/258) | 2 | ✅ | `event-editor-wall.md` — lifted; l0096 dispatcher wired |
 | **Art Gallery** / picture editor (jt269 + l040c; import jt259) | 10 | ✅ | l040c dialog tree lifted + LIVE-validated 2026-07-11 |
-| **Monster / NPC** record editor (jt263 → jt325 type 54/57) | 10/9 | 🟡 | opens + renders monster art; edit round-trip untested |
+| **Monster / NPC** record editor (jt263 → jt325 type 54/57) | 10/9 | ✅ | opens + renders monster art, and the **field EDIT round-trip is verified** (#102, 2026-07-29): BASILISK HIT POINTS 28→44 and NAME→`BASILISKq` survive a cold reboot; the commit creates the design-local `MONST042.dat` (byte 129 = HP, 96..111 = name) |
 | **Map (GEO) editor** (jt242/jt243) | 11 | ✅ | `geo-editor.md` — **the "OPEN bus-errors" claim is DEAD (re-driven live 2026-07-29, #101).** `E` opens the editor with FILE/MAP/UTILITIES, the automap, the 3D preview, WD/HT and the tool palette; FILE → OPEN.. switches areas (DUNGEON 01 19×19 → DUNGEON 06 28×20, new automap + new view). jt244/mode-19 really is never triggered, but nothing needs it — the load runs through `jt233` (l0096 case 9). Residual: the ENTRY picker's list body is EMPTY (see below) |
 | Editor record panels (jt281/282/286) | 22 | ✅ | lifted (CODE 22 alias block) |
 
@@ -192,8 +192,12 @@ polish:
    engine→Falcon-DMA-HAL glue, the biggest genuinely-open subsystem.
 3. **Real stub subtrees** (not leaves): jt933 (CODE 12 item-take modal, ~400
    lines), jt955 (CODE 21 camp, 1014 B), jt1206 (CODE 4, small dispatcher).
-4. **Editor edit round-trips** — the record editors OPEN + render; validate an
-   actual field EDIT → save for Game Settings / monster / NPC (mouse-gated).
+4. ~~**Editor edit round-trips**~~ — **DONE (#102, 2026-07-29).** Both record
+   editors edit for real: a numeric and a string field per editor, typed in,
+   committed, and read back after a full engine reboot, byte-verified in the
+   design files. The "mouse-gated" caveat is retired — clicks inject. NPC
+   (jt325 type 57) is the same widget tree as monster type 54 and was not
+   separately driven.
 5. **Combat/camp render nits** — marker residue (jt119/jt122), 2nd-cycle wall
    re-clobber, RANGE=0 readout, camp repaint overprint. Cosmetic.
 6. **Close-out** — mark jt426/432/458 superseded-done in the tracker; save/load

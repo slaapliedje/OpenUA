@@ -90,7 +90,7 @@ the opcode set once L1ae2 is mapped (do NOT hand-guess the bytecode).
 | l1ae2 | 0x1ae2 / 566 | ✅ LIFTED | the SCRIPT record LOOP — framework + ALL 11 arms (3-10, 32-34). | JT[1]@0x1c4c, JT[1]@0x21a8 |
 | ↳ l100c | 0x100c / 913 | ✅ LIFTED | **the field-byte CODEC** — JT[3]@0x109a (48..79, ALL 32 arms). Sig `l100c(desc,rec,w2,w3,mode)`; header parse + field loop; label/banner/numeric/cell/value/string/flag-bit field types. Called 1× by l1ae2. | JT[3]@0x109a 48..79 |
 | ↳ l3bbc | 0x3bbc / 330 | ✅ LIFTED | picture/item/class PANEL drawer — JT[3]@0x3bc8 (1..8): combat-pic frames (jt118×N loop), item-icon grid (jt28/jt479/jt184/jt444, like l01a2 c130), "%2d"/class rows. jt118 arg order VERIFIED (page ignored; port jt118(NULL,top=B,left=A,idx=C,handle) = Mac fp@10/fp@8/fp@12/fp@16). | JT[3]@0x3bc8 1..8 |
-| jt373 | CODE8+0x4 / ~590 | ✅ LIFTED | numeric-field LDEF (arm 7's method) — ALL msg arms (0 measure, 1 draw, 2 hit, 3 track, 5 key, 18/26 (de)activate, 36/40/42, 128) + helper tree l0a86/l0abc/l0942/l09ce/l0b8c; deps JT[446]=l30ba, L7404=jt360. RENDER live-verified in Hatari (Game Settings exp/platinum/gems/jewelry value boxes); edit path (msg 5) built + block-verified but NOT headless-testable (Hatari injects no mouse-button events → no click-focus) | JT[1]@0x003c (16 msgs), JT[1]@0xbba (L0b8c keys) |
+| jt373 | CODE8+0x4 / ~590 | ✅ LIFTED | numeric-field LDEF (arm 7's method) — ALL msg arms (0 measure, 1 draw, 2 hit, 3 track, 5 key, 18/26 (de)activate, 36/40/42, 128) + helper tree l0a86/l0abc/l0942/l09ce/l0b8c; deps JT[446]=l30ba, L7404=jt360. RENDER live-verified in Hatari (Game Settings exp/platinum/gems/jewelry value boxes); **EDIT path (msg 5) now LIVE-verified too** (#102, 2026-07-29 — the "Hatari injects no mouse buttons" caveat is dead): click focuses the box (msg 18), typed digits replace the value, the range hint replaces the button bar, and the value round-trips to the design file across a reboot | JT[1]@0x003c (16 msgs), JT[1]@0xbba (L0b8c keys) |
 | l30d4 | 0x30d4 / 203 | ✅ LIFTED | nested type-133 SPELL-MEMORIZATION sub-editor (modal: memorize/forget/exit) | JT[3]@0x31a6 |
 
 > **l1ae2 SCOPE (measured 2026-07-10):** "l1ae2" is really a ~1800-line
@@ -359,3 +359,52 @@ latch); only this one was a genuinely missing lift.
 **LIVE:** all four char-gen radio groups (RACE, CLASS, GENDER, and both ALIGNMENT
 groups — which sit stacked, so they prove the walk finds the RIGHT container);
 main menu; Hall menu; party-picker rows; Add/Exit; and the big text field.
+
+## ★ FIELD EDIT ROUND-TRIP — VERIFIED END-TO-END (#102, 2026-07-29)
+
+"The editor opens" is now "the editor edits." Both record editors were driven
+headless on HEIRS (Falcon / TOS 4.04), one numeric field and one string field
+each, typed in, committed, and **read back after a full engine reboot** — with
+the byte-level diff of the design file checked every time.
+
+| editor | field | kind | edit | file evidence |
+|---|---|---|---|---|
+| Game Settings | PLATINUM | numeric | 100 → 777 | `GAME001.DAT` offs 36–37: `0x0064` → `0x0309` (16-bit LE) — **2 bytes, nothing else** |
+| Game Settings | ADVENTURE DESIGN NAME | string | insert `xxyz` at index 15 | `GAME001.DAT` offs 15–22; name stored **lowercase** at offset 0 (`Heirs to skull crag`), the UI uppercases for display |
+| Monster | HIT POINTS | numeric | 28 → 44 | new `MONST042.dat` byte 129 = 44 |
+| Monster | NAME | string | append `q` | `MONST042.dat` offs 96–104 = `BASILISKq` — **1 byte changed** |
+
+Cross-checks that make these more than screenshots: the design-name change also
+appears in the **main-menu banner** after the reboot (a second, independent
+reader — "HEIRS TO SKULL XXYZCRAG"), and the monster values re-render from disk
+in a freshly booted editor.
+
+**The commit gesture (this is the part that wastes time if you guess):**
+
+1. `click` the field box — it inverts / turns white. That is jt373 msg 18
+   taking focus, and for a numeric field the **button bar is replaced by the
+   range hint** ("VALID NUMBERS: 0 - 5000", "1 - 255").
+2. Type. Digits **replace** a numeric field's value; characters **insert** in a
+   string field at the clicked cursor index (`xxyz` landed at index 15, exactly
+   where `crag` began, and a click past the end of `BASILISK` appended).
+3. **Press Return to DEFOCUS** — the field goes back to grey/normal.
+4. *Then* `click` OK at (47, 438). The buttons stay hit-testable underneath the
+   range hint, but **a click on OK while a numeric field is still focused does
+   nothing** — that is what makes it look like the commit is broken.
+
+Side effects worth knowing: editing a built-in monster creates a **design-local
+`MONST<nnn>.dat`** (lowercase extension, matching the engine's own
+`"%s%03d.dat"` format string in jt129/jt127 — the shipped uppercase `.DAT`
+files come from the DOS converter), and the monster commit also rewrites 2 bytes
+of `STRG001.DAT` (offsets 29 and 36). The list bar's DEFAULT chip stops being
+highlighted once the record is design-local.
+
+★ **HARNESS TRAP: the key injector sometimes DOUBLES the first keystroke after a
+click** — typing `x y z` produced `xxyz`, and `4 2` produced `44`. It is not
+consistent (a later single `q` landed once). It is on the injection side, not in
+the engine, so **never assume the typed string is what the engine received —
+read the field back from the screenshot or the file.** Both round-trips here are
+reported as the values the engine actually stored.
+
+NOT separately driven: NPC records (jt325 type 57). They are the same widget
+tree as monster type 54, so this is a coverage gap, not a known failure.
