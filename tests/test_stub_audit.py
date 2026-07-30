@@ -305,3 +305,55 @@ def test_an_ifdef_pair_does_not_invent_a_live_gap(tmp_path):
     noop, live, dead, ruled = stub_audit.triage(str(f))
     assert [r[0] for r in live] == [], live
     assert [r[0] for r in ruled] == ['dbg_thing'], ruled
+
+
+def test_a_trailing_comment_does_not_hide_a_stub(tmp_path):
+    """A comment AFTER the statement used to make a stub read REAL.
+
+    The line-walker stripped comments only when they STARTED a line, so
+
+        return 0;    /* the Mac's own cancel exit */
+
+    never matched CONST_RET (anchored on ';$') and the body was classified as
+    a computed return. Found on l341a, where it silently removed the function
+    from the inventory. The dangerous direction is a LIVE GAP hidden the same
+    way, which is what this pins.
+    """
+    f = tmp_path / 'x.c'
+    f.write_text('static short l0003(short a)\n{\n'
+                 '\tPROBE("l0003");\n'
+                 '\t(void)a;                  /* nothing to do yet */\n'
+                 '\treturn 0;                 /* the caller treats <0 as fail */\n'
+                 '}\n')
+    assert _body(str(f), 'l0003') == 'STUB'
+
+
+def test_a_trailing_comment_does_not_hide_a_one_line_stub(tmp_path):
+    """Same hole in the one-line arm, which splits the body on ';'."""
+    f = tmp_path / 'x.c'
+    f.write_text('static short l0004(void) { PROBE("l0004"); return -1; }'
+                 '  /* pending its own lift */\n')
+    assert _body(str(f), 'l0004') == 'STUB'
+
+
+def test_an_unterminated_trailing_comment_still_hides_the_next_lines(tmp_path):
+    """`code;  /* opens a block comment` must swallow the FOLLOWING lines but
+    keep the code that preceded it on its own line."""
+    f = tmp_path / 'x.c'
+    f.write_text('static short l0005(short a)\n{\n'
+                 '\tPROBE("l0005");\n'
+                 '\t(void)a;  /* this comment runs on\n'
+                 '\t * jt42(a); would be REAL if the walker read it\n'
+                 '\t */\n'
+                 '\treturn 0;\n}\n')
+    assert _body(str(f), 'l0005') == 'STUB'
+
+
+def test_a_trailing_comment_does_not_hide_a_real_body(tmp_path):
+    """The fix must not swing the other way: stripping comments off a REAL
+    statement leaves it real."""
+    f = tmp_path / 'x.c'
+    f.write_text('static void l0006(short a)\n{\n'
+                 '\tPROBE("l0006");\n'
+                 '\tjt42(a);   /* forward it */\n}\n')
+    assert _body(str(f), 'l0006') == 'REAL'

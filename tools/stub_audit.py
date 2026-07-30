@@ -145,10 +145,23 @@ def parse_funcs(lines):
     return funcs
 
 
+def _decomment(s):
+    """Drop every complete /* ... */ and any // tail from ONE line."""
+    while '/*' in s and '*/' in s.split('/*', 1)[1]:
+        head, rest = s.split('/*', 1)
+        s = head + ' ' + rest.split('*/', 1)[1]
+    if '//' in s:
+        s = s.split('//', 1)[0]
+    return s
+
+
 def classify(lines, op, cl):
     """STUB only if EVERY statement is bookkeeping. Bias towards REAL."""
     if op == cl:                                   # one-liner: body is inside {}
-        inner = lines[op]
+        # Comments come off BEFORE the braces are located: a trailing
+        # `/* ... */` both defeats CONST_RET and can carry a stray '}' into
+        # rindex. (The multi-line arm below has the same fix.)
+        inner = _decomment(lines[op])
         inner = inner[inner.index('{') + 1:inner.rindex('}')]
         body = [x.strip() + ';' for x in inner.split(';') if x.strip()]
         for t in body:
@@ -172,13 +185,25 @@ def classify(lines, op, cl):
                 t = t.split('*/', 1)[1].strip()
             else:
                 continue
-        while t.startswith('/*'):
-            if '*/' in t:
-                t = t.split('*/', 1)[1].strip()
+        # ★ THIS USED TO STRIP ONLY *LEADING* COMMENTS, and a TRAILING one was
+        # enough to hide a stub. `return -1;  /* why */` does not end in ';',
+        # so CONST_RET (anchored on ';$') missed it and the arm below called
+        # the body REAL — l341a vanished from the inventory entirely rather
+        # than moving buckets. A `return 0;  /* ... */` would have hidden a
+        # LIVE GAP exactly the same way, which is the direction that matters.
+        # Same family as the #103 call-counter and doc_for bugs: the parser
+        # was measuring its own formatting habits. Strip a comment wherever it
+        # sits, and carry an unterminated one into the next line.
+        while '/*' in t:
+            head, rest = t.split('/*', 1)
+            if '*/' in rest:
+                t = (head + ' ' + rest.split('*/', 1)[1]).strip()
             else:
                 incomment = True
-                t = ''
+                t = head.strip()
                 break
+        if '//' in t:
+            t = t.split('//', 1)[0].strip()
         if not t or t.startswith('//') or t.startswith('#') or t in ('{', '}'):
             continue
         if TRIVIAL[0].match(t) or TRIVIAL[1].match(t):

@@ -66844,20 +66844,49 @@ typedef unsigned char (*glib_load_cb)(short refnum, void *spec);
  * non-zero finalize, and L157c / jt1152 / jt1142 / jt1121 are the disk-retry
  * dialog the port (files on GEMDOS disk) never enters. Lifted with the save
  * path + the loader's disk-swap UI. */
-/* L341a (CODE 3+0x341a) — the Mac SFPutFile save dialog ("File to save"
- * picker). LIVE GAP, and the cheapest of the six left after #105's triage:
- * reachable jt392 <- {jt128, l17e2, l36e0_c10} <- {jt259, jt315, jt584, jt987},
- * i.e. from the main menu. Returning 0 means every "save as" silently picks
- * nothing. ★ The old "no GEMDOS equivalent yet" excuse EXPIRED in v0.5.8-beta:
- * the Atari GEM file selector shipped for uainst, so there is now something to
- * route this to. The L322c volume split and L31fc name tail are already lifted
- * near the top of the file. */
+/* L341a (CODE 3+0x341a) — NOT-A-GAP: the Mac SFPutFile save dialog ("File
+ * to save"), on an arm FRUA'S OWN CODE CANNOT ENTER. CODE 3 is THINK C's
+ * ANSI/unix library, and a leading '%' in a filename is that LIBRARY's
+ * "ask the user where to put it" convention, offered to any program linked
+ * against it. FRUA never uses it.
+ *
+ * ★ THE OLD COMMENT HERE CALLED THIS A LIVE GAP AND SAID "every save as
+ * silently picks nothing". BOTH CLAIMS WERE WRONG, and the first is why the
+ * second survived: "jt392 <- jt128/l17e2/l36e0_c10 <- jt259/jt315/jt584/
+ * jt987, i.e. from the main menu" is CALL-GRAPH reachability, which says
+ * nothing about the guard. Save-as works; only the never-taken arm is a stub.
+ *
+ * Enumerated rather than argued — JT[392] has exactly FOUR call sites in all
+ * 23 CODE segments, and L341a exactly ONE caller (jt392's '%' guard, CODE 3
+ * +0x3542). Every one of the four passes a BUILT path:
+ *   CODE  6+0x0404  the literal "start.dat"
+ *   CODE 10+0x4164  jt431(design dir) + jt431(leaf)      — the .tlb export
+ *   CODE  5+0x1916  \ inside L17e2 itself (mode 1 / mode 4), spec from
+ *   CODE  5+0x1932  / L16c6 — a prefix for kind != 0, else the bare `name`
+ * and L17e2's only mode-4 caller (CODE 15+0x0138, the save writer) builds
+ * `jt431(A5 -31336 design dir) + jt431("SAVE") + jt431(leaf)`. A '%' first
+ * byte is unreachable from any of them.
+ *
+ * So there is nothing to route to the AES selector — and routing there would
+ * be wrong twice over anyway: ADR-0006 keeps editor UI inside the Toolbox
+ * shim rather than mapping it to AES, and the engine owns the screen in its
+ * own VIDEL/shifter mode with its own palette, which the AES knows nothing
+ * about. The Amiga builds have no AES at all. If a real save-name prompt is
+ * ever wanted, it belongs in the shim (the jt418 twin says the same).
+ *
+ * ★ RETURNS -1, NOT 0 — this is the one behaviour change. -1 is the Mac's
+ * own value for "the user cancelled" (L341a's `tstb reply.good` / `moveq
+ * #-1` exit). 0 was a LATENT HAZARD: jt392 hands its result straight back as
+ * an OPEN REFNUM, and callers gate on `>= 0`, so a 0 would have been taken
+ * for a live file handle — GEMDOS handle 0 is the console, which l17e2 would
+ * then write through and CLOSE. Unreachable today; harmless if that ever
+ * changes. PROBE stays as the standing falsifier. */
 static short l341a(const char *prompt, const char *dflt,
                    long ftype, long creator)
 {
 	PROBE("l341a");
 	(void)prompt; (void)dflt; (void)ftype; (void)creator;
-	return 0;
+	return -1;                      /* userCanceledErr, the Mac's own exit */
 }
 
 /* L3386 (CODE 3+0x3386) — open the file read/write TRUNCATED, creating
@@ -66896,8 +66925,10 @@ static short l3386(const char *pname, short vref, long ftype,
 
 /* JT[392] (CODE 3+0x351c) — create a save file from `spec`, full
  * lift. A "%" spec opens the Mac's SFPutFile dialog ("File to
- * save", type 'GAME' creator 'MAG;' — L341a leaf stub, no TOS
- * equivalent yet); otherwise split the volume ref (L322c) and name
+ * save", type 'GAME' creator 'MAG;' — L341a, and see the ruling on
+ * its body: no caller of this function can produce a '%' spec, so
+ * that arm is THINK C library convention FRUA never uses, not a
+ * gap in the save path); otherwise split the volume ref (L322c) and name
  * tail (L31fc), convert to a Pascal string (l45d6) and create with
  * type 'TEXT' creator 'KAHL' when n == 0 (THINK C's text files)
  * else 'GAME'/'MAG;'. */

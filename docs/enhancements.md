@@ -21,28 +21,74 @@ beta" (see the verification gap below), but no longer one with dead buttons.
 
 ## ★★ The measurement that lied — and the tool gap behind it
 
-`tools/stub_audit.py --stubs` reports (2026-07-29, after #103's parser fixes
-and #105's triage):
+`tools/stub_audit.py --stubs` reports (2026-07-30, after #103's parser fixes,
+#105's triage and #111's trailing-comment fix):
 
 ```
 54 stub bodies
-  6 LIVE GAPS  (lifted code calls them — all reachable from a live root)
- 37 faithful no-ops    (the Mac body is empty too — leave them)
-  4 platform rulings   (NOT-A-GAP: — printed with their reason; verify the gate)
-  7 uncalled gaps
+  3 LIVE GAPS  (lifted code calls them — all reachable from a live root)
+ 38 faithful no-ops    (the Mac body is empty too — leave them)
+  5 platform rulings   (NOT-A-GAP: — printed with their reason; verify the gate)
+  8 uncalled gaps
   0 stale stub claims
 ```
 
-**The six real ones, with why they matter** (#105 walked each caller chain):
+**The six #105 named, and what became of them** (#105 walked each caller chain;
+the ones still open are the last three rows):
 
 | stub | reachable from | consequence |
 |---|---|---|
-| `l1240` | `jt290 ← … ← l28d4 ← jt243 ← l0096` | **the map editor cannot EDIT** — the wall-pencil click returns 1 and writes nothing (~1.4KB) |
-| `l0ee6` | same chain | locked-map click selects/moves nothing (~860B) |
-| `l341a` | `jt392 ← … ← jt315` | every "save as" picks nothing. The "no GEMDOS equivalent" excuse expired in 0.5.8 — the GEM selector exists now |
+| ~~`l1240`~~ | `jt290 ← … ← l28d4 ← jt243 ← l0096` | ✅ **CLOSED (#108)** — the wall-pencil click writes; the edit fires |
+| ~~`l0ee6`~~ | same chain | ✅ **CLOSED (#108)** |
+| ~~`l341a`~~ | `jt392 ← … ← jt315` | ⛔ **NOT A GAP — the row was wrong (#111).** See below |
 | `l4e8a` | `jt230 ← jt325_tail ← jt325` | every record editor answers "not found" to the −13038 lookup (#88's table) |
 | `l501e` | `jt226 ← jt325_tail ← jt325` | "scroll list to row n" does nothing. Read with #87: that stored the position, this would move it |
 | `jt1150` | `jt295 ← l1908` (play walk) | mark-rect-dirty. Probably SUPERSEDED by `platform/`'s own dirty tracking — check whether anything consumes the Mac list before lifting |
+
+### ★ `l341a` — "every save as picks nothing" was FALSE, and so was "live gap"
+
+The row above survived three sessions because **the reachability column is a
+CALL-GRAPH claim and was read as a runtime one.** `jt392 ← … ← jt315` is true
+and says nothing, because `jt392` only reaches `l341a` behind `spec[0] == '%'`
+— THINK C's ANSI/unix library convention for "ask the user where to put it",
+offered to any program that links CODE 3. FRUA never uses it.
+
+Enumerated rather than argued (#111): **`JT[392]` has exactly four call sites
+in all 23 CODE segments**, and `L341a` exactly one caller (that guard). Every
+one of the four passes a built path — `"start.dat"`; design-dir + leaf for the
+`.tlb` export; and `L17e2`'s own two, whose only mode-4 caller (CODE 15+0x0138)
+builds `design-dir + "SAVE" + leaf`. A `'%'` first byte is unreachable.
+
+So **save-as works**; only an arm nothing can enter was stubbed. Tagged
+`NOT-A-GAP:` with the enumeration on the body. One real fix came out of it:
+the stub returned **0**, which `jt392` hands back as an open **refNum**, and
+callers gate on `>= 0` — so a 0 would have been taken for a live GEMDOS handle
+0 (the console) and written through, then closed. It returns **−1** now, the
+Mac's own cancel exit. Unreachable today, correct if that ever changes.
+
+Routing it to the AES file selector — the "the excuse expired in 0.5.8" plan —
+would have been wrong twice over even had the arm been live: ADR-0006 keeps
+editor UI inside the Toolbox shim rather than mapping it to AES, the engine
+owns the screen in its own VIDEL/shifter mode and palette, and the Amiga builds
+have no AES at all. A real save-name prompt belongs in the shim.
+
+### ★ …and the tool hid it: a TRAILING comment made a stub read REAL (#111)
+
+`classify()` stripped comments only when they *started* a line, so
+
+```c
+        return 0;    /* the caller treats < 0 as failure */
+```
+
+never matched `CONST_RET` (anchored on `;$`) and the body was filed as a
+computed return. Fixing `l341a`'s return value made it vanish from the
+inventory entirely, which is how the hole surfaced. Two more bodies were
+hiding behind it (`jt1`, the `JT[1]` sparse-switch fallback that belongs with
+its already-listed siblings `jt2`/`jt3`, and `jt1061`, a documented
+`_SwapMMUMode` no-op) — both benign, but a `return 0;` with a trailing comment
+would have hidden a **live gap** exactly the same way. Third parser bug in this
+tool, same family as #103's two: it was measuring its own formatting habits.
+Four regression tests in `tests/test_stub_audit.py` pin both arms.
 
 ★ **THE "0 LIVE GAPS" THIS SECTION USED TO QUOTE WAS PARTLY AN ARTEFACT.** Two
 bugs in the tool, both fixed in #103 with regression tests:

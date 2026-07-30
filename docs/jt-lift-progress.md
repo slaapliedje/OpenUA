@@ -92,9 +92,9 @@ left; cross-reference the chunk table to see how load-bearing they are.
 
 ## Local lXXXX leaf stubs (non-JT PROBE-only helpers)
 
-CODE-local helpers still PROBE-only in boot.c (13 found). These don't appear in the JT scoreboard above but gate the entries that call them.
+CODE-local helpers still PROBE-only in boot.c (11 found). These don't appear in the JT scoreboard above but gate the entries that call them.
 
-> `l5ac0`  `l24aa`  `l7de0`  `l4350`  `l7abe`  `l4932`  `l493a`  `l341a`  `l4e8a`  `l1240`  `l0ee6`  `l501e`  `l0370`
+> `l5ac0`  `l24aa`  `l7de0`  `l4350`  `l7abe`  `l4932`  `l493a`  `l341a`  `l4e8a`  `l501e`  `l0370`
 
 ## Band 1 detail (rank 1–100)
 
