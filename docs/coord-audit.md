@@ -160,6 +160,26 @@ labelling. That is why a synthetic map cannot settle this question and why
 #97/#98 went wrong on one. **Settle axis questions on an SSI-authored
 module** (HEIRS), never on a generated one.
 
+**#104 CHECKED AND PINNED THAT BOUNDARY (2026-07-30).** `geo.py`'s arithmetic
+turned out to BE the invariant above — `(col * height + row) * 6` with `col`
+bounded by `hdr[2]` and `row` by `hdr[3]` is `(A * ds[3] + B) * 6` with A bounded
+by `ds[2]` and B by `ds[3]`, i.e. **`col` ≡ A and `row` ≡ B**. There was no
+transpose to fix; only the vocabulary is inverted (geo.py's "col" is this
+document's "row"). Both names stay — see the correspondence table in
+`docs/geo-format.md`'s MAP section and the note above `Geo.width` — and
+`tests/test_geo_axis.py` now pins the pairing instead, two ways:
+
+- against the asm, with the formula transcribed into the test rather than read
+  from geo.py, so the tool cannot vote on its own correctness;
+- against authored SSI data — `GEO008` has an entry at col 27 with
+  `hdr[2]=28`/`hdr[3]=20`, and `GEO011` one at row 23 with `hdr[2]=21`/`hdr[3]=24`.
+  Two bound violations in OPPOSITE directions under the transposed reading, so no
+  consistent relabelling survives both. No fixture is involved.
+
+Mutation-verified: transposing `_cell_off`, swapping `width`/`height`, and
+swapping the entry-point byte order each fail the suite (2, 4 and 3 tests
+respectively).
+
 ## Audit result
 
 Every map-index site was checked against the invariant. Two defects:

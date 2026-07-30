@@ -74,7 +74,38 @@ that order and `set_entry_point(idx, row=, col=, facing=)` takes them that way.
 
 `width × height` cells, **6 bytes each**, laid out **column-major**:
 `cell_index = height · col + row` (`jt201`/`jt212`), `col` ∈ [0,width),
-`row` ∈ [0,height). Capacity is 576 cells (the MAP chunk is a fixed 3456 bytes;
+`row` ∈ [0,height).
+
+★ **THIS IS THE ENGINE'S ARITHMETIC, IN THIS DOC'S VOCABULARY — the two differ
+and the difference is only in names** (#104, pinned by `tests/test_geo_axis.py`).
+Read this table before touching any cell math:
+
+| here / `tools/geo.py` | the engine (`docs/coord-audit.md`) | role in the index |
+|---|---|---|
+| `col` | slot **A** = A5 `-12287`, step table `-11693` | **multiplied** |
+| `row` | slot **B** = A5 `-12288`, step table `-11684` | **added** (stride 1) |
+| `width` = `hdr[2]` | `ds[2]` — the bound on A | *not* the stride |
+| `height` = `hdr[3]` | `ds[3]` — the bound on B **and** the stride |
+
+    engine:  cell = ds + 290 + (A * ds[3] + B) * 6 + edge
+    here:    off  =            (col * height + row) * 6      — the same thing
+
+The asm-derived reading calls slot A the **row** and `ds[3]` the **width**,
+because the two step tables form a clean 8-point compass ring (`-11693` is the
+row delta) and the Mac adds `-11693` to slot A. So this doc's "col" is the
+engine's "row". Both namings are self-consistent; the engine cannot tell them
+apart. Renaming either side would flip every call site over exactly the
+arithmetic that must not change, so the names stay and the **pairing** is what
+the tests pin — verified by mutation: transposing `_cell_off`, swapping
+`width`/`height`, or swapping the entry-point byte order each fail the suite.
+
+☠ **Never settle an axis question on a fixture `geo.py` generated** — it
+inherits this labelling, and so does any HUD you read it back through. That
+circularity produced #97/#98's four self-consistent wrong measurements. HEIRS
+settles it with no fixture: `GEO008` has an authored entry at **col 27** with
+`hdr[2]=28`/`hdr[3]=20` (so `col` must be `hdr[2]`-bounded) and `GEO011` one at
+**row 23** with `hdr[2]=21`/`hdr[3]=24` (so `row` must be `hdr[3]`-bounded) —
+two violations in opposite directions, so no consistent relabelling survives. Capacity is 576 cells (the MAP chunk is a fixed 3456 bytes;
 cells past `width×height` are unused padding).
 
 | byte | meaning |

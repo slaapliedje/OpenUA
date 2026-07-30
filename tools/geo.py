@@ -124,13 +124,45 @@ class Geo:
     def version(self, v):
         struct.pack_into(">H", self.hdr, 0, v)
 
+    # ---- THE AXIS PAIRING (#104) -------------------------------------------
+    #
+    # ★ THIS MODULE'S ARITHMETIC IS THE ENGINE'S. What differs is only the NAMES,
+    # and mixing the two vocabularies is what shipped an inverted forward step in
+    # v0.5.12-beta (#98). The correspondence, once and for all:
+    #
+    #   this module      the engine (docs/coord-audit.md)       role in the index
+    #   -----------      -----------------------------------    -----------------
+    #   col              slot A = A5 -12287, step table -11693  MULTIPLIED
+    #   row              slot B = A5 -12288, step table -11684  ADDED (stride 1)
+    #   width  = hdr[2]  ds[2] — the bound on A                 (NOT the stride)
+    #   height = hdr[3]  ds[3] — the bound on B AND the stride
+    #
+    #   engine:  cell = ds + 290 + (A * ds[3] + B) * 6 + edge
+    #   here:    off  =            (col * height + row) * 6
+    #
+    # The asm-derived reading names slot A the ROW and ds[3] the WIDTH (the two
+    # step tables form a clean 8-point compass ring, which makes -11693 the row
+    # delta, and the Mac adds -11693 to slot A). So "col" here is the engine's
+    # "row" and vice versa. BOTH namings are self-consistent and the engine
+    # cannot tell them apart — renaming would flip every call site over exactly
+    # the arithmetic that must not change, which is why the names stay put and
+    # tests/test_geo_axis.py pins the PAIRING instead (three mutants, each
+    # caught: transposed _cell_off, swapped width/height, swapped entry order).
+    #
+    # NEVER settle an axis question on a fixture THIS MODULE generated: it
+    # inherits this labelling, and so does any HUD you read it back through.
+    # Use an SSI-authored area. HEIRS pins it with no fixture at all — GEO008
+    # has an entry at col 27 with hdr[2]=28/hdr[3]=20 (so col must be
+    # hdr[2]-bounded) and GEO011 an entry at row 23 with hdr[2]=21/hdr[3]=24
+    # (so row must be hdr[3]-bounded). Two violations in opposite directions,
+    # so no consistent relabelling survives both.
     @property
-    def width(self):   return self.hdr[2]      # ds[2] — columns
+    def width(self):   return self.hdr[2]      # ds[2] — bound on `col` (slot A)
     @width.setter
     def width(self, v): self.hdr[2] = v
 
     @property
-    def height(self):   return self.hdr[3]     # ds[3] — rows per column
+    def height(self):   return self.hdr[3]     # ds[3] — bound on `row` AND stride
     @height.setter
     def height(self, v): self.hdr[3] = v
 
@@ -163,7 +195,9 @@ class Geo:
 
     # ---- MAP cells (design-state[290..]) ----
     def _cell_off(self, col, row):
-        # jt201/jt212: idx = height*col + row  (row within a column, then column)
+        # jt201/jt212: idx = height*col + row  (row within a column, then column).
+        # This IS the engine's (A * ds[3] + B) — see the axis-pairing note above
+        # and tests/test_geo_axis.py. Do not "fix" the operand order.
         if not (0 <= col < self.width and 0 <= row < self.height):
             raise IndexError("cell (%d,%d) out of %dx%d" % (col, row, self.width, self.height))
         return (self.height * col + row) * CELL_SIZE

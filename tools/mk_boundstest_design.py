@@ -25,8 +25,16 @@ check rather than a wall. That is a real use — just not a directional one.
 
 Two entry points, differing only in the first coordinate:
 
-    entry 0 — 9, 3    (9 exceeds the 8-wide axis)
-    entry 1 — 5, 3    (in range on both axes — the CONTROL)
+    entry 0 — 9, 3
+    entry 1 — 5, 3
+
+★ AND THE PREMISE OF THAT PAIR IS WRONG — kept visible rather than deleted,
+because it is the exact mistake (#104 re-checked it 2026-07-30). The first
+coordinate `set_entry_point` takes is the `row`, and `row` is bounded by
+`height` = 14, NOT by `W` = 8. So entry 0's "9" is comfortably IN range and
+this fixture never tested a bounds refusal at all; the original comment
+("9 exceeds the 8-wide axis") silently assumed the labelling it was built to
+prove. See the correspondence table above `Geo.width` in tools/geo.py.
 
     python3 tools/mk_boundstest_design.py data/work/gamedata --current
     python3 tools/mk_boundstest_design.py data/work/gamedata --current --entry 1
@@ -84,9 +92,10 @@ def main(argv):
     print("wrote %s/BOUNDTEST.DSN" % dest)
     print("  %dx%d (NON-SQUARE: w=%d h=%d), open interior, perimeter walls" % (W, H, W, H))
     print("  entry %d: row %d, col %d, facing 0 (compass N)" % (entry_idx, row, col))
-    print("  row %d %s width %d -> a swapped bounds check %s"
-          % (row, ">=" if row >= W else "<", W,
-             "REFUSES silently" if row >= W else "passes (control)"))
+    # NB: this line prints the ORIGINAL (mistaken) framing — row is bounded by
+    # H, not W, so it says nothing about a real bounds check. See the docstring.
+    print("  row %d %s W %d -- MEANINGLESS as a bounds test (row is H-bound)"
+          % (row, ">=" if row >= W else "<", W))
     return 0
 
 
