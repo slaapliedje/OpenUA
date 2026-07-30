@@ -47,8 +47,8 @@ bug that depressed the earlier zeros is fixed and pinned by regression tests:
 |---|---|---|
 | ~~`l1240`~~ / ~~`l0ee6`~~ | ✅ lifted (#108) | the wall-pencil click writes; the edit fires |
 | ~~`l341a`~~ | ⛔ never a gap (#111) | all 4 `JT[392]` call sites enumerated — the `'%'` guard is unreachable |
-| ~~`l4e8a`~~ | ✅ lifted (#112) | it ADDS a pooled string; 9-case write→read round-trip, 0 mismatches |
-| ~~`l501e`~~ | ✅ lifted (#113) | it DELETES one; freed bytes match to the byte, freed slot is reused |
+| ~~`l4e8a`~~ | ✅ lifted (#112) | it ADDS a pooled string; 9-case write→read round-trip, 0 mismatches — and **observed firing live** (#115) |
+| ~~`l501e`~~ | ✅ lifted (#113) | it DELETES one; freed bytes match to the byte, freed slot is reused — **observed firing live** (#115) |
 | ~~`jt1150`~~ | ⛔ faithful no-op (#114) | the Mac body is `linkw/unlk/rts` — read, not inferred |
 
 **Two of the five were never gaps, and both were mislabelled the same way: a
@@ -64,6 +64,31 @@ A speculative comment is worse than none: it is also the one thing that keeps
 The residual risk is unchanged and worth restating: **a zero here means no
 PROBE stub body is reachable, not that the port is feature-complete.** Read it
 with the `--arms` count and with the caveat block further down.
+
+### ★ #115 — the string-pool pair, OBSERVED FIRING in the event editor
+
+#112/#113 shipped `l4e8a`/`l501e` correct-by-round-trip but never seen to fire:
+the write-back loop reported `nstr=0` for both drivable record editors, so
+neither surfaced a pooled string field. **The event editor does.** Authoring a
+TEXT STATEMENT event on HEIRS DUNGEON 01 (recipe in `event-editor-wall.md`):
+
+```
+writeback nstr=5                      (vs 0 for Game Settings / Monster)
+jt230 text=OOPEENUA        -> id 94   l4e8a allocated free slot 93
+jt230 text=OOPEENUAXXY     -> id 94   the SAME id on a re-edit
+```
+
+**The repeated id is the proof that `l501e` ran.** `l4e8a` returns the first
+zero in the length table; it could only hand back 94 a second time if the
+re-edit had freed that slot first. Both halves, live, on a real design's pool.
+
+Then FILE→SAVE, and `tools/geo.py` — an independent host-side reader of the
+format — parsed the result: **exactly one string changed (93, now holding the
+typed text) and exactly one event (56, `empty` -> `Message / Text`)**. Index 93
+was EMPTY in the baseline, which is why the free-slot scan chose it, and its
+neighbours 92/94 are byte-identical, so the gap-opening shift moved everything
+correctly. geo.py's own STRG constants (index +6, body +406, size 7168) are the
+same layout derived from the asm in #112 — two independent derivations agreeing.
 
 ### ★ `l341a` — "every save as picks nothing" was FALSE, and so was "live gap"
 

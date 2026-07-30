@@ -5,21 +5,40 @@ The design-side **event editor**: the screens that author a design's events
 the largest design-editor cluster. Runtime event *dispatch* is already lifted
 (see [[event-subsystem-campaign]]); this wall is the *authoring UI*.
 
-## Launcher context (why it's dormant today)
+## Launcher context — ⛔ THE "DORMANT" CLAIM BELOW IS DEAD (2026-07-30, #115)
 
-The five giants are arms of the **CODE 22 design-editor command dispatcher**
-(function @ CODE 22 + 0x0096) — a row of `jsr JT[N]` menu handlers:
+**The event editor is LIVE, reachable, and authors real events.** Driven
+end-to-end headlessly on HEIRS DUNGEON 01:
 
 ```
-JT[247] CODE 2   JT[248] CODE 2   JT[249] CODE 2   JT[254] CODE 2   (event editor)
-JT[233/239/240/241/244] CODE 11  (GEO 3D-map editor — Phase C)
-JT[259] CODE 10 (art import, DONE)   JT[263]/JT[270] CODE 10
+main menu E  ->  picker  ->  click OPEN (62,439)
+  ->  MAP menu: drag (285,67) -> (380,210) = EVENT PLACEMENT
+      (the status bar flips to PLACE EVENT / TEXT STATEMENT and the
+       command bar's 3rd button changes PLACE -> EDIT)
+  ->  click EDIT (265,439)  ->  "PLEASE SELECT AN EVENT TYPE" list
+  ->  ARROW KEYS walk the list (the scrollbar's down-arrow click did NOT
+      register; Down does) -> TEXT STATEMENT -> click SELECT (70,439)
+  ->  the TEXT STATEMENT EVENT screen, page 2, with the multi-line
+      PLAYER READS box -> click (300,290), type, click OK (47,438)
+  ->  the chain screen: "EVNT 71 USED, 29 FREE.  TEXT 7% FREE."
+      EDIT is (320,439) here; LEAVE is (70,439)
+  ->  FILE -> SAVE writes the area
 ```
 
-That dispatcher is **not lifted** (its arms have no live callers; only the main
-menu jt315 is live). So even a fully-lifted event editor stays dormant until
-the CODE 22 dispatcher is lifted and wired — which can't happen faithfully
-until enough of these arms exist. Track that as the Phase-B/C "wire-up" step.
+Result, verified against the file with `tools/geo.py` (an INDEPENDENT reader —
+the engine wrote it, host Python read it): **exactly one event changed** (56,
+`type 0 empty` -> `type 2 Message / Text`) and **exactly one string changed**
+(index 93). Nothing else in the 12962-byte area moved.
+
+★ **DUNGEON 01 IS `GEO005.DAT`, NOT `GEO001.DAT`** — the picker lists OVERLAND
+01-04 first, so the dungeons start at 005. Watching GEO001 for the save made a
+working save look like a no-op for several minutes.
+
+*(Historic, kept because it explains the wall doc's original framing: the five
+giants are arms of the CODE 22 dispatcher at CODE 22 + 0x0096 — `JT[247/248/
+249/254]` CODE 2, `JT[233/239/240/241/244]` CODE 11, `JT[259]`/`JT[263]`/
+`JT[270]` CODE 10. That dispatcher was unlifted when this doc was written, so
+the editor was genuinely dormant then. `l0096` is lifted and menu-wired now.)*
 
 ## Targets — bottom-up by size (alias offsets from lxxxx-jt-aliases.md)
 
