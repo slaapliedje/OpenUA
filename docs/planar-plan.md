@@ -3374,3 +3374,66 @@ where the ECS 68000 build (which implies it) linked fine and the **AGA 020
 build did not** — two of the three call sites are outside that block. `static`
 plus a missing definition reads as `undefined reference`, not a compile error.
 Build every target, not the one you are measuring.
+
+## #119 THE PROFILER WORKS — AND ITS FIRST RESULT CONTRADICTS THE 3.7%
+
+**The blocker was never a broken Hatari build. `profile` over the command FIFO
+silently collects NOTHING**, because `hatari-debug <cmd>` executes out-of-band
+**without entering the debugger**, and Hatari commits its profile working set
+only on a real debugger entry (`help profile`: *"Data is collected until
+debugger is entered again"*). Every query that way returns `0 CPU addresses
+listed` while still printing a plausible total time — which reads exactly like a
+build compiled without profiling support. It is not: **profiling a bare TOS
+boot through a BREAKPOINT shows activity in ROM (`0xe00034-0xe15a2a`) and none
+in RAM**, which is the right answer, on the same binary. `b` over the FIFO does
+not register either; breakpoints must come from `--parse` or another
+breakpoint's `:file` script.
+
+Recipe, now `tools/profile/st_profile.sh` + `st_aggregate.py`: two pre-armed
+breakpoints bracket the window, each with an attached `:file` command script —
+`profile on ; c` to open, `profile cycles N ; c` to close and dump. Aggregate
+per-address rows to functions with `nm`, **filtering `.L`/`.LBB`/`.LBE` labels
+and `*.o` markers** — left in, they swallow the ranking (`.LBB429 29.6%`), the
+same trap as the #96 multiply histogram. Hatari's own `profile symbols` is not
+a substitute: it lists only addresses sitting exactly ON a symbol, i.e. entry
+points, and a 25-symbol request returned ONE row.
+
+### The first real play-loop profile (STE, 30000-VBL window, 16 walk steps)
+
+| function | share of ranked cycles |
+|---|--:|
+| `st_present` | **30.1%** |
+| `qd_nearest_color` | **25.7%** |
+| `dc_plane_bridge_span` | 11.0% |
+| `__udivsi3` | 5.5% |
+| `qd_planar_bridge_rect` | 4.8% |
+| `qd_pixmap_fill` | 4.6% |
+| `render_3d_faithful` | 2.5% |
+| `jt200_layer` | 2.3% |
+| `__divsi3` / `__mulsi3` | 1.8% / 1.7% |
+
+**★ THIS DISAGREES WITH "#96: the display layer is 3.7% of the play path" BY AN
+ORDER OF MAGNITUDE.** Summing the display work here — `st_present` +
+`dc_plane_bridge_span` + `qd_planar_bridge_rect` + `st_c2p8` — gives **~47%**.
+Both numbers cannot be right and the disagreement must be settled before either
+is used to decide anything:
+
+- the 3.7% came from `FRUA_STPROF` PHASE TIMERS, which bracket regions with two
+  `_hz_200` reads. #96 itself recorded that those brackets charge whatever
+  interrupt fires inside them to the bracketed region, and that the historical
+  figures were "part display, part interrupt load, in an unknown mix";
+- this figure is a per-address CYCLE COUNT with no bracketing and no
+  attribution guesswork, but its denominator is one window on one drive, and
+  the window mixes idle play-screen presents with 16 walk steps.
+
+**Nobody should quote the 3.7% as settled again until this is reconciled** —
+and the reconciliation is cheap now that the instrument works.
+
+### The other surprise: `qd_nearest_color` is still 25.7%
+
+#96 fixed its `dr*dr+dg*dg+db*db` (85% of ALL software multiplies, −20% of the
+play path) with a squares table. That removed the MULTIPLIES; **the function is
+still a 256-entry linear scan per lookup**, and it is now the second-largest
+consumer in the play loop. The right next question is not "make the scan
+faster" but "why is it called so often" — the same shape as the multiply find,
+where the win came from removing the calls rather than optimising the callee.
