@@ -72,6 +72,16 @@
 #define FRUA_STEPTIME 1
 #endif
 
+/* #130: FRUA_MODALDAMAGE reports from inside the FULL-path block, which
+ * FRUA_STEPTIME guards — and its buffer is declared there too. On its own it
+ * would compile the snapshot and never the comparison: SILENTLY INERT, the
+ * failure mode that wasted a run on FRUA_AUTOWALK_TREASURE (#125c) and made an
+ * AGA A/B vacuous (#127). Say so, here, where the check cannot itself be
+ * compiled out. */
+#if defined(FRUA_MODALDAMAGE) && !defined(FRUA_STEPTIME)
+#error "FRUA_MODALDAMAGE needs FRUA_STEPPROF: its report lives in the FULL-path block that FRUA_STEPTIME guards. Build with -DFRUA_STEPPROF -DFRUA_MODALDAMAGE."
+#endif
+
 /* L5124 cluster — the ~30 byte globals L5124 zero-inits or seeds with
  * a small constant. All live in the below-A5 buffer at their A5
  * offsets; the c79x cluster's macro pattern carries over directly.
@@ -3658,6 +3668,10 @@ long g_mpf_t0, g_mpf_t1, g_mpf_t2;      /* jt312 step-timing stamps */
 long g_mpf_c1, g_mpf_c2, g_mpf_c3;      /* #125d chrome-phase sub-stamps */
 long g_mpf_p0, g_mpf_p1, g_mpf_p2, g_mpf_p3;  /* #125d port_draw_play_frame */
 long g_fsopen_calls;                    /* FSOpen count (both file backends) */
+#ifdef FRUA_MODALDAMAGE
+static unsigned char s_md_snap[320 * 200];   /* #130 pre-rebuild screen */
+static int           s_md_have;
+#endif
 long g_mpf_s1, g_mpf_s1b, g_mpf_s2, g_mpf_s3;  /* mono render stage stamps */
 long g_mpf_l0;                          /* l63c0 compose stamp */
 long g_mpf_f1, g_mpf_f2;                /* jt312 FULL-path stamps */
@@ -15114,6 +15128,20 @@ static void jt312(unsigned char *page)
 		 * (l3eea/L3f3c, still stubbed) is wrong, not just uncoloured. Reverted
 		 * to the reconstruction until the bigpic is understood; the jt214/jt44/
 		 * l579e lifts stay (latent) for when the composer (L3fd8) is wired. */
+#ifdef FRUA_MODALDAMAGE
+		/* #130: snapshot the screen as it stands BEFORE the full rebuild, so
+		 * the diff after it says which pixels the rebuild actually CHANGED.
+		 * Anything it redraws identically is work the force-full did not need
+		 * to do — which is the whole question about the event path. */
+		{
+			short r_, w_ = (sw < 320) ? sw : 320;
+			short h_ = (sh < 200) ? sh : 200;
+			for (r_ = 0; r_ < h_; r_++)
+				memcpy(s_md_snap + (long)r_ * 320,
+				       px + (long)r_ * pitch, (size_t)w_);
+			s_md_have = 1;
+		}
+#endif
 		port_draw_play_frame(px, pitch, sw, sh);
 #ifdef FRUA_STEPTIME
 		{ extern long g_mpf_f1; g_mpf_f1 = TickCount(); }
@@ -15205,6 +15233,42 @@ static void jt312(unsigned char *page)
 			extern long g_mpf_t0, g_mpf_t1, g_mpf_t2;
 			extern long g_mpf_f1, g_mpf_f2;
 			long ft = TickCount();
+#ifdef FRUA_MODALDAMAGE
+			if (s_md_have) {
+				short r_, c_, y0 = -1, y1 = -1, x0 = 999, x1 = -1;
+				short w_ = (sw < 320) ? sw : 320;
+				short h_ = (sh < 200) ? sh : 200;
+				long  n = 0;
+				short band[25];
+
+				for (r_ = 0; r_ < 25; r_++) band[r_] = 0;
+				for (r_ = 0; r_ < h_; r_++) {
+					const unsigned char *a = s_md_snap + (long)r_ * 320;
+					const unsigned char *b = px + (long)r_ * pitch;
+					int dirty = 0;
+
+					for (c_ = 0; c_ < w_; c_++)
+						if (a[c_] != b[c_]) {
+							n++; dirty = 1;
+							if (c_ < x0) x0 = c_;
+							if (c_ > x1) x1 = c_;
+						}
+					if (dirty) {
+						if (y0 < 0) y0 = r_;
+						y1 = r_;
+						band[r_ >> 3]++;
+					}
+				}
+				dbg_log_num("modaldmg: changed px  = ", n);
+				dbg_log_num("modaldmg: rows y0*1k+y1= ", (long)y0 * 1000 + y1);
+				dbg_log_num("modaldmg: cols x0*1k+x1= ", (long)x0 * 1000 + x1);
+				for (r_ = 0; r_ < 25; r_++)
+					if (band[r_])
+						dbg_log_num("modaldmg:   band8 r*100+n= ",
+						            (long)r_ * 100 + band[r_]);
+				s_md_have = 0;
+			}
+#endif
 			{
 				extern long g_mpf_c1, g_mpf_c2, g_mpf_c3;
 				dbg_log_num("  chrome setup tk ", g_mpf_c1 - g_mpf_t0);

@@ -4197,3 +4197,60 @@ all caught); `FRUA_BRIDGEVERIFY` 3,298 checks / 0 mismatches on **both** AGA
 (8 planes) and ECS (5); ST menu byte-identical to the long-standing baseline
 (the ST path is untouched — only `planar_c2p_span_amiga` changed); six build
 configs green.
+
+### #130 WHAT AN EVENT MODAL ACTUALLY DAMAGES — 0 to 81 pixels of 64,000
+
+The event path sets `g_view_force_full = 1` after a modal, on the rationale
+(in the code) that *"The Mac rebuilds the play dialog from scratch on every
+cycle; this is the port's equivalent, **and it is cheap**"*. That claim had
+never been measured. It costs a FULL recompose — ~16.9 s originally, 9.7 s
+after #125e/#126b — and it fires after every event message.
+
+`FRUA_MODALDAMAGE` snapshots the chunky screen immediately BEFORE
+`port_draw_play_frame` and diffs it against the screen after the whole compose
+(chrome + 3D render + HUD + present). **Pixels the rebuild does not change are
+work it did not need to do.** One HEIRS walk drive, all five full rebuilds:
+
+| # | trigger | changed px | rows | cols |
+|---|---|--:|---|---|
+| 1 | entry (`s_view_first`) | 7,075 | 0-197 | 0-319 |
+| 2 | event modal | **0** | — | — |
+| 3 | event modal | **15** | 104-110 | 218-222 |
+| 4 | event modal | **0** | — | — |
+| 5 | event modal | **81** | 104-111 | 210-238 |
+
+**Two of the five rebuilds changed NOTHING AT ALL**, and the other three
+changed at most 81 pixels of 64,000 — an 8-row strip at rows 104-111, x
+210-238, which is the CLOCK text (`12:04 AM`). A ~9.7-second full recompose to
+repaint a clock digit.
+
+Even the entry rebuild is narrower than it looks: its dirty rows are only
+**0-15 and 184-199** — the top and bottom strips. The 168 rows in between,
+including the whole 88x88 viewport and the roster panel, were redrawn
+identically.
+
+**So the answer to "does the modal damage the frame?" is: on this path, no.**
+Not the border, not the viewport surround, not the compass ring, not the
+roster. The force-full is repainting a static screen to update a clock.
+
+★ SCOPE, stated honestly: this is HEIRS' entry/caravan event chain on the walk
+path — the events an autoplay drive reaches. The force-full was added for real
+symptoms (the comments record a BLANK ROSTER, a BLANK CLOCK, and jt221's bare
+FRAME pieces surfacing as three stray plates), so other paths — CAST, camp, a
+true modal dialog over the viewport — may damage more. **What is measured is
+that the walk-path event chain damages nothing; what is NOT measured is every
+other route to `g_view_force_full`.** A fix should repaint what is dirty rather
+than assume nothing ever is.
+
+The obvious shape: after a modal, repaint the HUD panels (roster, clock,
+command bar) — the things the comments say came back blank — WITHOUT re-laying
+`port_draw_play_frame`'s chrome or re-running the 3D view. On the numbers above
+that is ~9.7 s -> the cost of a clock repaint, on every event message.
+
+★ `FRUA_MODALDAMAGE` needs `FRUA_STEPPROF` (its report lives in the FULL-path
+block `FRUA_STEPTIME` guards, and so does its buffer). Alone it would compile
+the snapshot and never the comparison — silently inert, the same shape as
+`FRUA_AUTOWALK_TREASURE` (#125c) and the vacuous AGA A/B (#127). It now
+`#error`s from a spot that cannot itself be compiled out, which is the part the
+first attempt got wrong: the guard was placed INSIDE the block it was warning
+about, so it vanished with it.
