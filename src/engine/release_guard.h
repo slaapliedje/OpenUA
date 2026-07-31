@@ -85,6 +85,9 @@
 #ifdef FRUA_SNDNOGATE
 #error "FRUA_SNDNOGATE in a RELEASE build: the synth would go back to rendering ~410 samples of silence every vblank whether or not anything is audible — measured at 2.5x the whole ST/STe play loop (#96). Output is identical, which is exactly why this must never ship silently: it is the #96 A/B arm, not a mode."
 #endif
+#ifdef FRUA_STICKYALWAYS
+#error "FRUA_STICKYALWAYS in a RELEASE build: the sticky event-text box would be redrawn through the word-wrap renderer on EVERY recompose instead of only when something wiped it — measured changing 0 pixels on every HUD-only compose while still costing up to 184 ticks, 3.1 s on an 8 MHz STE (#137). Output is identical (FRUA_STICKYVERIFY: every skip replayed anyway changed 0 px), which is exactly why it must never ship silently: it is the A/B arm, not a mode."
+#endif
 #ifdef FRUA_TILEPX
 #error "FRUA_TILEPX in a RELEASE build: the wall-tile blit would go back to a per-pixel x-clip test, per-pixel index arithmetic and a four-branch colour decision — measured at 22 of a walk step's ~65 ticks against 14 (#134). Pixels are identical (734,848 verified per-pixel by FRUA_TILEVERIFY, 0 mismatches), which is exactly why it must never ship silently: it is the A/B arm, not a mode."
 #endif

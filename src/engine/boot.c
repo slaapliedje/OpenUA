@@ -11973,10 +11973,23 @@ long g_tp_seen, g_tp_put, g_tp_tiles;   /* #134 wall-tile pixel volume */
 #ifdef FRUA_TILEVERIFY
 long g_tv_n, g_tv_bad;
 #endif
+#if defined(FRUA_STICKYDAMAGE) || defined(FRUA_STICKYVERIFY)
+unsigned char g_sd_snap[320 * 64];   /* #137 text-box snapshot */
+#endif
+#ifdef FRUA_STICKYVERIFY
+long g_sv_checks, g_sv_bad;
+#endif
 #ifdef FRUA_ROSTERPROF
 long g_rp_nodes, g_rp_broke, g_rp_calls;   /* #136 roster list length */
 long g_rp_a, g_rp_b, g_rp_c, g_rp_d, g_rp_e;  /* #136 roster sub-stamps */
 #endif
+/* #137: does the sticky event-text box need repainting? Measured: the replay
+ * changes pixels ONLY on a compose that ran port_draw_play_frame (which wipes
+ * the screen) — 479 px there, and 0 px on every HUD-only compose, where it
+ * still cost up to 184 ticks (3.1 s) redrawing text that was already correct.
+ * The event-fire path replays immediately when the text changes, which is why
+ * the box is already right by the time a HUD-only compose runs. Starts dirty. */
+static short g_sticky_dirty = 1;
 #define BD_MAP_MAX 320   /* #132: backdrop scale maps, one screen wide */
 static short g_view_hud_only = 0;
 #ifdef FRUA_R3DPROF
@@ -15123,6 +15136,8 @@ static void port_draw_play_frame(unsigned char *px, short pitch, short sw, short
 	{ extern long g_mpf_p2; g_mpf_p2 = TickCount(); }
 #endif
 
+	g_sticky_dirty = 1;              /* #137: this wipe takes the text box */
+
 	/* grey stone background (clut 21 ~ mid stone) under the chrome. */
 	for (r = 0; r < sh; r++)
 		memset(px + (long)r * pitch, 21, (size_t)sw);
@@ -15495,10 +15510,93 @@ static void jt312(unsigned char *page)
 #ifdef FRUA_STEPTIME
 		{ extern long g_mpf_h3; g_mpf_h3 = TickCount(); }
 #endif
-		play_sticky_text_replay();      /* DOS parity: event text persists
-		                                 * on the square across recomposes
-		                                 * (drawn inside the hold so the
-		                                 * full present carries it) */
+#ifdef FRUA_STICKYDAMAGE
+		/* #137: does the replay actually CHANGE anything? If the box still
+		 * holds the text when it runs, the whole call is redundant and a
+		 * skip-if-unchanged is safe. If it changes pixels, something wiped
+		 * the box first and the wiper is the real target. Snapshot the text
+		 * box rows only (17..24 of the char grid ~ y 136..200). */
+		{
+			extern unsigned char g_sd_snap[320 * 64];
+			unsigned char *sp; short spitch, ssw, ssh;
+
+			if (qd_screen_pixels_nomark(&sp, &spitch, &ssw, &ssh) && sp) {
+				short r_, w_ = (ssw < 320) ? ssw : 320;
+				for (r_ = 136; r_ < 200 && r_ < ssh; r_++)
+					memcpy(g_sd_snap + (long)(r_ - 136) * 320,
+					       sp + (long)r_ * spitch, (size_t)w_);
+			}
+		}
+#endif
+		/* DOS parity: event text persists on the square across recomposes
+		 * (drawn inside the hold so the full present carries it) — but only
+		 * when something actually took the box. See g_sticky_dirty. */
+#ifdef FRUA_STICKYALWAYS
+		play_sticky_text_replay();
+#else
+		if (g_sticky_dirty) {
+			play_sticky_text_replay();
+			g_sticky_dirty = 0;
+		}
+#ifdef FRUA_STICKYVERIFY
+		else {
+			/* #137: we SKIPPED. Prove it was safe — snapshot the box, run
+			 * the replay anyway, and report any pixel it changes. A
+			 * non-zero count means the skip would have left a stale box.
+			 * The verifying build always replays, so it renders correctly
+			 * whatever the answer; the log is the evidence. (Same shape as
+			 * FRUA_REBAKEVERIFY / FRUA_BRIDGEVERIFY.) */
+			extern unsigned char g_sd_snap[320 * 64];
+			extern long g_sv_checks, g_sv_bad;
+			unsigned char *sp; short spitch, ssw, ssh;
+
+			if (qd_screen_pixels_nomark(&sp, &spitch, &ssw, &ssh) && sp) {
+				short r_, c_, w_ = (ssw < 320) ? ssw : 320;
+				long n = 0;
+
+				for (r_ = 136; r_ < 200 && r_ < ssh; r_++)
+					memcpy(g_sd_snap + (long)(r_ - 136) * 320,
+					       sp + (long)r_ * spitch, (size_t)w_);
+				play_sticky_text_replay();
+				for (r_ = 136; r_ < 200 && r_ < ssh; r_++) {
+					const unsigned char *a =
+						g_sd_snap + (long)(r_ - 136) * 320;
+					const unsigned char *b = sp + (long)r_ * spitch;
+					for (c_ = 0; c_ < w_; c_++)
+						if (a[c_] != b[c_])
+							n++;
+				}
+				g_sv_checks++;
+				if (n) {
+					g_sv_bad++;
+					dbg_log_num("stickyverify UNSAFE px= ", n);
+				}
+			}
+		}
+#endif
+#endif
+#ifdef FRUA_STICKYDAMAGE
+		{
+			extern unsigned char g_sd_snap[320 * 64];
+			unsigned char *sp; short spitch, ssw, ssh;
+
+			if (qd_screen_pixels_nomark(&sp, &spitch, &ssw, &ssh) && sp) {
+				short r_, c_, w_ = (ssw < 320) ? ssw : 320;
+				long n = 0; short y0 = -1, y1 = -1;
+
+				for (r_ = 136; r_ < 200 && r_ < ssh; r_++) {
+					const unsigned char *a = g_sd_snap + (long)(r_ - 136) * 320;
+					const unsigned char *b = sp + (long)r_ * spitch;
+					int d = 0;
+					for (c_ = 0; c_ < w_; c_++)
+						if (a[c_] != b[c_]) { n++; d = 1; }
+					if (d) { if (y0 < 0) y0 = r_; y1 = r_; }
+				}
+				dbg_log_num("stickydmg: changed = ", n);
+				dbg_log_num("stickydmg: rows    = ", (long)y0 * 1000 + y1);
+			}
+		}
+#endif
 #ifdef FRUA_STEPTIME
 		{ extern long g_mpf_f2; g_mpf_f2 = TickCount(); }
 #endif
@@ -15519,7 +15617,14 @@ static void jt312(unsigned char *page)
 		{
 			extern long g_mpf_t0;
 			dbg_log_num("compose total ticks ", TickCount() - g_mpf_t0);
-			dbg_log_num("compose was_chrome  ",
+	#ifdef FRUA_STICKYVERIFY
+		{
+			extern long g_sv_checks, g_sv_bad;
+			dbg_log_num("stickyverify skips  = ", g_sv_checks);
+			dbg_log_num("stickyverify UNSAFE = ", g_sv_bad);
+		}
+#endif
+		dbg_log_num("compose was_chrome  ",
 			            (long)(s_view_first || g_view_force_full));
 		}
 #endif
@@ -50195,6 +50300,7 @@ static void  l4d26(void *ev_v)
 	 * modal drops and stays gone while the party stands on the square. */
 	g_sticky_text_ev = ev;
 	play_sticky_text_replay();
+	g_sticky_dirty = 0;              /* #137: the box is correct as of now */
 }
 
 /* Replay the sticky text event's box content — l4d26's draw loop minus

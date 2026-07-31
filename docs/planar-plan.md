@@ -4570,3 +4570,57 @@ function first.
 
 `FRUA_ROSTERPROF` stays: it is the instrument that settled this, and it is the
 one that should run before anyone optimises a list walk.
+
+### #137 STICKY TEXT, SKIP-IF-UNCHANGED — event messages 5.0 s -> 3.2 s
+
+#136 put the whole HUD variance in `play_sticky_text_replay`. Before changing
+anything, `FRUA_STICKYDAMAGE` asked what the replay actually CHANGES — snapshot
+the text-box rows, replay, diff:
+
+| compose | ran chrome? | replay changed | cost |
+|---|---|--:|--:|
+| 2 | no | 0 px | 0 |
+| 3 | **yes** | **479 px** (rows 136-142) | 53 |
+| 4 | no | 0 px | 55 |
+| 5 | no | **0 px** | **184** |
+
+**The only replay that changed a pixel was on a compose that ran
+`port_draw_play_frame`** — which wipes the screen, box included. Every HUD-only
+replay redrew text that was already correct, one of them for 184 ticks (3.1 s).
+The reason the box is already right is that the event-fire path replays
+immediately when the text changes; by the time a HUD-only compose runs, there
+is nothing to do.
+
+So: `g_sticky_dirty`, set by the chrome wipe and cleared by the event-fire
+replay. The HUD block replays only when dirty.
+
+| | before | after |
+|---|--:|--:|
+| sticky replay, whole drive | 0/53/55/184 tk | 0/0/38/0 |
+| **event compose** | 231/359/207 tk | **193/191/189** |
+| **event message** | ~5.0 s | **~3.2 s** |
+
+Note the after column is FLAT — the spikes are gone, which is the real symptom
+being fixed: an event message no longer costs a different amount depending on
+what came before it.
+
+**Proved, not assumed.** `FRUA_STICKYVERIFY` takes every skip, snapshots the
+box, runs the replay ANYWAY and reports any pixel it changes — the verifying
+build always replays, so it renders correctly whatever the answer, and the log
+is the evidence. **3 skips, 0 unsafe.** The command drive
+(`FRUA_AUTOWALK_CMDS`) produces **0 skips**, because every command exit
+force-fulls and so legitimately needs the replay — no skips, no risk. Walk
+frame byte-identical to the #134 build; ST menu byte-identical; five configs
+build; 427 tests pass. A/B arm `FRUA_STICKYALWAYS`, release-guarded.
+
+**ST/STe play loop, end of this run:**
+
+| | start | now |
+|---|--:|--:|
+| walk step | 2.13 s | **0.92 s** |
+| event message | 16.9 s | **3.2 s** |
+| dungeon entry | 16.9 s | ~5.3-10.3 s |
+
+**Next**: `l2c60` (the command bar) is now the largest flat item at ~82 tk
+(1.4 s) on STE against 3-5 tk on the 020s — a 20x machine ratio on fixed work,
+which is the per-pixel signature #133/#134 both had.
