@@ -764,6 +764,23 @@ static Boolean qd_effective_clip(GrafPtr port, Rect *out)
 	                 (x), (y), (slot))
 #endif
 
+/* Chunky run [x0, x1) of one row, remapped through `lut` — the span form of the
+ * read-chunky/remap/DC_PUT loop. `src` is an ABSOLUTE-x row pointer (src[x] is
+ * pixel x's chunky index). #126 measured the per-pixel form at ~450 cycles/px
+ * and 57% of l67ca, more than the decode+blit it mirrors. Amiga keeps the
+ * per-pixel loop (no span primitive for separate planes yet). */
+#ifdef FRUA_AMIGA
+#define DC_C2P(dt, x0, x1, y, src, lut) do { \
+		short x_; \
+		for (x_ = (x0); x_ < (x1); x_++) \
+			DC_PUT((dt), x_, (y), (lut)[(src)[x_]]); \
+	} while (0)
+#else
+#define DC_C2P(dt, x0, x1, y, src, lut) \
+	planar_c2p_span_stlow((dt)->planes, (dt)->line_bytes, (dt)->nplanes, \
+	                      (y), (x0), (x1), (src), (lut))
+#endif
+
 /* Solid horizontal run [x0, x1) of one row — the span form of DC_PUT. The ST
  * arm writes whole 16-pixel groups; the Amiga arm has no span primitive yet
  * and keeps the per-pixel loop, so it is correct there and merely unimproved
@@ -861,6 +878,79 @@ unsigned long g_dcm_checks, g_dcm_bad;
 #endif
 
 /*
+ * #126: the coverage half of a bridged span. The per-pixel loop this replaces
+ * did an if-test and two stores PER PIXEL; a span can count the newly-covered
+ * pixels in one tight pass, then memset the coverage flags and MEMCPY the
+ * chunky indices straight in — `dt->idx` holds exactly the bytes `src` is
+ * being read from, so the copy is the same assignment done 16x faster.
+ * `src` is an absolute-x row pointer, matching DC_C2P.
+ */
+static void dc_cover_span(const dsp_planar_dt_t *dt, short y,
+                          short x0, short x1, const unsigned char *src)
+{
+	unsigned char *cov;
+
+	if (!dt->cov || x1 <= x0)
+		return;
+	cov = dt->cov + (long)y * dt->w;
+	if (dt->rowcov) {
+		short x, newc = 0;
+
+		for (x = x0; x < x1; x++)
+			if (!cov[x])
+				newc++;
+		dt->rowcov[y] = (short)(dt->rowcov[y] + newc);
+	}
+	memset(cov + x0, 1, (size_t)(x1 - x0));
+	if (dt->idx)
+		memcpy(dt->idx + (long)y * dt->w + x0, src + x0,
+		       (size_t)(x1 - x0));
+#ifdef FRUA_BRIDGEVERIFY
+	/* #126: the plane bytes are proved on the host (tests/test_planar_fill.py,
+	 * mutation-tested); this proves the COVERAGE half, which no host test can
+	 * reach. A cross-arm screenshot cannot: the two arms differ in SPEED, and
+	 * a faster drive lands on a different game state (observed: a different
+	 * party member in the roster), so the frames differ for reasons that have
+	 * nothing to do with pixels. These are postconditions of the per-pixel
+	 * loop this replaced, plus one INDEPENDENT invariant of the whole coverage
+	 * system: rowcov[y] must equal the number of covered pixels in row y. */
+	{
+		extern unsigned long g_bv_checks, g_bv_bad;
+		extern void dbg_log_num(const char *, long);
+		short x, live = 0;
+
+		g_bv_checks++;
+		for (x = x0; x < x1; x++) {
+			if (cov[x] != 1) {
+				g_bv_bad++;
+				dbg_log_num("bridgeverify COV x=", (long)x);
+				break;
+			}
+			if (dt->idx && dt->idx[(long)y * dt->w + x] != src[x]) {
+				g_bv_bad++;
+				dbg_log_num("bridgeverify IDX x=", (long)x);
+				break;
+			}
+		}
+		if (dt->rowcov) {
+			for (x = 0; x < dt->w; x++)
+				if (cov[x])
+					live++;
+			if (dt->rowcov[y] != live) {
+				g_bv_bad++;
+				dbg_log_num("bridgeverify ROWCOV got*10k+want= ",
+				            (long)dt->rowcov[y] * 10000L + live);
+			}
+		}
+	}
+#endif
+}
+
+#ifdef FRUA_BRIDGEVERIFY
+unsigned long g_bv_checks, g_bv_bad;
+#endif
+
+/*
  * ADR-0016 B4: fill one chunky row-span [prow, prow+w) into the draw-time plane
  * buffer, paralleling the chunky patCopy solid fill (the menu background + panels).
  * `prow` is the chunky write address of the span's first pixel; it maps to screen
@@ -931,6 +1021,9 @@ static void dc_plane_bridge_span(const dsp_planar_dt_t *dt,
 	lut  = dt->remap + (long)band * 256;
 	x1   = (short)(sx + w);
 	if (x1 > dt->w) x1 = dt->w;
+	if (x1 <= sx)
+		return;
+#ifdef FRUA_PERPIXELBRIDGE
 	for (x = sx; x < x1; x++) {
 		unsigned char idx = prow[x - sx];
 		DC_PUT(dt, x, sy, lut[idx]);
@@ -943,6 +1036,12 @@ static void dc_plane_bridge_span(const dsp_planar_dt_t *dt,
 			if (dt->idx) dt->idx[c] = idx;
 		}
 	}
+#else
+	/* prow[0] is pixel sx, and DC_C2P wants an absolute-x row pointer. */
+	DC_C2P(dt, sx, x1, sy, prow - sx, lut);
+	dc_cover_span(dt, sy, sx, x1, prow - sx);
+	(void)x;
+#endif
 }
 
 /*
@@ -972,6 +1071,7 @@ void qd_planar_bridge_rect(short x0, short y0, short x1, short y1)
 		const unsigned char *lut  = dt.remap + (long)band * 256;
 		const unsigned char *crow = dt.chunky + (long)y * dt.chunky_pitch;
 
+#ifdef FRUA_PERPIXELBRIDGE
 		for (x = x0; x < x1; x++) {
 			unsigned char idx = crow[x];
 			DC_PUT(&dt, x, y, lut[idx]);
@@ -984,6 +1084,11 @@ void qd_planar_bridge_rect(short x0, short y0, short x1, short y1)
 				if (dt.idx) dt.idx[c] = idx;
 			}
 		}
+#else
+		DC_C2P(&dt, x0, x1, y, crow, lut);
+		dc_cover_span(&dt, y, x0, x1, crow);
+		(void)x;
+#endif
 	}
 }
 #endif

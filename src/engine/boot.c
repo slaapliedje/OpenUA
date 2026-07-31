@@ -6947,9 +6947,12 @@ static void l309c(short a, short b, long handle, short size)
 	 * sees where the near/far faces really land. */
 	g_lc_x0 = sx; g_lc_y0 = sy;
 	g_lc_w  = (short)(bpp_w * 8); g_lc_h = height;
-#ifdef FRUA_STEPTIME
+#ifdef FRUA_LEAFTRACE
 	/* #126: what does one art leaf actually cover, and in which encoding?
-	 * piece 9 costs 152 ticks (2.5 s) and nobody has priced a pixel of it. */
+	 * SEPARATE from FRUA_STEPPROF on purpose — 77 leaves x 2 log lines per
+	 * l67ca costs ~50 ticks and inflated the chrome AND hud phases while it
+	 * was folded in, which is exactly the kind of instrument that quietly
+	 * becomes the thing you are measuring. */
 	dbg_log_num("        l309c leaf mode= ", (long)(mode & 15));
 	dbg_log_num("        l309c leaf w*1k+h", (long)(bpp_w * 8) * 1000L + height);
 #endif
@@ -27226,6 +27229,13 @@ static short menu_run(const menu_item_t *items, short n, void *proc,
 	/* #125: the boot window ends exactly here, so this is the dump that
 	 * matches #124's profile window. */
 	{ extern void div_prof_dump(void); div_prof_dump(); }
+#endif
+#ifdef FRUA_BRIDGEVERIFY
+	{
+		extern unsigned long g_bv_checks, g_bv_bad;
+		dbg_log_num("bridgeverify: checks   = ", (long)g_bv_checks);
+		dbg_log_num("bridgeverify: MISMATCH = ", (long)g_bv_bad);
+	}
 #endif
 #ifdef FRUA_DCMAPVERIFY
 	{

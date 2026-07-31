@@ -1,4 +1,4 @@
-"""planar_put_stlow / planar_fill_stlow / planar_glyph_stlow — the draw-time
+"""planar_put_stlow / planar_fill_stlow / planar_glyph_stlow / planar_c2p_span_stlow — the draw-time
 plane-store primitives (ADR-0016 draw-time present model) must set exactly the
 addressed pixels' slot bits in ST-Low interleaved planes and leave every other
 pixel untouched, for random pixels, random rects, clipped rects, and 1bpp glyphs
@@ -140,6 +140,41 @@ int main(void)
 			}
 		}
 	}
+	/* planar_c2p_span_stlow: a chunky row through a random LUT must produce
+	 * EXACTLY what a per-pixel planar_put_stlow loop produces, for arbitrary
+	 * (unaligned, sub-group, multi-group) spans — and must not disturb one
+	 * pixel outside [x0, x1). Random background first so "untouched" is a
+	 * real assertion and not "still zero". */
+	for (trial = 0; trial < 3000; trial++) {
+		unsigned char chunky[W], lut[256], ref[LB * H];
+		int x0 = rnd() % W, x1 = rnd() % W, y = rnd() % H;
+		int i;
+
+		if (x0 > x1) { int t = x0; x0 = x1; x1 = t; }
+		for (i = 0; i < W; i++)   chunky[i] = rnd();
+		for (i = 0; i < 256; i++) lut[i] = (unsigned char)(rnd() & 15);
+		for (i = 0; i < (int)sizeof scr; i++) scr[i] = rnd();
+		memcpy(ref, scr, sizeof ref);
+		/* reference: the per-pixel form this replaces */
+		for (i = x0; i < x1; i++)
+			planar_put_stlow(ref, LB, NP, (short)i, (short)y,
+			                 lut[chunky[i]]);
+		planar_c2p_span_stlow(scr, LB, NP, (short)y, (short)x0, (short)x1,
+		                      chunky, lut);
+		if (memcmp(scr, ref, sizeof ref) != 0) {
+			for (y = 0; y < H; y++) for (x = 0; x < W; x++)
+				if (slot_at(scr, x, y) != slot_at(ref, x, y)) {
+					printf("C2P MISMATCH t=%d span[%d,%d) y=%d at(%d,%d) got %d exp %d\n",
+					       trial, x0, x1, y, x, y,
+					       slot_at(scr, x, y), slot_at(ref, x, y));
+					return 1;
+				}
+			printf("C2P MISMATCH t=%d span[%d,%d) (bytes differ outside decoded pixels)\n",
+			       trial, x0, x1);
+			return 1;
+		}
+	}
+
 	printf("OK\n");
 	return 0;
 }

@@ -3946,3 +3946,60 @@ does. Note the subtree is a CONSUMER relationship (CLAUDE.md): edit upstream
 and `git subtree push`, do not re-add local copies.
 
 NOT FIXED HERE — this entry is the measurement only.
+
+### #126b BUILT — the span encoder, and the chrome phase is 4.5 s (was 10.2)
+
+`planar_c2p_span_stlow()` converts a chunky run to ST-Low planes a 16-pixel
+GROUP at a time: the group's plane words are accumulated in REGISTERS and
+stored once, so a fully covered group is `nplanes` word stores for 16 pixels
+with no read at all (the aligned 4-plane case shift-accumulates, no variable
+shift). Unlike #125e's solid fill every pixel has its own index, so the words
+must really be gathered — a real c2p, just a small one. `dc_cover_span()` does
+the other half: the per-pixel `if`-plus-two-stores becomes one counting pass, a
+`memset` of the flags and a `memcpy` of the indices (`dt->idx` holds exactly
+the bytes being read, so the copy IS the same assignment).
+
+Both bridge call sites now route through it — `qd_planar_bridge_rect` (the art
+path, via `l309c`) and `dc_plane_bridge_span` (`qd_pixmap_fill`'s patterned and
+bitwise arms, `CopyBits`, the cursor).
+
+| | per-pixel | span | |
+|---|--:|--:|--:|
+| `piece 9` | 152 | **73** | 2.1x |
+| `jt76` | 163 | **129** | |
+| **chrome phase** | **420** | **267** | 7.0 s -> **4.45 s** |
+| **FULL recompose** | **732** | **581** | 12.2 s -> **9.7 s** |
+
+Cumulative over #125e + #126b: **the chrome phase is 611 -> 267 ticks (10.2 s
+-> 4.45 s, 2.3x)** and a full recompose **1014 -> 581 (16.9 s -> 9.7 s, -43%)**.
+
+**★★ THE CROSS-ARM SCREENSHOT IS NOT A CORRECTNESS TEST HERE, AND IT LIED IN
+BOTH DIRECTIONS.** With the leaf trace compiled in, span vs per-pixel gave
+AE=0; with it gone, AE=3216 — same code. The crops showed **a different party
+member in the roster (LADY ILLIS vs MALTIER)** with the corridor art
+pixel-identical: the arms differ in SPEED, so the faster drive lands on a
+different game state (a different character highlighted when the Return lands).
+**An A/B that changes performance cannot be validated by a timed drive's final
+frame.** What settles it instead:
+
+- **Host test** (`tests/test_planar_fill.py`): 3,000 random spans — unaligned,
+  sub-group, multi-group — against a per-pixel `planar_put_stlow` reference,
+  compared with `memcmp` over the WHOLE buffer on a randomised background, so
+  untouched bytes are asserted too. **Mutation-tested**: flipping one plane's
+  source bit makes it fail.
+- **`FRUA_BRIDGEVERIFY`** for the coverage half, which no host test can reach:
+  **3,298 checks, 0 mismatches**, including the INDEPENDENT invariant
+  `rowcov[y] == popcount(cov[row])` — a property of the whole coverage system,
+  not a restatement of the new code.
+- **Menu frame** (a deterministic point, unlike the walk): byte-identical to
+  the long-standing baseline, md5 99bbb623.
+
+★ And the #126 leaf trace had to be split out of `FRUA_STEPPROF` into
+`FRUA_LEAFTRACE`: 77 leaves x 2 log lines per `l67ca` cost ~50 ticks and
+inflated the chrome AND hud phases while folded in (chrome read 469 instead of
+420, hud 409 instead of 169). The A/B stayed valid because both arms carried
+it, but every absolute number was wrong. **An instrument that logs per item
+becomes the thing you are measuring.**
+
+Amiga keeps the per-pixel loop (no span primitive for separate planes yet), so
+ECS/AGA are correct and simply unimproved. That is the obvious next port.

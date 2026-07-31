@@ -271,6 +271,105 @@ static inline void planar_fill_stlow(unsigned char *dst, short line_bytes,
 }
 
 /*
+ * #126: chunky -> planar for ONE ROW of a span, a 16-pixel GROUP at a time.
+ *
+ * `src[x]` is the chunky index of pixel x (an absolute-x row pointer) and
+ * `lut[]` maps it to a 0..2^nplanes-1 slot — the per-band remap the c2p uses,
+ * so the bytes produced are identical to a per-pixel planar_put_stlow loop.
+ *
+ * The per-pixel form this replaces (qd_planar_bridge_rect / dc_plane_bridge_span)
+ * measured ~450 cycles/pixel and was 57% of l67ca — MORE than the decode+blit it
+ * mirrors. The cost is not the arithmetic, it is doing `nplanes` read-modify-write
+ * cycles to MEMORY for every pixel. Here the group's plane words are accumulated
+ * in registers and stored once: a fully covered group is `nplanes` word stores
+ * for 16 pixels with NO read at all.
+ *
+ * Unlike planar_span_stlow (solid slot -> constant word) every pixel here has its
+ * own index, so the words must actually be gathered — this is a real c2p, just a
+ * small one.
+ *
+ * ★ Same endianness rule as planar_span_stlow: assemble in a `unsigned short`
+ * but STORE the two bytes explicitly. A `*(unsigned short *)` store uses the
+ * HOST's byte order and is silently wrong on the little-endian machine that runs
+ * tests/test_planar_fill.py, while looking perfect on the m68k target.
+ */
+static inline void planar_c2p_span_stlow(unsigned char *dst, short line_bytes,
+                                         short nplanes, short y,
+                                         short x0, short x1,
+                                         const unsigned char *src,
+                                         const unsigned char *lut)
+{
+	unsigned char *row = dst + (long)y * line_bytes;
+	short          x   = x0;
+
+	while (x < x1) {
+		short          g   = (short)(x >> 4);
+		short          bit = (short)(x & 15);
+		short          n   = (short)(16 - bit);
+		unsigned short built[16];
+		unsigned short mask;
+		unsigned char *grp;
+		short          i, p;
+
+		if (n > (short)(x1 - x))
+			n = (short)(x1 - x);
+		grp = row + (long)g * nplanes * 2;
+
+		if (nplanes == 4 && bit == 0 && n == 16) {
+			/* The common case on ST-Low: a whole aligned group, four
+			 * planes, no mask and no read. Shift-accumulate so the
+			 * inner loop needs no variable shift. */
+			unsigned short w0 = 0, w1 = 0, w2 = 0, w3 = 0;
+
+			for (i = 0; i < 16; i++) {
+				unsigned char s = lut[src[x + i]];
+				w0 = (unsigned short)((w0 << 1) | (s & 1));
+				w1 = (unsigned short)((w1 << 1) | ((s >> 1) & 1));
+				w2 = (unsigned short)((w2 << 1) | ((s >> 2) & 1));
+				w3 = (unsigned short)((w3 << 1) | ((s >> 3) & 1));
+			}
+			grp[0] = (unsigned char)(w0 >> 8); grp[1] = (unsigned char)w0;
+			grp[2] = (unsigned char)(w1 >> 8); grp[3] = (unsigned char)w1;
+			grp[4] = (unsigned char)(w2 >> 8); grp[5] = (unsigned char)w2;
+			grp[6] = (unsigned char)(w3 >> 8); grp[7] = (unsigned char)w3;
+			x = (short)(x + 16);
+			continue;
+		}
+
+		for (p = 0; p < nplanes; p++)
+			built[p] = 0;
+		for (i = 0; i < n; i++) {
+			unsigned char  s = lut[src[x + i]];
+			unsigned short b = (unsigned short)(0x8000u >> (bit + i));
+
+			for (p = 0; p < nplanes; p++)
+				if ((s >> p) & 1)
+					built[p] = (unsigned short)(built[p] | b);
+		}
+		mask = (unsigned short)(((0xFFFFUL >> bit)
+		                       & ~(0xFFFFUL >> (bit + n))) & 0xFFFFUL);
+		for (p = 0; p < nplanes; p++) {
+			unsigned char *d = grp + p * 2;
+			unsigned short v = built[p];
+
+			if (mask == 0xFFFF) {
+				d[0] = (unsigned char)(v >> 8);
+				d[1] = (unsigned char)v;
+			} else {
+				unsigned short cur =
+					(unsigned short)(((unsigned short)d[0] << 8)
+					               | (unsigned short)d[1]);
+				cur = (unsigned short)((cur & (unsigned short)~mask)
+				                     | (v & mask));
+				d[0] = (unsigned char)(cur >> 8);
+				d[1] = (unsigned char)cur;
+			}
+		}
+		x = (short)(x + n);
+	}
+}
+
+/*
  * Blit a 1bpp glyph at (x, y) straight into ST-Low interleaved planes — the
  * plane-store analogue of DrawChar (compat/quickdraw.c). `glyph` is `h` rows of
  * `glyph_stride` bytes each, MSB-first (bit 7 of byte 0 = column 0), so glyph
