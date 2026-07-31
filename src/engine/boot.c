@@ -11110,6 +11110,9 @@ static short jt382(void *rec_v, short cmd, ...)
 
 					GetPort(&bport);
 					cport = (CGrafPtr)bport;
+#ifdef FRUA_BARPROF
+					{ extern long g_bp_x; g_bp_x = TickCount(); }
+#endif
 
 					if (hk != 0) {
 						unsigned char hu = (unsigned char)
@@ -11989,6 +11992,9 @@ long g_rp_a, g_rp_b, g_rp_c, g_rp_d, g_rp_e;  /* #136 roster sub-stamps */
  * still cost up to 184 ticks (3.1 s) redrawing text that was already correct.
  * The event-fire path replays immediately when the text changes, which is why
  * the box is already right by the time a HUD-only compose runs. Starts dirty. */
+#ifdef FRUA_BARPROF
+long g_bp_items, g_bp_t[24], g_bp_pre[24], g_bp_x;  /* #138 bar cost */
+#endif
 static short g_sticky_dirty = 1;
 #define BD_MAP_MAX 320   /* #132: backdrop scale maps, one screen wide */
 static short g_view_hud_only = 0;
@@ -21217,11 +21223,44 @@ static void l2c60(short force_paint)
 		 * repainted. */
 		if (force != 0 || (painted & 0x80) == 0) {
 			method = *(method_t *)rec;
-			if (method != NULL)
+			if (method != NULL) {
+#ifdef FRUA_BARPROF
+				extern long g_bp_items, g_bp_t[24];
+				long t_ = TickCount();
 				(void)method(rec, (short)1);
+				if (g_bp_items < 24) {
+					extern long g_bp_pre[24];
+					g_bp_t[g_bp_items] = TickCount() - t_;
+					/* #138: WHICH method? The comments say jt382, but a
+					 * stamp inside jt382's text arm never fired — log the
+					 * pointer and resolve it against nm instead of
+					 * trusting the comment. */
+					g_bp_pre[g_bp_items] = (long)(uintptr_t)method;
+				}
+				g_bp_items++;
+#else
+				(void)method(rec, (short)1);
+#endif
+			}
 		}
 		rec += DLITEM_BYTES;
 	}
+#ifdef FRUA_BARPROF
+	{
+		extern long g_bp_items, g_bp_t[24];
+		long i_;
+		dbg_log_num("bar: items painted = ", g_bp_items);
+		dbg_log_num("bar: ANCHOR l2c60  = ", (long)(uintptr_t)&l2c60);
+		{
+			extern long g_bp_pre[24];
+			for (i_ = 0; i_ < g_bp_items && i_ < 24; i_++) {
+				dbg_log_num("bar:   item tk     = ", g_bp_t[i_]);
+				dbg_log_num("bar:   method ptr  = ", g_bp_pre[i_]);
+			}
+		}
+		g_bp_items = 0;
+	}
+#endif
 	jt1134();
 }
 

@@ -4624,3 +4624,45 @@ build; 427 tests pass. A/B arm `FRUA_STICKYALWAYS`, release-guarded.
 **Next**: `l2c60` (the command bar) is now the largest flat item at ~82 tk
 (1.4 s) on STE against 3-5 tk on the 020s — a 20x machine ratio on fixed work,
 which is the per-pixel signature #133/#134 both had.
+
+### #138 THE COMMAND BAR — it is `jt137`, not `jt382`, and the fix is a level up
+
+`l2c60` at ~82 tk (1.4 s) on STE against 3-5 on the 020s was the largest flat
+item after #137. `FRUA_BARPROF` times each DLItem: **13 items, 7 of which cost
+8-16 ticks each** — the seven command words — and cost tracks word width, so
+it is per-pixel work.
+
+**★ THE COMMENTS NAME THE WRONG FUNCTION.** Both `l2c60`'s comment and the HUD
+block say *"jt382 draws it per label when g_hud_paint"*. A stamp inside jt382's
+text arm **never fired**. Logging the DLItem method pointer and resolving it
+against `nm` gives **`jt137`** for all seven. That is the FOURTH mislabel this
+session, and the second to send an investigation at the wrong function.
+
+`jt137` msg 1 rebuilds each item's plate from FRAME.CTL glyphs via `jt448` —
+left cap, `rec[24]` middle pieces every 4 units, right cap — then the label.
+So the bar is ~7 x (2 + N) GLIB piece blits per repaint, on the same
+`l309c -> l2d4e` path #126 measured, for a bar whose contents never change.
+
+**Two things were tried and BOTH REVERTED for measuring nothing:**
+
+- **A `mac_font_pixel` (c, row) memo.** It does a 32-bit multiply
+  (`row * rowBytes`, `__mulsi3`, ~140 cycles) per PIXEL, invariant across a
+  glyph row — textbook. Measured: **bar 115-122 tk before, 114-121 after.**
+  No effect, so it was reverted rather than shipped as complexity with no
+  benefit. The per-pixel multiply is real; it is simply not the bottleneck.
+- **`l2c60(g_bar_dirty)` instead of `l2c60(1)`**, letting the engine's own
+  "painted" bit (0x80) skip unchanged items — the #137 shape. Measured:
+  **81-88 tk either way.** The reason is one level up: `play_screen_relayout`
+  REBUILDS THE DLITEM POOL on every event modal, so the painted bits are clear
+  and everything repaints legitimately. Reverted.
+
+**So the fix is not in `l2c60` or `jt137` — it is that the pool is rebuilt per
+event modal.** The bar's seven words are identical before and after; the
+rebuild discards paint state that was still valid. That is the same shape as
+#131 (chrome force-full) and #137 (sticky text) one layer further in, and it is
+where the 1.4 s goes.
+
+★ Worth stating plainly: two measured non-results in a row. Both hypotheses
+were reasonable — a per-pixel 32-bit multiply, and a redundant force-repaint —
+and both were wrong about THIS cost. Reverting them is the result, not a
+failure to get one; shipping either would have added surface for nothing.
