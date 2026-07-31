@@ -21,6 +21,8 @@
 #ifndef PLATFORM_PLANAR_H
 #define PLATFORM_PLANAR_H
 
+#include "c2p32.h"   /* #129: the shared 32-pixel bit transpose (subtree) */
+
 /* Bytes per plane row for a piece `w` pixels wide, rounded up to a word. */
 #define PLANAR_STRIDE(w)   ((short)((((w) + 15) >> 4) << 1))
 
@@ -334,15 +336,60 @@ static inline void planar_c2p_span_amiga(unsigned char *dst, short pitch,
 
 		if (n > (short)(x1 - x))
 			n = (short)(x1 - x);
+
+		/* #129: a WHOLE aligned 32-pixel block goes through the subtree's
+		 * bit-matrix transpose (~4 ops/pixel) instead of the per-pixel,
+		 * per-plane bit test below — the difference AGA feels most, since
+		 * that inner loop runs `nplanes` = 8 times per pixel. Only taken
+		 * when the block is 32-aligned AND entirely inside the span, so
+		 * every byte is full: no mask, no read-back.
+		 * Narrow spans deliberately do NOT come here — padding an 8-pixel
+		 * leaf out to a 32-pixel transpose costs MORE than it saves, and
+		 * 1,425 of 1,767 chrome leaves are 8 wide (#126). */
+		if ((x & 31) == 0 && (short)(x1 - x) >= 32 && nplanes <= 8) {
+			c2p_u32       c[8], out[8];
+			unsigned char tmp[32];
+
+			/* Remap through the band LUT into a scratch run, then
+			 * let the subtree do BOTH the big-endian packing and the
+			 * transpose. Open-coding the packing here duplicated
+			 * c2p_load32 — and would have been a second place to get
+			 * the lane order wrong. (It also keeps c2p_load32 used,
+			 * which matters: planar.h is included by TUs built with
+			 * -Werror, where an unused static from the subtree header
+			 * is a hard error.) */
+			for (i = 0; i < 32; i++)
+				tmp[i] = lut[src[x + i]];
+			c2p_load32(tmp, c);
+			c2p_transpose32(c, out);
+			for (p = 0; p < nplanes; p++) {
+				unsigned char *d = dst + (long)p * plane_bytes
+				                 + rowoff + (x >> 3);
+				c2p_u32 v = out[p];
+
+				d[0] = (unsigned char)(v >> 24);
+				d[1] = (unsigned char)(v >> 16);
+				d[2] = (unsigned char)(v >> 8);
+				d[3] = (unsigned char)v;
+			}
+			x = (short)(x + 32);
+			continue;
+		}
+
 		for (p = 0; p < nplanes; p++)
 			built[p] = 0;
 		for (i = 0; i < n; i++) {
 			unsigned char s  = lut[src[x + i]];
 			unsigned char bm = (unsigned char)(0x80u >> (bit + i));
 
-			for (p = 0; p < nplanes; p++)
-				if ((s >> p) & 1)
+			/* Walk the slot bits with a RUNNING shift rather than
+			 * `(s >> p) & 1`: a variable shift costs 6+2n cycles on a
+			 * 68000 and this ran nplanes times per pixel. */
+			for (p = 0; p < nplanes; p++) {
+				if (s & 1)
 					built[p] = (unsigned char)(built[p] | bm);
+				s = (unsigned char)(s >> 1);
+			}
 		}
 		mask = (unsigned char)(((0xFFu >> bit)
 		                      & ~(0xFFu >> (bit + n))) & 0xFFu);

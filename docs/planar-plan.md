@@ -4132,3 +4132,68 @@ figures here match the independently measured 86 s real-speed boot. amiberry's
 ★ `g_fsopen_calls` had to move to `boot.c`: it was defined in `compat/files.c`,
 which is `#ifndef FRUA_AMIGA`, so any Amiga build with `FRUA_STEPPROF` failed
 to link. Same nested-guard family as the rest of this session.
+
+### #129 THE AGA FAST PATH — piece 9 halves again, and the win is TWO changes
+
+#128 found the Amiga c2p barely improving on AGA (piece 9 only 1.2x) because
+`planar_c2p_span_amiga` had only the general per-plane inner loop and AGA runs
+**8** planes. Two changes, and it is worth separating them because they help
+different traffic:
+
+1. **A 32-pixel aligned block goes through the subtree's `c2p_transpose32`**
+   (`third_party/c2p-68k`, ~4 ops/pixel) instead of the per-pixel/per-plane bit
+   test. Only when the block is 32-aligned AND entirely inside the span, so
+   every byte is full — no mask, no read-back. **Narrow spans deliberately do
+   NOT come here**: padding an 8-pixel leaf out to a 32-pixel transpose costs
+   more than it saves, and 1,425 of 1,767 chrome leaves are 8 wide (#126).
+   This is what the WIDE leaves (320x8, 320x16, 88x88) get.
+2. **The narrow path walks the slot bits with a RUNNING shift** (`s & 1;
+   s >>= 1`) instead of `(s >> p) & 1`. A variable shift is 6+2n cycles on a
+   68000 and this ran `nplanes` times per PIXEL — so it is worth most exactly
+   where the plane count is highest. This is what the SMALL leaves get, and it
+   is why piece 9 (all 8x11 leaves) improved at all.
+
+| | per-pixel (#126) | span (#127) | +fast path (#129) |
+|---|--:|--:|--:|
+| AGA `jt76` | 115 | 46 | **37** |
+| AGA piece 9 | 42 | 36 | **15** |
+| AGA FULL recompose | 290 | 197 | **160** (4.83 s -> **2.67 s**, -45%) |
+| ECS `jt76`* | 344 | 135 | **118** |
+| ECS piece 9* | 205 | 93 | **57** |
+| ECS FULL recompose | — | 666 | **583** (11.10 s -> **9.72 s**) |
+
+*ECS `l67ca` figures at `cpu_speed=max` (ratios); the FULL row is `real`.
+
+**Cross-machine, updated:**
+
+| machine | walk step | full recompose |
+|---|--:|--:|
+| Atari TT030 | 0.10 s | 0.87 s |
+| Atari Falcon030 | 0.20 s | 1.27 s |
+| Amiga AGA | 0.25 s | **2.67 s** (was 3.28) |
+| Amiga ECS | 1.58 s | **9.72 s** (was 11.10) |
+| Atari STE | 2.15 s | 9.68 s |
+
+AGA is now **2.1x** a Falcon on a recompose, down from 2.6x. ECS and the STE
+have converged to within 1% of each other (9.72 s vs 9.68 s) from opposite
+directions — the ECS has fast RAM and a slower CPU, the STE a faster CPU and
+contended RAM.
+
+**★ THE HOST TEST WAS TESTING FOUR PLANES ONLY.** `tests/test_planar_fill.py`
+is built around `NP 4`, so neither Amiga plane count the port actually ships
+(ECS 5, AGA 8) had ever been exercised — and the fast path stores per plane, so
+an 8-plane bug would have been invisible. Added a 4/5/8-plane sweep;
+mutation-tested by making the fast path write only 4 planes, which the new
+block catches and the old one did not.
+
+**★ `-Werror` IN `tests/test_planar.py` CAUGHT THE INCLUDE.** Pulling `c2p32.h`
+into `planar.h` left `c2p_load32` unused in every consumer, and that test builds
+its harness with `-Werror`. The fix was the right code anyway: use `c2p_load32`
+for the gather instead of open-coding the big-endian packing, which had been a
+second place to get the lane order wrong.
+
+Verified: host suite 427 pass (2 fast-path mutations + 1 plane-count mutation
+all caught); `FRUA_BRIDGEVERIFY` 3,298 checks / 0 mismatches on **both** AGA
+(8 planes) and ECS (5); ST menu byte-identical to the long-standing baseline
+(the ST path is untouched — only `planar_c2p_span_amiga` changed); six build
+configs green.

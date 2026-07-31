@@ -209,6 +209,42 @@ int main(void)
 		}
 	}
 
+	/* #129: the same Amiga spans at 5 and 8 PLANES. The block above runs at
+	 * NP=4, which never exercised the plane counts the Amiga actually ships
+	 * (ECS 5, AGA 8) — and the 32-pixel transpose fast path stores per plane,
+	 * so an 8-plane bug would have been invisible. Buffers are sized for 8. */
+	for (trial = 0; trial < 4000; trial++) {
+		unsigned char ascr[8 * (W / 8) * H], aref[8 * (W / 8) * H];
+		unsigned char chunky[W], lut[256];
+		int np = (trial % 3 == 0) ? 4 : ((trial % 3 == 1) ? 5 : 8);
+		int x0 = rnd() % W, x1 = rnd() % W, y = rnd() % H;
+		unsigned char sl = (unsigned char)(rnd() & 0xFF);
+		int i, solid = (trial & 1);
+		long pb = (long)(W / 8) * H;
+
+		if (x0 > x1) { int t = x0; x0 = x1; x1 = t; }
+		for (i = 0; i < W; i++)   chunky[i] = rnd();
+		for (i = 0; i < 256; i++) lut[i] = rnd();
+		for (i = 0; i < (int)sizeof ascr; i++) ascr[i] = rnd();
+		memcpy(aref, ascr, sizeof aref);
+		for (i = x0; i < x1; i++)
+			planar_put_amiga(aref, W / 8, pb, (short)np,
+			                 (short)i, (short)y,
+			                 solid ? sl : lut[chunky[i]]);
+		if (solid)
+			planar_span_amiga(ascr, W / 8, pb, (short)np,
+			                  (short)y, (short)x0, (short)x1, sl);
+		else
+			planar_c2p_span_amiga(ascr, W / 8, pb, (short)np,
+			                      (short)y, (short)x0, (short)x1,
+			                      chunky, lut);
+		if (memcmp(ascr, aref, sizeof aref) != 0) {
+			printf("AMIGA %dP MISMATCH t=%d %s span[%d,%d) y=%d\n",
+			       np, trial, solid ? "solid" : "c2p", x0, x1, y);
+			return 1;
+		}
+	}
+
 	printf("OK\n");
 	return 0;
 }
