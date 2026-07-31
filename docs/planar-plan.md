@@ -4770,3 +4770,54 @@ callers and ask the #130 question of each — does this wipe change anything? At
 1-7 wipes per compose, with one wipe measured at 611 ticks before #125e, this
 is likely the largest remaining item in the whole play loop, and it has been
 hiding behind a bracket that only counted one of them.
+
+### #141 THE OTHER WIPERS — it is `render_3d_faithful`, re-armed by a stale CLUT flag
+
+`port_draw_play_frame` has FOUR call sites. Counting each per compose:
+
+| compose | play re-entry | **`render_3d` !s_chrome_drawn** | AREA map | `jt312` chrome |
+|---|--:|--:|--:|--:|
+| 2 | 1 | **5** | 0 | 1 |
+| 3 | 0 | 0 | 0 | 1 |
+| 4 | 0 | **1** | 0 | 0 |
+| 5 | 0 | **1** | 0 | 0 |
+
+**The extra wipes are `render_3d_faithful`'s own `if (!s_chrome_drawn)`** —
+which nothing outside that function ever timed. `s_chrome_drawn` is cleared by
+one thing: the wall-group reload block. And that block is firing for the wrong
+reason:
+
+    wallreload: clob = 1   ds456 = 50801   grp012 = 50801
+
+**The wall ids MATCH — 50801 both sides. The reload is triggered purely by
+`g_clut_clobbered`, every single frame.** So each frame reloads three wall
+groups and the backdrop FROM DISK, clears `s_chrome_drawn`, and re-lays the
+entire FRAME.CTL chrome, none of which the wall ids asked for.
+
+`g_clut_clobbered` is set in `jt993` (a GLIB palette commit) whenever
+`start < 145` — i.e. any picture install that lands below the backdrop band.
+
+**Bisected so far — where it is NOT set:**
+
+- **not the render**: `clob` is **0** at the end of `render_3d_faithful`, every
+  frame (the reload block's own clear holds);
+- **not the command bar**: 0 both before and after `l2c60`, so the plate blits
+  are innocent — which also retires the #138-#140 theory that the bar was
+  implicated;
+- **not `dungeon_view_setup`**: 0 across it.
+
+So the setter lies in a NARROW interval: **between `dungeon_view_setup()`
+returning and `render_3d_faithful`'s wall-reload check** — i.e. `jt312`'s own
+backdrop pick (`cell_backdrop_id` / `load_backdrop`) and the wall-group block
+that sits between them. That is a handful of calls, and the same
+before/after `clob` probe finishes it.
+
+**Why this matters more than anything else outstanding**: a single
+`port_draw_play_frame` measured **611 ticks** before #125e and **267** after.
+At one to five of them per compose, plus three wall-group loads and a backdrop
+load from DISK each time, this is very likely the largest single item left in
+the play loop — and it has been invisible because every chrome timer built so
+far brackets `jt312`'s call site, which is not the one firing.
+
+★ It also explains, at last, #126's *"20 `l67ca` runs against 5 full composes"*
+— recorded, flagged as odd, and left alone for fifteen entries.

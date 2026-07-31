@@ -78,6 +78,15 @@
  * failure mode that wasted a run on FRUA_AUTOWALK_TREASURE (#125c) and made an
  * AGA A/B vacuous (#127). Say so, here, where the check cannot itself be
  * compiled out. */
+/* #141: which of port_draw_play_frame's FOUR call sites is doing the wiping.
+ * Defined here, above every use — the first site is ~7,000 lines earlier than
+ * the play globals. */
+#ifdef FRUA_BAR28
+#define PDPF_HIT(n) do { extern long g_pdpf_site[4]; g_pdpf_site[n]++; } while (0)
+#else
+#define PDPF_HIT(n) do { } while (0)
+#endif
+
 #if defined(FRUA_MODALDAMAGE) && !defined(FRUA_STEPTIME)
 #error "FRUA_MODALDAMAGE needs FRUA_STEPPROF: its report lives in the FULL-path block that FRUA_STEPTIME guards. Build with -DFRUA_STEPPROF -DFRUA_MODALDAMAGE."
 #endif
@@ -4938,6 +4947,7 @@ static void jt948(void)
 					 * re-commits the wall + backdrop bands from disk
 					 * (play-loop-wall 03z). */
 					g_clut_clobbered = 1;
+					{ PDPF_HIT(0); }
 					port_draw_play_frame(fpx, fpitch, fsw, fsh);
 					jt935();           /* re-render the view over the frame */
 					jt937(g_a5_long(-27932));
@@ -12002,6 +12012,7 @@ static short g_sticky_dirty = 1;
 static short g_bar_dirty = 1;    /* #140: set by the wipe that takes the bar */
 #ifdef FRUA_BAR28
 long g_pdpf_calls;   /* #140: port_draw_play_frame calls per compose */
+long g_pdpf_site[4]; /* #141: ...by call site */
 #endif
 #define BD_MAP_MAX 320   /* #132: backdrop scale maps, one screen wide */
 static short g_view_hud_only = 0;
@@ -14453,6 +14464,18 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	 * their clut bands (32/64/96) via the existing per-slot loader; l309c_tile
 	 * rebases each group's 32-based tile bytes into its band. Reload only when
 	 * the group ids change (each set's CLUT lives in its .CTL, sub-GLIB 0). */
+#ifdef FRUA_BAR28
+	if (g_clut_clobbered
+	 || ds[4] != g_cw_grp[0] || ds[5] != g_cw_grp[1] || ds[6] != g_cw_grp[2]) {
+		/* #141: WHICH arm re-arms the reload (and so the chrome re-lay)? */
+		dbg_log_num("wallreload: clob    = ", (long)g_clut_clobbered);
+		dbg_log_num("wallreload: ds456   = ",
+		            (long)ds[4] * 10000 + (long)ds[5] * 100 + ds[6]);
+		dbg_log_num("wallreload: grp012  = ",
+		            (long)g_cw_grp[0] * 10000 + (long)g_cw_grp[1] * 100
+		            + g_cw_grp[2]);
+	}
+#endif
 	if (g_clut_clobbered
 	 || ds[4] != g_cw_grp[0] || ds[5] != g_cw_grp[1] || ds[6] != g_cw_grp[2]) {
 		/* An event/merchant picture load can leave the shared wall .CTL buffer
@@ -14485,6 +14508,7 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 		if (g_geo_editor_active)
 			port_reinstall_frame_band();
 		else
+			{ PDPF_HIT(1); }
 			port_draw_play_frame(px, pitch, sw, sh);
 		s_chrome_drawn = 1;
 	}
@@ -14710,6 +14734,12 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	 * (ADR-0016 B2). No-op when vtgt == px (chunky backends). */
 	if (vp)
 		dsp_viewport_commit(VL, VT, (short)(VR - VL), (short)(VB - VT));
+#ifdef FRUA_BAR28
+	/* #141: is the flag ALREADY back on by the end of the render? If so the
+	 * render re-arms the very condition that makes the next frame reload the
+	 * walls and re-lay the chrome. */
+	dbg_log_num("clob at end of render = ", (long)g_clut_clobbered);
+#endif
 #ifdef FRUA_R3DPROF
 	/* #132: where a walk step's ~108 ticks actually go. The phases are the
 	 * faithful Mac shape: the perspective shell (l57f2 = three trapezoid
@@ -15311,7 +15341,8 @@ static void jt312(unsigned char *page)
 			signed char cx = (signed char)g_a5_12287;
 
 			if (qd_screen_pixels_nomark(&mpx, &mpitch, &msw, &msh) && mpx != NULL)
-				port_draw_play_frame(mpx, mpitch, msw, msh);
+				{ PDPF_HIT(2); }
+					port_draw_play_frame(mpx, mpitch, msw, msh);
 			l52b8(&cy, &cx, NULL, NULL, (short)11, (short)11, (short)1);
 #ifdef FRUA_MAPTRACE
 			dbg_file_num("jt312 map-leg rel cy*100+cx ",
@@ -15346,8 +15377,14 @@ static void jt312(unsigned char *page)
 #ifdef FRUA_STEPTIME
 	{ extern long g_mpf_t0; g_mpf_t0 = TickCount(); }
 #endif
+#ifdef FRUA_BAR28
+	dbg_log_num("clob before dvs       = ", (long)g_clut_clobbered);
+#endif
 	if (!dungeon_view_setup())
 		return;
+#ifdef FRUA_BAR28
+	dbg_log_num("clob after  dvs       = ", (long)g_clut_clobbered);
+#endif
 	if (!qd_screen_pixels_nomark(&px, &pitch, &sw, &sh) || px == 0)
 		return;
 #ifdef FRUA_STEPTIME
@@ -15453,6 +15490,7 @@ static void jt312(unsigned char *page)
 			s_md_have = 1;
 		}
 #endif
+		{ PDPF_HIT(3); }
 		port_draw_play_frame(px, pitch, sw, sh);
 #ifdef FRUA_STEPTIME
 		{ extern long g_mpf_f1; g_mpf_f1 = TickCount(); }
@@ -15522,15 +15560,25 @@ static void jt312(unsigned char *page)
 		}
 #endif
 #ifdef FRUA_BAR28
+		dbg_log_num("clob before l2c60     = ", (long)g_clut_clobbered);
 		bar28("bar28 @ HUD block");
 		dbg_log_num("  bar28 g_bar_dirty= ", (long)g_bar_dirty);
 		{
 			extern long g_pdpf_calls;
+			extern long g_pdpf_site[4];
 			dbg_log_num("  bar28 pdpf calls = ", g_pdpf_calls);
+			dbg_log_num("  pdpf s0 reentry  = ", g_pdpf_site[0]);
+			dbg_log_num("  pdpf s1 chromeinv= ", g_pdpf_site[1]);
+			dbg_log_num("  pdpf s2 areamap  = ", g_pdpf_site[2]);
+			dbg_log_num("  pdpf s3 jt312    = ", g_pdpf_site[3]);
 			g_pdpf_calls = 0;
+			g_pdpf_site[0] = g_pdpf_site[1] = g_pdpf_site[2] = g_pdpf_site[3] = 0;
 		}
 #endif
 		l2c60((short)1);                /* force-repaint the bar (plate per word) */
+#ifdef FRUA_BAR28
+		dbg_log_num("clob after  l2c60     = ", (long)g_clut_clobbered);
+#endif
 #ifdef FRUA_BARDAMAGE
 		{
 			extern unsigned char g_sd_snap[320 * 64];
