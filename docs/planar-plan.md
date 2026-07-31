@@ -4003,3 +4003,60 @@ becomes the thing you are measuring.**
 
 Amiga keeps the per-pixel loop (no span primitive for separate planes yet), so
 ECS/AGA are correct and simply unimproved. That is the obvious next port.
+
+### #127 THE SPAN ENCODER, PORTED TO AMIGA — and a VACUOUS TEST caught
+
+`planar_span_amiga()` / `planar_c2p_span_amiga()` are the separate-plane
+siblings of #125e/#126b. The unit is a BYTE (8 pixels, MSB-first, plane p at
+`dst + p*plane_bytes`) rather than a 16-pixel word group, but the shape is the
+same: a solid run makes each fully covered plane byte a constant, and a chunky
+run's plane bytes are accumulated in a register and stored once instead of
+`nplanes` read-modify-writes per pixel. No endianness hazard here — byte
+addressed throughout, unlike the ST word form.
+
+Both Amiga macro arms (`DC_SPAN`, `DC_C2P`) now route through them, so ECS and
+AGA stop paying the ~450 cycles/pixel the ST stopped paying.
+
+**★★ THE FIRST AGA "PASS" WAS VACUOUS — `make MACHINE=amiga` DOES NOT DEFINE
+`FRUA_PLANAR`.** Only the release targets pass it (`release-amiga`,
+`release-amiga-ecs`); the plain AGA build is the chunky+c2p path, so NEITHER
+arm compiled the bridge and the byte-identical menu proved nothing. It looked
+like a clean A/B. What exposed it was an unrelated link error: the
+`FRUA_BRIDGEVERIFY` counters live beside `dc_cover_span` inside the planar
+block, so guarding the boot.c dump on `FRUA_BRIDGEVERIFY` alone failed to link
+**exactly on the config the test was meant to cover**. Guard is now
+`#if defined(FRUA_BRIDGEVERIFY) && defined(FRUA_PLANAR)`.
+
+**And the screenshot could not have caught it either**: AGA-planar vs
+AGA-chunky is **AE=0** — as ADR-0016 requires, the two paths are byte-identical
+by construction. A frame comparison cannot tell you which path RAN. Only a
+positive signal can.
+
+| target | config | result |
+|---|---|--:|
+| ST/STe | `CPU68K=68000` | 3,298 checks, **0 mismatches** |
+| Amiga AGA | `MACHINE=amiga -DFRUA_PLANAR` | 3,298 checks, **0 mismatches** |
+| Amiga ECS | `MACHINE=amiga CPU68K=68000 -DFRUA_FORCE_ECS` (5 planes) | 3,298 checks, **0 mismatches** |
+
+The identical check count across all three is itself a cross-check: same engine
+work, same spans, three different plane layouts. ECS logged its native path
+(`ecs: 320x200x5 32-colour, per-band copper palette up`), so the 5-plane arm
+really ran.
+
+Host tests extended to both new primitives — 3,000 random spans each (solid and
+c2p, alternating) against a per-pixel `planar_put_amiga` reference, `memcmp`
+over the whole buffer on a randomised background. **Mutation-tested twice** (a
+wrong plane-bit source, and an off-by-one in the span clamp); both fail the
+suite.
+
+★ **The Amiga driver never passed `DISPLAY` into the flatpak** — it sets
+`--env=SDL_VIDEODRIVER=x11` but relies on the ambient `DISPLAY`, so the
+`env -u DISPLAY` habit (correct for Hatari, which would otherwise open on the
+user's desktop) makes amiberry die with "SDL could not initialize! x11 not
+available". Run it as `DISPLAY=:99 FRUA_AMIGA_DISPLAY=:99`, which still keeps
+it off the real desktop.
+
+NOT MEASURED: no before/after wall-clock on Amiga. The Atari numbers do not
+transfer — different plane count (5 and 8 vs 4), different memory bandwidth,
+and ECS runs a 7 MHz 68000. Correctness is established on all three; the size
+of the Amiga win is an open question.

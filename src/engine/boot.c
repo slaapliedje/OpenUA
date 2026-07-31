@@ -27230,7 +27230,11 @@ static short menu_run(const menu_item_t *items, short n, void *proc,
 	 * matches #124's profile window. */
 	{ extern void div_prof_dump(void); div_prof_dump(); }
 #endif
-#ifdef FRUA_BRIDGEVERIFY
+/* FRUA_PLANAR too: the counters live beside dc_cover_span inside the planar
+ * block, and a plain `make MACHINE=amiga` does NOT define FRUA_PLANAR — only
+ * the release targets do — so guarding on FRUA_BRIDGEVERIFY alone fails to
+ * link exactly on the AGA config this was meant to check. */
+#if defined(FRUA_BRIDGEVERIFY) && defined(FRUA_PLANAR)
 	{
 		extern unsigned long g_bv_checks, g_bv_bad;
 		dbg_log_num("bridgeverify: checks   = ", (long)g_bv_checks);

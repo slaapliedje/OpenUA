@@ -175,6 +175,40 @@ int main(void)
 		}
 	}
 
+	/* planar_span_amiga / planar_c2p_span_amiga: the separate-plane siblings.
+	 * Same contract as the ST forms — must equal a per-pixel planar_put_amiga
+	 * reference for arbitrary spans and disturb nothing outside [x0, x1).
+	 * Randomised background so "untouched" is a real assertion. */
+	for (trial = 0; trial < 3000; trial++) {
+		unsigned char ascr[NP * (W / 8) * H], aref[NP * (W / 8) * H];
+		unsigned char chunky[W], lut[256];
+		int x0 = rnd() % W, x1 = rnd() % W, y = rnd() % H;
+		unsigned char sl = (unsigned char)(rnd() & 15);
+		int i, solid = (trial & 1);
+
+		if (x0 > x1) { int t = x0; x0 = x1; x1 = t; }
+		for (i = 0; i < W; i++)   chunky[i] = rnd();
+		for (i = 0; i < 256; i++) lut[i] = (unsigned char)(rnd() & 15);
+		for (i = 0; i < (int)sizeof ascr; i++) ascr[i] = rnd();
+		memcpy(aref, ascr, sizeof aref);
+		for (i = x0; i < x1; i++)
+			planar_put_amiga(aref, W / 8, (long)(W / 8) * H, NP,
+			                 (short)i, (short)y,
+			                 solid ? sl : lut[chunky[i]]);
+		if (solid)
+			planar_span_amiga(ascr, W / 8, (long)(W / 8) * H, NP,
+			                  (short)y, (short)x0, (short)x1, sl);
+		else
+			planar_c2p_span_amiga(ascr, W / 8, (long)(W / 8) * H, NP,
+			                      (short)y, (short)x0, (short)x1,
+			                      chunky, lut);
+		if (memcmp(ascr, aref, sizeof aref) != 0) {
+			printf("AMIGA SPAN MISMATCH t=%d %s span[%d,%d) y=%d\n",
+			       trial, solid ? "solid" : "c2p", x0, x1, y);
+			return 1;
+		}
+	}
+
 	printf("OK\n");
 	return 0;
 }

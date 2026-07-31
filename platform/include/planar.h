@@ -271,6 +271,95 @@ static inline void planar_fill_stlow(unsigned char *dst, short line_bytes,
 }
 
 /*
+ * #127: the Amiga siblings of planar_span_stlow / planar_c2p_span_stlow.
+ *
+ * SEPARATE planes (plane p at dst + p*plane_bytes, `pitch` bytes/row,
+ * MSB-first, 8 pixels per byte), so the unit is a BYTE, not a 16-pixel word
+ * group. Everything else carries over: a solid run makes each fully covered
+ * plane byte a constant, and a chunky run's plane bytes are accumulated in a
+ * register and stored once instead of `nplanes` read-modify-writes per pixel.
+ *
+ * ECS/AGA were left on the per-pixel loop by #125e/#126b — correct but paying
+ * the full ~450 cycles/pixel the ST no longer pays. No endianness hazard here
+ * (byte-addressed throughout), unlike the ST word-group form.
+ */
+static inline void planar_span_amiga(unsigned char *dst, short pitch,
+                                     long plane_bytes, short nplanes, short y,
+                                     short x0, short x1, unsigned char slot)
+{
+	long rowoff = (long)y * pitch;
+	short x = x0;
+
+	while (x < x1) {
+		short         b    = (short)(x >> 3);
+		short         bit  = (short)(x & 7);
+		short         n    = (short)(8 - bit);
+		unsigned char mask;
+		short         p;
+
+		if (n > (short)(x1 - x))
+			n = (short)(x1 - x);
+		mask = (unsigned char)(((0xFFu >> bit)
+		                      & ~(0xFFu >> (bit + n))) & 0xFFu);
+		for (p = 0; p < nplanes; p++) {
+			unsigned char *d = dst + (long)p * plane_bytes + rowoff + b;
+
+			if (mask == 0xFF)
+				*d = (unsigned char)(((slot >> p) & 1) ? 0xFF : 0x00);
+			else if ((slot >> p) & 1)
+				*d = (unsigned char)(*d | mask);
+			else
+				*d = (unsigned char)(*d & (unsigned char)~mask);
+		}
+		x = (short)(x + n);
+	}
+}
+
+static inline void planar_c2p_span_amiga(unsigned char *dst, short pitch,
+                                         long plane_bytes, short nplanes,
+                                         short y, short x0, short x1,
+                                         const unsigned char *src,
+                                         const unsigned char *lut)
+{
+	long  rowoff = (long)y * pitch;
+	short x      = x0;
+
+	while (x < x1) {
+		short         b    = (short)(x >> 3);
+		short         bit  = (short)(x & 7);
+		short         n    = (short)(8 - bit);
+		unsigned char built[16];
+		unsigned char mask;
+		short         i, p;
+
+		if (n > (short)(x1 - x))
+			n = (short)(x1 - x);
+		for (p = 0; p < nplanes; p++)
+			built[p] = 0;
+		for (i = 0; i < n; i++) {
+			unsigned char s  = lut[src[x + i]];
+			unsigned char bm = (unsigned char)(0x80u >> (bit + i));
+
+			for (p = 0; p < nplanes; p++)
+				if ((s >> p) & 1)
+					built[p] = (unsigned char)(built[p] | bm);
+		}
+		mask = (unsigned char)(((0xFFu >> bit)
+		                      & ~(0xFFu >> (bit + n))) & 0xFFu);
+		for (p = 0; p < nplanes; p++) {
+			unsigned char *d = dst + (long)p * plane_bytes + rowoff + b;
+
+			if (mask == 0xFF)
+				*d = built[p];
+			else
+				*d = (unsigned char)((*d & (unsigned char)~mask)
+				                   | (built[p] & mask));
+		}
+		x = (short)(x + n);
+	}
+}
+
+/*
  * #126: chunky -> planar for ONE ROW of a span, a 16-pixel GROUP at a time.
  *
  * `src[x]` is the chunky index of pixel x (an absolute-x row pointer) and

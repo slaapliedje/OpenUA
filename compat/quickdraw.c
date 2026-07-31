@@ -767,14 +767,13 @@ static Boolean qd_effective_clip(GrafPtr port, Rect *out)
 /* Chunky run [x0, x1) of one row, remapped through `lut` — the span form of the
  * read-chunky/remap/DC_PUT loop. `src` is an ABSOLUTE-x row pointer (src[x] is
  * pixel x's chunky index). #126 measured the per-pixel form at ~450 cycles/px
- * and 57% of l67ca, more than the decode+blit it mirrors. Amiga keeps the
- * per-pixel loop (no span primitive for separate planes yet). */
+ * and 57% of l67ca, more than the decode+blit it mirrors. #127 gave the Amiga
+ * its own separate-plane form, so ECS/AGA take the same path now. */
 #ifdef FRUA_AMIGA
-#define DC_C2P(dt, x0, x1, y, src, lut) do { \
-		short x_; \
-		for (x_ = (x0); x_ < (x1); x_++) \
-			DC_PUT((dt), x_, (y), (lut)[(src)[x_]]); \
-	} while (0)
+#define DC_C2P(dt, x0, x1, y, src, lut) \
+	planar_c2p_span_amiga((dt)->planes, (dt)->line_bytes, \
+	                      (dt)->plane_bytes, (dt)->nplanes, \
+	                      (y), (x0), (x1), (src), (lut))
 #else
 #define DC_C2P(dt, x0, x1, y, src, lut) \
 	planar_c2p_span_stlow((dt)->planes, (dt)->line_bytes, (dt)->nplanes, \
@@ -782,15 +781,12 @@ static Boolean qd_effective_clip(GrafPtr port, Rect *out)
 #endif
 
 /* Solid horizontal run [x0, x1) of one row — the span form of DC_PUT. The ST
- * arm writes whole 16-pixel groups; the Amiga arm has no span primitive yet
- * and keeps the per-pixel loop, so it is correct there and merely unimproved
- * (ECS/AGA pay the same cost they always did). */
+ * arm writes whole 16-pixel word groups; the Amiga arm (#127) writes whole
+ * plane BYTES, its separate-plane equivalent. */
 #ifdef FRUA_AMIGA
-#define DC_SPAN(dt, x0, x1, y, slot) do { \
-		short x_; \
-		for (x_ = (x0); x_ < (x1); x_++) \
-			DC_PUT((dt), x_, (y), (slot)); \
-	} while (0)
+#define DC_SPAN(dt, x0, x1, y, slot) \
+	planar_span_amiga((dt)->planes, (dt)->line_bytes, (dt)->plane_bytes, \
+	                  (dt)->nplanes, (y), (x0), (x1), (slot))
 #else
 #define DC_SPAN(dt, x0, x1, y, slot) \
 	planar_span_stlow((dt)->planes, (dt)->line_bytes, (dt)->nplanes, \
