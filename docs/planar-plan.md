@@ -4715,3 +4715,58 @@ mislabelled comments.
 
 `FRUA_BARDAMAGE` is kept — it is what proved the repaint redundant, and it is
 what will confirm a real fix.
+
+### #140 THE TRACE — the painted bit is FINE; the SCREEN IS WIPED 1-7x PER COMPOSE
+
+Tracing `rec[28]` across `play_screen_relayout` -> `l2c60`, with the pool
+identity alongside (the thing #139's three attempts never checked):
+
+| point | pool ptr | count | `g_a5_-9247` | `item6[28]` |
+|---|--:|--:|--:|--:|
+| after relayout | 1374124 | 13 | 1 | **0xB0** |
+| l2c60 entry | 1374124 | 13 | 1 | **0xB0** |
+| after l30ba | 1374124 | 13 | 1 | **0xB0** |
+
+**Every assumption behind #139's attempts was wrong.** The pool is NOT
+reallocated. `g_a5_-9247` is already 1, so `l30ba`'s "mark all dirty" pass
+never runs. And `item6[28] = 0xB0` — **bit 7 is SET**: the items are already
+marked painted, by `jt137` itself, without any help. Nothing clears the painted
+state at all. The only thing forcing the repaint is the literal `1` in
+`l2c60((short)1)`.
+
+So why did passing `g_bar_dirty` change nothing? **Because `g_bar_dirty` is
+correctly 1 every time** — and the reason is the real finding:
+
+    compose   port_draw_play_frame calls since the previous compose
+      1                 7
+      2                 1
+      3                 1
+      4                 1
+
+**`port_draw_play_frame` — the full-screen wipe plus the whole FRAME.CTL chrome
+re-lay — runs one to SEVEN times between composes**, including on HUD-only
+composes where `jt312`'s chrome branch is skipped entirely. It has three call
+sites; `jt312`'s is only one of them, and `render_3d_faithful` carries another
+behind `s_chrome_drawn`.
+
+**This reframes the chrome accounting.** #125e/#126 measured "the chrome phase"
+through `jt312`'s bracket and got 611 -> 267 ticks. That bracket only ever saw
+ONE of the wipes. The others are outside every timer built so far — which also
+explains #126's otherwise odd count of 20 `l67ca` runs against 5 full composes,
+recorded at the time and not followed up.
+
+So the bar repaint is not the target after all: **it is downstream of a screen
+that is genuinely being wiped several times per compose.** Fixing the bar would
+paint a bar that the next wipe destroys.
+
+★ FOUR attempts across #138-#140 to make the bar cheaper, all reverted, all
+refuted by measurement. The trace shows why every one of them had to fail: they
+targeted a paint-state mechanism that was already working correctly. **The
+question "why is the relayout unconditional?" had a good answer (the modal
+resets the pool) that was simply not the reason for the cost.**
+
+**NEXT, and it is bigger than the bar**: find the other `port_draw_play_frame`
+callers and ask the #130 question of each — does this wipe change anything? At
+1-7 wipes per compose, with one wipe measured at 611 ticks before #125e, this
+is likely the largest remaining item in the whole play loop, and it has been
+hiding behind a bracket that only counted one of them.

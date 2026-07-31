@@ -11995,7 +11995,14 @@ long g_rp_a, g_rp_b, g_rp_c, g_rp_d, g_rp_e;  /* #136 roster sub-stamps */
 #ifdef FRUA_BARPROF
 long g_bp_items, g_bp_t[24], g_bp_pre[24], g_bp_x;  /* #138 bar cost */
 #endif
+#ifdef FRUA_BAR28
+static void bar28(const char *where);   /* #140 — defined beside l2c60 */
+#endif
 static short g_sticky_dirty = 1;
+static short g_bar_dirty = 1;    /* #140: set by the wipe that takes the bar */
+#ifdef FRUA_BAR28
+long g_pdpf_calls;   /* #140: port_draw_play_frame calls per compose */
+#endif
 #define BD_MAP_MAX 320   /* #132: backdrop scale maps, one screen wide */
 static short g_view_hud_only = 0;
 #ifdef FRUA_R3DPROF
@@ -15143,6 +15150,10 @@ static void port_draw_play_frame(unsigned char *px, short pitch, short sw, short
 #endif
 
 	g_sticky_dirty = 1;              /* #137: this wipe takes the text box */
+	g_bar_dirty    = 1;              /* #140: ...and the command-bar plates */
+#ifdef FRUA_BAR28
+	{ extern long g_pdpf_calls; g_pdpf_calls++; }
+#endif
 
 	/* grey stone background (clut 21 ~ mid stone) under the chrome. */
 	for (r = 0; r < sh; r++)
@@ -15508,6 +15519,15 @@ static void jt312(unsigned char *page)
 					memcpy(g_sd_snap + (long)(r_ - 160) * 320,
 					       sp + (long)r_ * spitch, (size_t)w_);
 			}
+		}
+#endif
+#ifdef FRUA_BAR28
+		bar28("bar28 @ HUD block");
+		dbg_log_num("  bar28 g_bar_dirty= ", (long)g_bar_dirty);
+		{
+			extern long g_pdpf_calls;
+			dbg_log_num("  bar28 pdpf calls = ", g_pdpf_calls);
+			g_pdpf_calls = 0;
 		}
 #endif
 		l2c60((short)1);                /* force-repaint the bar (plate per word) */
@@ -17821,6 +17841,9 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 			if (g_event_modal_shown) {
 				g_event_modal_shown = 0;
 				play_screen_relayout(rec);
+#ifdef FRUA_BAR28
+				bar28("bar28 @ after relayout");
+#endif
 #ifdef FRUA_MODALFORCEFULL
 				g_view_force_full = 1;  /* #131 A/B arm */
 #else
@@ -21233,6 +21256,26 @@ static void   l30ba(short start, short end, short cmd)
  * shape-handler cmd=1 bodies are lifted. See ADR-0010 follow-up
  * for the discovery that the play loop (gated by jt315) is the
  * piece that drives this path in normal builds. */
+#ifdef FRUA_BAR28
+/* #140: where does the painted bit go between play_screen_relayout and l2c60?
+ * Dump the POOL IDENTITY too — if the pool is reallocated, marking the old one
+ * was never going to survive, which is the possibility the three failed
+ * attempts in #139 never checked. */
+static void bar28(const char *where)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_9254;
+	long f6 = -1;
+
+	if (rec != NULL && g_a5_9250 > 6)
+		f6 = (long)rec[6 * DLITEM_BYTES + 28];
+	dbg_log(where);
+	dbg_log_num("  bar28 pool ptr = ", (long)(uintptr_t)rec);
+	dbg_log_num("  bar28 count    = ", (long)g_a5_9250);
+	dbg_log_num("  bar28 init9247 = ", (long)g_a5_9247);
+	dbg_log_num("  bar28 item6[28]= ", f6);
+}
+#endif
+
 static void l2c60(short force_paint) __attribute__((unused));
 static void l2c60(short force_paint)
 {
@@ -21242,10 +21285,16 @@ static void l2c60(short force_paint)
 	method_t method;
 
 	PROBE("L2c60");
+#ifdef FRUA_BAR28
+	bar28("bar28 @ l2c60 entry");
+#endif
 	if (g_a5_9247 == 0) {
 		l30ba((short)0, (short)(g_a5_9250 - 1), (short)0);
 		g_a5_9247 = 1;
 	}
+#ifdef FRUA_BAR28
+	bar28("bar28 @ after l30ba");
+#endif
 
 	count = g_a5_9250;
 	rec = (unsigned char *)(uintptr_t)g_a5_9254;
