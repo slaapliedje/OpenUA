@@ -4254,3 +4254,50 @@ the snapshot and never the comparison — silently inert, the same shape as
 `#error`s from a spot that cannot itself be compiled out, which is the part the
 first attempt got wrong: the guard was placed INSIDE the block it was warning
 about, so it vanished with it.
+
+### #131 THE HUD-ONLY REPAINT — event messages ~halve, and CAST nearly caught me out
+
+#130 measured that a full rebuild after an event modal changes 0-81 pixels of
+64,000. So `jt312` now has a LIGHT path: `g_view_hud_only` runs the HUD repaint
+(roster, clock, command bar) and the full present, and skips
+`port_draw_play_frame` entirely. `g_view_force_full` is unchanged and still
+does both.
+
+| compose | force-full | HUD-only |
+|---|--:|--:|
+| entry (chrome) | 386 | 386 |
+| event message | **580** | **301** |
+| backdrop reload (chrome) | 687 | 688 |
+| event message | **708** | **430** |
+| event message | **555** | **277** |
+
+**~278 ticks — 4.6 s — off every event message on an 8 MHz STE**, i.e. 9.7 s to
+about 5.0 s. Chrome-bearing composes are untouched, as they must be.
+
+**★★ ONLY ONE OF THE TWO force-full SITES COULD TAKE IT, AND THE FIRST ATTEMPT
+SHIPPED THE REGRESSION #130 EXPLICITLY WARNED ABOUT.** The `l63c0` site is not
+the event path at all — its own comment says *"Force-full on EVERY deep entry,
+not just after an event"*, because `l63c0` is re-entered after every command
+through `jt948 -> jt240` and `jt221`'s prelude lays bare FRAME pieces. Driving
+**CAST / VIEW / INV** with that site on the light path reproduced the exact
+documented symptom: **three stray plates across the top of the play screen.**
+Reverted; the light path is used only at the per-STEP modal site, which is
+where the pool was really clobbered. With that split, the command drive is
+identical to the control again.
+
+This is what #130's scope caveat was for — "what is NOT measured is every other
+route to `g_view_force_full`" — and it took a deliberately hostile drive to
+find, not the event chain the autowalk already covered.
+
+**★ EQUIVALENCE BY SCREEN HASH, NOT BY SCREENSHOT.** `FRUA_SCREENSUM` logs an
+FNV hash of the whole composed surface after EVERY `jt312` compose, numbered.
+The two arms drive the same engine-tick-paced key sequence, so their hash
+SEQUENCES must match element for element — and this does not care that one arm
+is seconds faster, which a final-frame comparison demonstrably does (#126b saw
+AE=0 and AE=3216 from the same code). Results: **33/33 identical** on the walk
+drive, **54/54 identical** with CAST/VIEW/INV driven. The faster arm simply
+reaches more composes (36 and 48 against 33 and 54) — itself corroboration.
+
+New test-only flags, both release-guarded: `FRUA_MODALFORCEFULL` (the A/B arm)
+and `FRUA_AUTOWALK_CMDS` (appends CAST/VIEW/INV to the headless script — worth
+keeping, since no event chain exercises that exit).

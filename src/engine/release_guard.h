@@ -85,6 +85,12 @@
 #ifdef FRUA_SNDNOGATE
 #error "FRUA_SNDNOGATE in a RELEASE build: the synth would go back to rendering ~410 samples of silence every vblank whether or not anything is audible — measured at 2.5x the whole ST/STe play loop (#96). Output is identical, which is exactly why this must never ship silently: it is the #96 A/B arm, not a mode."
 #endif
+#ifdef FRUA_MODALFORCEFULL
+#error "FRUA_MODALFORCEFULL in a RELEASE build: every event message would go back to a FULL play-screen recompose — measured at 580/708/555 ticks against 301/430/277 for the HUD-only path, i.e. ~4.6 s of extra wait per message on an 8 MHz STE (#131), to repaint a clock digit (#130). Screens are identical (screen-hash sequences match compose for compose), which is exactly why it must never ship silently: it is the A/B arm, not a mode."
+#endif
+#ifdef FRUA_AUTOWALK_CMDS
+#error "FRUA_AUTOWALK_CMDS in a RELEASE build: it appends CAST/VIEW/INV keystrokes to the headless autoplay script. Test-only (#131)."
+#endif
 #ifdef FRUA_PERPIXELBRIDGE
 #error "FRUA_PERPIXELBRIDGE in a RELEASE build: every chunky->planar bridge (qd_planar_bridge_rect, dc_plane_bridge_span) would go back to a per-pixel read-modify-write of all four planes plus per-pixel coverage bookkeeping — measured at ~450 cycles/pixel and 57% of l67ca, MORE than the decode+blit it mirrors (#126). Output is byte-identical, which is exactly why it must never ship silently: it is the A/B arm, not a mode."
 #endif

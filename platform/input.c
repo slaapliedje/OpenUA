@@ -154,6 +154,19 @@ static const struct ap_key g_ap[] = {
 	{ 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 },
 	{ 0x1C, 0x0D, 420 },
 #endif
+#ifdef FRUA_AUTOWALK_CMDS
+	/* #131: the commands the force-full comment names as the hazard. CAST is
+	 * an EMPTY switch arm that does nothing, and that is the point: it exits
+	 * the walk loop, l63c0 is re-entered through jt948 -> jt240, and jt221's
+	 * chrome prelude re-lays bare FRAME pieces. The chrome repaint used to
+	 * cover them. Drive it explicitly, because no autowalk event chain does. */
+	{ 0x2E, 'c',  420 },    /* CAST                                  */
+	{ 0x01, 0x1B, 420 },    /* Escape                                */
+	{ 0x2F, 'v',  420 },    /* VIEW                                  */
+	{ 0x01, 0x1B, 420 },    /* Escape                                */
+	{ 0x17, 'i',  420 },    /* INV                                   */
+	{ 0x01, 0x1B, 420 },    /* Escape                                */
+#endif
 	{ 0x48, 0,    420 },    /* Up    — step 1                        */
 	{ 0x48, 0,    420 },    /* Up    — step 2                        */
 	{ 0x4D, 0,    360 },    /* Right — turn, forces a fresh viewport */

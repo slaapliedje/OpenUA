@@ -3780,6 +3780,7 @@ static void jt221(short x, short y, short facing)
 static const char *jt475(short idx);
 static void jt215(void);
 static short g_view_force_full;         /* fwd (defined below); armed on AREA->3D toggle */
+static short g_view_hud_only;           /* fwd (defined below); #131 */
 static void l40f8_area_cmd(void)
 {
 	unsigned char *pl = (unsigned char *)g_a5_28006;
@@ -11909,6 +11910,16 @@ static short g_cw_setmax = 7;        /* valid sets in the current file   */
 static short g_cw_auto = 1;          /* 1 = pick the set from the level's
                                       * Wall1; 't'/'y' set 0 to browse */
 static short g_view_force_full = 0;  /* set on a live switch -> full clear+present next frame */
+/* #131: the LIGHT version of a force-full. An event modal disturbs the HUD
+ * panels (roster, clock, command bar) but — measured in #130 — leaves the
+ * FRAME chrome untouched: across a HEIRS walk drive the full rebuild changed
+ * 0, 0, 15, and 81 pixels of 64,000, all of them clock text. So repaint the
+ * HUD and present, and skip port_draw_play_frame entirely. Anything that can
+ * really damage the chrome still sets g_view_force_full. */
+static short g_view_hud_only = 0;
+#ifdef FRUA_SCREENSUM
+static long g_ss_n;
+#endif
 /* Set by the event "Press [Return] to continue" modal (l1806) while it polls,
  * so the per-step event-exit (jt297 GAP-1) knows the modal overdrew the play
  * screen's content + command-bar row and must recompose the play frame. The
@@ -15118,7 +15129,7 @@ static void jt312(unsigned char *page)
 	 * the roster/clock/bar repaint, a white flash on every re-render. Released
 	 * after the double present. Balanced: the release below runs under the
 	 * same (s_view_first || g_view_force_full) condition, unchanged until then. */
-	if (s_view_first || g_view_force_full)
+	if (s_view_first || g_view_force_full || g_view_hud_only)
 		qd_present_hold(1);
 	if ((s_view_first || g_view_force_full) && !g_geo_editor_active) {
 		/* The faithful frame is the "bigpic" backdrop (jt214 -> l579e load,
@@ -15182,7 +15193,8 @@ static void jt312(unsigned char *page)
 	 * has no play context (no command string, no party), so l2c60/jt937/jt938
 	 * would deref unset structures — bus error. Skip the whole HUD block in the
 	 * editor (g_geo_editor_active), matching the Mac render. */
-	if ((s_view_first || g_view_force_full) && !g_geo_editor_active
+	if ((s_view_first || g_view_force_full || g_view_hud_only)
+	    && !g_geo_editor_active
 	    && !g_l63c0_defer_hud) {        /* #17: l63c0 repaints after cb1 */
 		RGBColor hud[2];
 
@@ -15220,7 +15232,7 @@ static void jt312(unsigned char *page)
 		{ extern long g_mpf_f2; g_mpf_f2 = TickCount(); }
 #endif
 	}
-	if (s_view_first || g_view_force_full) {
+	if (s_view_first || g_view_force_full || g_view_hud_only) {
 		/* Full present to every backend page (#151/#103): on the page-
 		 * flipped videl that is two presents so both pages carry the
 		 * chrome (else the next viewport-only qd_present_rect flips to a
@@ -15228,6 +15240,18 @@ static void jt312(unsigned char *page)
 		 * single-buffered backends it is one. */
 		qd_present_hold(0);      /* #147: end the atomic hold, THEN present */
 		port_present_full();          /* #151 */
+#ifdef FRUA_STEPTIME
+		/* #131: the honest cost of THIS compose, whichever path it took. The
+		 * FULL sub-stamps below are only meaningful when the chrome actually
+		 * ran — on a HUD-only frame g_mpf_f1/c3 are stale from the last real
+		 * rebuild, so "FULL chrome ticks" reads as garbage there. */
+		{
+			extern long g_mpf_t0;
+			dbg_log_num("compose total ticks ", TickCount() - g_mpf_t0);
+			dbg_log_num("compose was_chrome  ",
+			            (long)(s_view_first || g_view_force_full));
+		}
+#endif
 #ifdef FRUA_STEPTIME
 		{
 			extern long g_mpf_t0, g_mpf_t1, g_mpf_t2;
@@ -15317,6 +15341,7 @@ static void jt312(unsigned char *page)
 #endif
 		s_view_first = 0;
 		g_view_force_full = 0;
+		g_view_hud_only   = 0;
 	} else {
 		/* Both pages already hold the chrome (from the double present above);
 		 * c2p just the 88x88 viewport at (24,24)-(111,111) to the back page
@@ -15344,6 +15369,30 @@ static void jt312(unsigned char *page)
 		}
 #endif
 	}
+#ifdef FRUA_SCREENSUM
+	/* #131: a hash of the composed screen after EVERY jt312 compose, numbered.
+	 * The two arms drive the SAME engine-tick-paced key sequence, so their hash
+	 * SEQUENCES must match element for element — an equivalence test that does
+	 * not care that one arm is seconds faster, which a screenshot comparison
+	 * demonstrably does (#126b, #127). */
+	{
+		unsigned char *sx; short sp, sww, shh;
+
+		if (qd_screen_pixels_nomark(&sx, &sp, &sww, &shh) && sx) {
+			unsigned long h = 2166136261UL;
+			short r_, c_;
+
+			for (r_ = 0; r_ < shh; r_++) {
+				const unsigned char *rowp = sx + (long)r_ * sp;
+				for (c_ = 0; c_ < sww; c_++)
+					h = (h ^ rowp[c_]) * 16777619UL;
+			}
+			g_ss_n++;
+			dbg_log_num("scrsum: n = ", (long)g_ss_n);
+			dbg_log_num("scrsum: h = ", (long)h);
+		}
+	}
+#endif
 }
 
 /* ===================================================================== *
@@ -16903,6 +16952,14 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 		 * entered per COMMAND, not per frame; first entry already force-fulls via
 		 * s_view_first). */
 		g_event_modal_shown = 0;
+		/* #131: THIS ONE STAYS A FULL REBUILD — it is the "every deep entry"
+		 * path above, and the chrome is load-bearing here. Driving CAST / VIEW
+		 * / INV with a HUD-only rebuild reproduced the exact symptom this
+		 * comment describes: jt221's prelude lays bare FRAME pieces and THREE
+		 * STRAY PLATES appear across the top of the play screen. #130's "the
+		 * modal damages nothing" only ever covered the event chain, which does
+		 * not run that prelude. The light path is used at the per-STEP modal
+		 * site instead. */
 		g_view_force_full = 1;
 		/* jt1173 narrows the clip to the 88x88 first-person viewport for the
 		 * 3D render; the top-down AREA map (jt312's -12290 branch) draws a
@@ -17342,7 +17399,11 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 			if (g_event_modal_shown) {
 				g_event_modal_shown = 0;
 				play_screen_relayout(rec);
-				g_view_force_full = 1;
+#ifdef FRUA_MODALFORCEFULL
+				g_view_force_full = 1;  /* #131 A/B arm */
+#else
+				g_view_hud_only = 1;    /* #131 — see the note at the other site */
+#endif
 #ifdef FRUA_BARTRACE
 				dbg_file_num("STEPRENDER relayout done", 1L);
 #endif
