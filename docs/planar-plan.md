@@ -4455,3 +4455,64 @@ Five configs build; 427 tests pass; ST menu byte-identical. A/B arm
 **The ST/STe walk step across this run: 2.13 s -> 0.92 s, a 2.3x cut**, with
 the render now 31-44 tk against a fixed ~20 tk present — the present is
 becoming the floor.
+
+### #135 PORT HEALTH SURVEY — all five re-measured on current code
+
+#128's table is stale: #131-#134 were all ENGINE-level, so every target moved.
+Re-measured with one instrument (`FRUA_STEPPROF`), one drive, 60 Hz ticks.
+
+| machine | CPU | display | walk step | event message | full rebuild |
+|---|---|---|--:|--:|--:|
+| Atari TT030 | 68030 32 MHz | chunky | **0.07 s** | 0.52-2.65 s | **0.30 s** |
+| Atari Falcon030 | 68030 16 MHz | chunky | **0.15 s** | 0.72-2.85 s | 0.62 s |
+| Amiga AGA | 68020 14 MHz | 8 planes | **0.20 s** | 1.32-2.57 s | 1.40 s |
+| Atari STE | 68000 8 MHz | 4 planes | **0.92 s** | 3.45-5.98 s | 5.3-10.3 s |
+| Amiga ECS | 68000 7 MHz | 5 planes | **0.97 s** | 3.92 s | 9.10 s |
+
+Against the start of this run: STE step **2.15 -> 0.92 s**, ECS **1.57 -> 0.97**,
+AGA **0.25 -> 0.20**, Falcon **0.20 -> 0.15**, TT **0.10 -> 0.07**. Full rebuild
+on the 020 machines fell hardest — AGA **3.28 -> 1.40 s**, TT **0.87 -> 0.30**.
+
+**Health, plainly:** all five colour targets build, boot and play. The three
+020 machines are comfortably interactive. The two 68000 machines are at ~0.95 s
+a step — playable, not brisk. **The mono ST-High build still compiles and still
+does not boot** (shelved; hangs on the disk-swap prompt, see the mono notes).
+
+**★ THE BIGGEST REMAINING ITEM IS NO LONGER THE RENDER — IT IS THE ROSTER, AND
+IT GROWS.** Splitting the HUD phase (bar / clock / roster) across a drive:
+
+| | compose 1 | 2 | 3 | 4 |
+|---|--:|--:|--:|--:|
+| TT roster | 20 | 20 | **88** | **149** |
+| STE roster | 60 | 65 | **191** | 41 |
+| STE bar | 82 | 87 | 82 | 81 |
+| STE clock | 18 | 20 | 18 | 18 |
+
+The bar and clock are flat. **`jt937` — the party roster grid — climbs 7x
+within a single drive on the TT and spikes to 191 ticks (3.2 s) on the STE**,
+for a party of ONE character. That is not a rendering cost that should vary at
+all, and it is now the largest single item in an event compose on every machine.
+
+This lines up with something already documented: `jt25` (the roster NAME paint)
+carries a **wild-pointer guard** whose comment says *"the AREA command's play
+re-render can hand the roster-name paint a corrupted node (a stray/wrapped
+next-link)"*. The guard skips the bad node — but the walk still iterates. **A
+roster paint whose cost grows over a drive is what a lengthening or looping
+list looks like.** So this is a correctness lead first and a perf item second.
+
+**RANKED, for whoever picks this up:**
+
+1. **`jt937` roster paint** — grows 7x within a drive, biggest item in an event
+   compose on all five machines, and there is an existing comment describing a
+   corrupted next-link on the same structure. Measure the list LENGTH per paint
+   before optimising anything.
+2. **`l2c60` command bar** — flat but expensive on the 68000 machines: ~82 tk
+   (1.4 s) on STE, ~104 (1.7 s) on ECS, against 3-5 tk on the 020s. A 20x
+   machine ratio on a fixed workload points at per-pixel plate drawing, the same
+   shape as #133/#134.
+3. **Entry chrome** — STE 5.3-10.3 s, ECS 9.1 s, still the largest one-off wait.
+   #126 left the GLIB art blits (`l2d4e` decode + per-pixel copy) as the
+   remainder.
+4. **The present floor** — a fixed ~21 tk (0.35 s) of every STE/ECS step, now
+   ~38% of a step. Render work below ~30 tk stops being worth much until this
+   moves.
