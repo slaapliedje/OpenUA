@@ -4356,3 +4356,53 @@ five configs build; 427 tests pass. A/B arm `FRUA_BACKDROPDIV`, release-guarded.
 **Next in the render**: the trapezoid fills are now the largest item (23-30 tk)
 and they are `map_px` per pixel over three solid regions — the same shape
 `dc_plane_fill` had before #125e, and the same fix (span fills) should apply.
+
+### #133 THE TRAPEZOID FILLS — a memset per row; the walk step is now HALVED
+
+After #132 the largest remaining render item was the three perspective region
+fills (23-30 of a step's ~89 ticks). They are SOLID regions painted with a
+bounds-checked store per pixel:
+
+```c
+for (yy = ct; yy < cb; yy++)
+    for (xx = cl; xx < cr; xx++)
+        map_px(vtgt, vpitch, sw, sh, xx, yy, fill);
+```
+
+`map_px` clips to `[0,sw) x [0,sh)`, so folding that clamp into the region
+bounds ONCE lets each row become a `memset` with no per-pixel test at all.
+
+| | per-pixel | memset |
+|---|--:|--:|
+| trapezoid fills | 24-28 tk | **0-3 tk** |
+
+**The walk step, end to end on an 8 MHz STE:**
+
+| | render | present | step |
+|---|--:|--:|--:|
+| before #132 | 101-112 | 20-21 | **~128 tk = 2.13 s** |
+| after #132 (backdrop table) | 63-76 | 20 | ~89 tk = 1.48 s |
+| after #133 (region memset) | **39-51** | 20 | **~65 tk = 1.08 s** |
+
+**A walk step is HALVED — 2.13 s to 1.08 s.** The render is now `jt199` (the
+walls, 22-23 tk) plus the backdrop (14) plus ~nothing for the regions, and for
+the first time the largest thing in a step is the actual wall rendering rather
+than a fill.
+
+Equivalence: `FRUA_SCREENSUM` hash sequences **identical over 44 composes**; ST
+menu byte-identical; five configs build; 427 tests pass. A/B arm `FRUA_TRAPPX`,
+release-guarded.
+
+**Where the ST/STe play loop now stands** (all measured, same instrument):
+
+| | before this run | now |
+|---|--:|--:|
+| walk step | 2.13 s | **1.08 s** |
+| event message | 16.9 s | **5.0 s** |
+| dungeon entry / full rebuild | 16.9 s | ~9.7 s |
+
+**Next**: `jt199` at 22-23 tk is the largest render item and has never been
+split — it is the frustum walk that blits the wall tiles through
+`l309c_tile -> l2d4e`. The other open item is the entry rebuild, still ~9.7 s,
+whose chrome phase #126 left at 4.45 s with the GLIB art blits (`l2d4e`,
+decode + per-pixel copy) as the remainder.

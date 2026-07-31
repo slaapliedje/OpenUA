@@ -85,6 +85,9 @@
 #ifdef FRUA_SNDNOGATE
 #error "FRUA_SNDNOGATE in a RELEASE build: the synth would go back to rendering ~410 samples of silence every vblank whether or not anything is audible — measured at 2.5x the whole ST/STe play loop (#96). Output is identical, which is exactly why this must never ship silently: it is the #96 A/B arm, not a mode."
 #endif
+#ifdef FRUA_TRAPPX
+#error "FRUA_TRAPPX in a RELEASE build: the dungeon view's three SOLID perspective regions would go back to a bounds-checked store per pixel instead of a memset per row — measured at 24-28 of a walk step's ~89 ticks against 0-3 (#133). Pixels are identical (screen-hash sequences match compose for compose), which is exactly why it must never ship silently: it is the A/B arm, not a mode."
+#endif
 #ifdef FRUA_BACKDROPDIV
 #error "FRUA_BACKDROPDIV in a RELEASE build: the dungeon backdrop would go back to a 32-bit DIVIDE PER PIXEL for its horizontal scale — ~1,100 cycles into libgcc, 7,744 times per walk step on an 88x88 viewport, measured at 53 of a step's ~128 ticks against 14 with the column table (#132). Pixels are identical (screen-hash sequences match compose for compose), which is exactly why it must never ship silently: it is the A/B arm, not a mode."
 #endif

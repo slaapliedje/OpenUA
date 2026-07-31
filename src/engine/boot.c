@@ -14389,10 +14389,33 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 			cl = (x1 > (short)g_a5_3056) ? x1 : (short)g_a5_3056;
 			cb = (y2 < (short)g_a5_3050) ? y2 : (short)g_a5_3050;
 			cr = (x2 < (short)g_a5_3052) ? x2 : (short)g_a5_3052;
+#ifdef FRUA_TRAPPX
 			for (yy = ct; yy < cb; yy++)
 				for (xx = cl; xx < cr; xx++)
 					map_px(vtgt, vpitch, sw, sh, xx, yy,
 					       (unsigned char)fill);
+#else
+			/* #133: these are SOLID regions, so each row is a memset —
+			 * the per-pixel form called a bounds-checked store 7,700+
+			 * times a step and was the largest render item left after
+			 * #132 (23-30 of ~89 ticks). map_px clips to [0,sw)x[0,sh),
+			 * so fold that clamp into the bounds once per region and the
+			 * row store needs no test at all. Same pixels by
+			 * construction: the only thing removed is the repetition. */
+			{
+				short px0 = (cl < 0) ? 0 : cl;
+				short px1 = (cr > sw) ? sw : cr;
+				short py0 = (ct < 0) ? 0 : ct;
+				short py1 = (cb > sh) ? sh : cb;
+
+				(void)xx;
+				if (px1 > px0)
+					for (yy = py0; yy < py1; yy++)
+						memset(vtgt + (long)yy * vpitch + px0,
+						       (unsigned char)fill,
+						       (size_t)(px1 - px0));
+			}
+#endif
 		}
 	}
 	/* Blit the cell's backdrop image (g_back_img — BACK.CTL's 88x88 perspective
