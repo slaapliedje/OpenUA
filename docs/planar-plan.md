@@ -4516,3 +4516,57 @@ list looks like.** So this is a correctness lead first and a perf item second.
 4. **The present floor** — a fixed ~21 tk (0.35 s) of every STE/ECS step, now
    ~38% of a step. Render work below ~30 tk stops being worth much until this
    moves.
+
+### #136 THE ROSTER IS INNOCENT — #135's CONCLUSION WAS WRONG
+
+#135 said the roster paint grows 7x within a drive and pointed at a corrupted
+`.next` chain. **Measured, the list is exactly ONE node on every paint** —
+`FRUA_ROSTERPROF` over a whole drive: `nodes = 1`, `broke = 0`, `lastrow = 5`,
+every time. No growth, no corruption, no early break. The existing wild-pointer
+guard in `jt25` is doing nothing here.
+
+Splitting `l02dc` confirms it is flat: headers 10-11 tk, row bar 0-2, name 7-8,
+AC+HP 4-5 — **~25 ticks, dead flat, every compose.**
+
+**The variance was never in the roster. The bracket contained a SECOND call.**
+`g_mpf_h2..f2` spans `jt937(...)` *and* `play_sticky_text_replay()`, and the
+label said "HUD roster ticks". Separated:
+
+| | roster | **sticky text** | bar |
+|---|--:|--:|--:|
+| compose 1 | 23 | 37 | 82 |
+| compose 2 | 26 | 38 | 87 |
+| compose 3 | 23 | **168** | 82 |
+| compose 4 | 23 | 18 | 81 |
+
+`play_sticky_text_replay` is the whole of it — **168 ticks (2.8 s) on one
+compose**. It redraws up to five lines of the sticky event text through `jt96`,
+the word-wrap renderer, **on every recompose, identical text**. That is the
+same "repainting something that did not change" shape as the chrome in #131,
+and the same fix should apply: replay only when the text or its box changed.
+
+**★★ THIS IS THE THIRD MISLABELLED BRACKET THIS SESSION**, all the same
+mistake — a phase named after its FIRST call while spanning more:
+
+- `l57f2` "is 75% of the render" (#132) — it is a no-op wrapper; the bracket
+  held the inline region fills before it.
+- `FULL chrome ticks` on a HUD-only compose (#131) — stale stamps, read as
+  garbage.
+- `HUD roster ticks` (here) — roster plus the sticky-text replay.
+
+**A phase label is a claim about what a bracket contains, and it needs checking
+like any other claim.** Two of the three sent an investigation at the wrong
+function first.
+
+**RANKED, corrected:**
+
+1. **`play_sticky_text_replay`** — up to 2.8 s, redrawing identical text every
+   recompose. Skip-if-unchanged first; the text renderer itself second.
+2. **`l2c60` command bar** — flat ~82 tk (1.4 s) STE, ~104 (1.7 s) ECS, against
+   3-5 tk on the 020s. A 20x machine ratio on fixed work still points at
+   per-pixel plate drawing.
+3. **Entry chrome** — STE 5.3-10.3 s, the largest one-off.
+4. **The present floor** — ~21 tk of every STE/ECS step.
+
+`FRUA_ROSTERPROF` stays: it is the instrument that settled this, and it is the
+one that should run before anyone optimises a list walk.

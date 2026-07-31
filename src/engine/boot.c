@@ -3676,7 +3676,7 @@ long g_mpf_s1, g_mpf_s1b, g_mpf_s2, g_mpf_s3;  /* mono render stage stamps */
 long g_mpf_l0;                          /* l63c0 compose stamp */
 long g_mpf_f1, g_mpf_f2;                /* jt312 FULL-path stamps */
 long g_ms_seed_px, g_ms_exp_px, g_ms_calls;  /* mono_span volume */
-long g_mpf_h0, g_mpf_h1, g_mpf_h2;      /* HUD sub-stamps */
+long g_mpf_h0, g_mpf_h1, g_mpf_h2, g_mpf_h3;  /* HUD sub-stamps */
 long g_l2856_calls;                     /* GLIB item-directory walks */
 long g_jt448_calls, g_jt448_ticks;      /* bar cap blits */
 long g_jp_t, g_jp_a, g_jp_b, g_jp_c, g_jp_d;  /* jt995 sections */
@@ -9689,11 +9689,20 @@ static void l02dc(long highlight)
 	row = 2;
 	/* Faithful headers (CODE 12 + 0x348/0x36c): "Name" at the base page,
 	 * "AC HP" at page 33, both red (colour 12). */
+#ifdef FRUA_ROSTERPROF
+	{ extern long g_rp_a; g_rp_a = TickCount(); }
+#endif
 	jt94(page,       row, 12, 0, ua_strs_at(0x5e5e)); /* "Name"  */
 	jt94((short)33,  row, 12, 0, ua_strs_at(0x5e64)); /* "AC HP" */
+#ifdef FRUA_ROSTERPROF
+	{ extern long g_rp_b; g_rp_b = TickCount(); }
+#endif
 	row += 2;
 
 	entry = (const unsigned char *)(uintptr_t)g_a5_27928;
+#ifdef FRUA_ROSTERPROF
+	{ extern long g_rp_nodes, g_rp_broke; g_rp_nodes = 0; g_rp_broke = 0; }
+#endif
 	while (entry != NULL) {
 		short v, colour;
 
@@ -9701,11 +9710,28 @@ static void l02dc(long highlight)
 #ifdef FRUA_CGTRACE
 			dbg_log_num("l02dc: bad node = ", (long)(uintptr_t)entry);
 #endif
+#ifdef FRUA_ROSTERPROF
+			{ extern long g_rp_broke; g_rp_broke = 1; }
+#endif
 			break;
 		}
+#ifdef FRUA_ROSTERPROF
+		{
+			extern long g_rp_nodes;
+			g_rp_nodes++;
+			/* #136: a runaway or looping .next chain would paint for ever;
+			 * cap the PROBE so the drive still finishes and the count is
+			 * still the evidence. */
+			if (g_rp_nodes > 4000)
+				break;
+		}
+#endif
 
 		g_a5_24128 += 1;
 		jt103(page, row, 38, row);
+#ifdef FRUA_ROSTERPROF
+		{ extern long g_rp_c; g_rp_c = TickCount(); }
+#endif
 
 		if ((long)(uintptr_t)entry == highlight) {
 			jt94(page, row, 11, 0,
@@ -9714,6 +9740,9 @@ static void l02dc(long highlight)
 		} else {
 			jt25((long)(uintptr_t)entry, page, row, 0);
 		}
+#ifdef FRUA_ROSTERPROF
+		{ extern long g_rp_d; g_rp_d = TickCount(); }
+#endif
 
 		/* Column 1 (offset 385): colour band, then JT[34] draws the value. */
 		v = entry[385];
@@ -9733,10 +9762,32 @@ static void l02dc(long highlight)
 		if (jt1200() == 3 && entry[197] != 0)
 			jt97(35, row, 12, 0, 1, 42, 1);
 		jt32((long)(uintptr_t)entry, (short)(36 + colour), row, 0, 0);
+#ifdef FRUA_ROSTERPROF
+		{ extern long g_rp_e; g_rp_e = TickCount(); }
+#endif
 
 		row += 1;
 		entry = *(const unsigned char * const *)entry;  /* .next */
 	}
+#ifdef FRUA_ROSTERPROF
+	{
+		extern long g_rp_nodes, g_rp_broke, g_rp_calls;
+		g_rp_calls++;
+		{
+			extern long g_rp_a, g_rp_b, g_rp_c, g_rp_d;
+			dbg_log_num("roster: headers = ", g_rp_b - g_rp_a);
+			dbg_log_num("roster: rowbar  = ", g_rp_c - g_rp_b);
+			dbg_log_num("roster: name    = ", g_rp_d - g_rp_c);
+			{
+				extern long g_rp_e;
+				dbg_log_num("roster: AC+HP   = ", g_rp_e - g_rp_d);
+			}
+		}
+		dbg_log_num("roster: nodes   = ", g_rp_nodes);
+		dbg_log_num("roster: broke   = ", g_rp_broke);
+		dbg_log_num("roster: lastrow = ", (long)row);
+	}
+#endif
 
 	if (row < 12)
 		jt103(page, row, 38, row);
@@ -11921,6 +11972,10 @@ long g_tp_seen, g_tp_put, g_tp_tiles;   /* #134 wall-tile pixel volume */
 #endif
 #ifdef FRUA_TILEVERIFY
 long g_tv_n, g_tv_bad;
+#endif
+#ifdef FRUA_ROSTERPROF
+long g_rp_nodes, g_rp_broke, g_rp_calls;   /* #136 roster list length */
+long g_rp_a, g_rp_b, g_rp_c, g_rp_d, g_rp_e;  /* #136 roster sub-stamps */
 #endif
 #define BD_MAP_MAX 320   /* #132: backdrop scale maps, one screen wide */
 static short g_view_hud_only = 0;
@@ -15437,6 +15492,9 @@ static void jt312(unsigned char *page)
 		{ extern long g_mpf_h2; g_mpf_h2 = TickCount(); }
 #endif
 		jt937(g_a5_long(-27932));
+#ifdef FRUA_STEPTIME
+		{ extern long g_mpf_h3; g_mpf_h3 = TickCount(); }
+#endif
 		play_sticky_text_replay();      /* DOS parity: event text persists
 		                                 * on the square across recomposes
 		                                 * (drawn inside the hold so the
@@ -15522,7 +15580,11 @@ static void jt312(unsigned char *page)
 				extern long g_ms_seed_px, g_ms_exp_px, g_ms_calls;
 				dbg_log_num("HUD bar ticks     ", g_mpf_h1 - g_mpf_h0);
 				dbg_log_num("HUD clock ticks   ", g_mpf_h2 - g_mpf_h1);
-				dbg_log_num("HUD roster ticks  ", g_mpf_f2 - g_mpf_h2);
+				{
+					extern long g_mpf_h3;
+					dbg_log_num("HUD roster ticks  ", g_mpf_h3 - g_mpf_h2);
+					dbg_log_num("HUD sticky ticks  ", g_mpf_f2 - g_mpf_h3);
+				}
 				dbg_log_num("mono_span calls   ", g_ms_calls);
 				dbg_log_num("mono_span seed px ", g_ms_seed_px);
 				dbg_log_num("mono_span exp px  ", g_ms_exp_px);
