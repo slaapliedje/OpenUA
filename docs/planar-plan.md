@@ -3901,3 +3901,48 @@ Menu frame byte-identical to the #125b baseline (AE=0); all five targets build;
 art blits — piece 9 (the viewport frame) at 152 ticks and pieces 1-4 at 92.
 Those are not solid fills, so they need the c2p treatment (a span re-encode)
 rather than a constant-word fill; `dc_plane_bridge_span` is the same shape.
+
+### #126 PIECE 9, MEASURED — 76% of it is the PLANAR BRIDGE, not the blit
+
+Piece 9 (the 88x88 viewport frame) was 152-157 ticks of the chrome phase and
+nobody had priced a pixel of it. Split with the same diagnostic that settled
+`jt103` — a build that skips the plane mirror (`FRUA_DIAG_NOBRIDGE`) — plus a
+per-leaf log of each landed rect's encoding and size.
+
+| l67ca item | bridge ON | bridge OFF | the bridge |
+|---|--:|--:|--:|
+| `jt76` (incl. jt103 58) | 184 | 113 | 71 |
+| **piece 9** | **157** | **38** | **119 (76%)** |
+| piece 21 | 31 | 11 | 20 |
+| dividers x2 | 46 | 17 | 29 |
+| **l67ca total** | **418** | **179** | **239 (57%)** |
+
+**`qd_planar_bridge_rect` is now the single biggest item in the chrome phase**
+— 239 ticks, **~4.0 s** of the 7.0 s that remains after #125e. The blit itself
+(`l2d4e`, which also DECODES: modes 2 and 5 are compressed) is 179 ticks.
+
+It is the SAME per-pixel `DC_PUT` shape `dc_plane_fill` had before #125e: read
+the chunky byte, remap it through the band LUT, then read-modify-write every
+plane for that one pixel, plus per-pixel coverage bookkeeping. Measured at
+**~450 cycles/pixel**, against ~337 for the decode+blit it mirrors.
+
+**Geometry (per `l67ca`, 23 invocations sampled): 77 leaves, 70,892 pixels —
+1.1x the whole 320x200 screen, redrawn from scratch every recompose.** The leaf
+census explains the shape: **1,425 of 1,767 leaves are 8x11** (the composite
+chrome tiles), so the bridge is called with a tiny rect ~62 times per l67ca and
+pays its `dsp_planar_draw_target` + per-row band divide on 88 pixels at a time.
+
+**★ THIS IS THE "ONE PRIMITIVE" CASE, AND IT IS REAL** — but it is
+`qd_planar_bridge_rect`, NOT `dc_plane_bridge_span` as first guessed. (The
+first reading of `ui_glib_blit` found it writing chunky directly and concluded
+the art path had no draw-time plane store at all; it does, one level up in
+`l309c`.) `qd_planar_bridge_rect` and `dc_plane_bridge_span` are literally the
+same inner loop, so one span encoder serves both.
+
+Unlike the solid fill, every pixel here has a DIFFERENT index, so the
+constant-word trick does not apply — this needs a real chunky->planar span
+conversion, which is exactly what the vendored `third_party/c2p-68k` subtree
+does. Note the subtree is a CONSUMER relationship (CLAUDE.md): edit upstream
+and `git subtree push`, do not re-add local copies.
+
+NOT FIXED HERE — this entry is the measurement only.

@@ -6947,9 +6947,15 @@ static void l309c(short a, short b, long handle, short size)
 	 * sees where the near/far faces really land. */
 	g_lc_x0 = sx; g_lc_y0 = sy;
 	g_lc_w  = (short)(bpp_w * 8); g_lc_h = height;
+#ifdef FRUA_STEPTIME
+	/* #126: what does one art leaf actually cover, and in which encoding?
+	 * piece 9 costs 152 ticks (2.5 s) and nobody has priced a pixel of it. */
+	dbg_log_num("        l309c leaf mode= ", (long)(mode & 15));
+	dbg_log_num("        l309c leaf w*1k+h", (long)(bpp_w * 8) * 1000L + height);
+#endif
 	l2d4e((const unsigned char *)(uintptr_t)info, bpp_w, height,
 	      sy, sx, mode);
-#ifdef FRUA_PLANAR
+#if defined(FRUA_PLANAR) && !defined(FRUA_DIAG_NOBRIDGE)
 	/* B4 immediate-c2p bridge: l2d4e just wrote the chrome/glyph rect to the
 	 * screen chunky — stamp it into the draw-time plane buffer so those pixels
 	 * are native-planar owned (l2d4e always targets the screen via
