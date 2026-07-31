@@ -249,8 +249,26 @@ static void make_null(EventRecord *out)
 
 /* --- public API --- */
 
+#ifdef FRUA_DIVPROF
+/* #125: the divide histogram put 53% of all software divisions inside
+ * plat_ticks, but a caller count alone cannot tell a HOT PATH from a BUSY
+ * WAIT — and WaitNextEvent below is a tight spin on GetNextEvent + TickCount.
+ * If the clock traffic is that spin, the cycles are time the boot was going to
+ * spend waiting regardless and making the divide cheaper buys NOTHING. These
+ * three counters settle it; they are reported by div_prof_dump. */
+unsigned long g_wne_calls, g_wne_iters, g_wne_timeouts;
+unsigned long g_tick_calls;
+#endif
+
 long TickCount(void)
 {
+#ifdef FRUA_DIVPROF
+	g_tick_calls++;
+	{
+		extern void tick_prof_note(unsigned long);
+		tick_prof_note((unsigned long)__builtin_return_address(0));
+	}
+#endif
 	return (long)plat_ticks();
 }
 
@@ -436,10 +454,20 @@ Boolean WaitNextEvent(short eventMask, EventRecord *theEvent,
 	if (theEvent == NULL)
 		return 0;
 	deadline = TickCount() + (long)sleep;
+#ifdef FRUA_DIVPROF
+	g_wne_calls++;
+#endif
 	for (;;) {
+#ifdef FRUA_DIVPROF
+		g_wne_iters++;
+#endif
 		if (GetNextEvent(eventMask, theEvent))
 			return 1;
-		if (TickCount() >= deadline)
+		if (TickCount() >= deadline) {
+#ifdef FRUA_DIVPROF
+			g_wne_timeouts++;
+#endif
 			return 0;
+		}
 	}
 }

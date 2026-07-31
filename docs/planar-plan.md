@@ -3677,3 +3677,71 @@ matters for expectations: there is no one change here worth 15x.
 
 `st_reband` at 7.8% is the quantiser and was already known to dominate parts of
 the boot; it is now sized honestly rather than by the phase timers.
+
+### #125 THE DIVISION HISTOGRAM — half the divides are a DELIBERATE WAIT
+
+`FRUA_DIVPROF` (`platform/mulprof.c`, the `__mulsi3` playbook aimed at
+division) names every source-level divide by return address. Self-checks pass:
+**0 ZERO-ret, 117 collisions on 56,145 calls (0.2%), top-24 sum 54,280.**
+
+★ **WRAP ALL FOUR ROUTINES, NOT JUST `__udivsi3`.** libgcc builds `__divsi3`,
+`__umodsi3` and `__modsi3` on top of it (`__modsi3` -> `__divsi3` ->
+`__udivsi3`), and those inner calls are undefined symbols in their own objects,
+so `--wrap` catches them too. Wrapping only `__udivsi3` would have attributed
+most of the traffic to an address inside libgcc — true, and useless. A
+`dp_depth` counter suppresses the nested record so each source-level divide is
+counted exactly once (136 nested calls suppressed).
+
+Mix: `__udivsi3` 29,650 / `__divsi3` 19,612 / `__modsi3` 6,845 / `__umodsi3` 38.
+
+| call site | divides | share |
+|---|--:|--:|
+| `plat_ticks` (x2 sites) | 27,833 | **49.5%** |
+| `dc_plane_px` (x3 sites) | 18,330 | **32.6%** |
+| `qd_planar_bridge_rect` | 3,106 | 5.5% |
+| `st_dt_ready_row` | 2,776 | 4.9% |
+| `qd_pixmap_fill` (x3) | 960 | 1.7% |
+| `dc_plane_bridge_span` (x3) | 576 | 1.0% |
+| `st_reband` (x3) | 363 | 0.6% |
+
+**★ THIS RETRACTS #124's OPPORTUNITIES 1 AND 2.** "`__udivsi3` at 10.6%" and
+"`plat_ticks` at 5.8%" are the SAME cost, and most of it is not recoverable. A
+caller count cannot tell a hot path from a busy wait, so a second histogram one
+level up asks who reads the clock:
+
+| `TickCount` caller | calls | share |
+|---|--:|--:|
+| `port_show_intro` (the title dwell) | 13,182 | **44.3%** |
+| `WaitNextEvent`'s deadline spin | 12,793 | **43.0%** |
+| `jt1091` (the per-VBL sequencer) | 1,819 | 6.1% |
+
+**86.7% of every clock read is inside a loop that is DELIBERATELY WAITING.**
+`port_show_intro` holds each title screen with `deadline = TickCount() + 240`
+— ~4 s x 5 screens ~= **20 s of the 74 s boot is the intro dwelling on
+purpose**, exactly as the original does. `WaitNextEvent` is a tight spin on
+`GetNextEvent` + `TickCount` until its sleep deadline, and the counters show
+**197 calls, 197 timeouts — not one returned an event** (~5.6 s).
+
+Making those divides cheaper recovers **zero wall clock**: the loop is bounded
+by a deadline, so a faster iteration simply spins more times. This is the
+time-boxed-vs-work-boxed trap in a new costume — the profiler measures cycles,
+and cycles spent waiting look exactly like cycles spent working.
+
+So roughly **a third of the boot is deliberate delay** and the ~74 s figure
+should be read as ~25 s of intentional waiting plus ~50 s of real work.
+
+**What IS recoverable — `dc_plane_px`, 32.6% of all divides.** ADR-0016's
+draw-time plane store does **three 32-bit divisions per text pixel**:
+
+```c
+sy   = (short)(off / dt->chunky_pitch);
+sx   = (short)(off % dt->chunky_pitch);
+band = (short)((long)sy * dt->nbands / dt->h);
+```
+
+`DrawChar` already knows the clip-tested `(x, y)` it just wrote — it recomputes
+them from a pointer difference. Passing them in kills the first two outright;
+the band is a per-row value that can be hoisted or cached rather than recomputed
+per pixel. At 6,110 text pixels in the boot that is ~3.5% of boot cycles, and it
+matters MORE in the play loop, where text is drawn constantly. This is the
+division work worth doing; the clock is not.

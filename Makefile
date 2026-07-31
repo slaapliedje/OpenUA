@@ -161,13 +161,30 @@ LDFLAGS += -Wl,--wrap=__mulsi3
 # site — which looks like a working histogram whose entries simply do not add
 # up to the total (2.9M calls against a top-24 summing to 13k).
 platform/mulprof.o: CFLAGS += -fno-omit-frame-pointer
+endif
+
+# #125 __udivsi3 attribution: the same wrapper trick aimed at division, which
+# #124's boot profile put at 10.6% of program cycles. ALL FOUR routines are
+# wrapped, not just __udivsi3 — libgcc builds __divsi3/__umodsi3/__modsi3 on
+# top of it, so wrapping only __udivsi3 attributes most calls to an address
+# inside libgcc. See the header comment in platform/mulprof.c.
+ifneq ($(findstring FRUA_DIVPROF,$(EXTRA_CFLAGS)),)
+LDFLAGS += -Wl,--wrap=__udivsi3 -Wl,--wrap=__divsi3
+LDFLAGS += -Wl,--wrap=__umodsi3 -Wl,--wrap=__modsi3
+platform/mulprof.o: CFLAGS += -fno-omit-frame-pointer
+# TickCount's own return-address histogram (who asks for the clock) lives in
+# compat/events.c and needs the frame pointer for the same reason.
+compat/events.o: CFLAGS += -fno-omit-frame-pointer
+endif
 
 # #122: same reason as mulprof above — __builtin_return_address(0) returns 0
 # under -fomit-frame-pointer, which the default flags carry. Only this object
 # needs the frame pointer, and only when the histogram is compiled in.
+# (This block used to be NESTED inside the FRUA_MULPROF one, so an NCPROF-only
+# build silently got no frame pointer and would have recorded 0 for every call
+# site — #122 happened to be built with both flags, which hid it.)
 ifneq ($(findstring FRUA_NCPROF,$(EXTRA_CFLAGS)),)
 compat/quickdraw.o: CFLAGS += -fno-omit-frame-pointer
-endif
 endif
 
 # Engine bring-up probe: instrument the engine's stubs so each logs its name

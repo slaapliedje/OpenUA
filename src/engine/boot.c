@@ -27135,6 +27135,11 @@ static short menu_run(const menu_item_t *items, short n, void *proc,
 	qd_present();
 
 	dbg_log("menu: modal up");           /* harness readiness marker */
+#ifdef FRUA_DIVPROF
+	/* #125: the boot window ends exactly here, so this is the dump that
+	 * matches #124's profile window. */
+	{ extern void div_prof_dump(void); div_prof_dump(); }
+#endif
 #ifdef FRUA_STRTEST
 	strtest_run();                       /* #112: l4e8a write -> l4fbe read */
 #endif
