@@ -85,6 +85,9 @@
 #ifdef FRUA_SNDNOGATE
 #error "FRUA_SNDNOGATE in a RELEASE build: the synth would go back to rendering ~410 samples of silence every vblank whether or not anything is audible — measured at 2.5x the whole ST/STe play loop (#96). Output is identical, which is exactly why this must never ship silently: it is the #96 A/B arm, not a mode."
 #endif
+#ifdef FRUA_PERPIXELFILL
+#error "FRUA_PERPIXELFILL in a RELEASE build: every solid fill would go back to a per-pixel read-modify-write of all four planes — measured at 96% of jt103's cost, 4.85 s of a full recompose on an 8 MHz STE against 0.97 s (#125e). Output is byte-identical (verified one flag apart, AE=0), which is exactly why it must never ship silently: it is the A/B arm, not a mode."
+#endif
 #ifdef FRUA_BLITBENCH
 #error "FRUA_BLITBENCH in a RELEASE build: st_init would spend seconds benchmarking memory copies before the menu appears. It is the #48 BLiTTER-vs-CPU measurement harness."
 #endif

@@ -764,6 +764,22 @@ static Boolean qd_effective_clip(GrafPtr port, Rect *out)
 	                 (x), (y), (slot))
 #endif
 
+/* Solid horizontal run [x0, x1) of one row — the span form of DC_PUT. The ST
+ * arm writes whole 16-pixel groups; the Amiga arm has no span primitive yet
+ * and keeps the per-pixel loop, so it is correct there and merely unimproved
+ * (ECS/AGA pay the same cost they always did). */
+#ifdef FRUA_AMIGA
+#define DC_SPAN(dt, x0, x1, y, slot) do { \
+		short x_; \
+		for (x_ = (x0); x_ < (x1); x_++) \
+			DC_PUT((dt), x_, (y), (slot)); \
+	} while (0)
+#else
+#define DC_SPAN(dt, x0, x1, y, slot) \
+	planar_span_stlow((dt)->planes, (dt)->line_bytes, (dt)->nplanes, \
+	                  (y), (x0), (x1), (slot))
+#endif
+
 /*
  * #125: map a chunky write address to screen (sx, sy) + band, MEMOISING THE ROW.
  *
@@ -864,10 +880,19 @@ static void dc_plane_fill(const dsp_planar_dt_t *dt, const unsigned char *prow,
 		return;                          /* offscreen pixmap: not our screen */
 	slot = dt->remap[(long)band * 256 + idx];
 	{
-		short xx, xe = (short)(sx + w);
+		/* #125e: SPAN, not per-pixel. The DC_PUT loop that used to live here
+		 * was 96% of jt103's cost (4.67 s of a 4.85 s panel fill on an 8 MHz
+		 * STE) — a read-modify-write of every plane for every pixel, to
+		 * mirror a chunky fill that itself took 0.18 s. A solid slot makes
+		 * each fully-covered 16-pixel group's plane word a constant. */
+		short xe = (short)(sx + w);
 		if (xe > dt->w) xe = dt->w;
-		for (xx = sx; xx < xe; xx++)
-			DC_PUT(dt, xx, sy, slot);
+#ifdef FRUA_PERPIXELFILL
+		{ short xx; for (xx = sx; xx < xe; xx++) DC_PUT(dt, xx, sy, slot); }
+#else
+		if (xe > sx)
+			DC_SPAN(dt, sx, xe, sy, slot);
+#endif
 	}
 	if (dt->cov) {
 		x1 = (short)(sx + w);

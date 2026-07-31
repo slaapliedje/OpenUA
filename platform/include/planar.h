@@ -182,20 +182,92 @@ static inline void planar_put_amiga(unsigned char *dst, short pitch,
 }
 
 /* Fill rect [x,x+w) x [y,y+h), clipped to (dst_w x dst_h), with `slot`. */
+/*
+ * #125e: one row of a SOLID span, written a 16-pixel GROUP at a time.
+ *
+ * The per-pixel form below it was 96% of jt103's cost — 4.67 s of a 4.85 s
+ * panel fill on an 8 MHz STE, ~725 cycles per pixel to mirror a chunky fill
+ * that itself took 0.18 s. For a solid slot every plane word inside a fully
+ * covered group is a CONSTANT (0xFFFF where the slot bit is set, 0x0000 where
+ * it is clear), so a full group costs `nplanes` word stores for 16 pixels
+ * instead of 16 read-modify-writes per plane. Only the ragged ends need a
+ * mask. This is the "word-constant fast path for aligned flat spans" the
+ * header comment above has always promised.
+ *
+ * ★ MASK BYTE-WISE, NOT THROUGH `unsigned short *`. A word store writes in the
+ * HOST's byte order, so the obvious `*(unsigned short *)p |= mask` form is
+ * correct on the big-endian m68k target and silently wrong on the
+ * little-endian host that runs tests/test_planar_fill.py — a bug that would
+ * have shipped fine and failed only in the test, which is the worst possible
+ * place to have to argue about it. Splitting the mask into its two bytes is
+ * endian-independent, and a FULLY covered group needs no read at all: both
+ * bytes are 0xFF, so the plane byte is just stored.
+ */
+static inline void planar_span_stlow(unsigned char *dst, short line_bytes,
+                                     short nplanes, short y,
+                                     short x0, short x1, unsigned char slot)
+{
+	unsigned char *row = dst + (long)y * line_bytes;
+	short          x   = x0;
+
+	while (x < x1) {
+		short          g    = (short)(x >> 4);
+		short          bit  = (short)(x & 15);
+		short          n    = (short)(16 - bit);
+		unsigned short mask;
+		unsigned char *grp;
+		short          p;
+
+		if (n > (short)(x1 - x))
+			n = (short)(x1 - x);
+		/* Bits [15-bit .. 15-bit-n+1] of the group word. Computed in
+		 * unsigned long so a full group (bit==0, n==16) shifts by 16
+		 * without hitting the 16-bit shift-width edge. */
+		mask = (unsigned short)(((0xFFFFUL >> bit)
+		                       & ~(0xFFFFUL >> (bit + n))) & 0xFFFFUL);
+		grp  = row + (long)g * nplanes * 2;
+		{
+			unsigned char hi = (unsigned char)(mask >> 8);
+			unsigned char lo = (unsigned char)(mask & 0xFF);
+			int           full = (hi == 0xFF && lo == 0xFF);
+
+			for (p = 0; p < nplanes; p++) {
+				unsigned char *d = grp + p * 2;
+
+				if ((slot >> p) & 1) {
+					if (full) {
+						d[0] = 0xFF; d[1] = 0xFF;
+					} else {
+						d[0] = (unsigned char)(d[0] | hi);
+						d[1] = (unsigned char)(d[1] | lo);
+					}
+				} else {
+					if (full) {
+						d[0] = 0; d[1] = 0;
+					} else {
+						d[0] = (unsigned char)(d[0] & ~hi);
+						d[1] = (unsigned char)(d[1] & ~lo);
+					}
+				}
+			}
+		}
+		x = (short)(x + n);
+	}
+}
+
 static inline void planar_fill_stlow(unsigned char *dst, short line_bytes,
                                      short nplanes, short dst_w, short dst_h,
                                      short x, short y, short w, short h,
                                      unsigned char slot)
 {
-	short yy, xx, x1 = (short)(x + w), y1 = (short)(y + h);
+	short yy, x1 = (short)(x + w), y1 = (short)(y + h);
 
 	if (x < 0) x = 0;
 	if (y < 0) y = 0;
 	if (x1 > dst_w) x1 = dst_w;
 	if (y1 > dst_h) y1 = dst_h;
 	for (yy = y; yy < y1; yy++)
-		for (xx = x; xx < x1; xx++)
-			planar_put_stlow(dst, line_bytes, nplanes, xx, yy, slot);
+		planar_span_stlow(dst, line_bytes, nplanes, yy, x, x1, slot);
 }
 
 /*

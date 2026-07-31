@@ -3844,3 +3844,60 @@ drive ran 8 keys instead of 48 and never left the event screen. Same shape as
 the Makefile's `FRUA_NCPROF` block and `FRUA_MONOPROF` above. **Pass
 `-DFRUA_AUTOWALK -DFRUA_AUTOWALK_TREASURE` together, and always check the key
 count.**
+
+### #125e THE CHROME PHASE — a solid fill was mirrored PER PIXEL
+
+#125c put ~10.3 s of a ~17 s full recompose in the chrome phase. Drilling
+down, each level was ~97-99% of the one above it:
+
+    chrome phase        611-629 ticks
+      port_draw_play_frame  611-620   (99%; load/clut/memset are 0/2/2)
+        l67ca               611-620
+          jt76                  381   -> jt103 291, pieces 1-4 92
+          piece 9 (viewport)    152
+          piece 21 + dividers    63
+        jt103 -> jt1161 -> PaintRect -> qd_pixmap_fill
+
+`jt103` is a SOLID BOX FILL of the ~304x176 panel: 4.85 s, ~725 cycles per
+pixel. A diagnostic build that skipped the plane mirror entirely put it at
+**11 ticks** — so `dc_plane_fill`'s per-pixel `DC_PUT` was **280 of 291 ticks,
+96%**, mirroring a chunky fill that itself cost 0.18 s.
+
+**`planar_span_stlow()` writes a solid run a 16-pixel GROUP at a time.** For a
+solid slot every plane word inside a fully covered group is a constant (0xFFFF
+where the slot bit is set, 0x0000 where clear), so a full group costs `nplanes`
+stores per 16 pixels instead of 16 read-modify-writes per plane; only the
+ragged ends need a mask. `planar_fill_stlow` now routes through it too, so the
+existing host test covers it.
+
+| | ticks | wall |
+|---|--:|--:|
+| `jt103` | 291 -> **58** | 4.85 s -> **0.97 s** (5.0x) |
+| chrome phase | 611-629 -> **420-439** | 10.2 s -> **7.0 s** |
+| **FULL recompose** | 1014 -> **733** | **16.9 s -> 12.2 s (-28%)** |
+
+The HUD phase dropped too (218 -> 169) — it fills solid plates as well.
+
+**★ THE `unsigned short *` FORM IS AN ENDIANNESS BUG, AND THE HOST TEST CAUGHT
+IT.** `*(unsigned short *)p |= mask` stores in the HOST's byte order: correct
+on the big-endian m68k target, silently wrong on the little-endian host that
+runs `tests/test_planar_fill.py`. It would have shipped working and failed only
+in the test — the worst place to have that argument. Mask BYTE-WISE (hi/lo);
+a fully covered group needs no read at all, so the fast path survives intact.
+
+**★★ AND THE FIRST BEFORE/AFTER WAS INVALID — AGAIN, THE SAME WAY.** The play
+frame differed by 2,252 pixels and the crops showed a DOOR present before and
+absent after, which reads exactly like a render regression. It was not: the
+baseline had been captured from a build WITHOUT the chrome/jt76/l67ca sub-stamps,
+so the two arms differed in the instrumentation as well as the fix. Held one
+flag apart (`FRUA_PERPIXELFILL`), span vs per-pixel is **AE=0**, and the whole
+2,252 attributes to the stamps. **The dbg_log stamps are enough to change where
+a timed drive lands — instrument BOTH arms identically.**
+
+Menu frame byte-identical to the #125b baseline (AE=0); all five targets build;
+427 tests pass.
+
+**Next in the chrome phase**: with `jt103` down, the biggest items are the GLIB
+art blits — piece 9 (the viewport frame) at 152 ticks and pieces 1-4 at 92.
+Those are not solid fills, so they need the c2p treatment (a span re-encode)
+rather than a constant-word fill; `dc_plane_bridge_span` is the same shape.

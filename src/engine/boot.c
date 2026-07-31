@@ -3655,6 +3655,8 @@ static void  jt44(void)               { PROBE("jt44"); l5822(); }  /* JT[44] = L
  * backend has pages to seed. */
 #ifdef FRUA_STEPTIME
 long g_mpf_t0, g_mpf_t1, g_mpf_t2;      /* jt312 step-timing stamps */
+long g_mpf_c1, g_mpf_c2, g_mpf_c3;      /* #125d chrome-phase sub-stamps */
+long g_mpf_p0, g_mpf_p1, g_mpf_p2, g_mpf_p3;  /* #125d port_draw_play_frame */
 long g_mpf_s1, g_mpf_s1b, g_mpf_s2, g_mpf_s3;  /* mono render stage stamps */
 long g_mpf_l0;                          /* l63c0 compose stamp */
 long g_mpf_f1, g_mpf_f2;                /* jt312 FULL-path stamps */
@@ -7642,13 +7644,23 @@ static void jt76(void)
 	 * the PICK lists sit in. (An earlier cut called a stub l4bf6 with the
 	 * args reversed, so the rect was degenerate and no panel drew.) */
 	PROBE("jt76");
-	(void)jt108(0);
-	jt103((short)1, (short)1, (short)38, (short)22);
-	jt1001(8000, 8000, 1, 1);
-	jt1001(8000, 8000, 1, 2);
-	jt1001(8000, 8000, 1, 3);
-	jt1001(8000, 8000, 1, 4);
+#ifdef FRUA_STEPTIME
+#define J76_T(label, call) do { \
+		long t_ = TickCount(); \
+		call; \
+		dbg_log_num("        jt76 " label, TickCount() - t_); \
+	} while (0)
+#else
+#define J76_T(label, call) do { call; } while (0)
+#endif
+	J76_T("jt108  ", (void)jt108(0));
+	J76_T("jt103  ", jt103((short)1, (short)1, (short)38, (short)22));
+	J76_T("piece 1", jt1001(8000, 8000, 1, 1));
+	J76_T("piece 2", jt1001(8000, 8000, 1, 2));
+	J76_T("piece 3", jt1001(8000, 8000, 1, 3));
+	J76_T("piece 4", jt1001(8000, 8000, 1, 4));
 	jt174();
+#undef J76_T
 }
 /* JT[1] (CODE 1 + 0x130) / JT[2] (CODE 1 + 0x144) — THINK C's *sparse*
  * inline switch runtime, the sibling of JT[3]. The compiler emits these
@@ -7841,12 +7853,23 @@ static void l67ca(void)
 	short letter;
 
 	PROBE("l67ca");
-	jt76();
-	l66e6(16);
-	l66e6(12);
-	jt80(2);
-	jt1001(8000, 8000, 1, 9);
-	jt1001(8000, 8000, 1, 21);
+#ifdef FRUA_STEPTIME
+	/* #125d: l67ca is 99% of port_draw_play_frame, which is 97% of the chrome
+	 * phase, which is ~10 s of a ~16-20 s full recompose. Time each piece. */
+#define L67_T(label, call) do { \
+		long t_ = TickCount(); \
+		call; \
+		dbg_log_num("      l67ca " label, TickCount() - t_); \
+	} while (0)
+#else
+#define L67_T(label, call) do { call; } while (0)
+#endif
+	L67_T("jt76     ", jt76());
+	L67_T("l66e6(16)", l66e6(16));
+	L67_T("l66e6(12)", l66e6(12));
+	L67_T("jt80(2)  ", jt80(2));
+	L67_T("piece 9  ", jt1001(8000, 8000, 1, 9));
+	L67_T("piece 21 ", jt1001(8000, 8000, 1, 21));
 
 	/* Direction byte at g_a5_27980[g_a5_12286 * 3], sign-extended. */
 	letter = (short)(signed char)g_a5_27980[g_a5_12286 * 3];
@@ -7857,7 +7880,8 @@ static void l67ca(void)
 	case 'W': jt1001(8000, 8000, 1, 24); break;
 	default:                              break;
 	}
-	l08e6(1);
+	L67_T("l08e6(1) ", l08e6(1));
+#undef L67_T
 }
 
 /* g_a5_12912 → macro (data_pool replay buffer) */
@@ -14767,7 +14791,13 @@ static void port_draw_play_frame(unsigned char *px, short pitch, short sw, short
 	qd_touch_all();
 	short r;
 
+#ifdef FRUA_STEPTIME
+	{ extern long g_mpf_p0; g_mpf_p0 = TickCount(); }
+#endif
 	port_frame_load();
+#ifdef FRUA_STEPTIME
+	{ extern long g_mpf_p1; g_mpf_p1 = TickCount(); }
+#endif
 	if (!g_frame_base)
 		return;
 
@@ -14786,9 +14816,16 @@ static void port_draw_play_frame(unsigned char *px, short pitch, short sw, short
 		port_clut_install(fp, (short)16, (short)16);
 	}
 
+#ifdef FRUA_STEPTIME
+	{ extern long g_mpf_p2; g_mpf_p2 = TickCount(); }
+#endif
+
 	/* grey stone background (clut 21 ~ mid stone) under the chrome. */
 	for (r = 0; r < sh; r++)
 		memset(px + (long)r * pitch, 21, (size_t)sw);
+#ifdef FRUA_STEPTIME
+	{ extern long g_mpf_p3; g_mpf_p3 = TickCount(); }
+#endif
 
 	/* FAITHFUL dungeon chrome: jt23 case 4 -> l67ca — jt76 (FRAME border
 	 * pieces 1-4 + the char-cell panel box) + l66e6 dividers (piece 7 x2) +
@@ -14804,6 +14841,15 @@ static void port_draw_play_frame(unsigned char *px, short pitch, short sw, short
 	 * before filling piece 9's hole. */
 	jt1193();                        /* clip = full screen (was the bug) */
 	l67ca();
+#ifdef FRUA_STEPTIME
+	{
+		extern long g_mpf_p0, g_mpf_p1, g_mpf_p2, g_mpf_p3;
+		dbg_log_num("    pdpf load tk  ", g_mpf_p1 - g_mpf_p0);
+		dbg_log_num("    pdpf clut tk  ", g_mpf_p2 - g_mpf_p1);
+		dbg_log_num("    pdpf memset tk", g_mpf_p3 - g_mpf_p2);
+		dbg_log_num("    pdpf l67ca tk ", TickCount() - g_mpf_p3);
+	}
+#endif
 #ifdef FRUA_BWMODE
 	g_mono_chrome_dirty = 1;         /* #154: the wipe took the frame too */
 #endif
@@ -14969,6 +15015,14 @@ static void jt312(unsigned char *page)
 		return;
 	if (!qd_screen_pixels_nomark(&px, &pitch, &sw, &sh) || px == 0)
 		return;
+#ifdef FRUA_STEPTIME
+	/* #125d: the chrome phase measured ~10.3 s of a ~16-20 s full recompose
+	 * and issues 11 FSOpens, so split it four ways — setup, the wall-group
+	 * load, the backdrop load, and the frame draw. The two loads are the
+	 * interesting pair: they are also what SET g_view_force_full, so they
+	 * trigger the very full path they are being timed inside. */
+	{ extern long g_mpf_c1; g_mpf_c1 = TickCount(); }
+#endif
 
 	/* Mac L23ee 0x23f6: (signed) -12287 * ds[3] + (signed) -12288 — the same
 	 * cell index jt297/jt236/jt210/l5baa use. This site had the two operands
@@ -14996,6 +15050,10 @@ static void jt312(unsigned char *page)
 #endif
 	}
 
+#ifdef FRUA_STEPTIME
+	{ extern long g_mpf_c2; g_mpf_c2 = TickCount(); }
+#endif
+
 	/* Pick the floor/ceiling backdrop for the current cell's zone (unless
 	 * the demo pinned one with 'b'); reload only when it changes. */
 	if (g_back_auto) {
@@ -15012,6 +15070,10 @@ static void jt312(unsigned char *page)
 #endif
 		}
 	}
+
+#ifdef FRUA_STEPTIME
+	{ extern long g_mpf_c3; g_mpf_c3 = TickCount(); }
+#endif
 
 	/* Draw the play-screen frame (FRAME.CTL chrome) + full-present once;
 	 * thereafter only the 88x88 viewport changes, so we present just that
@@ -15133,6 +15195,13 @@ static void jt312(unsigned char *page)
 			extern long g_mpf_t0, g_mpf_t1, g_mpf_t2;
 			extern long g_mpf_f1, g_mpf_f2;
 			long ft = TickCount();
+			{
+				extern long g_mpf_c1, g_mpf_c2, g_mpf_c3;
+				dbg_log_num("  chrome setup tk ", g_mpf_c1 - g_mpf_t0);
+				dbg_log_num("  chrome walls tk ", g_mpf_c2 - g_mpf_c1);
+				dbg_log_num("  chrome backdr tk", g_mpf_c3 - g_mpf_c2);
+				dbg_log_num("  chrome frame tk ", g_mpf_f1 - g_mpf_c3);
+			}
 			dbg_log_num("FULL chrome ticks ", g_mpf_f1 - g_mpf_t0);
 			dbg_log_num("FULL render ticks ", g_mpf_t2 - g_mpf_t1);
 			dbg_log_num("FULL hud ticks    ", g_mpf_f2 - g_mpf_t2);
