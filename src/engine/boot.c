@@ -11976,7 +11976,7 @@ long g_tp_seen, g_tp_put, g_tp_tiles;   /* #134 wall-tile pixel volume */
 #ifdef FRUA_TILEVERIFY
 long g_tv_n, g_tv_bad;
 #endif
-#if defined(FRUA_STICKYDAMAGE) || defined(FRUA_STICKYVERIFY)
+#if defined(FRUA_STICKYDAMAGE) || defined(FRUA_STICKYVERIFY) || defined(FRUA_BARDAMAGE)
 unsigned char g_sd_snap[320 * 64];   /* #137 text-box snapshot */
 #endif
 #ifdef FRUA_STICKYVERIFY
@@ -15494,7 +15494,43 @@ static void jt312(unsigned char *page)
 #ifdef FRUA_STEPTIME
 		{ extern long g_mpf_h0; g_mpf_h0 = TickCount(); }
 #endif
+#ifdef FRUA_BARDAMAGE
+		/* #139: the modal reset the DLItem POOL, so the items must be rebuilt
+		 * for input. But did it take the bar's PIXELS? Snapshot the bar rows,
+		 * repaint, diff. 0 changed => the repaint is redundant and the rebuilt
+		 * items could simply be marked already-painted. */
+		{
+			extern unsigned char g_sd_snap[320 * 64];
+			unsigned char *sp; short spitch, ssw, ssh;
+			if (qd_screen_pixels_nomark(&sp, &spitch, &ssw, &ssh) && sp) {
+				short r_, w_ = (ssw < 320) ? ssw : 320;
+				for (r_ = 160; r_ < 200 && r_ < ssh; r_++)
+					memcpy(g_sd_snap + (long)(r_ - 160) * 320,
+					       sp + (long)r_ * spitch, (size_t)w_);
+			}
+		}
+#endif
 		l2c60((short)1);                /* force-repaint the bar (plate per word) */
+#ifdef FRUA_BARDAMAGE
+		{
+			extern unsigned char g_sd_snap[320 * 64];
+			unsigned char *sp; short spitch, ssw, ssh;
+			if (qd_screen_pixels_nomark(&sp, &spitch, &ssw, &ssh) && sp) {
+				short r_, c_, w_ = (ssw < 320) ? ssw : 320;
+				long n = 0; short y0 = -1, y1 = -1;
+				for (r_ = 160; r_ < 200 && r_ < ssh; r_++) {
+					const unsigned char *a = g_sd_snap + (long)(r_ - 160) * 320;
+					const unsigned char *b = sp + (long)r_ * spitch;
+					int d = 0;
+					for (c_ = 0; c_ < w_; c_++)
+						if (a[c_] != b[c_]) { n++; d = 1; }
+					if (d) { if (y0 < 0) y0 = r_; y1 = r_; }
+				}
+				dbg_log_num("bardmg: changed = ", n);
+				dbg_log_num("bardmg: rows    = ", (long)y0 * 1000 + y1);
+			}
+		}
+#endif
 		g_hud_paint = 0;
 #ifdef FRUA_STEPTIME
 		{ extern long g_mpf_h1; g_mpf_h1 = TickCount(); }

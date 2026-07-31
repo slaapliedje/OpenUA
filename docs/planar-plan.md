@@ -4666,3 +4666,52 @@ where the 1.4 s goes.
 were reasonable — a per-pixel 32-bit multiply, and a redundant force-repaint —
 and both were wrong about THIS cost. Reverting them is the result, not a
 failure to get one; shipping either would have added surface for nothing.
+
+### #139 WHY THE RELAYOUT IS UNCONDITIONAL — and three failed attempts to skip the repaint
+
+**It is not gratuitous.** The call site says so: an event's "Press [Return]"
+modal (`l1806`) **RESETS THE SHARED DLItem POOL** — the command bar and the
+walk input sources are replaced by the modal's RETURN button. So after a modal
+the play items genuinely do not exist and must be rebuilt for INPUT to work.
+
+**But rebuilding the data is not the same as needing to redraw.**
+`FRUA_BARDAMAGE` snapshots the bar rows, repaints, and diffs:
+
+| compose | ran chrome? | bar repaint changed |
+|---|---|--:|
+| post-modal | no | **0 px** |
+| chrome wipe | yes | 3,310 px (rows 187-197) |
+| post-modal | no | **0 px** |
+| post-modal | no | **0 px** |
+
+**The modal takes the POOL but not the PIXELS.** The bar is still on screen,
+correct, when `l2c60(1)` repaints all thirteen items for ~82-100 ticks
+(1.4-1.7 s) an event message.
+
+**THREE ATTEMPTS TO SKIP IT, ALL MEASURING NOTHING:**
+
+1. `l2c60(g_bar_dirty)` instead of `l2c60(1)` (#138) — 81-88 tk either way.
+   The rebuilt items come back with the painted bit (0x80) CLEAR, so force=0
+   repaints them anyway.
+2. Mark every rebuilt item painted after the relayout — still 13/13 painted,
+   93-100 tk. `l2c60`'s head runs `l30ba(0, count-1, 0)` when `g_a5_-9247` is
+   0 (which the rebuild re-arms), and that pass sends cmd 0 to every item;
+   `jt137`'s cmd-0 arm clears the bit again.
+3. Mark painted AND set `g_a5_-9247 = 1` to suppress that pass — **still
+   92-100 tk.** Something else clears the painted state between the relayout
+   and the HUD block.
+
+All three reverted. **What is established: the repaint is provably redundant
+(0 px, three times), it costs 1.4-1.7 s an event message, and the painted bit
+is being cleared by something between `play_screen_relayout` and `l2c60` that
+attempt 3 did not account for.** Finding that clearer is the next step — and
+it wants a trace of `rec[28]` across the interval, not another guess.
+
+★ Three attempts, three non-results, all reverted. Each hypothesis was
+plausible and each was refuted by the same instrument in one run. The cost of
+being wrong here is one drive; the cost of shipping any of them unverified
+would have been a change that does nothing, in a path that already has four
+mislabelled comments.
+
+`FRUA_BARDAMAGE` is kept — it is what proved the repaint redundant, and it is
+what will confirm a real fix.
