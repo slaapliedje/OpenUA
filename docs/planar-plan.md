@@ -4406,3 +4406,52 @@ split — it is the frustum walk that blits the wall tiles through
 `l309c_tile -> l2d4e`. The other open item is the entry rebuild, still ~9.7 s,
 whose chrome phase #126 left at 4.45 s with the GLIB art blits (`l2d4e`,
 decode + per-pixel copy) as the remainder.
+
+### #134 THE WALL TILES — three hoists, and the hash method shows its LIMIT
+
+After #133 the largest render item was `jt199` (22 tk), the frustum walk. It
+blits **17 tiles / 13,968 examined pixels** a step through `l309c_tile`, at
+~220 cycles per examined pixel. Three hoists, all behaviour-preserving:
+
+1. **The x clip is a property of the ROW, not the pixel.** The original tested
+   `dx` against both edges inside the loop; the surviving `c` range is just
+   `[clip_l - x0, clip_r - x0)` intersected with `[0, w)`, computed once.
+2. **Source and destination ROW POINTERS**, so `r * w` and `dy * pitch` leave
+   the pixel loop.
+3. **One 256-entry table for the colour decision.** The global 255 key, the
+   band range test, the per-set magenta key and the band rebase are all pure
+   functions of the source byte: fold them into `lut[256]` (0 = drop, else
+   `0x100 | byte`) and the inner loop is load / test / store. Rebuilt per tile
+   so it cannot go stale against a wall reload — 256 iterations against 13,968
+   pixels pays for itself many times over. **`static`, not a local**: 512 bytes
+   of stack five calls deep on a machine whose stack the engine does not own.
+
+| | before | after |
+|---|--:|--:|
+| `jt199` | 22 tk | **14 tk** |
+| step render | 39-51 | **31-44** |
+| **walk step** | ~65 tk (1.08 s) | **~55 tk (0.92 s)** |
+
+**★★ AND THE SCREEN-HASH METHOD FAILED HERE — WORTH KNOWING WHY.** #131
+introduced hash sequences as an equivalence test "immune to one arm running
+faster". Against this change the sequences **differed from compose 2**, which
+reads as a rendering regression. It was not:
+
+- **`FRUA_TILEVERIFY`** recomputes the ORIGINAL decision — colour AND clip —
+  for every pixel and compares: **734,848 pixels, 0 mismatches.**
+- The final walk frame is **byte-identical (AE=0)** to the #133 build.
+- A host check of the LUT construction agrees for all 256 values across every
+  band base.
+
+So the hash method's guarantee is narrower than #131 claimed: it holds while
+the COMPOSE SEQUENCE is unchanged, and a large enough speed change can perturb
+which composes happen relative to the engine-tick-paced keys. **A hash sequence
+compares screens ONLY if the two runs' composes correspond.** The per-pixel
+verifier has no such dependency, and is what should settle a render change.
+
+Five configs build; 427 tests pass; ST menu byte-identical. A/B arm
+`FRUA_TILEPX`, release-guarded.
+
+**The ST/STe walk step across this run: 2.13 s -> 0.92 s, a 2.3x cut**, with
+the render now 31-44 tk against a fixed ~20 tk present — the present is
+becoming the floor.

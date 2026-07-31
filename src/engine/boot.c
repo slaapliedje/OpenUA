@@ -11916,6 +11916,12 @@ static short g_view_force_full = 0;  /* set on a live switch -> full clear+prese
  * 0, 0, 15, and 81 pixels of 64,000, all of them clock text. So repaint the
  * HUD and present, and skip port_draw_play_frame entirely. Anything that can
  * really damage the chrome still sets g_view_force_full. */
+#ifdef FRUA_TILEPROF
+long g_tp_seen, g_tp_put, g_tp_tiles;   /* #134 wall-tile pixel volume */
+#endif
+#ifdef FRUA_TILEVERIFY
+long g_tv_n, g_tv_bad;
+#endif
 #define BD_MAP_MAX 320   /* #132: backdrop scale maps, one screen wide */
 static short g_view_hud_only = 0;
 #ifdef FRUA_R3DPROF
@@ -13174,6 +13180,7 @@ static void l309c_tile(unsigned char *page, short top, short left,
 		 * solid wall, covering the sky/corridor opening — so the remaining
 		 * per-tile misplacement is NOT a uniform scale; it is the per-piece
 		 * bearing / far-near layering (and the wood-vs-stone set). */
+#ifdef FRUA_TILEPX
 		for (r = 0; r < h; r++) {
 			short dy = (short)(y0 + r);
 			if (dy < g_cwf_clip_t || dy >= g_cwf_clip_b)
@@ -13195,6 +13202,97 @@ static void l309c_tile(unsigned char *page, short top, short left,
 				g_cwf_px[(long)dy * g_cwf_pitch + dx] = v;
 			}
 		}
+#else
+		/* #134: the wall-tile inner loop, three hoists. It ran ~220 cycles
+		 * per examined pixel over 13,968 pixels a step — the largest item
+		 * left in the render after #132/#133.
+		 *
+		 *  1. The X CLIP is a property of the ROW, not the pixel: the
+		 *     original tested `dx` against both edges inside the loop, when
+		 *     the surviving c range is just [clip_l - x0, clip_r - x0)
+		 *     intersected with [0, w). Compute it once per TILE.
+		 *  2. Source and destination ROW POINTERS, so the `r * w` and
+		 *     `dy * pitch` 32-bit index arithmetic leaves the pixel loop.
+		 *  3. The colour decision — global 255 key, band range test, the
+		 *     per-set magenta key, and the band rebase — is a pure function
+		 *     of the source byte. Fold all four into one 256-entry table
+		 *     (0 = drop the pixel, else 0x100 | byte-to-store) and the inner
+		 *     loop becomes load / test / store. Rebuilt per tile so it can
+		 *     never go stale against a wall reload; 256 iterations against
+		 *     13,968 pixels pays for itself many times over. */
+		{
+			/* STATIC, not a local: 512 bytes of stack frame five calls
+			 * deep (jt199 -> l5b42 -> jt200 -> jt114 -> here) on a
+			 * machine whose stack the engine does not own. It is also
+			 * one less frame to set up per tile. */
+			static unsigned short lut[256];
+			short c0 = (short)(g_cwf_clip_l - x0);
+			short c1 = (short)(g_cwf_clip_r - x0);
+			short k;
+
+			for (k = 0; k < 256; k++) {
+				short off = (short)(k - 32);
+
+				if (k == 255)
+					lut[k] = 0;
+				else if (off >= 0 && off < CW_BAND)
+					lut[k] = g_cw_strans[slot][off]
+					       ? 0
+					       : (unsigned short)(0x100 | ((base + off) & 0xff));
+				else
+					lut[k] = (unsigned short)(0x100 | k);
+			}
+			if (c0 < 0) c0 = 0;
+			if (c1 > w)  c1 = w;
+			for (r = 0; r < h; r++) {
+				short dy = (short)(y0 + r);
+				const unsigned char *srow;
+				unsigned char       *drow;
+
+				if (dy < g_cwf_clip_t || dy >= g_cwf_clip_b)
+					continue;
+				srow = body + (long)r * w;
+				drow = g_cwf_px + (long)dy * g_cwf_pitch + x0;
+				for (c = c0; c < c1; c++) {
+					unsigned short t = lut[srow[c]];
+#ifdef FRUA_TILEVERIFY
+					/* #134: recompute the ORIGINAL decision for this
+					 * pixel — colour AND clip — and compare. Immune to
+					 * drive alignment, unlike a hash sequence. */
+					{
+						extern long g_tv_n, g_tv_bad;
+						unsigned char v0 = srow[c];
+						short off0 = (short)(v0 - 32);
+						int drop0 = 0;
+						unsigned char want0 = v0;
+						short dx0 = (short)(x0 + c);
+
+						if (v0 == 255) drop0 = 1;
+						else if (off0 >= 0 && off0 < CW_BAND) {
+							if (g_cw_strans[slot][off0]) drop0 = 1;
+							else want0 = (unsigned char)(base + off0);
+						}
+						g_tv_n++;
+						if (dx0 < g_cwf_clip_l || dx0 >= g_cwf_clip_r) {
+							g_tv_bad++;
+							dbg_log_num("tileverify CLIP c=", (long)c);
+						} else if (drop0 != (t == 0)
+						        || (!drop0 && want0 != (unsigned char)t)) {
+							g_tv_bad++;
+							dbg_log_num("tileverify v*10000+t= ",
+							            (long)v0 * 10000 + (long)t);
+						}
+					}
+#endif
+					if (t)
+						drow[c] = (unsigned char)t;
+				}
+			}
+		}
+#endif
+#ifdef FRUA_TILEPROF
+		{ extern long g_tp_tiles; g_tp_tiles++; }
+#endif
 		return;
 	}
 
@@ -14545,6 +14643,22 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 		dbg_log_num("r3d: backdrop tk = ", g_r3d_t2 - g_r3d_tb);
 		dbg_log_num("r3d: l6148 tk   = ", g_r3d_t3 - g_r3d_t2);
 		dbg_log_num("r3d: jt199 tk   = ", g_r3d_t4 - g_r3d_t3);
+#ifdef FRUA_TILEVERIFY
+		{
+			extern long g_tv_n, g_tv_bad;
+			dbg_log_num("tileverify px   = ", g_tv_n);
+			dbg_log_num("tileverify BAD  = ", g_tv_bad);
+		}
+#endif
+#ifdef FRUA_TILEPROF
+		{
+			extern long g_tp_seen, g_tp_put, g_tp_tiles;
+			dbg_log_num("r3d: tiles      = ", g_tp_tiles);
+			dbg_log_num("r3d: px examined= ", g_tp_seen);
+			dbg_log_num("r3d: px stored  = ", g_tp_put);
+			g_tp_seen = g_tp_put = g_tp_tiles = 0;
+		}
+#endif
 		dbg_log_num("r3d: commit tk  = ", t5 - g_r3d_t4);
 	}
 #endif
