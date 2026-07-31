@@ -60,6 +60,18 @@
 #include "mac_font.h"         /* mac_font_pixel (the in-dungeon party HUD) */
 #include "artconv_load.h"     /* ADR-0014: on-load DOS-art conversion */
 
+/* #125c: the play-step / compose TickCount brackets in this file were gated on
+ * FRUA_MONOPROF — but that flag CANNOT BE USED ON A COLOUR BUILD. Its own
+ * declarations in platform/display_sthigh.c sit inside an outer
+ * `#ifdef FRUA_BWMODE`, so a colour build with -DFRUA_MONOPROF fails to compile
+ * (`s_mono_wrote` undeclared), and the play loop's wall-clock cost went
+ * unmeasurable for as long as mono has been shelved. FRUA_STEPPROF selects the
+ * colour-safe subset on its own; FRUA_MONOPROF still implies it, so the mono
+ * build sees exactly what it saw before. */
+#if defined(FRUA_MONOPROF) || defined(FRUA_STEPPROF)
+#define FRUA_STEPTIME 1
+#endif
+
 /* L5124 cluster — the ~30 byte globals L5124 zero-inits or seeds with
  * a small constant. All live in the below-A5 buffer at their A5
  * offsets; the c79x cluster's macro pattern carries over directly.
@@ -3641,7 +3653,7 @@ static void  jt44(void)               { PROBE("jt44"); l5822(); }  /* JT[44] = L
  * nothing — and worse, the pattern let mid-compose states reach the
  * visible screen between the pair. Present exactly as many times as the
  * backend has pages to seed. */
-#ifdef FRUA_MONOPROF
+#ifdef FRUA_STEPTIME
 long g_mpf_t0, g_mpf_t1, g_mpf_t2;      /* jt312 step-timing stamps */
 long g_mpf_s1, g_mpf_s1b, g_mpf_s2, g_mpf_s3;  /* mono render stage stamps */
 long g_mpf_l0;                          /* l63c0 compose stamp */
@@ -14950,7 +14962,7 @@ static void jt312(unsigned char *page)
 		port_present_full();          /* #151 */
 		return;
 	}
-#ifdef FRUA_MONOPROF
+#ifdef FRUA_STEPTIME
 	{ extern long g_mpf_t0; g_mpf_t0 = TickCount(); }
 #endif
 	if (!dungeon_view_setup())
@@ -14974,7 +14986,7 @@ static void jt312(unsigned char *page)
 	 && (ds[4] != g_cw_grp[0] || ds[5] != g_cw_grp[1] || ds[6] != g_cw_grp[2])) {
 		load_wall_groups(ds);
 		g_view_force_full = 1;
-#ifdef FRUA_MONOPROF
+#ifdef FRUA_STEPTIME
 		dbg_log("jt312 force_full: WALL reload");
 #endif
 #ifdef FRUA_ENGINE_PROBE
@@ -14992,7 +15004,7 @@ static void jt312(unsigned char *page)
 			g_back_set = id;
 			load_backdrop(id);
 			g_view_force_full = 1;
-#ifdef FRUA_MONOPROF
+#ifdef FRUA_STEPTIME
 			dbg_log_num("jt312 force_full: BACKDROP reload ->", id);
 #endif
 #ifdef FRUA_ENGINE_PROBE
@@ -15031,7 +15043,7 @@ static void jt312(unsigned char *page)
 		 * to the reconstruction until the bigpic is understood; the jt214/jt44/
 		 * l579e lifts stay (latent) for when the composer (L3fd8) is wired. */
 		port_draw_play_frame(px, pitch, sw, sh);
-#ifdef FRUA_MONOPROF
+#ifdef FRUA_STEPTIME
 		{ extern long g_mpf_f1; g_mpf_f1 = TickCount(); }
 #endif
 	}
@@ -15041,7 +15053,7 @@ static void jt312(unsigned char *page)
 	 * movement redraws (l63c0 -> jt312) now use the SAME faithful renderer.
 	 * FRUA_CORRIDOR (texture-mapped trapezoids) and FRUA_RAYCAST (the wider
 	 * 3-column frustum that opens side passages) remain selectable fallbacks. */
-#ifdef FRUA_MONOPROF
+#ifdef FRUA_STEPTIME
 	{ extern long g_mpf_t1; g_mpf_t1 = TickCount(); }
 #endif
 #if defined(FRUA_CORRIDOR)
@@ -15051,7 +15063,7 @@ static void jt312(unsigned char *page)
 #else
 	R3D_CALL(px, pitch, sw, sh);
 #endif
-#ifdef FRUA_MONOPROF
+#ifdef FRUA_STEPTIME
 	{ extern long g_mpf_t2; g_mpf_t2 = TickCount(); }
 #endif
 	/* HUD command bar: on the chrome-redraw frames, lay the beveled command-bar
@@ -15078,12 +15090,12 @@ static void jt312(unsigned char *page)
 		hud[1].red = hud[1].green = hud[1].blue = (unsigned short)0xFFFF;
 		port_clut_install(hud, (short)253, (short)2);
 		g_hud_paint = 1;
-#ifdef FRUA_MONOPROF
+#ifdef FRUA_STEPTIME
 		{ extern long g_mpf_h0; g_mpf_h0 = TickCount(); }
 #endif
 		l2c60((short)1);                /* force-repaint the bar (plate per word) */
 		g_hud_paint = 0;
-#ifdef FRUA_MONOPROF
+#ifdef FRUA_STEPTIME
 		{ extern long g_mpf_h1; g_mpf_h1 = TickCount(); }
 #endif
 		/* The party roster (jt937 = L02dc grid, right panel) + clock/position
@@ -15096,7 +15108,7 @@ static void jt312(unsigned char *page)
 		 * were wiped by this block's port_draw_play_frame. */
 		port_hud_text_clut();
 		jt938();
-#ifdef FRUA_MONOPROF
+#ifdef FRUA_STEPTIME
 		{ extern long g_mpf_h2; g_mpf_h2 = TickCount(); }
 #endif
 		jt937(g_a5_long(-27932));
@@ -15104,7 +15116,7 @@ static void jt312(unsigned char *page)
 		                                 * on the square across recomposes
 		                                 * (drawn inside the hold so the
 		                                 * full present carries it) */
-#ifdef FRUA_MONOPROF
+#ifdef FRUA_STEPTIME
 		{ extern long g_mpf_f2; g_mpf_f2 = TickCount(); }
 #endif
 	}
@@ -15116,7 +15128,7 @@ static void jt312(unsigned char *page)
 		 * single-buffered backends it is one. */
 		qd_present_hold(0);      /* #147: end the atomic hold, THEN present */
 		port_present_full();          /* #151 */
-#ifdef FRUA_MONOPROF
+#ifdef FRUA_STEPTIME
 		{
 			extern long g_mpf_t0, g_mpf_t1, g_mpf_t2;
 			extern long g_mpf_f1, g_mpf_f2;
@@ -15167,7 +15179,7 @@ static void jt312(unsigned char *page)
 		 * c2p just the 88x88 viewport at (24,24)-(111,111) to the back page
 		 * each frame — its hole is refreshed right before the flip, so every
 		 * flip shows the current view over the persistent chrome. */
-#ifdef FRUA_MONOPROF
+#ifdef FRUA_STEPTIME
 		dbg_log("jt312 RECT path (viewport-only)");
 #endif
 		/* #155: the mono deep render presented its own view-hole rect
@@ -15176,7 +15188,7 @@ static void jt312(unsigned char *page)
 		 * pure double-pack. */
 		if (jt1200() != 3)
 			qd_present_rect((short)24, (short)24, (short)88, (short)88);
-#ifdef FRUA_MONOPROF
+#ifdef FRUA_STEPTIME
 		/* Per-STEP timing (60 Hz TickCount units, ~17 ms each):
 		 * setup = dungeon_view_setup + wall/backdrop checks,
 		 * render = render_3d_faithful, present = the viewport rect. */
@@ -16694,7 +16706,7 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 	 * no return between. The flush is port_present_full so every videl
 	 * page still gets seeded (jt312's internal pair is swallowed here). */
 	qd_present_hold(1);
-#ifdef FRUA_MONOPROF
+#ifdef FRUA_STEPTIME
 	{ extern long g_mpf_l0; g_mpf_l0 = TickCount(); }
 #endif
 
@@ -16822,7 +16834,7 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 	 * hold swallowed jt312's internal page-seeding pair above). */
 	qd_present_hold(0);
 	port_present_full();
-#ifdef FRUA_MONOPROF
+#ifdef FRUA_STEPTIME
 	{
 		extern long g_mpf_l0;
 		dbg_log_num("l63c0 compose ticks", TickCount() - g_mpf_l0);

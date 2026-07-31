@@ -3788,3 +3788,59 @@ rebands. Three separate boots produced a **byte-identical** menu PNG
 - **`objdump -D -b binary` on the raw .prg is not an arch check** — it read
   2,705 020-ops on a 68000 binary. Scan the OBJECTS
   (`objdump -d compat/quickdraw.o | grep -cE 'muls\.l|bfextu|bfins'` = 0).
+
+### #125c THE PLAY LOOP, IN WALL CLOCK — a step is ~2.1 s, a recompose ~16-26 s
+
+Every play-loop figure so far has been a SHARE of a time-boxed cycle window.
+This is the first measurement in the guest's own clock: `FRUA_STEPPROF` +
+`FRUA_AUTOPLAY -DFRUA_AUTOWALK -DFRUA_AUTOWALK_TREASURE`, driven to a real
+walk in HEIRS (party stepping 10,8 -> 11,7, command bar up), 32 step samples.
+
+**A walk step, 8 MHz STE (60 Hz TickCount, 16.7 ms each):**
+
+| phase | ticks | wall |
+|---|--:|--:|
+| setup (`dungeon_view_setup` + wall groups) | 0-1 | ~0 |
+| **render (`render_3d_faithful`)** | **101-114** | **~1.8 s** |
+| present (viewport rect) | 20-21 | ~0.34 s |
+| **step total** | **~128** | **~2.1 s** |
+
+**A FULL recompose (jt312's full path — events, entry), 5 samples:**
+
+| phase | ticks | wall |
+|---|--:|--:|
+| **chrome (`port_draw_play_frame` + setup, 11 FSOpen)** | **611-629** | **~10.3 s** |
+| render | 101-109 | ~1.8 s |
+| hud | 200-366 | ~3.3-6.1 s |
+| present | 34-133 | ~0.6-2.2 s |
+| **total** | **~950-1230** | **~16-20 s** |
+
+Plus the one-off `l63c0` compose entering the dungeon: **1,564 ticks = 26 s**.
+
+**★ SO THE HEADLINE IS NOT THE STEP — IT IS THE RECOMPOSE.** A step is ~2.1 s
+and 84% of it is the 3D render, with the present only 16%. But every event
+message and every screen change pays a ~16-20 s full recompose, of which
+**~10 s is the chrome phase alone** (and it issues 11 `FSOpen`s, so part of it
+is disk, not drawing). Pressing Return through HEIRS' caravan chain is the
+slowest thing in the game and nothing had ever pointed at it.
+
+**★ AND THIS REFRAMES `st_present` 59% / `dc_plane_bridge_span` 21%.** Those
+are shares of a 30,000-VBL window with 16 walk steps in it — at ~2.1 s a step
+that is ~34 s of stepping in a ~500 s window, so **the window is ~93% IDLE**
+(the harness paces keys 6-7 s apart). The 59% describes where cycles go on an
+idle play screen far more than during a step; measured inside a step, the
+present is 16%, not 59%. Neither number is wrong — they cover different
+windows, and the cycle window is not the one that matters to a player.
+
+★ `FRUA_MONOPROF` COULD NOT BE USED ON A COLOUR BUILD AT ALL. Its declarations
+in `platform/display_sthigh.c` sit inside an outer `#ifdef FRUA_BWMODE`, so a
+colour build with it fails to compile (`s_mono_wrote` undeclared) — which is
+why the play loop's wall clock went unmeasured for as long as mono has been
+shelved. `FRUA_STEPPROF` is the colour-safe subset; `FRUA_MONOPROF` implies it.
+
+★ **THE THIRD NESTED-GUARD TRAP TODAY**: `FRUA_AUTOWALK_TREASURE` is nested
+inside `#ifdef FRUA_AUTOWALK`, so passing it alone is SILENTLY INERT — the
+drive ran 8 keys instead of 48 and never left the event screen. Same shape as
+the Makefile's `FRUA_NCPROF` block and `FRUA_MONOPROF` above. **Pass
+`-DFRUA_AUTOWALK -DFRUA_AUTOWALK_TREASURE` together, and always check the key
+count.**

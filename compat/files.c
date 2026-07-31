@@ -157,13 +157,15 @@ static finfo_slot_t *finfo_alloc(const char *name)
 
 /* --- the API --- */
 
-#ifdef FRUA_MONOPROF
+/* #125c: FRUA_STEPPROF is the colour-safe half of FRUA_MONOPROF — see the note
+ * at the top of src/engine/boot.c. */
+#if defined(FRUA_MONOPROF) || defined(FRUA_STEPPROF)
 long g_fsopen_calls;
 #endif
 
 OSErr FSOpen(ConstStr255Param fileName, short vRefNum, short *refNum)
 {
-#ifdef FRUA_MONOPROF
+#if defined(FRUA_MONOPROF) || defined(FRUA_STEPPROF)
 	g_fsopen_calls++;
 #endif
 	char path[MAX_PATH];
