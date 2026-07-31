@@ -4301,3 +4301,58 @@ reaches more composes (36 and 48 against 33 and 54) — itself corroboration.
 New test-only flags, both release-guarded: `FRUA_MODALFORCEFULL` (the A/B arm)
 and `FRUA_AUTOWALK_CMDS` (appends CAST/VIEW/INV to the headless script — worth
 keeping, since no event chain exercises that exit).
+
+### #132 THE 3D RENDER — it was never the WALLS, it was a DIVIDE PER PIXEL
+
+The walk step (~2.1 s, 84% of it `render_3d_faithful`) was the last unmeasured
+block. Phase stamps (`FRUA_R3DPROF`) put it:
+
+| phase | ticks | share |
+|---|--:|--:|
+| setup / clip | 0 | — |
+| trapezoid region fills | 23-30 | ~25% |
+| **backdrop image blit** | **53** | **~50%** |
+| `l6148` | 1-2 | — |
+| `jt199` (the frustum walk = THE WALLS) | 22-23 | ~21% |
+| viewport commit | 0 | — |
+
+**The walls are a fifth of it.** Half is the backdrop image — and the reason is
+one line:
+
+```c
+short bx = (short)(((long)xx * g_back_w) / bw);   /* per PIXEL */
+```
+
+A 32-bit divide for the horizontal scale, per pixel, and a 68000 has no 32-bit
+divide: ~1,100 cycles into libgcc, **7,744 times** for an 88x88 viewport.
+Measured at ~910 cycles/pixel, which is the divide plus `map_px`.
+
+The source column is a pure function of `(xx, bw, g_back_w)` — **the same `bw`
+values on every one of the `bh` rows**. Build the column map once and reuse it;
+the row map tables for the same reason. Cached across frames, since the
+viewport and backdrop dimensions rarely change.
+
+| | divide | tabled |
+|---|--:|--:|
+| backdrop blit | 53 tk | **14 tk** |
+| step render | 101-112 | **63-76** |
+| **whole walk step** | **~128 tk (2.13 s)** | **~89 tk (1.48 s), -30%** |
+
+★ Note this divide never appeared in #125's histogram: that profiled the BOOT,
+and the dungeon backdrop does not run before the menu. **A histogram only knows
+the window you gave it** — the play loop had never had one.
+
+★ A mislabel worth recording: the first split blamed `l57f2`, which is a
+one-line wrapper around `l58c4` — and `l58c4` returns immediately in colour
+(`g_dungeon_bigpic_overlay` is 0, permanently). The bracket was really
+measuring the INLINE region fills and backdrop blit that sit between
+`cw_view_clip` and the `l57f2()` call. Reading the callee before believing the
+label is what turned "l57f2 is 75%" into the actual finding.
+
+Equivalence: `FRUA_SCREENSUM` hash sequences **identical over 36 composes**
+(#131's method — immune to one arm running faster); ST menu byte-identical;
+five configs build; 427 tests pass. A/B arm `FRUA_BACKDROPDIV`, release-guarded.
+
+**Next in the render**: the trapezoid fills are now the largest item (23-30 tk)
+and they are `map_px` per pixel over three solid regions — the same shape
+`dc_plane_fill` had before #125e, and the same fix (span fills) should apply.

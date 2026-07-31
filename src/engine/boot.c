@@ -11916,7 +11916,11 @@ static short g_view_force_full = 0;  /* set on a live switch -> full clear+prese
  * 0, 0, 15, and 81 pixels of 64,000, all of them clock text. So repaint the
  * HUD and present, and skip port_draw_play_frame entirely. Anything that can
  * really damage the chrome still sets g_view_force_full. */
+#define BD_MAP_MAX 320   /* #132: backdrop scale maps, one screen wide */
 static short g_view_hud_only = 0;
+#ifdef FRUA_R3DPROF
+long g_r3d_t0, g_r3d_t1, g_r3d_t2, g_r3d_t3, g_r3d_t4, g_r3d_tb;  /* #132 phases */
+#endif
 #ifdef FRUA_SCREENSUM
 static long g_ss_n;
 #endif
@@ -14342,7 +14346,13 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 			memset(vp + (long)vy * vpitch + VL, 0, (size_t)(VR - VL));
 	}
 	g_cwf_px = vtgt;
+#ifdef FRUA_R3DPROF
+	{ extern long g_r3d_t0; g_r3d_t0 = TickCount(); }
+#endif
 	cw_view_clip(vpitch, sw, sh, VL, VT, VR, VB);
+#ifdef FRUA_R3DPROF
+	{ extern long g_r3d_t1; g_r3d_t1 = TickCount(); }
+#endif
 	/* FAITHFUL blit path: jt200 -> jt114 -> l309c -> l2d4e clips to the
 	 * QuickDraw rect (g_a5_-3054 top / -3050 bottom / -3056 left / -3052 right).
 	 * Point it at FRAME.CTL set 9's 88x88 viewport hole so the wall tiles are
@@ -14397,11 +14407,15 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	 * DIRECT clut indices (the night skies use 144..175), and load_backdrop lays
 	 * the 32-entry palette at exactly that band (BACK_PAL_BASE), so nothing else
 	 * in the CLUT is touched. Drawn before jt199 so the wall tiles overlay it. */
+#ifdef FRUA_R3DPROF
+	{ extern long g_r3d_tb; g_r3d_tb = TickCount(); }
+#endif
 	if (g_back_w > 0 && g_back_h > 0) {
 		short bvl = (short)g_a5_3056, bvt = (short)g_a5_3054;
 		short bvr = (short)g_a5_3052, bvb = (short)g_a5_3050;
 		short bw = (short)(bvr - bvl), bh = (short)(bvb - bvt);
 		short yy, xx;
+#ifdef FRUA_BACKDROPDIV
 		for (yy = 0; yy < bh; yy++) {
 			short by = (short)(((long)yy * g_back_h) / bh);
 			for (xx = 0; xx < bw; xx++) {
@@ -14414,9 +14428,51 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 				       (short)(bvt + yy), v);
 			}
 		}
+#else
+		/* #132: the source column is a pure function of (xx, bw, g_back_w) —
+		 * the SAME bw values on every one of the bh rows. This was a 32-bit
+		 * DIVIDE PER PIXEL, and a 68000 has no 32-bit divide: ~1,100 cycles
+		 * into libgcc, 7,744 times for an 88x88 viewport. Measured at 53 ticks
+		 * (0.9 s) a step, the single largest item in the whole walk render.
+		 * Build the column map once and reuse it for every row; the row map is
+		 * cheap either way but tables for the same reason. Cached across
+		 * frames — the viewport and backdrop dimensions rarely change. */
+		{
+			static short s_bx[BD_MAP_MAX], s_by[BD_MAP_MAX];
+			static short s_bw, s_bh, s_sw, s_sh_;
+
+			if (bw > 0 && bh > 0 && bw <= BD_MAP_MAX && bh <= BD_MAP_MAX) {
+				if (bw != s_bw || bh != s_bh
+				 || g_back_w != s_sw || g_back_h != s_sh_) {
+					for (xx = 0; xx < bw; xx++)
+						s_bx[xx] = (short)(((long)xx * g_back_w) / bw);
+					for (yy = 0; yy < bh; yy++)
+						s_by[yy] = (short)(((long)yy * g_back_h) / bh);
+					s_bw = bw; s_bh = bh;
+					s_sw = g_back_w; s_sh_ = g_back_h;
+				}
+				for (yy = 0; yy < bh; yy++) {
+					const unsigned char *srow =
+						g_back_img + (long)s_by[yy] * g_back_w;
+					short dy = (short)(bvt + yy);
+
+					for (xx = 0; xx < bw; xx++)
+						map_px(vtgt, vpitch, sw, sh,
+						       (short)(bvl + xx), dy,
+						       srow[s_bx[xx]]);
+				}
+			}
+		}
+#endif
 	}
 	l57f2();                /* gated backdrop-image overlay (l58c4) */
+#ifdef FRUA_R3DPROF
+	{ extern long g_r3d_t2; g_r3d_t2 = TickCount(); }
+#endif
 	l6148();
+#ifdef FRUA_R3DPROF
+	{ extern long g_r3d_t3; g_r3d_t3 = TickCount(); }
+#endif
 #ifdef FRUA_ENGINE_PROBE
 	dbg_log_num("faithful: ds[4..6]=", (long)ds[4] * 10000 + ds[5] * 100 + ds[6]);
 #endif
@@ -14443,12 +14499,32 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	 * them this way; only the render/movement USAGE was reversed. */
 	jt199(page, (short)8012, (short)8012,
 	      (short)g_a5_12288, (short)g_a5_12287, f);
+#ifdef FRUA_R3DPROF
+	{ extern long g_r3d_t4; g_r3d_t4 = TickCount(); }
+#endif
 	g_a5_3054 = sav_ct; g_a5_3050 = sav_cb;   /* restore play-screen clip rect */
 	g_a5_3056 = sav_cl; g_a5_3052 = sav_cr;
 	/* Hand the rendered viewport rect to the backend for the planar composite
 	 * (ADR-0016 B2). No-op when vtgt == px (chunky backends). */
 	if (vp)
 		dsp_viewport_commit(VL, VT, (short)(VR - VL), (short)(VB - VT));
+#ifdef FRUA_R3DPROF
+	/* #132: where a walk step's ~108 ticks actually go. The phases are the
+	 * faithful Mac shape: the perspective shell (l57f2 = three trapezoid
+	 * region fills + the cell backdrop image), l6148, then jt199 — the frustum
+	 * walk that blits the wall tiles — then the planar viewport composite. */
+	{
+		extern long g_r3d_t0, g_r3d_t1, g_r3d_t2, g_r3d_t3, g_r3d_t4, g_r3d_tb;
+		long t5 = TickCount();
+
+		dbg_log_num("r3d: setup tk   = ", g_r3d_t1 - g_r3d_t0);
+		dbg_log_num("r3d: trapezoids  = ", g_r3d_tb - g_r3d_t1);
+		dbg_log_num("r3d: backdrop tk = ", g_r3d_t2 - g_r3d_tb);
+		dbg_log_num("r3d: l6148 tk   = ", g_r3d_t3 - g_r3d_t2);
+		dbg_log_num("r3d: jt199 tk   = ", g_r3d_t4 - g_r3d_t3);
+		dbg_log_num("r3d: commit tk  = ", t5 - g_r3d_t4);
+	}
+#endif
 #ifdef FRUA_R3DEXTENT
 	/* #63: the rect the migration ASSUMED was the whole write extent. */
 	dbg_log_num("r3dext VT*1000+VB     = ", (long)VT * 1000 + VB);
