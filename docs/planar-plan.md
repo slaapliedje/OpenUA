@@ -4060,3 +4060,75 @@ NOT MEASURED: no before/after wall-clock on Amiga. The Atari numbers do not
 transfer — different plane count (5 and 8 vs 4), different memory bandwidth,
 and ECS runs a 7 MHz 68000. Correctness is established on all three; the size
 of the Amiga win is an open question.
+
+### #128 THE SPAN ENCODER MEASURED — and the first cross-machine table
+
+`FRUA_STEPPROF` is in `boot.c`, so it works on every target. First like-for-like
+numbers across all five machines, one instrument, one drive (HEIRS to a real
+walk). All figures are **60 Hz Mac ticks** — the Amiga shim scales its 50 Hz PAL
+VBL by 6/5, so a tick means the same thing everywhere.
+
+**A/B, span encoder vs per-pixel (one flag pair apart, same config per machine):**
+
+| | `jt76` | piece 9 | FULL recompose |
+|---|--:|--:|--:|
+| Atari STE (4 planes) | 163 -> **129** | 152 -> **73** | 732 -> **581** (-21%) |
+| Amiga AGA (8 planes) | 115 -> **46** | 42 -> **36** | 290 -> **197** (-32%) |
+| Amiga ECS (5 planes)* | 344 -> **135** | 205 -> **93** | chrome 820 -> **444** |
+
+*ECS A/B ran at `cpu_speed=max` — ratios only. Its row in the cross-machine
+table below was re-measured at `cpu_speed=real`.
+
+**★ THE WIN'S SHAPE DIFFERS BY PLANE COUNT, AND AGA's c2p BARELY MOVED.** On
+AGA `jt76` (which is mostly `jt103`, a SOLID fill) improves 2.5x, but piece 9
+(the c2p bridge) only 1.2x. The reason is in the code: the ST c2p has a
+4-plane shift-accumulate fast path, the Amiga one only has the general
+`for (p = 0; p < nplanes; p++)` inner loop — and AGA runs **8** planes, so that
+loop still dominates. ECS with 5 planes gets 2.2x from the same code.
+**An 8-plane fast path for `planar_c2p_span_amiga` is the obvious next win**,
+and it is AGA-specific rather than a general Amiga problem.
+
+**Cross-machine, current code, honest emulator speeds:**
+
+| machine | CPU | display | walk step | full recompose |
+|---|---|---|--:|--:|
+| Atari TT030 | 68030 32 MHz | chunky 8bpp | 6 tk (**0.10 s**) | 52 tk (**0.87 s**) |
+| Atari Falcon030 | 68030 16 MHz | chunky 8bpp | 12 tk (**0.20 s**) | 76 tk (**1.27 s**) |
+| Amiga AGA (A1200) | 68020 14 MHz + fast | 8 planes | 15 tk (**0.25 s**) | 197 tk (**3.28 s**) |
+| Amiga ECS (A600) | 68000 7 MHz + fast | 5 planes | 94 tk (**1.57 s**) | 666 tk (**11.10 s**) |
+| Atari STE | 68000 8 MHz | 4 planes | 129 tk (**2.15 s**) | 581 tk (**9.68 s**) |
+
+Two things worth reading off it:
+
+- **The 030 machines are in a different league** — a Falcon recompose is 1.3 s
+  against the STE's 9.7 s, 7.6x, on a CPU only 2x the clock. The rest is
+  32-bit 020+ codegen and no plane conversion at all.
+- **AGA is 2.6x slower than a Falcon on a recompose despite a comparable CPU**
+  (3.28 s vs 1.27 s) — that gap IS the planar bridge, which the chunky machines
+  never pay. Its step, where little converts, is nearly Falcon-class (0.25 s vs
+  0.20 s). So the AGA's remaining cost is concentrated exactly where the
+  8-plane c2p fast path above would land.
+- **The ECS out-steps the STE (1.57 s vs 2.15 s) despite a SLOWER 68000** —
+  7 MHz against 8. The likely reason is FAST RAM: the A600 config has 4 MB of
+  it, so code and data run without the chip-bus contention every ST access
+  pays. Offered as the plausible explanation, not a measured one. It does not
+  hold for the recompose (11.1 s vs 9.68 s), where the ECS's fifth plane costs
+  more than the fast RAM saves.
+
+**★★ THE SHIPPED ECS CONFIG IS NOT AT REAL SPEED — `openua-ecs.uae` has
+`cpu_speed=max`.** The emulated 68000 runs unthrottled against a 50 Hz VBL, so
+it does far more work per tick than an A600: measured "ECS" steps came out
+FASTER than the STE's, which is impossible for a 7 MHz 68000 against an 8 MHz
+one. Caught by that impossibility, not by the config. **A/B ratios survive
+(both arms share the config); absolute and cross-machine figures do not.** The
+skill doc specifies `cpu_speed=real` for this config, so it has drifted.
+
+**★ Hatari's `--fast-forward` is NOT the same hazard.** It runs the emulation
+faster in wall-clock while keeping the machine's internal CPU:VBL relationship
+correct, so emulated-tick measurements stay valid — which is why the STE
+figures here match the independently measured 86 s real-speed boot. amiberry's
+`cpu_speed=max` changes the RATIO. Fast-forward is safe; unthrottled CPU is not.
+
+★ `g_fsopen_calls` had to move to `boot.c`: it was defined in `compat/files.c`,
+which is `#ifndef FRUA_AMIGA`, so any Amiga build with `FRUA_STEPPROF` failed
+to link. Same nested-guard family as the rest of this session.

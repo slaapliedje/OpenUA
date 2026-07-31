@@ -158,9 +158,11 @@ static finfo_slot_t *finfo_alloc(const char *name)
 /* --- the API --- */
 
 /* #125c: FRUA_STEPPROF is the colour-safe half of FRUA_MONOPROF — see the note
- * at the top of src/engine/boot.c. */
+ * at the top of src/engine/boot.c. The counter is DEFINED in boot.c, not here:
+ * this file is `#ifndef FRUA_AMIGA`, so defining it here left the Amiga build
+ * (which links compat/files_amiga.c instead) with an undefined reference. */
 #if defined(FRUA_MONOPROF) || defined(FRUA_STEPPROF)
-long g_fsopen_calls;
+extern long g_fsopen_calls;
 #endif
 
 OSErr FSOpen(ConstStr255Param fileName, short vRefNum, short *refNum)

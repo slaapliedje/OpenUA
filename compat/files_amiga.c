@@ -130,6 +130,9 @@ static void mac_path_to_c(ConstStr255Param p, char *out, int max)
 
 OSErr FSOpen(ConstStr255Param fileName, short vRefNum, short *refNum)
 {
+#if defined(FRUA_MONOPROF) || defined(FRUA_STEPPROF)
+	{ extern long g_fsopen_calls; g_fsopen_calls++; }
+#endif
 	char path[256];
 	BPTR b;
 	short r;

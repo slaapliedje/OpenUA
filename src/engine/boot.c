@@ -3657,6 +3657,7 @@ static void  jt44(void)               { PROBE("jt44"); l5822(); }  /* JT[44] = L
 long g_mpf_t0, g_mpf_t1, g_mpf_t2;      /* jt312 step-timing stamps */
 long g_mpf_c1, g_mpf_c2, g_mpf_c3;      /* #125d chrome-phase sub-stamps */
 long g_mpf_p0, g_mpf_p1, g_mpf_p2, g_mpf_p3;  /* #125d port_draw_play_frame */
+long g_fsopen_calls;                    /* FSOpen count (both file backends) */
 long g_mpf_s1, g_mpf_s1b, g_mpf_s2, g_mpf_s3;  /* mono render stage stamps */
 long g_mpf_l0;                          /* l63c0 compose stamp */
 long g_mpf_f1, g_mpf_f2;                /* jt312 FULL-path stamps */
