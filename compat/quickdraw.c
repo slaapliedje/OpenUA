@@ -765,6 +765,86 @@ static Boolean qd_effective_clip(GrafPtr port, Rect *out)
 #endif
 
 /*
+ * #125: map a chunky write address to screen (sx, sy) + band, MEMOISING THE ROW.
+ *
+ * The division histogram put `dc_plane_px` at 32.6% of every software divide in
+ * the boot — it did THREE 32-bit divisions per text pixel (off/pitch, off%pitch,
+ * sy*nbands/h), and a 68000 has no 32-bit divide, so each one is a ~1100-cycle
+ * call to libgcc's __udivsi3.
+ *
+ * The pixels of one glyph row all land on the SAME chunky row, so the answer is
+ * the same for all of them. Memoising the row's [lo, hi) address range turns the
+ * per-pixel cost into a per-ROW cost, and the modulo disappears entirely
+ * (sx = off - lo). This is a pure algebraic identity over the original — same
+ * inputs, same arithmetic, cached — which is the property that matters here:
+ * it is the draw-time plane store, where a wrong (sx, sy) is a wrong pixel.
+ *
+ * ★ THE MEMO KEY MUST INCLUDE nbands AND h, NOT JUST THE BASE ADDRESS. `band`
+ * is `sy * nbands / h`, and st_reband changes nbands at an epoch reset while the
+ * chunky base stays put — keyed on the base alone, every row would keep serving
+ * the PREVIOUS banding's slot until it happened to change rows.
+ */
+static const unsigned char *s_dcm_base;      /* dt->chunky the memo is for   */
+static long                 s_dcm_lo, s_dcm_hi = -1;
+static short                s_dcm_sy, s_dcm_band, s_dcm_nb, s_dcm_h;
+
+static int dc_map(const dsp_planar_dt_t *dt, const unsigned char *p,
+                  short *sx, short *sy, short *band)
+{
+	long off = p - dt->chunky;
+
+	if (off < 0 || off >= (long)dt->chunky_pitch * dt->h)
+		return 0;                        /* offscreen pixmap: not our screen */
+	if (off < s_dcm_lo || off >= s_dcm_hi
+	 || dt->chunky != s_dcm_base
+	 || dt->nbands != s_dcm_nb || dt->h != s_dcm_h) {
+		short r = (short)(off / dt->chunky_pitch);
+
+		s_dcm_base = dt->chunky;
+		s_dcm_nb   = dt->nbands;
+		s_dcm_h    = dt->h;
+		s_dcm_sy   = r;
+		s_dcm_lo   = (long)r * dt->chunky_pitch;
+		s_dcm_hi   = s_dcm_lo + dt->chunky_pitch;
+		s_dcm_band = (short)((long)r * dt->nbands / dt->h);
+	}
+	*sy   = s_dcm_sy;
+	*sx   = (short)(off - s_dcm_lo);
+	*band = s_dcm_band;
+#ifdef FRUA_DCMAPVERIFY
+	/* Prove the identity rather than eyeball a screenshot: recompute all three
+	 * the original way on EVERY call and report any disagreement. The verifying
+	 * build returns the memoised answer, so a mismatch is reported by a build
+	 * that still renders whatever the memo said — the log is the evidence, not
+	 * the frame. (Same shape as FRUA_REBAKEVERIFY, which is how #123b's
+	 * incremental rebake was settled before it was measured.) */
+	{
+		extern unsigned long g_dcm_checks, g_dcm_bad;
+		extern void dbg_log_num(const char *, long);
+		short vy = (short)(off / dt->chunky_pitch);
+		short vx = (short)(off % dt->chunky_pitch);
+		short vb = (short)((long)vy * dt->nbands / dt->h);
+
+		g_dcm_checks++;
+		if (vy != *sy || vx != *sx || vb != *band) {
+			g_dcm_bad++;
+			dbg_log_num("dcmap MISMATCH sy got/want= ",
+			            (long)*sy * 10000L + vy);
+			dbg_log_num("dcmap MISMATCH sx got/want= ",
+			            (long)*sx * 10000L + vx);
+			dbg_log_num("dcmap MISMATCH bd got/want= ",
+			            (long)*band * 10000L + vb);
+		}
+	}
+#endif
+	return 1;
+}
+
+#ifdef FRUA_DCMAPVERIFY
+unsigned long g_dcm_checks, g_dcm_bad;
+#endif
+
+/*
  * ADR-0016 B4: fill one chunky row-span [prow, prow+w) into the draw-time plane
  * buffer, paralleling the chunky patCopy solid fill (the menu background + panels).
  * `prow` is the chunky write address of the span's first pixel; it maps to screen
@@ -777,15 +857,11 @@ static Boolean qd_effective_clip(GrafPtr port, Rect *out)
 static void dc_plane_fill(const dsp_planar_dt_t *dt, const unsigned char *prow,
                           short w, unsigned char idx)
 {
-	long  off = prow - dt->chunky;
 	short sx, sy, band, x1;
 	unsigned char slot;
 
-	if (off < 0 || off >= (long)dt->chunky_pitch * dt->h)
+	if (!dc_map(dt, prow, &sx, &sy, &band))
 		return;                          /* offscreen pixmap: not our screen */
-	sy   = (short)(off / dt->chunky_pitch);
-	sx   = (short)(off % dt->chunky_pitch);
-	band = (short)((long)sy * dt->nbands / dt->h);
 	slot = dt->remap[(long)band * 256 + idx];
 	{
 		short xx, xe = (short)(sx + w);
@@ -822,15 +898,11 @@ static void dc_plane_fill(const dsp_planar_dt_t *dt, const unsigned char *prow,
 static void dc_plane_bridge_span(const dsp_planar_dt_t *dt,
                                  const unsigned char *prow, short w)
 {
-	long  off = prow - dt->chunky;
 	short sx, sy, band, x, x1;
 	const unsigned char *lut;
 
-	if (off < 0 || off >= (long)dt->chunky_pitch * dt->h)
+	if (!dc_map(dt, prow, &sx, &sy, &band))
 		return;                          /* offscreen pixmap: not our screen */
-	sy   = (short)(off / dt->chunky_pitch);
-	sx   = (short)(off % dt->chunky_pitch);
-	band = (short)((long)sy * dt->nbands / dt->h);
 	lut  = dt->remap + (long)band * 256;
 	x1   = (short)(sx + w);
 	if (x1 > dt->w) x1 = dt->w;
@@ -2840,14 +2912,10 @@ void TextSize(short size) { GrafPtr p; GetPort(&p); if (p) p->txSize = size; }
 static void dc_plane_px(const dsp_planar_dt_t *dt, const unsigned char *p,
                         unsigned char idx)
 {
-	long  off = p - dt->chunky;
 	short sx, sy, band;
 
-	if (off < 0 || off >= (long)dt->chunky_pitch * dt->h)
+	if (!dc_map(dt, p, &sx, &sy, &band))
 		return;                          /* offscreen pixmap: not our screen */
-	sy   = (short)(off / dt->chunky_pitch);
-	sx   = (short)(off % dt->chunky_pitch);
-	band = (short)((long)sy * dt->nbands / dt->h);
 	DC_PUT(dt, sx, sy, dt->remap[(long)band * 256 + idx]);
 	if (dt->cov) {
 		long c = (long)sy * dt->w + sx;

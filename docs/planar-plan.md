@@ -3745,3 +3745,46 @@ the band is a per-row value that can be hoisted or cached rather than recomputed
 per pixel. At 6,110 text pixels in the boot that is ~3.5% of boot cycles, and it
 matters MORE in the play loop, where text is drawn constantly. This is the
 division work worth doing; the clock is not.
+
+### #125b BUILT — the row memo, 4.7x fewer mapping divides
+
+`dc_map()` replaces the address->(sx, sy, band) arithmetic that
+`dc_plane_px`, `dc_plane_fill` and `dc_plane_bridge_span` each open-coded. It
+**memoises the chunky ROW**: all the pixels of one glyph row land on the same
+row, so the answer is the same for every one of them, and the modulo
+disappears outright (`sx = off - lo`). Per-pixel cost becomes per-row cost, and
+a miss now costs 2 divides instead of 3.
+
+| | divides |
+|---|--:|
+| `dc_plane_px` + `dc_plane_fill` + `dc_plane_bridge_span` (before) | 19,866 |
+| `dc_map` (after) | **4,264** |
+| whole-boot total | **56,145 -> 38,763 (-31%)** |
+
+~17,400 divides x ~1,100 cycles ~= **19M cycles, ~3.2% of the boot**, and
+proportionally more in the play loop where text is drawn constantly.
+
+**★ THE MEMO KEY MUST INCLUDE `nbands` AND `h`, NOT JUST THE BASE ADDRESS.**
+`band` is `sy * nbands / h` and `st_reband` changes `nbands` at an epoch reset
+while `dt->chunky` stays put. Keyed on the base alone, every row would keep
+serving the PREVIOUS banding's slot until it happened to change rows — a wrong
+colour on exactly the frames a reband was supposed to fix.
+
+**Proved, not eyeballed.** `FRUA_DCMAPVERIFY` recomputes all three the original
+way on every call and logs any disagreement (the FRUA_REBAKEVERIFY shape from
+#123b): **6,622 checks to the menu, 0 mismatches**, and 0 across a full
+`FRUA_AUTOPLAY` drive into the in-game event screen — the path that actually
+rebands. Three separate boots produced a **byte-identical** menu PNG
+(md5 99bbb623), and the play frame renders correctly.
+
+★ Two traps hit while verifying:
+
+- **`make test` RESETS THE BUILD STAMP.** The stamp check is a top-level
+  `ifneq` with a `$(shell ...)` side effect, so it runs on ANY make invocation
+  — `make test` (no `CPU68K`) rewrites `.machine` to `falcon-default-...` and
+  purges the 68000 objects. A `CPU68K=68000` binary must be re-made after it.
+  The baseline screenshot was nearly taken against the 020 build, which the
+  emulator caught only because the program prints "requires a 68020 or higher".
+- **`objdump -D -b binary` on the raw .prg is not an arch check** — it read
+  2,705 020-ops on a 68000 binary. Scan the OBJECTS
+  (`objdump -d compat/quickdraw.o | grep -cE 'muls\.l|bfextu|bfins'` = 0).

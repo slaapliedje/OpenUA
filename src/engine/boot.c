@@ -27140,6 +27140,13 @@ static short menu_run(const menu_item_t *items, short n, void *proc,
 	 * matches #124's profile window. */
 	{ extern void div_prof_dump(void); div_prof_dump(); }
 #endif
+#ifdef FRUA_DCMAPVERIFY
+	{
+		extern unsigned long g_dcm_checks, g_dcm_bad;
+		dbg_log_num("dcmap: checks   = ", (long)g_dcm_checks);
+		dbg_log_num("dcmap: MISMATCH = ", (long)g_dcm_bad);
+	}
+#endif
 #ifdef FRUA_STRTEST
 	strtest_run();                       /* #112: l4e8a write -> l4fbe read */
 #endif
