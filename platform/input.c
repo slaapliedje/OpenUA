@@ -97,7 +97,14 @@ static int ap_take(unsigned char *out_scan, unsigned char *out_ascii)
 {
 	if (!ap_due())
 		return 0;
-	{ extern void dbg_log_num(const char *, long); dbg_log_num("autoplay: send key idx=", g_ap_idx); }
+	/* The FILE sink, not the console. dbg_log's Cconws goes through TOS's
+	 * console driver, which renders the glyphs straight into screen memory —
+	 * on the Falcon's 16bpp VIDEL that is a band of coloured fragments across
+	 * one text row, left standing until the engine redraws those rows. One
+	 * per key would put a band through every recorded capture. (The Amiga
+	 * dbglog already routes everything to a file, which is why this artefact
+	 * was Atari-only.) */
+	{ extern void dbg_file_num(const char *, long); dbg_file_num("autoplay: send key idx=", g_ap_idx); }
 	if (out_scan)  *out_scan  = g_ap[g_ap_idx].scan;
 	if (out_ascii) *out_ascii = g_ap[g_ap_idx].ascii;
 	g_ap_next = plat_ticks() + AP_DELAY(g_ap_idx, g_ap[g_ap_idx].delay);
@@ -107,8 +114,8 @@ static int ap_take(unsigned char *out_scan, unsigned char *out_ascii)
 	 * whose redraw we want to record. Log it once here and let the harness add
 	 * its own tail. */
 	if (g_ap_idx >= AP_N) {
-		extern void dbg_log(const char *);
-		dbg_log("autoplay: script done");
+		extern void dbg_file_num(const char *, long);
+		dbg_file_num("autoplay: script done idx=", g_ap_idx);
 	}
 	return 1;
 }

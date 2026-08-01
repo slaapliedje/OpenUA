@@ -75,7 +75,17 @@ capture_atari() {
 	t1=$(date +%s)
 	say "boot to main menu: $((t1-t0))s wall"
 
-	env -u DISPLAY "$REPO/tools/hatari_ui.sh" wait 'autoplay: script done' 1 900
+	# The engine's own end marker, out of the GEMDOS-mounted DBG.LOG — the same
+	# shape as the Amiga arm below, and for a reason that matters to the OUTPUT:
+	# the console sink (dbg_log/Cconws) is drawn by TOS's console driver
+	# straight into screen memory, so a marker on the console would leave a band
+	# of coloured fragments across the final frames of every capture.
+	local dbg="${GEMDOS_DIR:-$REPO/data/work/gamedata}/DBG.LOG"
+	local waited=0
+	while ! grep -q 'autoplay: script done' "$dbg" 2>/dev/null; do
+		sleep 5; waited=$((waited+5))
+		[[ $waited -gt 900 ]] && { say "TIMED OUT waiting for the script"; break; }
+	done
 	t2=$(date +%s)
 	say "playthrough: $((t2-t1))s wall"
 	# ★ The marker fires when the LAST KEY IS SENT, not when its redraw lands —
