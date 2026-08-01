@@ -13,8 +13,9 @@
  *
  * Double-buffered in ST-RAM; VsetScreen latches physbase at the next vblank,
  * so present() returns immediately and the beam still only scans a complete
- * buffer. The 8-bit surface is sized to the VIDEL mode (V_X_MAX x V_Y_MAX);
- * the game uses its top 320x200, the rest is the letterbox surround.
+ * buffer. The 8-bit surface is the ENGINE frame (320x200); when the VIDEL mode
+ * is taller (VGA is 240 lines) the spare lines are split into black borders
+ * above and below and the frame is centred — see the SCR_ROW block below.
  *
  * First cut: portable C LUT blit. The 68030 asm inner loop (longword reads,
  * 4 px/iteration) is a follow-up behind a self-test gate, like the old C2P.
@@ -50,6 +51,37 @@ static short          g_draw = 1;         /* present's private write buffer    *
 static int            g_vbl_installed;
 static long           g_vbl_slot = -1;
 static short          g_scr_words;        /* 16bpp screen rowbytes, in words  */
+
+/* ★ VGA LETTERBOX. The engine's frame is 320x200, but a Falcon on a VGA
+ * monitor has no 200-line mode: VGA + VERTFLAG gives 320x240 (double-scanned),
+ * and VGA without it is 640x480. So on VGA there are 40 lines spare.
+ *
+ * They used to sit BELOW the image as a band of whatever the surface held —
+ * and because the chunky surface is cleared to index 0, and index 0 in FRUA's
+ * palette is a pale blue-grey rather than black, the band came up as a visible
+ * light bar under the game (first seen on real hardware, a Falcon on a
+ * Checkmate VGA monitor; it is invisible under emulation because Hatari is
+ * driven as RGB and lands on the 200-line mode).
+ *
+ * Centre the frame instead and leave the split borders BLACK, exactly as
+ * display_tt.c does for TT-Low's 480 lines (TOP_BORDER there). Two parts:
+ *   * the surface reports the ENGINE height, not the mode height, so the
+ *     engine, the mouse clamp and the cursor clip all stay in 320x200 — this
+ *     also matches display_tt.c / display_ste.c, which already report a fixed
+ *     200 and leave the mapping to the backend; and
+ *   * every write to the physical screen goes through SCR_ROW, which adds the
+ *     border. The border rows are then never written after the init memset,
+ *     and 0x0000 in 16bpp is true black regardless of the palette.
+ *
+ * g_top_border is 0 on an RGB/TV monitor (h == 200), so this whole path costs
+ * one add per row there and changes nothing. */
+#define ENGINE_H 200
+static short          g_top_border;       /* black rows above the image       */
+
+/* The ONE place the letterbox offset is applied. Every writer to g_screen[]
+ * must index through this — a raw `base + y * g_scr_words` puts the cursor
+ * (or the frame) 20 lines high on VGA. */
+#define SCR_ROW(base, y)  ((base) + (long)((y) + g_top_border) * g_scr_words)
 static long           g_screen_bytes;     /* size of one 16bpp buffer         */
 static short          g_save_mode;
 static void          *g_save_log;
@@ -212,22 +244,28 @@ static int videl_init(short want_w, short want_h)
 	bytes = VgetSize(newmode);                   /* 16bpp: W*H*2 bytes */
 	h = (short)(bytes / ((long)w * 2));
 	g_scr_words = (short)(bytes / h / 2);        /* rowbytes / 2 = words/row */
+	/* Split the spare lines evenly above and below (see SCR_ROW above).
+	 * VGA: h = 240 -> a 20-line border each side. RGB/TV: h = 200 -> 0. */
+	g_top_border = (short)(h > ENGINE_H ? (h - ENGINE_H) / 2 : 0);
 	dbg_log_num("  videl_init: width    = ", w);
 	dbg_log_num("  videl_init: height   = ", h);
+	dbg_log_num("  videl_init: letterbox= ", g_top_border);
 	dbg_log_num("  videl_init: bytes    = ", bytes);
 	dbg_log_num("  videl_init: words/row= ", g_scr_words);
 
-	/* The 8-bit chunky surface the game renders into (unchanged shape). */
-	g_surface.pixels = malloc((size_t)((long)w * h));
+	/* The 8-bit chunky surface the game renders into. Its height is the
+	 * ENGINE height (the mode height minus both borders), so nothing above
+	 * this backend ever sees the letterbox. */
+	g_surface.height = (short)(h - 2 * g_top_border);
+	g_surface.pixels = malloc((size_t)((long)w * g_surface.height));
 	if (g_surface.pixels == NULL) {
 		dbg_log("  videl_init: surface malloc FAILED");
 		VsetMode(g_save_mode);
 		return -1;
 	}
 	g_surface.width  = w;
-	g_surface.height = h;
 	g_surface.pitch  = w;
-	memset(g_surface.pixels, 0, (size_t)((long)w * h));
+	memset(g_surface.pixels, 0, (size_t)((long)w * g_surface.height));
 
 	/* 16bpp ST-RAM screens (the VIDEL DMAs them, so ST-RAM). Try for three —
 	 * the VBL-driven triple-buffer needs a spare so present() never blocks —
@@ -351,7 +389,7 @@ static void videl_lut_blit(unsigned short *dst, short y0, short y1,
 	short y, x, n = (short)(x1 - x0);
 	const unsigned char *src = g_surface.pixels
 	                         + (long)y0 * g_surface.pitch + x0;
-	unsigned short      *row = dst + (long)y0 * g_scr_words + x0;
+	unsigned short      *row = SCR_ROW(dst, y0) + x0;
 	/* The asm reads longwords, so it needs a 4-aligned start and a count
 	 * that is a multiple of 4. The surface base is malloc-aligned and the
 	 * pitch is a multiple of 4, so (x0 & 3)==0 makes every row start aligned. */
@@ -386,7 +424,7 @@ static void cur_save(const unsigned short *scr, short px, short py)
 		const unsigned short *row;
 		if (dy < 0 || dy >= g_surface.height)
 			continue;
-		row = scr + (long)dy * g_scr_words;
+		row = SCR_ROW(scr, dy);
 		for (c = 0; c < 16; c++) {
 			short dx = (short)(px + c);
 			if (dx < 0 || dx >= g_surface.width)
@@ -405,7 +443,7 @@ static void cur_erase(unsigned short *scr, short px, short py)
 		unsigned short *row;
 		if (dy < 0 || dy >= g_surface.height)
 			continue;
-		row = scr + (long)dy * g_scr_words;
+		row = SCR_ROW(scr, dy);
 		for (c = 0; c < 16; c++) {
 			short dx = (short)(px + c);
 			if (dx < 0 || dx >= g_surface.width)
@@ -429,7 +467,7 @@ static void cur_draw(unsigned short *scr, short px, short py)
 		const unsigned short *src;
 		if (dy < 0 || dy >= g_surface.height || m == 0)
 			continue;
-		row = scr + (long)dy * g_scr_words;
+		row = SCR_ROW(scr, dy);
 		src = &g_cur_rgb[r * 16];
 		for (c = 0; c < 16; c++) {
 			short dx = (short)(px + c);
