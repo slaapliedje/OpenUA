@@ -154,16 +154,61 @@ static int videl_init(short want_w, short want_h)
 	 * 256-colour planar mode for a 1-word-per-pixel chunky screen, so no
 	 * c2p. (If a monitor needs COL80 for 320-wide 16bpp, that is the knob
 	 * to flip — the logged width below tells.) */
+	/* ★ CARRY THE MONITOR/TIMING BITS OVER. This used to build the mode word
+	 * from scratch and keep only VGA, which silently forced NTSC on a PAL
+	 * machine (bit 5, falcon.h PAL 0x20 / Compendium p288). Everything the
+	 * desktop knew about the attached monitor was thrown away — which is the
+	 * shape of the first real-hardware report, where the game only came up
+	 * correctly after booting the desktop into low resolution by hand.
+	 *
+	 * OVERSCAN and STMODES are deliberately NOT carried: we want the plain
+	 * 320-wide frame, and overscan is invalid on VGA anyway. */
 	if (g_save_mode & VGA)
-		newmode = (short)(VGA | VERTFLAG | BPS16);   /* 320x240 16bpp */
+		newmode = (short)(VGA | VERTFLAG | BPS16);       /* 320x240 16bpp */
 	else
-		newmode = (short)(BPS16);                    /* 320x200 16bpp */
+		newmode = (short)((g_save_mode & PAL) | BPS16);  /* 320x200 16bpp */
 	dbg_log_num("  videl_init: old mode = ", g_save_mode);
 	dbg_log_num("  videl_init: new mode = ", newmode);
 
 	VsetMode(newmode);
 	linea0();
 	w = (short)V_X_MAX;
+
+	/* ★ ...AND CHECK IT TOOK. VsetMode validates nothing: the Compendium
+	 * (p317) is explicit that it does no checking that the mode "is actually
+	 * attainable on the connected monitor". If the width is not 320 the mode
+	 * word did not suit this monitor, and rendering on regardless is how you
+	 * get a display the user has to fix by hand. Try the alternatives and
+	 * keep the first that gives a 320-wide frame.
+	 *
+	 * Never fires under emulation, where the first choice always takes — so
+	 * the logging is the point. On real hardware DBG.LOG is the only
+	 * instrument there is. */
+	if (w != 320) {
+		short cand[3];
+		int   n = 0, i;
+
+		dbg_log_num("  videl_init: WIDTH NOT 320, adapting; got = ", w);
+		if (g_save_mode & VGA) {
+			cand[n++] = (short)(VGA | BPS16);
+			cand[n++] = (short)(VGA | VERTFLAG | COL80 | BPS16);
+		} else {
+			cand[n++] = (short)((g_save_mode & PAL) | VERTFLAG | BPS16);
+			cand[n++] = (short)BPS16;
+			cand[n++] = (short)(PAL | BPS16);
+		}
+		for (i = 0; i < n && w != 320; i++) {
+			dbg_log_num("  videl_init:   try mode = ", cand[i]);
+			VsetMode(cand[i]);
+			linea0();
+			w = (short)V_X_MAX;
+			dbg_log_num("  videl_init:   -> width = ", w);
+			if (w == 320)
+				newmode = cand[i];
+		}
+		if (w != 320)
+			dbg_log("  videl_init: NO 320-wide mode found - report DBG.LOG");
+	}
 	bytes = VgetSize(newmode);                   /* 16bpp: W*H*2 bytes */
 	h = (short)(bytes / ((long)w * 2));
 	g_scr_words = (short)(bytes / h / 2);        /* rowbytes / 2 = words/row */
