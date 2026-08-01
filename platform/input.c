@@ -71,132 +71,7 @@ unsigned long plat_ticks(void)
  * Right/Left nudge to force the first 3D paint. delay = ticks to wait AFTER this
  * key before the next (a MINIMUM — the engine only consumes when it next polls).
  */
-struct ap_key { unsigned char scan, ascii; unsigned short delay; };
-static const struct ap_key g_ap[] = {
-	{ 0x19, 'p',  600 },    /* Play the Game -> Training Hall (10s)  */
-	{ 0x1E, 'a',  600 },    /* Add Character -> seeded roster list   */
-	{ 0x50, 0,    300 },    /* Down -> give the list focus + select BARBARUS */
-	{ 0x1C, 0x0D, 600 },    /* Return -> add the selected (* BARBARUS)   */
-	{ 0x01, 0x1B, 600 },    /* Escape -> back to the hall            */
-	{ 0x30, 'b',  900 },    /* Begin Adventuring -> dungeon (15s art)*/
-#ifndef FRUA_CBTKEYDIAG
-	/* #62 diag runs drop the nudge keys: they queue past the CBTAUTO fire
-	 * and get consumed as combat moves, polluting the command-read test. */
-	{ 0x4D, 0,    300 },    /* Right (nudge: force the 3D paint)     */
-	{ 0x4B, 0,    300 },    /* Left  (net-zero facing)               */
-#endif
-#ifdef FRUA_AUTOWALK
-	/* #61 walk soak. The base script TURNS but never WALKS, so the walk phase
-	 * has never been sampled headlessly: external keys get dropped when a
-	 * screenshot steals focus (that is what defeated the 2026-07-24 soak), and
-	 * autoplay — the one injector immune to focus loss — had no forward steps.
-	 *
-	 * The walk is the interesting case for the page-flip suspects, because a
-	 * step is the ONE path that presents a rect instead of a full frame:
-	 * st_present_rect draws the SHOWN page in place and does not flip, and a
-	 * rect inside the viewport skips the c2p entirely for st_vp_composite.
-	 * Turn-then-step-then-turn re-renders the viewport from several facings so
-	 * a stale-page or clipped-rect artefact has repeated chances to show.
-	 *
-	 * Generous delays: a full recompose is ~2s of emulated 8MHz, and a step
-	 * that queues faster than it drains just merges frames and hides the very
-	 * artefact we are hunting. Never ships (release_guard has no opinion on it
-	 * because FRUA_AUTOPLAY already gates the whole array).
-	 *
-	 * ★ THE RETURNS ARE LOAD-BEARING — do not drop them. HEIRS fires a MODAL
-	 * event chain (the Skull Crag caravan: several messages, each waiting on
-	 * "PRESS RETURN TO CONTINUE") the moment the party enters the dungeon. Walk
-	 * keys sent into that modal are simply eaten, so the first version of this
-	 * block fired all ten keys and walked NOWHERE — the soak looked like it had
-	 * covered the walk and had not. Caught only by noticing the last frame of a
-	 * 110-grab AGA run was still the event screen. Clear the chain first. */
-	{ 0x1C, 0x0D, 360 },    /* Return — dismiss entry event 1        */
-	{ 0x1C, 0x0D, 360 },    /* Return — 2                            */
-	{ 0x1C, 0x0D, 360 },    /* Return — 3                            */
-	{ 0x1C, 0x0D, 360 },    /* Return — 4                            */
-	{ 0x1C, 0x0D, 360 },    /* Return — 5 (spare: chain length varies)*/
-	{ 0x1C, 0x0D, 420 },    /* Return — 6 (spare)                    */
-#ifdef FRUA_AUTOWALK_LONGINTRO
-	/* Real modules open with a STORY CHAIN, not one message: BEOWOLF and
-	 * GIANTS were both still on "PRESS RETURN TO CONTINUE" after the six
-	 * Returns above, so every movement key that followed was eaten and the
-	 * walk sampled nothing (the same trap the six Returns were added for,
-	 * one size up). Ten more clear a longer intro. Only for real modules —
-	 * on the event-free WALKTEST room these would land in the walk view. */
-	{ 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 },
-	{ 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 },
-	{ 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 },
-	{ 0x1C, 0x0D, 360 },
-#endif
-#ifdef FRUA_AUTOWALK_TREASURE
-	/* ★ A CHAIN THAT ENDS ON THE TREASURE SCREEN NEEDS TWO NON-RETURN KEYS.
-	 * HEIRS' Skull Crag caravan hands the party a hoard, and the treasure
-	 * screen (VIEW TAKE POOL SHARE EXIT) ignores Return completely: sixteen
-	 * of them left the 2026-07-27 drive parked on it with every walk key
-	 * eaten — the same trap the Returns themselves exist for, one level
-	 * further in, and invisible because the key count still read 34 of 34.
-	 * EXIT, then answer NO to "THERE IS STILL TREASURE LEFT. DO YOU WANT TO
-	 * GO BACK AND CLAIM IT?", then clear the caravan-farewell messages that
-	 * follow it.
-	 *
-	 * SEPARATE from LONGINTRO deliberately: 'e' is ENCAMP on the walk command
-	 * bar, so firing this at a module whose entry chain hands out no treasure
-	 * opens the camp screen and the walk samples that instead. Pass it only
-	 * for a module that actually needs it (HEIRS does).
-	 *
-	 * Verified live on STE 2026-07-27: reaches the walk bar at 10,8 12:00 AM,
-	 * and the following steps move 10,8 -> 11,8 -> 12,8 with the viewport
-	 * changing at each one. */
-	{ 0x12, 'e',  600 },    /* EXIT the treasure screen              */
-	{ 0x31, 'n',  600 },    /* NO — do not go back and claim the rest */
-	{ 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 },
-	{ 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 },
-	{ 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 }, { 0x1C, 0x0D, 300 },
-	{ 0x1C, 0x0D, 420 },
-#endif
-#ifdef FRUA_AUTOWALK_CMDS
-	/* #131: the commands the force-full comment names as the hazard. CAST is
-	 * an EMPTY switch arm that does nothing, and that is the point: it exits
-	 * the walk loop, l63c0 is re-entered through jt948 -> jt240, and jt221's
-	 * chrome prelude re-lays bare FRAME pieces. The chrome repaint used to
-	 * cover them. Drive it explicitly, because no autowalk event chain does. */
-	{ 0x2E, 'c',  420 },    /* CAST                                  */
-	{ 0x01, 0x1B, 420 },    /* Escape                                */
-	{ 0x2F, 'v',  420 },    /* VIEW                                  */
-	{ 0x01, 0x1B, 420 },    /* Escape                                */
-	{ 0x17, 'i',  420 },    /* INV                                   */
-	{ 0x01, 0x1B, 420 },    /* Escape                                */
-#endif
-	{ 0x48, 0,    420 },    /* Up    — step 1                        */
-	{ 0x48, 0,    420 },    /* Up    — step 2                        */
-	{ 0x4D, 0,    360 },    /* Right — turn, forces a fresh viewport */
-	{ 0x48, 0,    420 },    /* Up    — step 3 (new facing)           */
-	{ 0x4B, 0,    360 },    /* Left  — turn back                     */
-	{ 0x48, 0,    420 },    /* Up    — step 4                        */
-	{ 0x4B, 0,    360 },    /* Left  — turn                          */
-	{ 0x48, 0,    420 },    /* Up    — step 5                        */
-	{ 0x4D, 0,    360 },    /* Right — turn                          */
-	{ 0x48, 0,    420 },    /* Up    — step 6                        */
-	/* #96: six steps yield exactly EIGHT rect presents, which is one
-	 * b63play window — and that window's `wall` starts at the FIRST rect
-	 * present, so it spans the whole modal intro and reports the walk's
-	 * display share against a wall that is mostly not walking. Steps 7..18
-	 * exist purely so the SECOND and THIRD dumps are pure walk. */
-	{ 0x4B, 0,    360 }, { 0x48, 0,    420 },   /* 7  */
-	{ 0x4D, 0,    360 }, { 0x48, 0,    420 },   /* 8  */
-	{ 0x48, 0,    420 },                        /* 9  */
-	{ 0x4B, 0,    360 }, { 0x48, 0,    420 },   /* 10 */
-	{ 0x4D, 0,    360 }, { 0x48, 0,    420 },   /* 11 */
-	{ 0x48, 0,    420 },                        /* 12 */
-	{ 0x4B, 0,    360 }, { 0x48, 0,    420 },   /* 13 */
-	{ 0x4D, 0,    360 }, { 0x48, 0,    420 },   /* 14 */
-	{ 0x48, 0,    420 },                        /* 15 */
-	{ 0x4B, 0,    360 }, { 0x48, 0,    420 },   /* 16 */
-	{ 0x4D, 0,    360 }, { 0x48, 0,    420 },   /* 17 */
-	{ 0x48, 0,    420 },                        /* 18 */
-#endif
-};
-#define AP_N ((short)(sizeof g_ap / sizeof g_ap[0]))
+#include "autoplay_script.h"
 static short         g_ap_idx;
 static unsigned long g_ap_next;         /* engine tick the next key is due */
 static int           g_ap_started;
@@ -225,8 +100,16 @@ static int ap_take(unsigned char *out_scan, unsigned char *out_ascii)
 	{ extern void dbg_log_num(const char *, long); dbg_log_num("autoplay: send key idx=", g_ap_idx); }
 	if (out_scan)  *out_scan  = g_ap[g_ap_idx].scan;
 	if (out_ascii) *out_ascii = g_ap[g_ap_idx].ascii;
-	g_ap_next = plat_ticks() + g_ap[g_ap_idx].delay;
+	g_ap_next = plat_ticks() + AP_DELAY(g_ap_idx, g_ap[g_ap_idx].delay);
 	g_ap_idx++;
+	/* End marker. A capture harness has to know when the scripted run is over,
+	 * and "the last key was sent" is not that — the key it just sent is the one
+	 * whose redraw we want to record. Log it once here and let the harness add
+	 * its own tail. */
+	if (g_ap_idx >= AP_N) {
+		extern void dbg_log(const char *);
+		dbg_log("autoplay: script done");
+	}
 	return 1;
 }
 #endif /* FRUA_AUTOPLAY */

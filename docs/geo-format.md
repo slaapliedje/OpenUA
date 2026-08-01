@@ -110,9 +110,17 @@ cells past `width×height` are unused padding).
 
 | byte | meaning |
 |---|---|
-| 0..3 | the four **edge walls** (direction = `edge/2`, i.e. `edge` 0/2/4/6). High nibble = wall id (0..15, `jt212`); low nibble = wall attribute (door/secret, read `& 15`). |
+| 0..3 | the four **edge walls**, in the order **W, S, E, N** (direction = `edge/2`, i.e. `edge` 0/2/4/6). High nibble = wall id (0..15, `jt212`); low nibble = wall attribute (door/secret, read `& 15`). |
 | 4 | **special** = event index + 1 into ENCR (0 = no event on this cell); `jt201` returns it |
 | 5 | **zone** in bits 2..4 (`(byte>>2) & 7`, `jt197`) + misc flags in the other bits |
+
+The **W, S, E, N** order was settled by shared-edge agreement, not by reading
+the engine: a wall between two cells is stored on both sides, so pairing each
+cell's edge with its neighbour's opposite edge has to agree everywhere. Across
+GEO005's 342 vertical edges, `[W,S,E,N]` gives **0** disagreements and the N/S
+swap gives **111**; the horizontal control (`E` against the neighbour's `W`)
+gives 2, which is the one-sided-door rate. Guessing N/E/S/W here costs real
+time — it sends a walk route into a wall that the data says is open.
 
 ## ENCR — the event table (A5 `-13038`)
 
