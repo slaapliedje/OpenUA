@@ -26953,7 +26953,29 @@ static long unpackbits(const unsigned char *src, long srclen,
  *
  *   b == 0            -> end of row: drop to the next scanline (x = 0)
  *   b in 1..127       -> copy b literal pixels, advance src + dst by b
- *   b in 0x80..0xFF   -> skip (256 - b) transparent pixels (dst only)
+ *   b in 0x80..0xFF   -> skip (257 - b) transparent pixels (dst only)
+ *
+ * ★ THE SKIP IS 257 - b, NOT 256 - b, AND THE DIFFERENCE IS VISIBLE. This
+ * read 256 - b until 2026-07-31, i.e. every transparent gap came out one
+ * pixel short. A skip-length error does not corrupt locally, it SHIFTS
+ * everything after it and the shifts ACCUMULATE along the row, so the damage
+ * scales with how many gaps a row has: solid art (the SSI and Micro Magic
+ * logos, the Forgotten Realms plaque) looked perfect while fine lettering —
+ * many short runs separated by many gaps — turned into blocky noise. The
+ * intro's SSI, AD&D and credits screens were unreadable for months with the
+ * logos on the same screens looking fine, which is exactly why it read as
+ * "palette corruption" rather than a codec bug.
+ *
+ * The correct law is the one tools/art_convert.py's m23_decode() has always
+ * used for the LINEAR (Mac .ctl) layout, and it is not a guess: that decode
+ * re-encodes back to SSI's own DOS bytes exactly for 57 of Pool of Radiance's
+ * 62 method-23 items, and is the only candidate that produces zero
+ * double-written pixels across the corpus. Rendering this piece both ways
+ * settles it in one look — 256 - b gives the noise, 257 - b gives
+ * "STRATEGIC SIMULATIONS, INC.". tests/test_glib_t7.py pins it.
+ *
+ * (The DOS planar layout is a DIFFERENT law — x += 4 * (256 - v) — because
+ * there the byte counts 4-pixel column groups. Do not unify them.)
  *
  * (In the Mac, the 0-byte advance is `a3 = a2 + L04de()` where L04de is
  * the dest row stride, 320 in 8-bit colour; here we model the same as
@@ -26979,8 +27001,8 @@ static const unsigned char *decode_glib_t7(const unsigned char *src,
 				src++;
 				x++;
 			}
-		} else {                              /* skip 256-b transparent */
-			x = (short)(x + (256 - b));
+		} else {                              /* skip 257-b transparent */
+			x = (short)(x + (257 - b));
 		}
 	}
 	return src;
@@ -27526,6 +27548,7 @@ static void port_show_intro(void)
 		for (;;) {
 			long  now = TickCount();
 			short r;
+			int   stepped_any = 0;
 
 			for (r = 0; r < ncyc; r++) {
 				short cb = (short)cyc[r].base;
@@ -27550,9 +27573,31 @@ static void port_show_intro(void)
 					cyc[r].due += cyc[r].period;
 					stepped = 1;
 				}
-				if (stepped)
+				if (stepped) {
 					port_clut_install(&pal[cb], cb, cn);
+					stepped_any = 1;
+				}
 			}
+			/* ★ A PALETTE WRITE IS NOT VISIBLE ON ITS OWN HERE. The
+			 * obvious model — "the CLUT is hardware, so rotating it
+			 * recolours what is already on screen" — is true on the TT
+			 * and false on every other backend we ship. The Falcon runs
+			 * VIDEL at 16bpp: videl_set_palette only rebuilds the
+			 * software index -> RGB565 table that the PRESENT converts
+			 * through, and the ST/Amiga planar backends likewise bake
+			 * the colour in at conversion time. qd_set_palette already
+			 * knows this — it calls qd_touch_all() for any backend
+			 * without hw_palette — but a touched frame that is never
+			 * presented changes nothing.
+			 *
+			 * So the SSI screen's three cycle ranges (the silver ramp
+			 * behind the logo and two gold bands) stepped correctly and
+			 * invisibly for as long as the intro has existed: the
+			 * records were parsed, the rotation ran, the CLUT was
+			 * installed, and the screen sat still. Present when
+			 * something actually moved. */
+			if (stepped_any)
+				qd_present();
 #ifdef FRUA_MONO_TRACE
 			/* debug: no key-skip (headless synthetic events skip
 			 * screens instantly) — the long deadline alone holds. */
