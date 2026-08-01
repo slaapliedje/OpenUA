@@ -71,6 +71,76 @@ def test_only_the_final_page_survives():
     assert surviving_page([0, 0, 0, 0, 0], 0b11111) == []
 
 
+def is_sticky(text_ids, break_bits):
+    """Does this event's text stay in the box after the event ends?
+
+    Only if l4d26 left it drawn — i.e. the last line was NOT Return-prompted.
+    A prompted last line is jt20-cleared by the confirm arm, and DOS never puts
+    it back. Both halves are measured off the DOSBox reference recording of the
+    same HEIRS run:
+
+      unprompted  "THE THIRSTY TRAVELER." appears at 3:05 with no prompt, is
+                  still there at 3:09 across a turn in place, and goes at 3:10
+                  when the party steps off the square.
+      prompted    the caravan farewell finishes typing at 2:16 and the box is
+                  empty at 2:18, on the same square.
+    """
+    last = -1
+    for i in range(5):
+        if text_ids[i]:
+            last = i
+    return last >= 0 and not (break_bits & (1 << last))
+
+
+def test_only_unprompted_text_is_sticky():
+    # The sign case: one unprompted line stays on the square.
+    assert is_sticky([11, 0, 0, 0, 0], 0)
+    # The farewell case: the last line was prompted, so the box stays empty.
+    assert not is_sticky([11, 0, 0, 0, 0], 0b00001)
+    # A prompt on an EARLIER line does not make the last one prompted.
+    assert is_sticky([11, 22, 0, 0, 0], 0b00001)
+    assert not is_sticky([11, 22, 0, 0, 0], 0b00010)
+    # A break bit on an empty slot never fired.
+    assert is_sticky([11, 0, 0, 0, 0], 0b11110)
+    # Nothing authored: nothing to keep.
+    assert not is_sticky([0, 0, 0, 0, 0], 0)
+
+
+def _l4d26_tail():
+    """l4d26's body from the sticky decision to the end of the function."""
+    src = (ROOT / "src/engine/boot.c").read_text()
+    m = re.search(r"static void  l4d26\(void \*ev_v\)\s*\n\{", src)
+    assert m, "l4d26 definition not found"
+    i = src.index("{", m.start())
+    depth = 0
+    for j in range(i, len(src)):
+        if src[j] == "{":
+            depth += 1
+        elif src[j] == "}":
+            depth -= 1
+            if depth == 0:
+                return src[i:j + 1]
+    raise AssertionError("unbalanced braces in l4d26")
+
+
+def test_l4d26_gates_the_sticky_on_the_last_line_not_being_prompted():
+    """The sticky must be conditional, and must clear on the prompted arm.
+
+    An unconditional `g_sticky_text_ev = ev` is the regression: it re-shows a
+    message the player already dismissed with Return, and keeps it in the walk
+    bar where DOS leaves the box empty.
+    """
+    tail = _l4d26_tail()
+    assert re.search(r"ev\[4\]\s*&\s*\(1 << last\)", tail), (
+        "l4d26 must test the LAST line's page-break bit before keeping the "
+        "text sticky — that bit is what marks it as Return-prompted"
+    )
+    assert "g_sticky_text_ev = NULL" in tail, (
+        "the prompted arm must CLEAR the sticky, not just skip setting it: a "
+        "previous square's event would otherwise stay latched"
+    )
+
+
 def _replay_body():
     """The definition's body, brace-matched.
 

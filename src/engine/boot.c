@@ -50505,20 +50505,42 @@ static void  l4d26(void *ev_v)
 	rec[57] = 0;
 	if (ev[4] & 0x20)
 		g_a5_byte(-4946) = 1;
-	/* DOS keeps the (final page of) event text in the box until the party
-	 * leaves the square; the port's post-event relayout wipes the whole
-	 * screen, so remember the event for play_sticky_text_replay. The ev
-	 * pointer targets the area's resident ENCR buffer; the sticky is
-	 * cleared on every landed step and on walk-loop (re)entry, so it can
-	 * never outlive the area. Replay it NOW too (#65): the confirm arm
-	 * above jt20-cleared the box after the final page's Return, and the
-	 * walk's turn/step rect presents never run the full-recompose block
-	 * that replays it — without this the text is gone the moment the
-	 * modal drops and stays gone while the party stands on the square.
-	 * The replay is a REPAINT — final page, no slow-text pacing — so this
-	 * call cannot re-perform the event the player just read. */
-	g_sticky_text_ev = ev;
-	play_sticky_text_replay();
+	/* DOS keeps event text in the box until the party leaves the square,
+	 * but ONLY when the last line was not Return-prompted. Both halves are
+	 * read off the DOSBox reference recording of this same HEIRS run
+	 * (data/work/capture, tools/capture_demo.sh):
+	 *
+	 *   unprompted — the square text "THE THIRSTY TRAVELER." appears with no
+	 *     prompt at 3:05 and is still in the box at 3:09, across a turn in
+	 *     place; it goes at 3:10, the step off the square. This is the case
+	 *     #65 was reported against, and the port's post-event relayout wipes
+	 *     the whole screen, so it has to be replayed to survive.
+	 *   prompted — the caravan farewell finishes typing at 2:16 and the box
+	 *     is empty at 2:18, still on the same square. l4d26's confirm arm
+	 *     already jt20-cleared it; DOS simply never puts it back.
+	 *
+	 * So the sticky is exactly "the text l4d26 left drawn". Keeping it for
+	 * the prompted case was the port re-showing a message the player had
+	 * already dismissed. The ev pointer targets the area's resident ENCR
+	 * buffer; the sticky is cleared on every landed step and on walk-loop
+	 * (re)entry, so it can never outlive the area. */
+	{
+		short i, last = -1;
+
+		for (i = 0; i <= 4; i++)
+			if (*(short *)(ev + i * 2 + 8) != 0)
+				last = i;
+		if (last >= 0 && !(ev[4] & (1 << last))) {
+			/* Replay NOW as well as on the next recompose: the walk's
+			 * turn/step rect presents never run the full-recompose
+			 * block. The replay is a REPAINT — final page, unpaced —
+			 * so it cannot re-perform what the player just read. */
+			g_sticky_text_ev = ev;
+			play_sticky_text_replay();
+		} else {
+			g_sticky_text_ev = NULL;
+		}
+	}
 	g_sticky_dirty = 0;              /* #137: the box is correct as of now */
 }
 
