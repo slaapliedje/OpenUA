@@ -3785,6 +3785,9 @@ static void jt221(short x, short y, short facing)
 		 * save/restore of them is a no-op here. */
 		signed char cy = (signed char)y, cx = (signed char)x;
 		l52b8(&cy, &cx, NULL, NULL, (short)11, (short)11, (short)1);
+#ifdef FRUA_MAPTRACE
+		dbg_file_num("jt221  map-arm rel cy*100+cx ", (long)cy * 100 + cx);
+#endif
 		l50fe((short)cy, (short)cx, facing, (short)8012, (short)8012,
 		      (short)11, (short)11, (short)1, (short)0);
 	} else {                                /* L610a — first-person dungeon */
@@ -3827,6 +3830,7 @@ static const char *jt475(short idx);
 static void jt215(void);
 static short g_view_force_full;         /* fwd (defined below); armed on AREA->3D toggle */
 static short g_view_hud_only;           /* fwd (defined below); #131 */
+static void port_draw_compass(void);    /* fwd (defined below); #124 */
 static void l40f8_area_cmd(void)
 {
 	unsigned char *pl = (unsigned char *)g_a5_28006;
@@ -3862,6 +3866,15 @@ static void l40f8_area_cmd(void)
 	jt221((short)(signed char)g_a5_12288,
 	      (short)(signed char)g_a5_12287,
 	      (short)(signed char)g_a5_12286);
+	/* Toggling back to 3D leaves NO COMPASS: the map leg ran
+	 * port_draw_play_frame, which wipes the FRAME chrome (surround piece 21 +
+	 * the facing face 22..25) and paints the map over it, and jt221's 3D
+	 * branch renders only the viewport — it never repaints the chrome. The
+	 * face therefore stayed missing until the next step happened to reach
+	 * l63c0's walk tail. Repaint it here for the same reason #124 added it to
+	 * that tail. Map leg excluded: the compass is not part of the map screen. */
+	if (g_a5_12290 == 0)
+		port_draw_compass();
 	qd_present_hold(0);           /* #157: transition composed — present it */
 	port_present_full();          /* #151 */
 }
@@ -15374,8 +15387,21 @@ static void jt312(unsigned char *page)
 		 * the AREA map came up. */
 		{
 			unsigned char *mpx; short mpitch, msw, msh;
-			signed char cy = (signed char)g_a5_12288;
-			signed char cx = (signed char)g_a5_12287;
+			/* ★ AXIS ORDER — jt221 SWAPS its args before painting.
+			 * jt221(x,y,facing) is called (-12288, -12287, -12286), then
+			 * binds cy = (signed char)y = -12287 and cx = x = -12288
+			 * (asm 0x6092-0x60be: pea %fp@(11) is L52b8's coord1, and
+			 * fp@(11) is arg TWO).  Inlining the painter here (28b1a2c5)
+			 * copied the CALL's argument order instead of jt221's binding,
+			 * so every post-move automap repaint drew the party at the
+			 * TRANSPOSED cell — the "map puts you somewhere else, then a
+			 * step moves you again" bug.  Invisible whenever row == col,
+			 * which is why the r=9,c=9 trace looked clean.
+			 * Pairing corroborated by l1908's blocked-step arm, which
+			 * calls jt213(-12287, -12288, ...) — and every other jt213
+			 * site passes (y, x, facing). */
+			signed char cy = (signed char)g_a5_12287;
+			signed char cx = (signed char)g_a5_12288;
 
 			if (qd_screen_pixels_nomark(&mpx, &mpitch, &msw, &msh) && mpx != NULL)
 				{ PDPF_HIT(2); }
