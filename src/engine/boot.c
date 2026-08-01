@@ -3124,7 +3124,44 @@ static OSErr ua_open_art(ConstStr255Param pname, short perm, short *refnum)
 		dbg_file_str("ART: no design art, using root: ", (char *)p + 1);
 #endif
 	}
-	return FSOpen(pname, perm, refnum);           /* root fallback */
+	{
+		OSErr err = FSOpen(pname, perm, refnum);
+
+		if (err == noErr)
+			return err;
+		/* ★ ADR-0014 ON THE ROOT FALLBACK — the path that was missed.
+		 * A design shipping no art of its own falls straight through to
+		 * here, and on a DOS-only install the root copy is a `.TLB` with
+		 * no `.ctl` twin. The design branch above converts; jt398
+		 * converts; this line did not, so every library resolved through
+		 * the fallback came up EMPTY while everything opened directly
+		 * converted fine. Measured on a .TLB-only tree: BACK, TITLE and
+		 * MENU missing (all three logged "no design art, using root"),
+		 * against eight libraries converted correctly elsewhere.
+		 *
+		 * Both spellings are tried. Real TOS and Amiga filesystems are
+		 * case-insensitive so `TLB` alone would do there, but Hatari's
+		 * GEMDOS mount is a case-SENSITIVE host directory — which is
+		 * exactly where this gets tested. */
+		if (n[0] > 4 && n[n[0] - 3] == '.'
+		    && (n[n[0] - 2] | 32) == 'c' && (n[n[0] - 1] | 32) == 't'
+		    && (n[n[0]] | 32) == 'l') {
+			char cin[256], cout[256];
+
+			memcpy(cout, n + 1, n[0]);
+			cout[n[0]] = 0;
+			memcpy(cin, cout, (size_t)n[0] + 1);
+
+			memcpy(cin + n[0] - 3, "TLB", 3);
+			if (!ua_dos_art_convert_file(cin, cout)) {
+				memcpy(cin + n[0] - 3, "tlb", 3);
+				if (!ua_dos_art_convert_file(cin, cout))
+					return err;
+			}
+			return FSOpen(pname, perm, refnum);
+		}
+		return err;
+	}
 }
 
 static long cw_wallfile_load(short file)
