@@ -112,6 +112,7 @@ static int tt_init(short want_w, short want_h)
 	 * rendering into the hidden buffer instead of scribbling over the
 	 * letterbox. */
 	Setscreen(g_save_log, g_screen, -1);
+	dbg_log_screen_owned();   /* see the videl backend: keep Cconws off the picture */
 	EsetShift(TT_SHIFT_TTLOW);
 	dbg_log("tt: TT-low takeover done");
 

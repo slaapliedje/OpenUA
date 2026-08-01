@@ -212,6 +212,13 @@ static int videl_init(short want_w, short want_h)
 	g_draw = 1;
 	g_next = -1;
 	VsetScreen(g_screen[0], g_screen[0], -1, -1);
+	/* ★ From HERE the console's logical base IS our displayed page — unlike
+	 * the TT/STe/ST-high backends, which pass their saved log base to
+	 * Setscreen and so leave TOS writing to the old screen. Every Cconws
+	 * after this point lands in the picture. Switch dbg_log to the file
+	 * sink NOW, not at the end of init: the buffers/vbl/lutblit lines below
+	 * are already past the takeover and were painting the intro. */
+	dbg_log_screen_owned();
 
 	/* Install the VBL page-flip handler (only worthwhile with the spare
 	 * third buffer). On failure, present() uses the direct no-Vsync flip. */

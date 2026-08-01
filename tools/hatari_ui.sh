@@ -137,8 +137,18 @@ READY_TIMEOUT="${READY_TIMEOUT:-180}"
 # host so the engine reads keys via GEMDOS Cconis/Crawcin — which DON'T surface
 # non-ASCII keys (the cursor arrows). Without the redirect the engine reads via
 # Bconin(2), so injected arrow keys actually reach the roster / dungeon nav.
-# Trade-off: no terminal log (dbg_log's Cconws lands on Logbase, not the
-# displayed triple-buffer, so the screen stays clean — screenshots still work).
+# Trade-off: no terminal log.
+#
+# ★ This used to claim "dbg_log's Cconws lands on Logbase, not the displayed
+# triple-buffer, so the screen stays clean". That is WRONG, and it cost a
+# session: Logbase IS one of the engine's pages once a display backend takes
+# over, so the glyphs surface as a band of coloured fragments across the
+# picture on the next flip. It has nothing to do with --conout either — A/B
+# boot recordings with and without the redirect are pixel-identical, band
+# included. The engine now switches dbg_log to DBG.LOG at display takeover
+# (platform/dbglog.c, dbg_log_screen_owned), which is what actually keeps the
+# screen clean; wait_for searches both sinks so markers still resolve.
+#
 # Implies READY_MARKER=- (the log has no engine markers to wait on).
 if [[ -n "${FRUA_NO_CONOUT:-}" ]]; then
 	CONOUT_ARG=""
@@ -168,9 +178,18 @@ find_window() {
 
 wait_for() {
 	# wait_for <regex> <min-hits> <timeout-s>
+	#
+	# Searches BOTH sinks. The engine starts on the console (mirrored here by
+	# --conout 2) and switches to the GEMDOS-mounted DBG.LOG the moment a
+	# display backend owns the framebuffer — because Cconws renders into the
+	# logical screen base, which by then is one of the engine's own pages, and
+	# the glyphs surface as a band of coloured fragments across the picture.
+	# Callers should not have to know which side of that switch their marker
+	# falls on, so match either. ("menu: modal up" is now on the file side.)
 	local regex="$1" need="${2:-1}" tmo="${3:-120}" i hits
+	local dbg="${GEMDOS_DIR:-$REPO/data/work/gamedata}/DBG.LOG"
 	for ((i = 0; i < tmo * 2; i++)); do
-		hits="$(grep -cE "$regex" "$LOG" 2>/dev/null)" || hits=0
+		hits="$(cat "$LOG" "$dbg" 2>/dev/null | grep -cE "$regex")" || hits=0
 		if (( hits >= need )); then
 			echo "hatari_ui: '$regex' x$hits after $((i / 2))s"
 			return 0
@@ -178,7 +197,8 @@ wait_for() {
 		sleep 0.5
 	done
 	die "timeout (${tmo}s) waiting for '$regex' x$need; log tail:
-$(tail -5 "$LOG" 2>/dev/null)"
+$(tail -5 "$LOG" 2>/dev/null)
+$(tail -5 "$dbg" 2>/dev/null)"
 }
 
 # Screenshot backend — works with ImageMagick 7 (the unified `magick`, on Arch)
@@ -199,6 +219,12 @@ start)
 	pkill -9 -x hatari 2>/dev/null || true
 	[[ -f "$REPO/frua.prg" ]] || die "frua.prg not built"
 	: > "$LOG"
+	# ...and the OTHER sink. wait_for searches DBG.LOG too, and the engine only
+	# truncates that file on its first write — so a marker left by the previous
+	# boot is already there when the next wait starts, and the wait returns
+	# instantly on a machine that has not booted yet. Truncating both here is
+	# what makes "$LOG is fresh per boot" true of the pair.
+	: > "$GEMDOS_DIR/DBG.LOG" 2>/dev/null || true
 	rm -f "$STATE/cmd.fifo"      # Hatari creates the fifo itself
 	[[ -x "$HATARI_BIN" || "$(command -v "$HATARI_BIN")" ]] || die "hatari binary not found: $HATARI_BIN"
 	SDL_VIDEODRIVER=x11 "$HATARI_BIN" \

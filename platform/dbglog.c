@@ -194,16 +194,53 @@ static void dbg_flush_deferred(void)
 	}
 }
 
+/* ---- which sink does dbg_log use? ----------------------------------------
+ *
+ * The console one PAINTS. Cconws goes through TOS's console driver, which
+ * renders the glyphs into the LOGICAL screen base — and once a display backend
+ * has taken the framebuffer, that base is one of the engine's own pages. The
+ * mono glyph bitmap then appears, reinterpreted in the engine's pixel format,
+ * as a band of coloured fragments across one text row of the next flip, and it
+ * stays until the engine redraws those rows. Measured on the Falcon at 16bpp;
+ * the intro screens carried one from the very first boot line after takeover.
+ *
+ * This is NOT a Hatari artefact. A/B boot recordings with and without
+ * `--conout 2` are pixel-identical, band included — the redirect only mirrors
+ * the text to the host, it does not stop the Atari-side write. (The Amiga
+ * never had the problem: platform/amiga/dbglog_amiga.c routes dbg_log to a
+ * file already.)
+ *
+ * So: console until a backend owns the screen, file afterwards. The split is
+ * deliberate rather than "always file" — the console sink exists so a boot
+ * that dies before it can render anything still leaves its trail on the host
+ * terminal, and every one of those failures happens BEFORE takeover. After
+ * takeover a crash trail is no less readable in DBG.LOG.
+ *
+ * tools/hatari_ui.sh's wait_for searches the conout log AND the GEMDOS-mounted
+ * DBG.LOG for exactly this reason, so markers keep working either side of the
+ * switch.
+ */
+static short g_screen_owned = 0;
+
+void dbg_log_screen_owned(void)
+{
+	dbg_flush_deferred();       /* park anything queued on the old sink */
+	g_screen_owned = 1;
+}
+
 /* ---- public API ---------------------------------------------------------- */
 
 void dbg_log(const char *msg)
 {
 	if (g_plat_in_super) {                  /* VBL — must not trap */
-		dbg_defer(SINK_CON, msg, NULL, 0L, 0);
+		dbg_defer(g_screen_owned ? SINK_FILE : SINK_CON, msg, NULL, 0L, 0);
 		return;
 	}
 	dbg_flush_deferred();
-	emit_con(msg, NULL);
+	if (g_screen_owned)
+		emit_file(msg, NULL);
+	else
+		emit_con(msg, NULL);
 }
 
 void dbg_log_num(const char *label, long value)
@@ -212,12 +249,16 @@ void dbg_log_num(const char *label, long value)
 	short off;
 
 	if (g_plat_in_super) {
-		dbg_defer(SINK_CON, label, NULL, value, 1);
+		dbg_defer(g_screen_owned ? SINK_FILE : SINK_CON, label, NULL,
+		          value, 1);
 		return;
 	}
 	dbg_flush_deferred();
 	off = num_to_str(buf, value);
-	emit_con(label, &buf[off]);
+	if (g_screen_owned)
+		emit_file(label, &buf[off]);
+	else
+		emit_con(label, &buf[off]);
 }
 
 void dbg_file_num(const char *label, long value)

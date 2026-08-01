@@ -139,6 +139,7 @@ static int sthigh_init(short want_w, short want_h)
 	 * LOGICAL base stays on the old screen so console prints don't
 	 * scribble the display, as in the other Atari backends). */
 	Setscreen(s_save_log, s_screen, -1);
+	dbg_log_screen_owned();   /* see the videl backend: keep Cconws off the picture */
 
 	/* Default all-white until the first palette arrives. */
 	memset(s_dith_top, 0, sizeof s_dith_top);

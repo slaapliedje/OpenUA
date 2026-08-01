@@ -2015,6 +2015,7 @@ static int st_init(short want_w, short want_h)
 	s_save_phys = Physbase();
 	s_save_log  = Logbase();
 	Setscreen(s_save_log, s_page[0], 0);     /* ST Low; show page 0; console keeps log */
+	dbg_log_screen_owned();   /* see the videl backend: keep Cconws off the picture */
 
 	s_surface.width  = ST_W;
 	s_surface.height = ST_H;

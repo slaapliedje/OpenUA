@@ -23,4 +23,16 @@ void dbg_log_num(const char *label, long value);
 void dbg_file_num(const char *label, long value);
 void dbg_file_str(const char *label, const char *value);
 
+/*
+ * Called by a display backend once it owns the framebuffer. After this,
+ * dbg_log / dbg_log_num write to DBG.LOG instead of the VT-52 console —
+ * Cconws renders into the logical screen base, which by then is one of the
+ * engine's own pages, and the glyphs surface as a band of coloured fragments
+ * across one text row. (Not a Hatari artefact: A/B recordings with and
+ * without --conout 2 are pixel-identical.) The Amiga backend has no such
+ * call; dbglog_amiga.c is file-backed throughout.
+ */
+void dbg_log_screen_owned(void);
+
+
 #endif /* PLATFORM_DBGLOG_H */
