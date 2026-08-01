@@ -9,9 +9,15 @@ release zips, into `dist/hw/`.
 
 ## Read this first: the data does not fit on floppies
 
-A minimum playable install is about **7.4 MB** — the base art libraries and
-data files, plus one design — on top of the ~1 MB engine binary. That is
-roughly eleven floppies.
+A minimum playable install is about **4 MB** — the base art libraries and data
+files, plus one design — on top of the ~1 MB engine binary. That is three
+1.44 MB Atari disks, seven 720 KB ones, or five Amiga disks.
+
+(It used to be 7.4 MB. A staged directory holds every art library **twice** —
+the DOS original `.TLB` and the Mac `.ctl` twin the converter derives from it,
+23 pairs. The engine reads the `.ctl`, so `tools/mkdatadisks.sh` drops the DOS
+originals by default and the set halves. `ART=both` keeps them, which you want
+only if you intend to revive the monochrome build.)
 
 So **every one of these machines needs a hard disk, CF or SD card.** The disk
 images below get the *engine* across; they cannot get the *game* across. If

@@ -21,6 +21,25 @@
 set -euo pipefail
 
 MACHINE="${1:?usage: mkdatadisks.sh <atari|atari720|amiga> [gamedata-dir] [outdir] [design...]}"
+# ART=ctl (default) | both
+#
+# ★ THE ART SHIPS TWICE unless you ask otherwise. A staged directory holds each
+#   library in BOTH formats: the DOS original `.TLB` (HLIB) and the Mac `.ctl`
+#   (GLIB) twin our converter derives from it — 3.60 MB and 3.36 MB of the
+#   7.35 MB total, 23 pairs, the same pictures either way.
+#
+#   The ENGINE READS THE .ctl. artconv_load.c converts a `.TLB` on first touch
+#   and writes the `.ctl` back, so once the twin exists the DOS original is
+#   dead weight. Verified by deleting every .TLB and driving the Falcon build
+#   into the dungeon: menu, walls, HUD and the caravan portrait all render.
+#
+#   So the default drops them, which roughly halves the disk count — six Atari
+#   disks become three, the same as SSI's original release. ART=both keeps the
+#   originals, which you want if you intend to revive the MONO build: mono
+#   synthesis deliberately treats an HLIB `.tlb` as a miss (41-53 s per wall
+#   master is installer work, not first-touch work), so it needs them back.
+ART="${ART:-ctl}"
+case "$ART" in ctl|both) ;; *) echo "ART must be ctl or both" >&2; exit 1 ;; esac
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="${2:-$REPO/data/work/gamedata}"
 OUT="${3:-$REPO/data/work/diskimages}"
@@ -83,9 +102,12 @@ for d in "${DESIGNS[@]}"; do
 	[[ -d "$SRC/$d" ]] || { echo "no such design: $SRC/$d" >&2; exit 1; }
 	( cd "$SRC" && find "$d" -type f -printf '%p\n' ) >> "$WORK/all"
 done
+if [[ "$ART" == ctl ]]; then
+	grep -v '\.TLB$' "$WORK/all" > "$WORK/all.f" && mv "$WORK/all.f" "$WORK/all"
+fi
 sort -o "$WORK/all" "$WORK/all"
 TOTBYTES=$( (cd "$SRC" && tr '\n' '\0' < "$WORK/all" | xargs -0 stat -c%s) | awk '{s+=$1} END {print s}')
-say "$(wc -l < "$WORK/all") files, $TOTBYTES bytes"
+say "$(wc -l < "$WORK/all") files, $TOTBYTES bytes (ART=$ART)"
 
 # ---- bin-pack into disks ---------------------------------------------------
 # ★ Disk 1 also carries the installer, so its usable capacity is smaller. Not
