@@ -54,8 +54,28 @@ capture_atari() {
 	rm -f platform/input.o
 	make "${makeargs[@]}" EXTRA_CFLAGS="$DEMO_FLAGS" >/dev/null
 
+	# Kill any previous Hatari AND WAIT FOR IT TO GO. pkill returns
+	# immediately; a Hatari that is still shutting down holds the GEMDOS mount
+	# open, and the next boot then
+	# stalls before the menu — it stops after "dos_scalars: runs applied" and
+	# burns the whole READY_TIMEOUT. That is what took out the STe run straight
+	# after a TT run that had quit early: not a code fault, a race between one
+	# target's teardown and the next one's boot.
 	pkill -9 -x hatari 2>/dev/null || true
+	local gone=0
+	while pgrep -x hatari >/dev/null 2>&1; do
+		sleep 1; gone=$((gone+1))
+		[[ $gone -gt 20 ]] && { say "WARNING: hatari still up after 20s"; break; }
+	done
 	rm -f "$RAW"
+	# ★ DELETE THE MARKER FILE BEFORE BOOTING. The end-of-script wait below
+	# greps DBG.LOG, and the engine only truncates it on its FIRST write — so a
+	# marker left by the PREVIOUS target is already there when the wait starts,
+	# and the wait returns instantly. That is not a hang or an error: the
+	# capture just stops seconds in and reports "playthrough: 0s wall" with a
+	# short, silently truncated AVI. (The Amiga arm below has always done this,
+	# which is exactly why it never showed the fault.)
+	rm -f "${GEMDOS_DIR:-$REPO/data/work/gamedata}/DBG.LOG"
 	local t0 t1 t2
 	t0=$(date +%s)
 	# env -u DISPLAY: an inherited DISPLAY=:0 puts Hatari on the user's real
