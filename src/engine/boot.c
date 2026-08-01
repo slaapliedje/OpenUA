@@ -50514,52 +50514,75 @@ static void  l4d26(void *ev_v)
 	 * above jt20-cleared the box after the final page's Return, and the
 	 * walk's turn/step rect presents never run the full-recompose block
 	 * that replays it — without this the text is gone the moment the
-	 * modal drops and stays gone while the party stands on the square. */
+	 * modal drops and stays gone while the party stands on the square.
+	 * The replay is a REPAINT — final page, no slow-text pacing — so this
+	 * call cannot re-perform the event the player just read. */
 	g_sticky_text_ev = ev;
 	play_sticky_text_replay();
 	g_sticky_dirty = 0;              /* #137: the box is correct as of now */
 }
 
-/* Replay the sticky text event's box content — l4d26's draw loop minus
- * the sound, the picture, and the l1806 page confirms: paged lines are
- * drawn and page breaks BETWEEN lines still clear, so the box ends
- * holding exactly the final page. The break on the LAST non-empty line
- * must NOT clear (#65): a single confirmed line is the common authored
- * case, and honouring its break bit left the box empty — the reported
- * "flashes instead of persisting". DOS keeps the final page visible
- * regardless of how it was confirmed. */
+/* REPAINT the sticky text box — NOT a re-performance of the event.
+ *
+ * This is l4d26's draw loop minus the sound, the picture and the l1806 page
+ * confirms, and it exists so the final page survives the wipes that follow an
+ * event (#65). Two properties are what make it a repaint rather than a second
+ * showing, and both were missing — together they are the reported "it types
+ * the text out, then does it all again once the picture is gone":
+ *
+ *   1. FINAL PAGE ONLY. A page break clears the box, so the only lines still
+ *      visible when l4d26 returns are the ones after the LAST break. The old
+ *      loop replayed from line 0 and re-ran those clears, so the box visibly
+ *      cycled through every page again to arrive at the same place.
+ *   2. NO SLOW-TEXT PACING. g_a5_-27981 is the per-character pacer flag: with
+ *      it set, jt96 calls l435a after every glyph and busy-waits to the
+ *      design's authored text speed. Correct for the event's own first
+ *      showing (l4d26 still sets it); wrong here, where the text is meant to
+ *      be ALREADY on screen. Cleared, the repaint is immediate.
+ *
+ * The box is deliberately NOT cleared first: every caller reaches this with
+ * the box either blank (jt20 after a confirm, or a full-screen wipe) or
+ * already holding this exact page, and #137 measured the redraw-over-correct
+ * case at 0 pixels changed. Clearing would add a flash to that common path.
+ *
+ * The break on the LAST non-empty line must not clear (#65): a single
+ * confirmed line is the common authored case, and honouring its break bit
+ * left the box empty — the original "flashes instead of persisting". */
 static void play_sticky_text_replay(void)
 {
 	unsigned char *ev = g_sticky_text_ev;
-	short          i, flag = 1, last = -1;
+	short          i, first = 0, last = -1;
 
 	if (ev == NULL)
 		return;
 	for (i = 0; i <= 4; i++)
 		if (*(short *)(ev + i * 2 + 8) != 0)
 			last = i;
+	if (last < 0)
+		return;
+	/* Walk back from the last line to the most recent page break; the page
+	 * that survived starts on the line after it. */
+	for (i = (short)(last - 1); i >= 0; i--) {
+		if (*(short *)(ev + i * 2 + 8) != 0 && (ev[4] & (1 << i))) {
+			first = (short)(i + 1);
+			break;
+		}
+	}
 	g_a5_byte(-27911) = 17;
 	g_a5_byte(-27912) = 1;
-	for (i = 0; i <= 4; i++) {
+	g_a5_byte(-27981) = 0;           /* explicit: never pace a repaint */
+	for (i = first; i <= last; i++) {
 		unsigned char *entry = ev + i * 2;
 
 		if (*(short *)(entry + 8) != 0) {
 			short d = jt1180(*(short *)(entry + 8));
-			short style = (ev[7] & (flag << 2)) ? 3 : 7;
+			short style = (ev[7] & (1 << (i + 2))) ? 3 : 7;
 
 			jt232((void *)(uintptr_t)g_a5_long(-13034), d,
 			      (char *)&g_a5_byte(-5213));
-			g_a5_byte(-27981) = 1;
 			jt96(1, 17, 38, 22, style, 0, 0,
 			     (long)(uintptr_t)&g_a5_byte(-5213), 17);
-			g_a5_byte(-27981) = 0;
-			if ((ev[4] & flag) && i < last) {   /* page break BETWEEN lines */
-				g_a5_byte(-27911) = 17;
-				g_a5_byte(-27912) = 1;
-				jt20();
-			}
 		}
-		flag = (short)(flag << 1);
 	}
 }
 
