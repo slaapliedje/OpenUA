@@ -26,39 +26,33 @@ MACHINE="${1:?usage: mkdatadisks.sh <atari|atari720|amiga> [gamedata-dir] [outdi
 # ★ THE ART EXISTS IN TWO FORMATS and a staged directory holds both: the DOS
 #   original `.TLB` (HLIB) and the Mac `.ctl` (GLIB) twin our converter derives
 #   from it. 23 pairs, 3.60 MB and 3.36 MB of a 7.35 MB tree — the same
-#   pictures, counted twice. Shipping both is what made the sets twice as long
-#   as SSI's own three-disk release.
+#   pictures, counted twice. Shipping both is what made these sets twice as
+#   long as SSI's own three-disk release.
 #
-#   DEFAULT IS `ctl` because it is the only one MEASURED TO WORK. Shipping the
-#   DOS files straight across is the nicer idea — no conversion in our pipeline,
-#   you install exactly what SSI shipped — but the engine cannot yet live on
-#   them alone. Measured A/B on the Falcon, identical drive script into the
-#   dungeon:
+#   DEFAULT IS `tlb`: SSI's DOS FILES, COPIED STRAIGHT ACROSS. Nothing is
+#   converted on the way to the disks, so what you install is what SSI shipped.
+#   The engine converts on FIRST TOUCH and writes the `.ctl` back beside it
+#   (ADR-0014) — 48 ms median / ~1.5 s for a typical picture on an 8 MHz 68000,
+#   6 ms / ~0.3 s on the Falcon, once per library ever.
 #
-#     .ctl only   full frame: roster, clock, event text, command bar
-#     .TLB only   portrait and chrome render, ALL TEXT MISSING
+#   Budget for that: the destination ends up holding BOTH formats, ~7.4 MB, not
+#   the ~4 MB the disks carry.
 #
-#   Only 2 of 23 libraries converted during a full play entry, so in-engine
-#   first-touch conversion (ADR-0014) does not cover every family yet. Ruled
-#   out along the way: first-touch timing (a second run was pixel-identical),
-#   filename case (renaming the generated 8x8db.ctl changed nothing), and a
-#   broken converter (the runtime-generated .ctl are BYTE-IDENTICAL to the
-#   offline ones). The gap is coverage, not correctness.
+#   This only became viable once ua_open_art's ROOT FALLBACK learned to convert
+#   too. Until then a .TLB-only install rendered pictures but no text, because
+#   BACK/TITLE/MENU resolve through the fallback and it was a bare FSOpen. A
+#   .TLB-only install now renders PIXEL-IDENTICAL to the .ctl set.
 #
-#   ART=tlb is kept because closing that gap is worth doing — it is the honest
-#   packaging — but it currently produces a textless game and says so.
+#   ART=ctl ships the converted Mac-format art instead: one disk fewer and no
+#   first-touch pause, but the files are then ours rather than SSI's — and only
+#   14 of 23 are byte-identical to the genuine Mac release, the rest differing
+#   because the DOS and Mac art genuinely differ.
 #
-#   ART=both is the old behaviour and doubles the disks. Use it only to revive
-#   the MONO build, which treats an HLIB `.tlb` as a deliberate miss (41-53 s
-#   per wall master is installer work, not first-touch work).
-ART="${ART:-ctl}"
+#   ART=both is the old behaviour and doubles the disks. Use it to revive the
+#   MONO build, which treats an HLIB `.tlb` as a deliberate miss (41-53 s per
+#   wall master is installer work, not first-touch work).
+ART="${ART:-tlb}"
 case "$ART" in tlb|ctl|both) ;; *) echo "ART must be tlb, ctl or both" >&2; exit 1 ;; esac
-if [[ "$ART" == tlb ]]; then
-	echo "datadisks: *** WARNING: ART=tlb IS KNOWN BROKEN ***" >&2
-	echo "  A .TLB-only install renders art but NO TEXT — only 2 of 23" >&2
-	echo "  libraries convert on first touch. Measured on the Falcon." >&2
-	echo "  Use ART=ctl (the default) for a set that plays." >&2
-fi
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="${2:-$REPO/data/work/gamedata}"
 OUT="${3:-$REPO/data/work/diskimages}"

@@ -15,9 +15,12 @@ files, plus one design — on top of the ~1 MB engine binary. That is three
 
 (It used to be 7.4 MB. A staged directory holds every art library **twice** —
 the DOS original `.TLB` and the Mac `.ctl` twin the converter derives from it,
-23 pairs. The engine reads the `.ctl`, so `tools/mkdatadisks.sh` drops the DOS
-originals by default and the set halves. `ART=both` keeps them, which you want
-only if you intend to revive the monochrome build.)
+23 pairs. `tools/mkdatadisks.sh` ships **SSI's DOS files** by default and the
+engine converts each library on first touch, so the set halves and what you
+install is what SSI shipped. Budget ~7.4 MB at the destination even so: the
+converted twin is written back beside the original. `ART=ctl` ships the
+converted art instead — one disk fewer, no first-touch pause. `ART=both` keeps
+both, which you want only to revive the monochrome build.)
 
 So **every one of these machines needs a hard disk, CF or SD card.** The disk
 images below get the *engine* across; they cannot get the *game* across. If
