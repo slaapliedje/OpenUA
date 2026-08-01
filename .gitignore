@@ -57,3 +57,8 @@ uainst_amiga
 uainst.info
 build.err
 /DBG.LOG
+
+# instdisk build output (data-installer binaries, built by `make instdisk`)
+instdisk.prg
+instdisk.ttp
+instdisk_amiga

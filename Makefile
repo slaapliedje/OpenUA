@@ -770,6 +770,21 @@ uainst.ttp: uainst.prg
 # extract+convert core. Uses the Bebbo toolchain directly — installer
 # builds are standalone, not part of the MACHINE= engine object tree.
 AMIGA_CROSS ?= $(HOME)/opt/amiga/bin/m68k-amigaos-
+# instdisk — the multi-disk DATA installer that ships on the data floppies
+# (tools/mkdatadisks.sh). Separate binary from uainst: uainst installs one fan
+# module from a ZIP, this walks a numbered disk set onto mass storage.
+instdisk: instdisk.ttp
+instdisk.prg: installer/instdisk.c
+	$(CC) -m68000 -msoft-float -std=gnu99 -O2 -fomit-frame-pointer -o $@ $<
+	$(STRIP) $@
+instdisk.ttp: instdisk.prg
+	cp $< $@
+
+instdisk-amiga: instdisk_amiga
+instdisk_amiga: installer/instdisk.c
+	$(AMIGA_CROSS)gcc -m68000 -msoft-float -noixemul -std=gnu99 -O2 \
+	    -fomit-frame-pointer -s -o $@ $<
+
 installer-amiga: uainst_amiga uainst.info
 uainst_amiga: installer/main.c installer/asl_amiga.c installer/miniz.c src/convert/artconv.c src/convert/artconv.h
 	$(AMIGA_CROSS)gcc -m68000 -msoft-float -noixemul -std=gnu99 -O2 \
