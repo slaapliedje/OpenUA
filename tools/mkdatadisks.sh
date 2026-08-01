@@ -203,7 +203,11 @@ for ((n = 1; n <= NDISKS; n++)); do
 	say "$(basename "$IMG")  $(tail -n +2 "$WORK/disk$n.lst" | wc -l) files —$free"
 done
 
-cat > "$OUT/README-DATA.txt" <<EOF
+# Per-machine name: the three sets share an output directory, so a single
+# README-DATA.txt meant whichever target ran last silently replaced the
+# instructions for the other two — and they differ (disk counts, installer
+# name, destination syntax).
+cat > "$OUT/README-DATA-$MACHINE.txt" <<EOF
 OpenUA game-data disks ($MACHINE) — $NDISKS disks
 
 *** THESE CONTAIN COPYRIGHTED GAME DATA. Do not redistribute them. ***
