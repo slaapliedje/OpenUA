@@ -21,25 +21,44 @@
 set -euo pipefail
 
 MACHINE="${1:?usage: mkdatadisks.sh <atari|atari720|amiga> [gamedata-dir] [outdir] [design...]}"
-# ART=ctl (default) | both
+# ART=tlb (default) | ctl | both
 #
-# ★ THE ART SHIPS TWICE unless you ask otherwise. A staged directory holds each
-#   library in BOTH formats: the DOS original `.TLB` (HLIB) and the Mac `.ctl`
-#   (GLIB) twin our converter derives from it — 3.60 MB and 3.36 MB of the
-#   7.35 MB total, 23 pairs, the same pictures either way.
+# ★ THE ART EXISTS IN TWO FORMATS and a staged directory holds both: the DOS
+#   original `.TLB` (HLIB) and the Mac `.ctl` (GLIB) twin our converter derives
+#   from it. 23 pairs, 3.60 MB and 3.36 MB of a 7.35 MB tree — the same
+#   pictures, counted twice. Shipping both is what made the sets twice as long
+#   as SSI's own three-disk release.
 #
-#   The ENGINE READS THE .ctl. artconv_load.c converts a `.TLB` on first touch
-#   and writes the `.ctl` back, so once the twin exists the DOS original is
-#   dead weight. Verified by deleting every .TLB and driving the Falcon build
-#   into the dungeon: menu, walls, HUD and the caravan portrait all render.
+#   DEFAULT IS `ctl` because it is the only one MEASURED TO WORK. Shipping the
+#   DOS files straight across is the nicer idea — no conversion in our pipeline,
+#   you install exactly what SSI shipped — but the engine cannot yet live on
+#   them alone. Measured A/B on the Falcon, identical drive script into the
+#   dungeon:
 #
-#   So the default drops them, which roughly halves the disk count — six Atari
-#   disks become three, the same as SSI's original release. ART=both keeps the
-#   originals, which you want if you intend to revive the MONO build: mono
-#   synthesis deliberately treats an HLIB `.tlb` as a miss (41-53 s per wall
-#   master is installer work, not first-touch work), so it needs them back.
+#     .ctl only   full frame: roster, clock, event text, command bar
+#     .TLB only   portrait and chrome render, ALL TEXT MISSING
+#
+#   Only 2 of 23 libraries converted during a full play entry, so in-engine
+#   first-touch conversion (ADR-0014) does not cover every family yet. Ruled
+#   out along the way: first-touch timing (a second run was pixel-identical),
+#   filename case (renaming the generated 8x8db.ctl changed nothing), and a
+#   broken converter (the runtime-generated .ctl are BYTE-IDENTICAL to the
+#   offline ones). The gap is coverage, not correctness.
+#
+#   ART=tlb is kept because closing that gap is worth doing — it is the honest
+#   packaging — but it currently produces a textless game and says so.
+#
+#   ART=both is the old behaviour and doubles the disks. Use it only to revive
+#   the MONO build, which treats an HLIB `.tlb` as a deliberate miss (41-53 s
+#   per wall master is installer work, not first-touch work).
 ART="${ART:-ctl}"
-case "$ART" in ctl|both) ;; *) echo "ART must be ctl or both" >&2; exit 1 ;; esac
+case "$ART" in tlb|ctl|both) ;; *) echo "ART must be tlb, ctl or both" >&2; exit 1 ;; esac
+if [[ "$ART" == tlb ]]; then
+	echo "datadisks: *** WARNING: ART=tlb IS KNOWN BROKEN ***" >&2
+	echo "  A .TLB-only install renders art but NO TEXT — only 2 of 23" >&2
+	echo "  libraries convert on first touch. Measured on the Falcon." >&2
+	echo "  Use ART=ctl (the default) for a set that plays." >&2
+fi
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="${2:-$REPO/data/work/gamedata}"
 OUT="${3:-$REPO/data/work/diskimages}"
@@ -102,9 +121,10 @@ for d in "${DESIGNS[@]}"; do
 	[[ -d "$SRC/$d" ]] || { echo "no such design: $SRC/$d" >&2; exit 1; }
 	( cd "$SRC" && find "$d" -type f -printf '%p\n' ) >> "$WORK/all"
 done
-if [[ "$ART" == ctl ]]; then
-	grep -v '\.TLB$' "$WORK/all" > "$WORK/all.f" && mv "$WORK/all.f" "$WORK/all"
-fi
+case "$ART" in
+ctl) grep -v '\.TLB$'  "$WORK/all" > "$WORK/all.f" && mv "$WORK/all.f" "$WORK/all" ;;
+tlb) grep -v '\.ctl$'  "$WORK/all" > "$WORK/all.f" && mv "$WORK/all.f" "$WORK/all" ;;
+esac
 sort -o "$WORK/all" "$WORK/all"
 TOTBYTES=$( (cd "$SRC" && tr '\n' '\0' < "$WORK/all" | xargs -0 stat -c%s) | awk '{s+=$1} END {print s}')
 say "$(wc -l < "$WORK/all") files, $TOTBYTES bytes (ART=$ART)"
