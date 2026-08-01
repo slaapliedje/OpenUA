@@ -20,6 +20,31 @@
 #include "macmemory.h"
 #include "sound.h"
 
+/*
+ * Per-call Sound Manager tracing — OFF unless -DFRUA_SNDTRACE.
+ *
+ * dbg_log writes to the VT-52 console with Cconws, and on a machine running
+ * the game's own framebuffer TOS's console driver renders that text STRAIGHT
+ * INTO SCREEN MEMORY. In a 16bpp VIDEL mode the mono glyph bitmap lands as a
+ * black band of coloured fragments across one text row, which sits there
+ * until the engine next redraws those rows. Hatari's --conout 2 only MIRRORS
+ * the line to the host; it does not stop the Atari-side write, so the damage
+ * happens in every build, not just under the harness.
+ *
+ * That made "snd: sfx rate" — on the path of every single sound effect — a
+ * visible flicker during normal play, reported as a blip on the screen. The
+ * traces are worth keeping for sound bring-up, so they are gated rather than
+ * deleted. Genuine one-shot and error-path logs stay unconditional: they fire
+ * once, and a line of garbage is a fair price for knowing why audio died.
+ */
+#ifdef FRUA_SNDTRACE
+#define SND_TRACE(msg)          dbg_log(msg)
+#define SND_TRACE_NUM(msg, v)   dbg_log_num((msg), (v))
+#else
+#define SND_TRACE(msg)          ((void)0)
+#define SND_TRACE_NUM(msg, v)   ((void)0)
+#endif
+
 /* Platform HAL — the Falcon DMA backend. The host-side build replaces
  * this with a stub object (sound_host.c) that satisfies the same
  * surface as no-ops. */
@@ -167,7 +192,7 @@ OSErr SndNewChannel(SndChannelPtr *chan, short synth, long init,
 	}
 	memset(c, 0, sizeof *c);
 	c->qLength = (short)(sizeof c->queue / sizeof c->queue[0]);
-	dbg_log("snd: SndNewChannel");
+	SND_TRACE("snd: SndNewChannel");
 	return 0;
 }
 
@@ -176,7 +201,7 @@ OSErr SndDisposeChannel(SndChannelPtr chan, Boolean quietNow)
 	(void)quietNow;
 	if (chan == NULL)
 		return -50;
-	dbg_log("snd: SndDisposeChannel");
+	SND_TRACE("snd: SndDisposeChannel");
 	/* The shim never knows whether the caller supplied storage or
 	 * relied on SndNewChannel to allocate — neither does the Mac in
 	 * the SndDisposeChannel surface alone. The Mac convention says the
@@ -193,10 +218,10 @@ OSErr SndPlay(SndChannelPtr chan, Handle sndHandle, Boolean async)
 	(void)async;
 	if (sndHandle == NULL || *sndHandle == NULL)
 		return -50;
-	dbg_log("snd: SndPlay");
+	SND_TRACE("snd: SndPlay");
 	rc = snd_parse_and_play(sndHandle);
 	if (rc != 0)
-		dbg_log_num("snd: SndPlay parse rc = ", (long)rc);
+		SND_TRACE_NUM("snd: SndPlay parse rc = ", (long)rc);
 	return 0;       /* engine path tolerates no-sound; never fail it */
 }
 
@@ -205,7 +230,7 @@ OSErr SndDoCommand(SndChannelPtr chan, const SndCommand *cmd, Boolean noWait)
 	(void)noWait;
 	if (chan == NULL || cmd == NULL)
 		return -50;
-	dbg_log_num("snd: SndDoCommand cmd = ", (long)cmd->cmd);
+	SND_TRACE_NUM("snd: SndDoCommand cmd = ", (long)cmd->cmd);
 	chan->cmdInProgress = *cmd;
 	return 0;
 }
@@ -214,7 +239,7 @@ OSErr SndDoImmediate(SndChannelPtr chan, const SndCommand *cmd)
 {
 	if (chan == NULL || cmd == NULL)
 		return -50;
-	dbg_log_num("snd: SndDoImmediate cmd = ", (long)cmd->cmd);
+	SND_TRACE_NUM("snd: SndDoImmediate cmd = ", (long)cmd->cmd);
 	chan->cmdInProgress = *cmd;
 	return 0;
 }
@@ -388,7 +413,7 @@ OSErr SndDriverWrite(const void *ff_buffer, long byte_count)
 	for (i = 0; i < n; i++)
 		g_snd_scratch[i] = (signed char)((int)p[FF_HEADER_BYTES + i] - 128);
 
-	dbg_log_num("snd: sfx rate = ", (long)rate_hz);
+	SND_TRACE_NUM("snd: sfx rate = ", (long)rate_hz);
 	if (plat_sound_play_mono8(g_snd_scratch, n, rate_hz) != 0)
 		return (OSErr)-1;
 	return 0;                               /* noErr */
