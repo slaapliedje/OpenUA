@@ -21860,7 +21860,21 @@ static short  jt1125(short kind, long p1, long p2)
 		 * -10372, so the party couldn't move/turn (the caravan-dungeon "walk
 		 * stall"). Combat/Hall keep the mask (g_walk_input == 0), so the phantom
 		 * ATTACK-ALLY leak stays fixed; only the walk loop gets keys as events. */
-		if ((kind & (8 | 32)) == 0 && !g_walk_input) {
+		/* ...and the exception is NARROW: only the keys l63c0's keyboard
+		 * arm actually handles. Returning ANY key as an event hands
+		 * (ascii, modifiers) to L2d3e's (mouse_y, mouse_x) hit-test — the
+		 * very phantom-hit bug the mask above fixes for combat/Hall. In the
+		 * walk loop that made a bare letter land on the MOVEMENT PAD:
+		 * traced live, 'a' (97) -> pad pollres 3 -> jt297(262) -> turn left,
+		 * and THEN the AREA accelerator fired, so one keypress turned the
+		 * party and opened the map ("A turns me left then goes to the map";
+		 * w/s/d flip you around the same way). Modifier-dependent, so it
+		 * misfires intermittently. Letters still reach the command bar via
+		 * the -818/-820 pending stamp above — that is the accelerator path,
+		 * and it does not go through the hit-test. */
+		if ((kind & (8 | 32)) == 0
+		 && (!g_walk_input
+		  || !((ascii >= 257 && ascii <= 264) || ascii == 27 || ascii == 13))) {
 			*out1 = 0;
 			*out2 = 0;
 			return 0;
