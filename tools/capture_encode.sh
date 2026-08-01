@@ -47,6 +47,10 @@ tt)     LABEL="Atari TT030   32 MHz 68030   TT-shifter, 8 bitplanes" ;;
 ste)    LABEL="Atari STe   8 MHz 68000   4 bitplanes, native planar" ;;
 aga)    LABEL="Amiga 1200 AGA   14 MHz 68020   8 bitplanes, native planar" ;;
 ecs)    LABEL="Amiga ECS   7 MHz 68000   5 bitplanes, native planar" ;;
+# The reference, not a port: SSI's own MS-DOS build (FRUA 1.2, 28 June 1993)
+# under DOSBox. Included so port behaviour can be checked against the original
+# rather than against memory — it is what settled the event-text double-render.
+dos)    LABEL="MS-DOS original   FRUA 1.2   DOSBox, 20000 cycles" ;;
 *)      echo "unknown target: $TARGET" >&2; exit 1 ;;
 esac
 
@@ -65,6 +69,7 @@ esac
 CROP=""
 case "$TARGET" in
 aga|ecs) CROP="crop=610:374:72:50," ;;
+dos)     CROP="" ;;
 esac
 
 VF="${CROP}scale=640:480:force_original_aspect_ratio=decrease:flags=neighbor"

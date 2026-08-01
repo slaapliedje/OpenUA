@@ -172,13 +172,19 @@ static const struct ap_key g_ap[] = {
 	 * theory was WRONG and the block changed nothing: the AGA was running a
 	 * DIFFERENT SCRIPT ENTIRELY, out of a second copy of g_ap[] that lived in
 	 * platform/amiga/input_amiga.c (see this file's header comment). The
-	 * reasoning above is sound and the insurance is nearly free, so it stays —
-	 * but it is not the fix for anything that has actually been observed, and
-	 * nobody should read it as evidence that the chain length varies. */
-	{ 0x1C, 0x0D,  40 }, { 0x1C, 0x0D,  40 }, { 0x1C, 0x0D,  40 },
-	{ 0x1C, 0x0D,  40 }, { 0x1C, 0x0D,  40 }, { 0x1C, 0x0D,  40 },
-	{ 0x1C, 0x0D,  40 }, { 0x1C, 0x0D,  40 }, { 0x1C, 0x0D,  40 },
-	{ 0x1C, 0x0D,  40 }, { 0x1C, 0x0D,  40 }, { 0x1C, 0x0D, 120 },
+	 * reasoning above is sound, but it is not the fix for anything that has
+	 * actually been observed, and nobody should read it as evidence that the
+	 * chain length varies.
+	 *
+	 * TRIMMED from twelve Returns to two, because the insurance was NOT free
+	 * after all: on a fast machine the surplus Returns arrive at an already
+	 * empty walk bar, and the movement keys behind them queue up against
+	 * whatever is still open. On the Falcon capture that reads as the party
+	 * refusing to move, a burst of error beeps, and then several steps at
+	 * once — which looks exactly like an engine bug and is not one. Two
+	 * spares cover a chain that runs one message long; more than that buys
+	 * noise. */
+	{ 0x1C, 0x0D,  40 }, { 0x1C, 0x0D, 120 },
 	{ 0x4B, 0,     60 },    /* Left  — turn about (1/2)              */
 	{ 0x4B, 0,     60 },    /* Left  — now facing NORTH              */
 	{ 0x48, 0,     60 },    /* Up    — (10,8) -> (9,8)               */
