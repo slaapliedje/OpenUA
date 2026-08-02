@@ -215,46 +215,51 @@ complete, runtime-pending; spell effects land, weapon damage is the next gap."
 
 ---
 
-## 3. REMAINING — the frontier, highest leverage first
+## 3. REMAINING — rewritten 2026-08-02
 
-> ⚠️ **THIS TABLE AND §5 ARE STALE (re-checked 2026-08-02).** They describe the
-> state before combat, audio and physical damage landed. Verified wrong here:
-> **`l14bc`** ("the new keystone… physical attacks deal no damage") has a full
-> body and `enhancements.md` records it DONE 2026-06-24; **`jt512`** (row 3,
-> "the field is blank without these") is a FAITHFUL NO-OP per
-> `stub_audit --stubs` — the Mac body is empty too — and `jt514`/`jt517`/
-> `jt536` all have bodies; **audio** (row 12, "every output leaf stubbed
-> (MUTED)") ships and is ear-verified, 713 lines of `platform/sound_falcon.c`.
-> Combat is runtime-driven headlessly (`FRUA_CBTPLAY`).
->
-> Do not plan from this table. The maintained sources are `docs/TODO.md`
-> (open items), `docs/enhancements.md` (P1-P4), and the audit tools
-> (`stub_audit --stubs`/`--arms`, `jt_progress.py`), which report **0 live
-> gaps, 0 deferred arms**. Rewrite this section when someone next needs it —
-> it was left in place rather than half-corrected.
+The old table is gone. It had gone stale in a way that actively cost time: it
+still named `l14bc` the keystone (lifted 2026-06-24), `jt512` a blocking stub
+(`stub_audit` classes it a FAITHFUL no-op — the Mac body is empty too), audio
+"every output leaf stubbed (MUTED)" (713 lines of `sound_falcon.c`, ear- and
+video-verified), and save/load's design-state block "the main gap" (it writes a
+10 284-byte save; verified live). Four wrong rows in one table is a planning
+hazard, so the table was replaced rather than patched.
 
-| # | Work | CODE | Scope doc | Size |
-|--:|------|:----:|-----------|------|
-| ✅ | ~~Physical-damage tier (l14bc/l030a/l022c/l1d0c/l29fc/l2b24)~~ — **DONE 2026-06-24**: melee + missile swings deal damage end-to-end | 14 | `code14-wall.md` | complete |
-| 2 | **Combat runtime bring-up** — drive a live round in Hatari (trigger: a type-1/33 event cell → `l159a`, or call `l159a(ev,1)` directly); fix what the breadth-first spine/handler lifts got wrong | 13/14/16 | `code13-wall.md` | integration pass |
-| 3 | **Combat field-render leaves** — `jt512`/`jt517` actor draw, `jt514`/`jt516`/`jt518`, `jt536`/`jt542`/`jt541` (the field is blank without these) | 14 | `code14-wall.md` | medium (~5 missing + 3 stub) |
-| ✅ | ~~Combat effect handlers (CODE 16)~~ — **DONE**, all 106 lifted | 16 | `code16-wall.md` | complete |
-| 4 | **Inventory / equip** — char-sheet items truthful + ITEMS/TRADE/DROP | 9 + 19 | `inventory-subsystem-wall.md` | small, testable now |
-| 5 | **Event-handler vocabulary** — remaining `l709e` arms (reward picker, one-shot cell flags) | 18/20 | `play-loop-wall.md` | each cheap, live-testable on a HEIRS cell |
-| 6 | **3D-render placement bug** — left-column clip (the unfinished mirror of b945821) | — | `dungeon-view-wall.md` | isolated |
-| 7 | **Rest / camp + spell memorization** — 4 magic screens (`l06d6`/`l0bc6`/`l0df2`/`l1374`/`l1e44`) | 21 | `code21-camp-wall.md` | medium |
-| 8 | **Shop / merchant** — `jt189` SELL + `jt190` IDENTIFY (no "buy" verb); untested live | 20/19/7 | `shop-merchant-wall.md` | small |
-| 9 | **Inn** (`l398a`) — gated on rest | 20 | `treasure-event-wall.md` | small, after #7 |
-| 10 | **Save/Load completion** — design-state block, slot pickers, boot auto-load | 15 | `save-load-wall.md` | medium |
-| 11 | **#129 event-bigpic frame-stomp** — composition-ordering / buffer-sharing | 20/6/5 | `event-pictures-wall.md` | isolated |
-| 12 | **Audio** — every output leaf stubbed (MUTED); needs engine→Falcon-DMA HAL glue (Device Manager `_Write`, not Sound Manager) | 5/6 | `audio-wall.md` | multi-part |
+**The tools are the authority, not this page:** `stub_audit --stubs` / `--arms`
+report **0 live gaps, 0 deferred arms**. No reachable PROBE stub exists, so
+nothing here can be "blocked by a stub". What follows is graded by EVIDENCE.
 
-**Single biggest block is now closed** — CODE 16's 106 effect handlers are all
-lifted, so spells/abilities apply for real through `jt598`→`jt599`→`l6114`. The
-new keystone is `l14bc` (#1): physical attacks resolve their plumbing but deal
-**no damage** until that PROBE no-op is lifted. Spell damage already lands.
+### A. Verified working — driven live, by the maintainer or headlessly
 
----
+Boot -> title -> menu -> design select -> Training Hall -> build/load party ->
+dungeon walk (arrows, turns, per-step events) -> 3D view -> AREA automap ->
+event text + BIGPIC chains -> treasure -> ENCAMP (VIEW MAGIC REST ALT FIX LOAD
+SAVE EXIT) -> **save to an A-J slot (10 284-byte design-state block)** ->
+combat (headless auto-turn, `FRUA_CBTPLAY`) -> magic end-to-end (capacity ->
+memorize -> rest -> cast, 2026-07-14) -> audio. Five targets build and boot:
+Falcon, TT, ST/STE, Amiga AGA, Amiga ECS. Mono boots too, with the Mac art set.
+
+### B. Lifted but NOT live-verified — the real frontier
+
+Nothing here is known broken; nobody has driven it. Each is a drive, not a lift.
+
+| Work | Where | How to verify |
+|---|---|---|
+| Shop SELL / IDENTIFY | `jt189` / `jt190` | HEIRS shop event cell |
+| Inn | `l398a` | gated behind rest, which works |
+| Inventory ITEMS / TRADE / DROP | `jt904` submenu | char sheet; the DISPLAY is done |
+| `jt251` case 5 (mode-5 redraw hint) | CODE 2 | correct by construction + sibling `jt253`; never seen to fire |
+| Save/load on the NON-Falcon ports | CODE 15 | same ENCAMP -> SAVE drive, per target |
+
+### C. Genuinely open
+
+| Work | Note |
+|---|---|
+| **Boot auto-load** | the one save/load piece still missing |
+| **Mono's six chrome families** | ALWAYS/FRAME/GEN/MENU/TITLE/TOPVIEW — lifts the Mac-only caveat (see `docs/TODO.md`) |
+| **Present-cost narrowing** | glyph (2 557) + fill (1 653) touch-all announcements dominate; 135 of 200 rows are presented per present on the TT. Palette and cursor are already at ZERO |
+| **Play-loop planar measurement** | the "~47% of rows convert" figure is a BOOT number; post-menu screens converted zero |
+| **Smooth-scroll + move sound** | cosmetic, deferred |
 
 ## 4. DEFERRED — editor / authoring tools (⏸ ADR-0008: runtime first)
 
@@ -271,22 +276,17 @@ Not gaps — deliberately last. Charted when the authoring-tools track opens.
 
 ## 5. Bottom line
 
-Foundation, front door, and dungeon traversal are **done and play**, and the
-front-of-game loop is now solid end-to-end: boot → design-select → empty Hall →
-build/load party → View/Modify/Create → walk the dungeon. Combat went from "not
-started" to **spine fully lifted** (both turn-dispatch sides, Turn Undead, Cast
-Spell, all CODE-16 effect handlers) — stub-free but **runtime-untested**. The
-remaining frontier is concentrated and nameable:
+**The game plays, on real hardware, on five targets.** Boot -> party -> dungeon
+-> events -> combat -> camp -> save. A Falcon 030@50 runs it from an installed
+hard-drive image; engine + data media exist for Falcon/TT, Mega ST, Amiga AGA
+and Amiga ECS.
 
-1. **Combat runtime bring-up** (`#115`) — drive a live round in Hatari, fix what
-   the breadth-first spine got wrong; physical-damage plumbing resolves but the
-   field-render leaves (`jt512`/`jt517`…) are still stubs so the field is blank.
-2. **Inventory / equip** — small, makes the char sheet truthful (View Character's
-   bottom panel is empty until this lands).
-3. **Off-screen compose** (`#144`) — present once per screen (kills the residual
-   grey-flash; faithful `jt1146`/`jt1153` double-buffer).
+The centre of gravity has moved again — from "can it fight" (yes) to **"has
+anyone actually driven every screen?"** Section B is the honest frontier: code
+that is lifted, stub-free and unexercised. That is a testing campaign, not a
+lifting one, and it is why the editor end-goal (author a small dungeon and play
+it) is a better acceptance test than any coverage percentage.
 
-Everything else is bounded polish (event vocab, 3D render bugs `#129`, camp,
-shop, save-completion, audio) and the deliberately-deferred editor. Center of
-gravity has moved from "can it boot and walk" (yes) to "can it fight" (spine
-yes, runtime + field-render next).
+⚠️ **Do not plan from a percentage on this page.** The per-CODE table in §1
+counts JT entries, and anything lifted under an `lXXXX` name counts as
+"missing" — the editor's 25-41% figures are undercounts of unknown size.
