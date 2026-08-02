@@ -110,7 +110,7 @@ D=.claude/skills/run-falcon-port/driver.sh
                            #   route to the 3D view/combat. Mono ST is slow: prefix
                            #   PLAY_STEP_DELAY=6. Needs a design starting on a level>=5.
 "$D" wait 'regex' [n]      # block until the conout log has >= n matches
-"$D" log                   # dump the conout log (engine printf / dbg_log)
+"$D" log                   # dump the conout log — BUT SEE THE SINK SWITCH BELOW
 "$D" dbg '<cmd>'           # run a Hatari-debugger command (see below)
 "$D" quit                  # GRACEFUL shutdown (finalizes an open AVI recording)
 "$D" stop                  # kill Hatari (leaves Xvfb up for reuse)
@@ -356,6 +356,30 @@ make run-game DSN=HEIRS.DSN    # stage game data + boot (HEIRS sample module)
 ```
 
 Useless headless (a window opens and waits) — use the driver instead.
+
+## ★ The conout log STOPS at `videl_init: words/row` — by design
+
+`dbg_log` has two sinks and swaps between them: **Cconws until the display
+takes the screen, then `DBG.LOG`**. `dbg_log_screen_owned()` (display_videl.c,
+mirrored in the TT and ST-high backends) does the swap right after the
+`words/row` line, because every Cconws after the takeover paints into the
+picture (see the `dbglog-paints-the-screen` note).
+
+So on EVERY healthy Falcon boot the conout log ends at:
+
+    videl_init: words/row= 320
+
+and everything after it — `main: display up`, `frua.rsc loaded`, the whole
+engine trail — is in **`$GEMDOS_DIR/DBG.LOG`**. A conout log that stops there
+is not a hang. I read it as one and spent a session chasing a phantom "the
+binary stalls when you boot it off the floppy"; the engine had in fact
+initialised completely and was sitting on a missing-game-data screen.
+
+To get the full trail on the console (worth it when DBG.LOG cannot be written —
+booting off a floppy, for instance), comment out the `dbg_log_screen_owned()`
+call and rebuild. Use the RELEASE flags if it has to fit on a 1.44 MB disk:
+a dev `frua.prg` is 4.6 MB, a stripped `NOEMBED=1 -DFRUA_RELEASE` one is 1.05 MB.
+
 
 ## Resuming a save without the keystrokes (`autoload.dat`)
 

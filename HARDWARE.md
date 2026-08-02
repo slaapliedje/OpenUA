@@ -109,6 +109,15 @@ failure to launch.
 `UAINST` (`UAINST.TTP` / `uainst`) is optional and installs DOS fan modules
 from their ZIP, converting the art in place.
 
+**Step 3 is not optional, and running the engine straight off the disk looks
+broken.** Launched from the floppy, it initialises fully — display, sound,
+`frua.rsc` — and then hits a black screen, because the game data it needs is
+not on that disk and cannot fit (the minimum install is ~7.4 MB). There is no
+message: booted from a floppy it also cannot write its own `DBG.LOG`, so there
+is no trail either. Verified in Hatari 2026-08-02, and it is the same black
+screen you get running from a hard disk with the data missing — the engine is
+fine, it simply has nothing to load. Copy the binary next to your data first.
+
 ## What is worth reporting
 
 Anything at all, but especially:
