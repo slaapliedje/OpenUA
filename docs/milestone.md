@@ -217,6 +217,22 @@ complete, runtime-pending; spell effects land, weapon damage is the next gap."
 
 ## 3. REMAINING — the frontier, highest leverage first
 
+> ⚠️ **THIS TABLE AND §5 ARE STALE (re-checked 2026-08-02).** They describe the
+> state before combat, audio and physical damage landed. Verified wrong here:
+> **`l14bc`** ("the new keystone… physical attacks deal no damage") has a full
+> body and `enhancements.md` records it DONE 2026-06-24; **`jt512`** (row 3,
+> "the field is blank without these") is a FAITHFUL NO-OP per
+> `stub_audit --stubs` — the Mac body is empty too — and `jt514`/`jt517`/
+> `jt536` all have bodies; **audio** (row 12, "every output leaf stubbed
+> (MUTED)") ships and is ear-verified, 713 lines of `platform/sound_falcon.c`.
+> Combat is runtime-driven headlessly (`FRUA_CBTPLAY`).
+>
+> Do not plan from this table. The maintained sources are `docs/TODO.md`
+> (open items), `docs/enhancements.md` (P1-P4), and the audit tools
+> (`stub_audit --stubs`/`--arms`, `jt_progress.py`), which report **0 live
+> gaps, 0 deferred arms**. Rewrite this section when someone next needs it —
+> it was left in place rather than half-corrected.
+
 | # | Work | CODE | Scope doc | Size |
 |--:|------|:----:|-----------|------|
 | ✅ | ~~Physical-damage tier (l14bc/l030a/l022c/l1d0c/l29fc/l2b24)~~ — **DONE 2026-06-24**: melee + missile swings deal damage end-to-end | 14 | `code14-wall.md` | complete |
