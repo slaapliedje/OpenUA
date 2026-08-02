@@ -28,7 +28,7 @@ Legend: ✅ works end-to-end · 🟡 partial / buggy · 🔴 gated/missing · �
 |--:|-----------------|:------:|------------------------------|
 | A | Boot → title → main menu → **Select a Design** | ✅ | Foundation (CODE 1/3/4/5/6/7/8) + front door done. Picker verified. |
 | B | **Char-gen** + **Training Hall** + party mgmt | ✅ | Create/Modify/Train/Add/Remove/Delete + roster; party model is the faithful -27928 list (#141). |
-| C | **Save / Load** | 🟡 | Party round-trip done (#141). Pending: ~10KB design-state block, A–J slot pickers, boot auto-load. |
+| C | **Save / Load** | ✅ | Full round-trip through the faithful CODE-15 serializer (10 284-byte slot), A–J pickers, verified on all five ports 2026-08-02. Boot auto-load is an opt-in port option (`autoload.dat`); the Mac has none. |
 | D | **Dungeon entry + walk** | ✅ | Walks + turns with arrows (HEIRS); per-step `l709e` fires on the new cell (Gap-1 closed). |
 | E | **Dungeon 3D render** | 🟡 | Navigable corridor renders, but TWO known bugs: (1) **wall-piece placement clips the left ~2/3 columns** (render-X off-screen — the unfinished mirror of the b945821 right-side fix, `jt199`/`jt200`/`l5b42`→`l309c`); (2) **#129 frame "nuked"** by the event-picture FAR-pool stomp. |
 | F | **Dungeon EVENTS** (`l709e`, 39 arms) | 🟡 | **16 handlers lifted** (text `l4d26` 2/14, give-treasure `l28b0` 3/25, stairs `l5676` 5/11/34, tavern `l4f9a` 7, shop `l5586` 8, temple `l216a` 9, conditional/stat-check `l1ad8` 15, vault `l3a32` 24, **pass-time `l5fcc` 27 ✅, set-rumors `l661c` 37 ✅, set-flag `l66cc` 38 ✅ NEW**, combat-prompt `l3b0e`/`l673e` 10/21, Yes/No question `l3118` 36). **~17 still STUB** — and the next cheap ones gate on subsystems (see below). |

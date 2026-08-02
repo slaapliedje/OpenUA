@@ -14,8 +14,8 @@ stand-in.
 > **Re-verified live on the Falcon:** ENCAMP -> SAVE -> the A-J picker renders
 > and slot J wrote `HEIRS.DSN/SavGamJ.csv`, 10 284 bytes, 21% non-zero and 99%
 > byte-identical in shape to an independently-made slot B save. Save/load
-> WORKS. What remains is boot auto-load, and confirmation on the non-Falcon
-> ports.
+> WORKS. What remained after that was boot auto-load and confirmation on the
+> non-Falcon ports — both closed below, on 2026-08-02.
 >
 > ✅ **ALL FIVE PORTS CONFIRMED (2026-08-02).** Load-then-play verified on
 > Falcon 030 (TOS 4.04), TT030 (EmuTOS 1.3.0), ST 8 MHz (TOS 2.06, ST-Low),
@@ -23,12 +23,43 @@ stand-in.
 > characters come back with identical AC/HP, then BEGIN ADVENTURING enters the
 > authored dungeon. The **write** side was re-confirmed on ECS too — camp →
 > SAVE → slot C produced a 10 284-byte `SavGamC.csv` differing from the
-> fixture in 46 bytes (position, facing, clock, per-character state). The one
-> piece still missing is **boot auto-load**.
+> fixture in 46 bytes (position, facing, clock, per-character state).
 >
 > The drive that makes this portable is **keyboard-only** — `p` → `l` → slot
 > letter → `b`, no coordinates — so one script runs on every machine. Clicks
 > position the pointer on the slot pickers but do not commit there.
+>
+> ✅ **BOOT AUTO-LOAD SHIPPED (2026-08-02) — and the Mac has none.** Before
+> building it I checked three ways: the whole binary holds exactly **three
+> `SavGam` string references and all three are in CODE 15's INTERACTIVE
+> save/load** (`jt582`'s picker, `jt585`'s save), so no boot path names a slot;
+> the port's own boot auto-load (`port_load_savgame`) was retired ON PURPOSE in
+> 2026-07 under direction (B) of `docs/play-entry-wall.md`; and `start.dat`'s
+> second field — which `jt128`'s comment calls "the resume flag" — is really
+> `-18476`, the packed area (mode, kind) nibble pair that `jt275` writes and
+> `l4810` reads. The comment guessed. So the entry that sat here as "the one
+> save/load piece still missing" was a leftover from before direction (B), not
+> a faithfulness gap.
+>
+> What ships is therefore a **port convenience, opt-in, off by default**: one
+> byte — the slot letter — in `autoload.dat` beside the game data. It resolves
+> against the CURRENT design (so it follows `start.dat`), fires at most once
+> per run, and reuses `l143e` + `jt582`'s position-restore tail verbatim, which
+> is why it resumes at the SAVED cell. `ua_main` skips the main menu for the
+> first pass only when the slot actually opens, so a dud configuration leaves
+> the faithful boot untouched. Verified zero-key into the dungeon on the Falcon
+> and on Amiga AGA; a nonexistent slot falls back to the menu and logs
+> `autoload: no such slot`.
+>
+> ★ **Two traps it walked into, both worth knowing.** (1) Skipping `jt315`
+> also skips `load_menu_ui`, and then EVERY scrap of HUD text is invisible —
+> roster, coords, clock, button labels — because `port_hud_text_clut` bails on
+> `g_menu_state != 1` and the dungeon's clut 129 leaves the text indices
+> grey-on-grey. Chrome and the 3D view render perfectly, so it reads as a font
+> bug. `frua_areatest_entry` already had the same call for the same reason.
+> (2) With autoload armed the harness marker **`menu: modal up` never fires** —
+> both menus are skipped. Wait for `autoload: resumed` instead, or the driver's
+> `start` will sit there until it times out.
 
 Layer: the serializer core is **CODE 15** (jt577–jt587). Char-gen review/finalize
 (jt570–jt573, CODE 17) is a *separate* concern and **not** part of save/load.
@@ -284,9 +315,12 @@ boot.c:28837):
    COUPLING NOTE: jt952/jt951 are also the faithful play-mode setup the port's
    l07dc/l63c0 entry reimplements — full convergence is part of task #100.
 
-8. **boot auto-load + design-select-on-load** — a boot path that auto-loads
-   slot A (retiring `port_load_savgame`) + the camp Load "abandon game?" gate
-   (boot.c:50949) + design-select-on-load. The case-sensitivity of the *shipped*
+8. ~~**boot auto-load**~~ — **DONE 2026-08-02** as the opt-in `autoload.dat`
+   port option (see the header). Note the 2026-06 note above is still accurate
+   about WHY it cannot run at the boot seed: it runs at play-entry, in `l07dc`,
+   which is the earliest point where `-28006` is live and `l143e` has the
+   in-game context it assumes. Still open here: the camp Load "abandon game?"
+   gate (boot.c:50949) + design-select-on-load. The case-sensitivity of the *shipped*
    `SAVGAMA.CSV` vs the port's `SavGamA.csv` is now handled in the picker, but a
    cross-design save namespace (the shim flattens `<design>/SAVE/`) is still open.
 

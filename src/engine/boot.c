@@ -2414,6 +2414,9 @@ static void  jt949(void)                           { PROBE("jt949"); }          
  * DLItem machinery it drives (jt447 / jt452 / l2c60 / jt94 / jt453); the
  * forward declaration lets ua_main's play loop call it. */
 static int   jt315(void);
+static void  jt215(void);       /* jt315's head — primes the automap stride */
+static void  load_menu_ui(void);         /* UI palette (g_menu_pal/-state)   */
+int          port_autoload_armed(void);  /* port-local, defined near jt582   */
 
 /* Intra-CODE-6 helpers, still to lift. */
 static void  l0444(void);       /* CODE 6 + 0x0444 — start.dat design-name
@@ -2773,11 +2776,41 @@ int ua_main(short arg1, long arg2)
 	 * / _UnLoadSeg paging it is just this: run JT[949], JT[956], JT[920]
 	 * and the per-iteration body L07dc while JT[315] stays true.
 	 */
-	while (jt315()) {
-		jt949();
-		jt956();
-		jt920();
-		l07dc();
+	/* PORT-LOCAL, opt-in: with "autoload.dat" armed, skip the main menu for the
+	 * FIRST pass so a launch lands straight in the saved game — otherwise the
+	 * option would still cost a "Play the Game" click. jt215() is jt315's own
+	 * head (it primes the automap cell stride g_a5_-12272, without which an
+	 * editor entry divides by zero), so it has to run even when the menu does
+	 * not. Everything after the first pass is the faithful menu loop; if the
+	 * slot turns out to be missing, l07dc's autoload declines and the Training
+	 * Hall comes up empty exactly as it would have. */
+	{
+		int skip_menu = port_autoload_armed();
+
+		for (;;) {
+			if (skip_menu) {
+				skip_menu = 0;
+				/* jt315's own head: primes the automap cell stride
+				 * g_a5_-12272 (an editor entry divides by it). */
+				jt215();
+				/* ★ AND the UI palette. Without this the play screen
+				 * renders but every scrap of HUD TEXT is invisible —
+				 * roster, coords, clock, button labels — because
+				 * port_hud_text_clut bails on g_menu_state != 1 and the
+				 * dungeon's clut 129 leaves the text indices grey-on-
+				 * grey. Chrome and the 3D view look perfect, which makes
+				 * it read as a font bug rather than a missing palette.
+				 * frua_areatest_entry has the same call for the same
+				 * reason. */
+				load_menu_ui();
+			} else if (jt315() == 0) {
+				break;
+			}
+			jt949();
+			jt956();
+			jt920();
+			l07dc();
+		}
 	}
 
 	/* Shutdown. (L4d7a, called here in the Mac build, is an empty stub.) */
@@ -5271,8 +5304,12 @@ static int           jt943(void)
  * are lifted and the same globals show up there. */
 /* g_a5_27990 / g_a5_28006 are macros at the top of the file. */
 
+static int  port_autoload_savegame(void);   /* port-local, defined near jt582 */
+
 static void l07dc(void)
 {
+	int autoload;
+
 #ifdef FRUA_PUMPTRACE
 	{ static long n; if ((n++ % 2000) == 0) dbg_log("pump: l07dc"); }
 #endif
@@ -5296,6 +5333,12 @@ static void l07dc(void)
 	g_a5_18878 = (short)g_a5_18828;
 	g_a5_18488 = (unsigned char)(g_a5_18827 - 1);
 
+	/* PORT-LOCAL, opt-in: "autoload.dat" resumes a slot without the Hall. Runs
+	 * ONCE — leaving play and re-entering gets the faithful Training Hall, so
+	 * the option cannot trap you in a resume loop. See port_autoload_savegame:
+	 * the Mac has no boot auto-load, and this is deliberately off by default. */
+	autoload = port_autoload_savegame();
+
 	for (;;) {
 		jt942(0);
 		jt52(255);                      /* stop all voices */
@@ -5306,6 +5349,14 @@ static void l07dc(void)
 				jt101("No saved games!", 11, 0);
 				return;
 			}
+			g_a5_27990 = g_a5_27989;
+			if (g_a5_27990 == 0)
+				g_a5_27990 = 4;
+			jt941();
+		} else if (autoload) {
+			/* Same shape as the resume branch above — the party is already
+			 * in, so skip the Hall and hand straight to the play loop. */
+			autoload = 0;
 			g_a5_27990 = g_a5_27989;
 			if (g_a5_27990 == 0)
 				g_a5_27990 = 4;
@@ -40794,6 +40845,146 @@ static void jt582(void)
 		g_a5_18878 = (short)player[19];
 	}
 }
+
+/* ---------------------------------------------------------------------------
+ * PORT-LOCAL: auto-load a save slot at play-entry ("autoload.dat").
+ *
+ * ★ THE MAC HAS NO BOOT AUTO-LOAD. Three checks say so: the whole binary
+ * contains exactly three "SavGam" string references and all three are in
+ * CODE 15's INTERACTIVE save/load (jt582's picker, jt585's save); the port's
+ * own boot auto-load (port_load_savgame) was retired on purpose in 2026-07
+ * under direction (B) of docs/play-entry-wall.md; and start.dat's second
+ * field — which jt128's comment calls "the resume flag" — is really -18476,
+ * the packed area (mode, kind) nibble pair that jt275 writes and l4810 reads.
+ * So this is a PORT CONVENIENCE, deliberately opt-in, and the faithful boot
+ * (empty party -> Training Hall) is unchanged when it is off.
+ *
+ * Opt in by putting ONE byte — the slot letter 'A'..'J' — in `autoload.dat`
+ * next to the game data. Anything else (missing file, empty, out of range)
+ * leaves the feature off. The slot is resolved against the CURRENT design,
+ * so it follows start.dat: `<design>.DSN\SavGam<X>.csv`.
+ *
+ * The load itself is NOT a new path — it is exactly what jt582 does once the
+ * player has picked a slot (l143e + the position-restore tail), with only the
+ * picker skipped. That matters: l143e is the faithful post-load restore
+ * (jt579 + portraits + jt198 GEO reload + jt952 dungeon mode + jt85 palette),
+ * and reusing it is why this resumes at the SAVED cell rather than the design
+ * entry point.
+ *
+ * ★ WHY PLAY-ENTRY AND NOT BOOT. Running l143e at the boot seed was tried in
+ * 2026-06 and REVERTED: it corrupts the display and SysBeeps, because l143e is
+ * an in-game-context function and -28006 is not live until ua_main's l4cc0 has
+ * run. l07dc is the earliest point where the environment jt582 assumes exists.
+ */
+static int s_autoload_done;                  /* one-shot: set once it has fired */
+
+static int port_autoload_slot(void)
+{
+	static int    cached = -1;           /* read the file once per run */
+	unsigned char c = 0;
+	short         ref;
+
+	if (cached >= 0)
+		return cached;
+	cached = 0;
+
+	ref = jt398("autoload.dat", (short)0);
+	if (ref < 0)
+		return 0;                        /* not opted in — the normal case */
+	if (jt401(ref, &c, (short)1) != 1)
+		c = 0;
+	jt411(ref);
+
+	if (c >= 'a' && c <= 'z')
+		c = (unsigned char)(c - 32);
+	if (c < 'A' || c > 'J') {
+		dbg_log("autoload: autoload.dat holds no slot letter A-J — ignored");
+		return 0;
+	}
+	cached = (int)c;
+	return cached;
+}
+
+/* Fill `out` with the configured slot's path and return 1 when that file is
+ * actually openable. Both callers go through this, which is what keeps a
+ * dud configuration harmless: ua_main asks BEFORE it decides to skip the main
+ * menu, so a slot that names nothing on disk leaves the faithful boot intact
+ * instead of dumping the player into an empty Training Hall with no menu
+ * behind them. (Probing is also the only way to tell "the slot is missing"
+ * from "the slot loaded an empty party" — l143e's own FSOpen failure is
+ * silent.) */
+static int port_autoload_path(char *out)
+{
+	unsigned char pstr[64];
+	short         ref;
+	int           slot = port_autoload_slot();
+
+	if (slot == 0)
+		return 0;
+	savgam_path(out, slot);
+	str_c2p(pstr, out);
+	if (FSOpen((ConstStr255Param)pstr, 0, &ref) != noErr) {
+		dbg_file_str("autoload: no such slot: ", out);
+		return 0;
+	}
+	(void)FSClose(ref);
+	return slot;
+}
+
+/* Armed = opted in, the slot exists, and it has not fired yet. */
+int port_autoload_armed(void)
+{
+	char fn[44];
+
+	return (!s_autoload_done && port_autoload_path(fn) != 0) ? 1 : 0;
+}
+
+/* Load the configured slot without the picker. Returns 1 when the party is in.
+ * Fires at most ONCE per run: leaving play and re-entering gets the faithful
+ * Training Hall, so the option cannot trap the player in a resume loop. */
+static int port_autoload_savegame(void)
+{
+	char           fn[44];
+	unsigned char *player;
+	int            slot;
+
+	if (s_autoload_done)
+		return 0;
+	slot = port_autoload_path(fn);
+	if (slot == 0)
+		return 0;
+	s_autoload_done = 1;
+
+	/* jt582's post-pick tail, minus the UI. -6923 is the committed slot that
+	 * l143e copies into -22218. */
+	g_a5_22733 = 1;
+	g_a5_byte(-6923) = (signed char)slot;
+	l143e(fn);
+	g_a5_27990 = 0;
+
+	player = (unsigned char *)g_a5_28006;
+	if (player == NULL) {
+		dbg_log("autoload: no player record after l143e — giving up");
+		return 0;
+	}
+	if (g_a5_18485 != 0) {                   /* overland: globals -> record */
+		player[38] = g_a5_12287;
+		player[37] = g_a5_12288;
+	} else {                                 /* dungeon: record -> globals */
+		g_a5_12288 = player[67];
+		g_a5_12287 = player[68];
+		g_a5_12286 = player[17];
+	}
+	g_a5_18878 = (short)player[19];
+
+	if (g_a5_27928 == 0) {                   /* l143e ran but restored nobody */
+		dbg_file_str("autoload: slot loaded but the party is EMPTY: ", fn);
+		return 0;
+	}
+	dbg_file_str("autoload: resumed ", fn);
+	return 1;
+}
+
 /* JT[904] (CODE 19 + 0x213e) — Add Character roster screen.
  *
  * Structural level-2 lift. The interactive body is a do/while

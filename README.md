@@ -157,6 +157,23 @@ make run-game DSN=HEIRS.DSN     # stage the shared libraries + a design, boot Ha
 chosen `.DSN` into `data/work/gamedata/` (the GEMDOS `C:` mount) without
 disturbing any characters you created.
 
+### Resuming a save on launch (optional)
+
+Put a single byte — a save-slot letter `A`..`J` — in a file called
+**`autoload.dat`** beside the game data, and the engine skips the menus on
+startup and drops you straight back into that save, at the cell you left it:
+
+```sh
+printf 'B' > autoload.dat     # resume slot B on launch
+rm autoload.dat               # back to the normal title-menu boot
+```
+
+The slot is resolved against whichever design is current, so it follows the
+game's own `start.dat`. It fires once per run — leave the dungeon and you get
+the usual Training Hall. This is an OpenUA convenience: the original has no
+such thing, and without the file the boot is exactly as it always was. If the
+named slot does not exist, you simply get the normal menu.
+
 ## Using DOS FRUA data and fan modules
 
 FRUA's whole point is that players build their own adventures, and a large

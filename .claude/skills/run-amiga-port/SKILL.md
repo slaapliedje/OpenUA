@@ -183,6 +183,27 @@ D=.claude/skills/run-amiga-port/driver.sh
   `data/work/amiga-mount/start.dat` (zero the rest), and restore `HEIRS.DSN`
   after.
 
+## Resuming a save without the keystrokes (`autoload.dat`)
+
+A one-byte `autoload.dat` beside the game data — the slot letter `A`..`J` —
+makes the engine skip BOTH menus on the first pass and land straight in the
+saved game, at the saved cell, party restored. It resolves against the current
+design from `start.dat`, so `<design>.DSN\SavGam<X>.csv`. This replaces the
+four-key `p` / `l` / slot / `b` drive in any harness run that just needs to be
+in the dungeon.
+
+```bash
+printf 'B' > data/work/gamedata/autoload.dat     # arm it
+rm     data/work/gamedata/autoload.dat           # back to the faithful boot
+```
+
+★ **`menu: modal up` NEVER FIRES when it is armed** — both menus are skipped,
+and that marker is what `start` blocks on, so `start` will sit there until it
+times out. Wait for **`autoload: resumed <path>`** in the log instead, or boot
+the emulator directly. A slot that does not exist logs `autoload: no such
+slot` and falls back to the normal menu boot, so an armed-but-wrong
+configuration looks like an ordinary boot, not a hang.
+
 ## Test
 
 `make test` (host pytest) covers the Amiga c2p transpose

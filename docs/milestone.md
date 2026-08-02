@@ -172,8 +172,10 @@ dungeon** — the full front-of-game journey is real, faithful, and Hatari-verif
   roster names state-coloured (grey / blue-selected) via the faithful `jt25`.
 - **Play-entry flow** (2026-06-26): boot lands in an **empty** Hall (Mac-faithful);
   the player builds the party via Load Saved Game / Add — no more boot auto-load.
-- **Save / Load**: party round-trip done; ⏸ pending ~10KB design-state block,
-  A–J slot pickers polish, boot auto-load.
+- **Save / Load**: DONE. Full round-trip (party + the 10 284-byte slot) through
+  the faithful CODE-15 serializer, A–J pickers live, verified on all five ports
+  2026-08-02. Boot auto-load shipped as an opt-in port option (`autoload.dat`) —
+  the Mac itself has none, see `docs/save-load-wall.md`.
 - **Display polish** (2026-06-26): cursor **save-under** ends the mouse-move
   "smear" (the VBL pointer no longer erases from the live compose buffer).
 
@@ -249,13 +251,13 @@ Nothing here is known broken; nobody has driven it. Each is a drive, not a lift.
 | Inn | `l398a` | gated behind rest, which works |
 | Inventory ITEMS / TRADE / DROP | `jt904` submenu | char sheet; the DISPLAY is done |
 | `jt251` case 5 (mode-5 redraw hint) | CODE 2 | correct by construction + sibling `jt253`; never seen to fire |
-| Save/load on the NON-Falcon ports | CODE 15 | same ENCAMP -> SAVE drive, per target |
+| Save/load on the NON-Falcon ports | CODE 15 | DONE 2026-08-02 — verified on all five (Falcon, TT, ST, Amiga AGA, Amiga ECS) |
+| Boot auto-load | port-local | DONE 2026-08-02 — and the Mac has NO boot auto-load; see `docs/save-load-wall.md` |
 
 ### C. Genuinely open
 
 | Work | Note |
 |---|---|
-| **Boot auto-load** | the one save/load piece still missing |
 | **Mono's six chrome families** | ALWAYS/FRAME/GEN/MENU/TITLE/TOPVIEW — lifts the Mac-only caveat (see `docs/TODO.md`) |
 | **Present-cost narrowing** | glyph (2 557) + fill (1 653) touch-all announcements dominate; 135 of 200 rows are presented per present on the TT. Palette and cursor are already at ZERO |
 | **Play-loop planar measurement** | the "~47% of rows convert" figure is a BOOT number; post-menu screens converted zero |
