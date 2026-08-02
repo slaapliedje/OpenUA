@@ -3,8 +3,19 @@
 Goal: a faithful round-trip of a full FRUA save — the adventuring **party** *and*
 the **design-state** block — through the real CODE-15 serializer, with the A–J
 slot pickers and the load-confirm modal, retiring the `port_load_savgame`
-stand-in. Party-only round-trip already works (#141); the design-state block is
-the main gap.
+stand-in.
+
+> ⚠️ **THIS HEADER WAS STALE (corrected 2026-08-02).** It said "party-only
+> round-trip already works (#141); the design-state block is the main gap",
+> and `docs/gap-analysis.md` row C repeated it — while the TABLE BELOW already
+> recorded `jt585` as **LIFTED + Hatari-verified (A-J pick -> 10284B save)**
+> and `jt580` as **LIFTED (party block + design-state pad)**. The stale header
+> cost a wrong "save/load is the top remaining gap" call in an audit.
+> **Re-verified live on the Falcon:** ENCAMP -> SAVE -> the A-J picker renders
+> and slot J wrote `HEIRS.DSN/SavGamJ.csv`, 10 284 bytes, 21% non-zero and 99%
+> byte-identical in shape to an independently-made slot B save. Save/load
+> WORKS. What remains is boot auto-load, and confirmation on the non-Falcon
+> ports.
 
 Layer: the serializer core is **CODE 15** (jt577–jt587). Char-gen review/finalize
 (jt570–jt573, CODE 17) is a *separate* concern and **not** part of save/load.

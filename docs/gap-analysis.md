@@ -3,7 +3,10 @@
 > and **F** ("~17 event handlers still STUB") are the two most likely to be
 > read as current and are NOT — `stub_audit --stubs` reports **0 live gaps**,
 > and every play screenshot since shows a full corridor with both walls. Row
-> **C** (save/load) IS still real: the design-state block remains the gap.
+> **C** (save/load) is ALSO DEAD — I got this one wrong on 2026-08-01 and
+> re-verified live on 2026-08-02: ENCAMP -> SAVE -> the A-J picker renders and
+> writes a 10 284-byte design-state save. See the banner on
+> `docs/save-load-wall.md`.
 > Do not cite this page for status; cite `docs/enhancements.md` or re-run the
 > audit tools.
 > Every function this page calls a stub classifies REAL today, and combat, the
