@@ -82,6 +82,23 @@ data media for Falcon/TT, Mega ST, Amiga AGA and Amiga ECS.
    `docs/planar-plan.md`.
 5. **1.0.0 is RESERVED for real hardware** and deliberately not cut yet; the
    user has asked to stay on 0.9.x while game-breaking bugs remain.
+6. ~~Amiga input does not commit — the save/load round-trip is stuck on
+   Falcon/TT/ST.~~ **CLOSED 2026-08-02 — IT WAS THE HARNESS, NOT THE PORT.**
+   `xdotool windowactivate` drives EWMH `_NET_ACTIVE_WINDOW`, which a bare
+   Xvfb (no window manager) does not support; the amiga driver chained it into
+   ONE invocation as `windowactivate --sync $w key p`, so the failure aborted
+   the chain and **the keystroke was never sent** — silently, from the caller's
+   side. It also killed `start`'s mouse-capture click, which is why the
+   emulated pointer looked positioned (driver-side bookkeeping) but never
+   clicked. `windowfocus` needs no WM and fixes both. A second harness bug sat
+   behind it: flatpak's x11 socket sharing **rewrites `DISPLAY` inside the
+   sandbox**, so `--env=DISPLAY=:99` was ignored and the window kept opening on
+   the user's desktop; only the launching shell's `DISPLAY` counts.
+   With those fixed, **AGA and ECS both complete the round-trip** and the
+   save/load matrix is 5 of 5 (see `docs/save-load-wall.md`). Beware the
+   latency trap this hid behind: on the 7 MHz ECS build a committed click can
+   take ~30 s to paint, which reads exactly like a dropped click and invites
+   crediting whatever you tried second.
 
 ## Play-screen HUD polish (future work)
 

@@ -23,8 +23,13 @@ quirks amiberry needs. Paths below are relative to the repo root.
   `__stack` global (small enough to survive the ~4 KB default; uainst needs
   more and self-manages via StackSwap).
 - Host tools: `xdotool`, `xwininfo`, ImageMagick `import`, `parec` (pulse).
-- **A desktop display on `:0`** — the amiberry window opens there, NOT on an
-  Xvfb (override with `FRUA_AMIGA_DISPLAY` if your desktop differs).
+- **A display for the window.** `FRUA_AMIGA_DISPLAY` (default `:0`) selects it,
+  and amiberry runs happily on a bare **Xvfb** — prefer `:99` so the pointer
+  warping and key injection never touch the user's real desktop. The driver
+  exports `DISPLAY` for the flatpak launch itself, which is load-bearing:
+  **flatpak's x11 socket sharing REWRITES `DISPLAY` inside the sandbox**, so
+  `flatpak run --env=DISPLAY=:99` is silently ignored and the window still
+  opens on the host's `:0`. Only the launching shell's `DISPLAY` decides.
 
 ## Run / drive (agent path)
 
@@ -146,6 +151,37 @@ filesystem2=rw,DH0:OpenUA:/home/jfergus/dev/OpenUA/data/work/amiga-mount,1
   `boot 120` (not the frua-only `start`), then poll DBG.LOG for `menu: modal up`.
 - Restore an AGA build (`make MACHINE=amiga && cp frua data/work/amiga-mount/`)
   when done, so the default `openua.uae` config works next time.
+- `start` DOES work here despite the older advice to use `boot 120` — its wait
+  is 60 × 3 s = 180 s, comfortably past the ~105 s ECS boot.
+
+## Driving play: the save/load round-trip
+
+Verified end-to-end on AGA and ECS (2026-08-02), the same keystrokes that drive
+Falcon/TT/ST. No coordinates — see the keyboard-only gotcha below.
+
+```bash
+export FRUA_AMIGA_DISPLAY=:99          # keep it off the user's desktop
+D=.claude/skills/run-amiga-port/driver.sh
+"$D" start                              # AGA; add AMIBERRY_CONF=…/openua-ecs.uae for ECS
+"$D" key p                              # PLAY THE GAME  -> the Hall
+"$D" key l                              # LOAD SAVED GAME -> "LOAD WHICH GAME: B"
+"$D" key b                              # the slot letter -> party restored
+"$D" key b                              # BEGIN ADVENTURING -> the dungeon
+```
+
+- Allow **15–25 s between keys on AGA, 25–45 s on ECS**; screens paint slowly
+  and a key sent mid-transition is dropped.
+- The LOAD picker lists only slots that EXIST (one button for a lone slot B);
+  SAVE always offers A…J. A "GAME NOT SAVED. LOAD ANYWAY?" confirm appears only
+  when a party is already loaded — answer `y`.
+- The **write** path is exercised from camp: `click 252 188` (SAVE on the camp
+  bar) then the slot letter; `data/work/amiga-mount/<DSN>/SavGam<X>.csv` appears
+  on the host within ~35 s. Verified on ECS — 10284 bytes, 46 bytes different
+  from the fixture (position, facing, clock, per-character state).
+- Fixture: `tools/mk_kobold_design.py` + `tools/mk_party.py`; point the mount at
+  it by writing `KOBOLD.DSN` into the first bytes of
+  `data/work/amiga-mount/start.dat` (zero the rest), and restore `HEIRS.DSN`
+  after.
 
 ## Test
 
@@ -155,6 +191,29 @@ filesystem2=rw,DH0:OpenUA:/home/jfergus/dev/OpenUA/data/work/amiga-mount,1
 
 ## Gotchas (all hit live — do not rediscover them)
 
+- **`xdotool windowactivate` NEEDS A WINDOW MANAGER, and a bare Xvfb has none.**
+  It drives EWMH `_NET_ACTIVE_WINDOW`; on `:99` it fails with "your
+  windowmanager claims not to support _NET_ACTIVE_WINDOW". That alone would be
+  harmless — but the driver used to CHAIN it into one invocation
+  (`windowactivate --sync $w key p`), and the failure aborted the whole chain,
+  so **the keystroke was never sent and nothing said so**. It cost a session,
+  diagnosed as "Amiga input doesn't commit" and nearly written up as an engine
+  bug. The driver now uses `windowfocus`, which sets the X input focus directly
+  and needs no WM. If you ever hand-roll an `xdotool` call here, do the same.
+- **Input on the Amiga is FINE — keys and clicks both commit.** Verified live
+  (2026-08-02) on AGA and ECS: letter accelerators drive the menus, and a
+  normal `click` (0.3 s hold) opens ENCAMP and its submenus. If input looks
+  dead, suspect the focus chain above, not the engine.
+- **A slow screen is not a dropped click.** On the 7 MHz ECS/68000 build a
+  committed click can take ~30 s to paint the next screen (the camp art load).
+  A "the click didn't register, so I held the button for 2 s and THEN it
+  worked" reading is exactly what that latency fakes — the first click had
+  already landed. Re-sample over ≥45 s before concluding a gesture was lost.
+- **The engine's own drive is KEYBOARD-ONLY and therefore portable.** The main
+  menu, the Hall and the save/load slot pickers all take letter accelerators
+  (`p` → `l` → slot letter → `b`), so the identical script runs on Falcon, TT,
+  ST, AGA and ECS with no coordinates at all. Reach for the mouse only for
+  controls that have no accelerator.
 - **The emulated mouse is delta-only.** amiberry translates host motion into
   JOY0DAT deltas after a capture click (`start`/`grab` do it). `click x y` works
   from a TRACKED position — accurate right after capture; if the game warps
@@ -169,7 +228,7 @@ filesystem2=rw,DH0:OpenUA:/home/jfergus/dev/OpenUA/data/work/amiga-mount,1
   (≤ ~60 host px), screenshotting between steps. Budget many iterations for a
   precise WB target (a button, a scroll arrow).
 - **Double-clicks are the hardest gesture** and often just don't fire. amiberry
-  needs a long button-hold to register a click at all (below), but WB's
+  needs a button-hold long enough to be sampled (below), but WB's
   double-click wants two *quick* clicks — the two requirements fight. Most
   reliable: single-click the icon's LABEL to select it, verify the highlight in
   a screenshot, then `dclick`. Even then, retry. If you only need to prove an
@@ -177,7 +236,7 @@ filesystem2=rw,DH0:OpenUA:/home/jfergus/dev/OpenUA/data/work/amiga-mount,1
 - **Instant synthetic clicks are invisible.** The button is sampled from CIA
   PRA at 50Hz; `xdotool click` presses for microseconds. `click`/`dclick` hold
   ~0.1–0.3s. Never bypass them with a bare `xdotool click`.
-- **One key per xdotool invocation**, window activated first. Two keysyms in
+- **One key per xdotool invocation**, window focused first. Two keysyms in
   one `xdotool key` call lose one. The driver paces them 0.4s apart.
 - **`xdotool search --name amiberry` finds nothing** — the driver uses
   `xwininfo -root -tree` instead.
@@ -198,6 +257,7 @@ filesystem2=rw,DH0:OpenUA:/home/jfergus/dev/OpenUA/data/work/amiga-mount,1
 |---|---|
 | `start` times out, no "menu: modal up" | Stale amiberry holding the mount: `pkill -x amiberry`, retry. Check `tail /tmp/frua-amiga/amiberry.log` and `data/work/amiga-mount/DBG.LOG` for where boot stopped. |
 | "Insufficient FAR Memory!" in DBG.LOG | The Bebbo shift-miscompiler workaround was dropped — see `toolchain/m68k-amigaos.mk` (`-fbbb`) and `docs/toolchain-amiga.md`. |
-| no amiberry window on :0 | The desktop session isn't on `:0` — set `FRUA_AMIGA_DISPLAY`. The flatpak needs X11 (`SDL_VIDEODRIVER=x11` is set by the driver). |
+| no amiberry window on the expected display | The flatpak takes `DISPLAY` from the LAUNCHING SHELL, not from `--env` (x11 socket sharing overrides it). The driver exports it; if you launch by hand, do `DISPLAY=:99 flatpak run …`. |
+| keys/clicks do nothing at all | The focus chain. `windowactivate` needs a WM and aborts the whole xdotool invocation on a bare Xvfb — use `windowfocus` (the driver does). This also breaks `start`'s mouse-capture click, so the emulated pointer is never grabbed. |
 | clicks land on the wrong control | Tracked position drifted. `stop` + `start` re-anchors at (160,100). |
 | `sound` exits 1 with "0s loud" | Config `sound_output` (driver checks `none`, but also verify `exact`), or pulse default sink changed — the driver records the CURRENT default sink's monitor. |

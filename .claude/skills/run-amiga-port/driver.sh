@@ -4,15 +4,17 @@
 # .claude/skills/run-falcon-port/driver.sh.
 #
 # amiberry-specific realities this driver encodes (learned live):
-#  - The flatpak opens its window on the DESKTOP display (:0), not an Xvfb.
+#  - The window opens on the LAUNCHING SHELL's DISPLAY. flatpak's x11 socket
+#    sharing rewrites DISPLAY inside the sandbox, so `--env=DISPLAY=...` is
+#    ignored; a bare Xvfb (:99) works fine and keeps input off the desktop.
 #  - The emulated mouse is DELTA-driven (JOY0DAT): the first in-window click
 #    captures the host pointer; after that only RELATIVE host moves reach the
 #    game. `start` does the capture click at the screen centre (a dead zone on
 #    the main menu) and the driver TRACKS the emulated position from there.
 #  - The game samples the mouse button from CIA PRA at 50 Hz: an instantaneous
 #    synthetic click is INVISIBLE. `click` holds the button 0.3 s.
-#  - Keys: ONE per xdotool invocation, window re-activated first; back-to-back
-#    keys in one call get lost.
+#  - Keys: ONE per xdotool invocation, window FOCUSED first (windowfocus, not
+#    windowactivate — see focus_window); back-to-back keys in one call get lost.
 #  - The engine's boot/debug trail is PROGDIR:DBG.LOG in the mounted dir.
 set -u
 
@@ -43,6 +45,20 @@ window_id() {
 	echo "$w"
 }
 
+# Give the amiberry window the input focus.
+#
+# ★ `xdotool windowactivate` NEEDS A WINDOW MANAGER — it drives EWMH's
+# _NET_ACTIVE_WINDOW. A bare Xvfb (our :99) runs no WM, so it fails with
+# "your windowmanager claims not to support _NET_ACTIVE_WINDOW", and because
+# the driver chained it with `--sync key ...` in ONE xdotool invocation, the
+# FAILURE ABORTED THE WHOLE CHAIN and the keystroke was never sent. That is
+# silent from the caller's side: keys look delivered and nothing happens.
+# `windowfocus` sets the X input focus directly (no WM needed) and works on
+# both a bare Xvfb and a real desktop, so use it unconditionally.
+focus_window() {
+	xd windowfocus --sync "$1" 2>/dev/null || xd windowfocus "$1" 2>/dev/null
+}
+
 # Tracked emulated-mouse position (lores 320x200 coords). Known-good right
 # after `start` (the pointer boots at the centre); every `move`/`click x y`
 # updates it. Host-relative deltas map 1:1 to lores pixels in this config.
@@ -61,7 +77,7 @@ cmd_start() {
 	local w tries=0
 	pkill -x amiberry 2>/dev/null
 	rm -f "$DBGLOG"
-	( flatpak run --env=SDL_VIDEODRIVER=x11 com.blitterstudio.amiberry \
+	( DISPLAY="$DISP" flatpak run --env=SDL_VIDEODRIVER=x11 com.blitterstudio.amiberry \
 	    --log --config "$CONF" -G >"$LOGFILE" 2>&1 & )
 	# Boot is done when the engine's modal is up (~40 s emulated boot).
 	until grep -q "menu: modal up" "$DBGLOG" 2>/dev/null; do
@@ -88,7 +104,9 @@ cmd_start() {
 		/Width/ {w=$2} /Height/ {h=$2}
 		END {print x, y, w, h}')
 	read -r x y wpx hpx <<< "$geo"
-	xd windowactivate --sync "$w" mousemove $((x + wpx / 2)) $((y + hpx / 2)) click 1
+	focus_window "$w"
+	xd mousemove $((x + wpx / 2)) $((y + hpx / 2))
+	xd mousedown 1; sleep 0.3; xd mouseup 1
 	pos_set 160 100
 	echo "up: window $w, menu modal, mouse captured at (160,100)"
 }
@@ -108,7 +126,8 @@ cmd_key() {
 	w=$(window_id)
 	[ -z "$w" ] && { echo "no window" >&2; return 1; }
 	for k in "$@"; do
-		xd windowactivate --sync "$w" key --clearmodifiers "$k"
+		focus_window "$w"
+		xd key --clearmodifiers "$k"
 		sleep 0.4
 	done
 }
@@ -165,7 +184,7 @@ cmd_sound() {
 	cp "$REPO/frua" "$MOUNT/frua"
 	pkill -x amiberry 2>/dev/null
 	rm -f "$DBGLOG"
-	( flatpak run --env=SDL_VIDEODRIVER=x11 com.blitterstudio.amiberry \
+	( DISPLAY="$DISP" flatpak run --env=SDL_VIDEODRIVER=x11 com.blitterstudio.amiberry \
 	    --log --config "$CONF" -G >"$LOGFILE" 2>&1 & )
 	sleep 6
 	sink=$(pactl get-default-sink)
@@ -199,7 +218,7 @@ cmd_boot() {
 	local wait="${1:-48}" w
 	pkill -x amiberry 2>/dev/null
 	rm -f "$DBGLOG"
-	( flatpak run --env=SDL_VIDEODRIVER=x11 com.blitterstudio.amiberry \
+	( DISPLAY="$DISP" flatpak run --env=SDL_VIDEODRIVER=x11 com.blitterstudio.amiberry \
 	    --log --config "$CONF" -G >"$LOGFILE" 2>&1 & )
 	echo "booting (raw, ${wait}s, no frua wait)..." >&2
 	sleep "$wait"
@@ -220,7 +239,9 @@ cmd_grab() {
 		/Absolute upper-left X/ {x=$4} /Absolute upper-left Y/ {y=$4}
 		/Width/ {w=$2} /Height/ {h=$2} END {print x, y, w, h}')
 	read -r x y wpx hpx <<< "$geo"
-	xd windowactivate --sync "$w" mousemove $((x + wpx / 2)) $((y + hpx / 2)) click 1
+	focus_window "$w"
+	xd mousemove $((x + wpx / 2)) $((y + hpx / 2))
+	xd mousedown 1; sleep 0.3; xd mouseup 1
 	pos_set 160 100
 	echo "mouse captured, tracked at (160,100)"
 }

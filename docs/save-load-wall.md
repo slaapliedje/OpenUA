@@ -16,6 +16,19 @@ stand-in.
 > byte-identical in shape to an independently-made slot B save. Save/load
 > WORKS. What remains is boot auto-load, and confirmation on the non-Falcon
 > ports.
+>
+> ✅ **ALL FIVE PORTS CONFIRMED (2026-08-02).** Load-then-play verified on
+> Falcon 030 (TOS 4.04), TT030 (EmuTOS 1.3.0), ST 8 MHz (TOS 2.06, ST-Low),
+> Amiga AGA and Amiga ECS/68000: an empty Hall loads slot B and all six
+> characters come back with identical AC/HP, then BEGIN ADVENTURING enters the
+> authored dungeon. The **write** side was re-confirmed on ECS too — camp →
+> SAVE → slot C produced a 10 284-byte `SavGamC.csv` differing from the
+> fixture in 46 bytes (position, facing, clock, per-character state). The one
+> piece still missing is **boot auto-load**.
+>
+> The drive that makes this portable is **keyboard-only** — `p` → `l` → slot
+> letter → `b`, no coordinates — so one script runs on every machine. Clicks
+> position the pointer on the slot pickers but do not commit there.
 
 Layer: the serializer core is **CODE 15** (jt577–jt587). Char-gen review/finalize
 (jt570–jt573, CODE 17) is a *separate* concern and **not** part of save/load.
