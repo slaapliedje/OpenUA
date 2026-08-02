@@ -340,10 +340,10 @@ this section was stale until 2026-07-24 and is kept as a pointer to the proofs.
 
 ## P4 — engineering / release hygiene
 
-- **20 uncalled gaps** (see `stub_audit --stubs`) — nothing lifted calls them, so
-  they gate no behaviour. Lift on demand.
-- **35 faithful no-ops** — the Mac body is empty too. **Leave them alone**; they are
-  not work.
+- **8 uncalled gaps** (see `stub_audit --stubs`; was 20, re-counted 2026-08-01) —
+  nothing lifted calls them, so they gate no behaviour. Lift on demand.
+- **39 faithful no-ops + 5 platform rulings** — the Mac body is empty too, or the
+  answer on Atari/Amiga is fixed. **Leave them alone**; they are not work.
 - **Behaviour-altering build flags must never ship**: `FRUA_AUTOWIN` (instantly
   kills the monster side), `FRUA_SKIP_ENTRY_EVENTS`, `FRUA_CORRIDOR` / `FRUA_RAYCAST`
   (alternate renderers), `FRUA_SHIM_DEMO`. All are opt-in and none is on by

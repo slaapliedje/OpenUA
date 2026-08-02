@@ -1,4 +1,11 @@
 > ⚠️ **STALE — 2026-06-20. Superseded by `docs/function-audit-2026-07-24.md`.**
+> Re-checked 2026-08-01: rows **E** (3D render "clips the left ~2/3 columns")
+> and **F** ("~17 event handlers still STUB") are the two most likely to be
+> read as current and are NOT — `stub_audit --stubs` reports **0 live gaps**,
+> and every play screenshot since shows a full corridor with both walls. Row
+> **C** (save/load) IS still real: the design-state block remains the gap.
+> Do not cite this page for status; cite `docs/enhancements.md` or re-run the
+> audit tools.
 > Every function this page calls a stub classifies REAL today, and combat, the
 > camp/magic screens, the event handlers and both save/load pickers are verified
 > live. Kept for its handler-by-handler reasoning, which is still good history.
