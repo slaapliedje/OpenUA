@@ -33,10 +33,11 @@ data media for Falcon/TT, Mega ST, Amiga AGA and Amiga ECS.
    colour build boots in ~6s. It rotted silently because nothing in CI or the
    harness exercises it. Resuming = bisect the hang FIRST, then re-check the
    render work. Deprioritised 2026-07-19.
-2. **The compass after an AREA toggle is fixed-by-observation only.** Both the
-   repaint added in `0f27830f` and the facing fix in `de8931b6` plausibly
-   explain it; neither was isolated. If it recurs on hardware, that is the
-   thread to pull.
+2. ~~The compass after an AREA toggle is fixed-by-observation only.~~
+   **CLOSED 2026-08-01 (`84511949`)** — root-caused: `l67ca` read the 8-entry
+   direction table with an unmasked facing, and `l1908` normalises facing to
+   1..8, so NORTH (8) indexed past the letters and drew no face. Not an
+   AREA-map bug; the map only forced the redraw that exposed it.
 3. **TT draw-time planar writer (ADR-0016) deliberately not done.** The layer
    is `#ifdef FRUA_PLANAR`, which the Atari 020 build (one binary for Falcon +
    TT) does not define, and only ~6% of the conversion work is left to win. See
