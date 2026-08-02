@@ -20,7 +20,7 @@
 #
 set -euo pipefail
 
-MACHINE="${1:?usage: mkdatadisks.sh <atari|atari720|amiga> [gamedata-dir] [outdir] [design...]}"
+MACHINE="${1:?usage: mkdatadisks.sh <atari|atari720|amiga|gotek> [gamedata-dir] [outdir] [design...]}"
 # ART=tlb (default) | ctl | both
 #
 # ★ THE ART EXISTS IN TWO FORMATS and a staged directory holds both: the DOS
@@ -70,8 +70,26 @@ atari720)  UNIT=1024; CAP=709;  ROOT=112; FMT=720;  EXT=st
            INST="$REPO/instdisk.ttp";   INSTNAME=INSTDISK.TTP ;;
 amiga)     UNIT=512;  CAP=1740; ROOT=0;   FMT=;     EXT=adf
            INST="$REPO/instdisk_amiga"; INSTNAME=instdisk ;;
-*)         echo "unknown machine: $MACHINE (atari|atari720|amiga)" >&2; exit 1 ;;
+# ★ gotek — ONE image instead of six, on a FlashFloppy Gotek.
+#
+# A stock ST's WD1772 is stuck at 250 kbit/s, which is why the 1.44 MB and
+# 2.88 MB media it cannot read stayed off the table. FlashFloppy sidesteps that
+# without touching the data rate: it SLOWS THE EMULATED ROTATION so more
+# sectors pass the head per revolution, and it will serve up to 255 cylinders.
+# At 255 cyls x 2 heads x 36 sectors that is 9,400,320 bytes at 75 rpm — a
+# quarter of a real floppy's random-access speed, which costs nothing for a
+# one-off copy to a hard disk. Geometry and rpm come from phjanderson's
+# flashfloppy-atari-disks IMG.CFG; `mkhwdist.sh` writes the matching stanza.
+#
+# MEASURED from the BPB mformat produces, not assumed: 512-byte sectors,
+# 4096-byte clusters, 512 root entries, 18360 total sectors, 2289 clusters
+# (comfortably under FAT12's 4085-cluster ceiling, so TOS still sees FAT12).
+gotek)     UNIT=4096; CAP=2289; ROOT=512; FMT=;     EXT=st
+           MGEOM="-t 255 -h 2 -n 36"
+           INST="$REPO/instdisk.ttp";   INSTNAME=INSTDISK.TTP ;;
+*)         echo "unknown machine: $MACHINE (atari|atari720|amiga|gotek)" >&2; exit 1 ;;
 esac
+MGEOM="${MGEOM:-}"
 # ★ PACK BY BLOCKS, NOT BYTES. A byte budget with a flat overhead subtracted
 # looks right and silently overflows on a disk with MANY files: each file costs
 # a rounded-up block regardless of size, and on FFS an extra header block plus
@@ -205,7 +223,11 @@ for ((n = 1; n <= NDISKS; n++)); do
 	# xdftool, which produced an FFS filesystem inside a file called .st.
 	if [[ "$EXT" == st ]]; then
 		rm -f "$IMG"
-		mformat -C -f "$FMT" -v OPENUADAT -i "$IMG" ::
+		if [[ -n "$MGEOM" ]]; then
+			mformat -C $MGEOM -v OPENUADAT -i "$IMG" ::
+		else
+			mformat -C -f "$FMT" -v OPENUADAT -i "$IMG" ::
+		fi
 		( cd "$STAGE" && for e in *; do
 			if [[ -d "$e" ]]; then
 				mmd -i "$IMG" "::/$e"

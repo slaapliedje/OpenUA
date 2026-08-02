@@ -22,9 +22,11 @@ converted twin is written back beside the original. `ART=ctl` ships the
 converted art instead — one disk fewer, no first-touch pause. `ART=both` keeps
 both, which you want only to revive the monochrome build.)
 
-So **every one of these machines needs a hard disk, CF or SD card.** The disk
-images below get the *engine* across; they cannot get the *game* across. If
-your target machine has only floppy drives, it cannot run this yet.
+So **every one of these machines needs a hard disk, CF or SD card** — unless
+you have a **Gotek running FlashFloppy**, which changes the arithmetic
+completely and is covered in its own section below: the whole data set fits on
+one image there. With real floppy drives, the disk images below get the
+*engine* across but cannot get the *game* across.
 
 The practical route is to prepare the data on your PC and write it to the mass
 storage directly (a CF card in a reader, an SD in an ACSI/IDE adapter), then
@@ -41,18 +43,52 @@ build `frua.rsc` and stage the design folders.
 |---|---|---|
 | Falcon030 / TT030 | `openua-falcon-<v>.st` | 1.44 MB. Binary raw — runs off the disk. |
 | ST / STE / Mega ST | `openua-atari-st-<v>.st` | 720 KB. Binary zipped; it does not fit raw. |
+| ST / STE / Mega ST **on a Gotek** | `openua-st-gotek-<v>.st` | 1.44 MB at 150 rpm. Binary RAW — no unzip step. Needs FlashFloppy + `IMG.CFG`. |
 | Amiga AGA (A1200/A4000) | `openua-amiga-aga-<v>.adf` | 880 KB. Binary raw. |
 | Amiga ECS/OCS (A500+/A600/A2000) | `openua-amiga-ecs-<v>-disk1.adf`, `-disk2.adf` | 880 KB each. Binary split in half. |
 
-All of them are plain images: write them to real floppies, or serve them from a
-Gotek / HxC.
+All but the Gotek one are plain images: write them to real floppies, or serve
+them from a Gotek / HxC.
+
+## Gotek / FlashFloppy: bigger images than the hardware should allow
+
+If you have a Gotek running **FlashFloppy**, the floppy capacity limits below
+mostly stop applying, and the install gets much shorter — the whole game data
+set arrives on **one image instead of six**.
+
+The trick is not a faster disk. A stock ST's WD1772 is locked to 250 kbit/s and
+nothing changes that. FlashFloppy instead **slows the emulated rotation**, so
+more sectors pass the head per revolution at the same bit rate, and it will
+serve **up to 255 cylinders** instead of 80. Slower rotation costs random-access
+speed and nothing else, which is irrelevant for copying files off once.
+
+| Image | Geometry | Speed | Holds |
+|---|---|---|---|
+| `openua-st-gotek-<v>.st` | 80 × 2 × 18, 150 rpm | ½ | the ST engine RAW, 1.44 MB |
+| `openua-data-gotek-disk1.st` | 255 × 2 × 36, 75 rpm | ¼ | the ENTIRE data set, 9.4 MB |
+
+**Copy `IMG.CFG` to the root of the Gotek's USB stick.** It ships next to the
+images and declares those geometries; without it FlashFloppy only recognises
+standard floppy sizes and the images will not mount. Geometry and rpm figures
+come from [phjanderson/flashfloppy-atari-disks](https://github.com/phjanderson/flashfloppy-atari-disks),
+which is worth a look if you want blank images in other sizes.
+
+Two caveats worth knowing. Large images occasionally throw a read error,
+typically right after a disk swap — retry it. And the 255-cylinder images
+cannot be tested in Hatari (it decodes standard floppy geometries only), so
+unlike everything else here they have been verified as filesystems rather than
+by booting them. The 1.44 MB Gotek ST image *was* booted, on an emulated stock
+ST.
 
 ### Why the Mega ST disk is compressed
 
+This is about a REAL floppy drive; on a Gotek, use `openua-st-gotek-<v>.st`
+above and skip it.
+
 The 68000 build is 1,063,312 bytes. A 720 KB disk holds 737,280, and the
-extended ST formats a Gotek can serve top out around 923,648 (82 tracks × 11
-sectors × 2 sides) — still short. The Mega ST's WD1772 cannot read HD media, so
-the 1.44 MB route is not available to it either.
+extended formats a WD1772 can be talked into top out around 923,648 (82 tracks
+× 11 sectors × 2 sides) — still short. It cannot read HD media at all, so the
+1.44 MB route is not available to a real drive either.
 
 The disk therefore carries `FRUA.ZIP`. Unpack it PC-side and copy `FRUA.PRG` to
 your mass storage along with the game data.

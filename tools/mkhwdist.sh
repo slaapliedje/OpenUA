@@ -20,9 +20,21 @@
 #   while the Mega ST and ECS disks carry a compressed payload. That asymmetry
 #   is not tidiness — it is the media.
 #
-#   The Mega ST case has no clean floppy answer at all: 1,063,312 exceeds even
-#   the extended ST formats a Gotek can serve (82x11x2 = 923,648), and the
-#   WD1772 cannot read HD media, so the Mega STE trick does not apply either.
+#   The Mega ST case has no clean answer on a REAL FLOPPY DRIVE: 1,063,312
+#   exceeds even the extended formats a WD1772 can be talked into (82x11x2 =
+#   923,648), and it cannot read HD media at all.
+#
+# ★ ON A GOTEK IT DOES FIT, and that changes the ST story. FlashFloppy never
+#   raises the data rate — the ST stays at its fixed 250 kbit/s — it SLOWS THE
+#   EMULATED ROTATION so more sectors pass the head per turn, and it will serve
+#   up to 255 cylinders. 80 x 2 x 18 at 150 rpm is 1,474,560 bytes a stock ST
+#   reads as an ordinary DD disk, at half the random-access speed. So this
+#   script also emits `openua-st-gotek-<ver>.st`, carrying FRUA.PRG RAW with no
+#   PC-side unzip step. It is a Gotek/HxC image, NOT a real floppy — the 720K
+#   disk above stays for anyone with an actual drive.
+#
+#   Geometry and rpm are from phjanderson/flashfloppy-atari-disks; the matching
+#   IMG.CFG stanzas are written next to the images. See HARDWARE.md.
 #   Its disk therefore carries FRUA.ZIP and expects mass storage at the other
 #   end — which that machine needs regardless, because the game data alone is
 #   ~7.4 MB (see HARDWARE.md).
@@ -115,6 +127,27 @@ atari_img "$OUT/openua-atari-st-$VERSION.st" 720 "$WORK" \
 	FRUA.ZIP UAINST.TTP README.TXT
 rm -f "$WORK/FRUA.ZIP"
 
+say "Atari ST on a GOTEK — 1.44 MB at 150 rpm, binary raw"
+# Same 80x2x18 geometry a Falcon disk uses; what makes a STOCK ST able to read
+# it is FlashFloppy turning the disk at half speed, so the 250 kbit/s the
+# WD1772 is locked to still yields 18 sectors per track. Verified in Hatari:
+# the ST binary autostarts from a 1.44 MB image on `--machine st`.
+cp "$ST/frua.prg" "$WORK/FRUA.PRG"
+readme "$WORK/README.TXT" "Atari ST / STE / Mega ST — GOTEK IMAGE" \
+	"FRUA.PRG    the engine, ready to copy off — no unzip step." \
+	"UAINST.TTP  installs a DOS fan module from its ZIP." \
+	"" \
+	"THIS IS A GOTEK / HxC IMAGE, NOT A REAL FLOPPY. It needs FlashFloppy" \
+	"and the IMG.CFG stanza shipped beside it, because a stock ST cannot" \
+	"read 1.44 MB media — FlashFloppy turns the disk at 150 rpm instead of" \
+	"300 so the ST's fixed 250 kbit/s still reads 18 sectors per track." \
+	"Random access is about half a real floppy's; copying once is fine." \
+	"" \
+	"With a real drive, use the 720K disk instead."
+atari_img "$OUT/openua-st-gotek-$VERSION.st" 1440 "$WORK" \
+	FRUA.PRG UAINST.TTP README.TXT
+rm -f "$WORK/FRUA.PRG"
+
 # --- Amiga: FFS ADF -------------------------------------------------------
 amiga_img() {       # amiga_img <out.adf> <label> <srcdir> <file...>
 	local img="$1" label="$2" src="$3"; shift 3
@@ -171,6 +204,44 @@ readme "$WORK/README" "Amiga ECS / OCS — disk 2 of 2" \
 	"three-line Join recipe."
 amiga_img "$OUT/openua-amiga-ecs-$VERSION-disk2.adf" "OpenUA-ECS-2" "$WORK" \
 	frua.01 README
+
+# ---- the FlashFloppy geometry stanzas ------------------------------------
+# A Gotek reads a raw .img/.st by SIZE; anything that is not a standard floppy
+# size needs its geometry declared. Copy this file to the root of the Gotek's
+# USB stick. Stanzas taken from phjanderson/flashfloppy-atari-disks.
+#
+# The trick in one line: `rate` stays 250 (the WD1772 cannot go faster) and
+# `rpm` comes DOWN instead, so more sectors fit under the head per revolution.
+cat > "$OUT/IMG.CFG" <<'CFG'
+# OpenUA — FlashFloppy geometry for the Gotek images.
+# Copy to the ROOT of the Gotek's USB stick, next to the .st files.
+#
+# A stock Atari ST is locked to a 250 kbit/s data rate, so it cannot read real
+# HD media. FlashFloppy gets past that by slowing the emulated ROTATION rather
+# than raising the rate, and by allowing up to 255 cylinders.
+
+# openua-st-gotek-*.st and openua-falcon-*.st — 1.44 MB, half speed.
+# The Falcon/TT read this natively; on a stock ST the 150 rpm is what makes it
+# work. Random access ~1/2 of a real floppy.
+[::1474560]
+cyls = 80
+heads = 2
+secs = 18
+bps = 512
+rate = 250
+rpm = 150
+
+# openua-data-gotek-disk1.st — the WHOLE game data set on ONE image
+# (255 cylinders, quarter speed). Replaces the six 1.44 MB data disks.
+[::9400320]
+cyls = 255
+heads = 2
+secs = 36
+bps = 512
+rate = 250
+rpm = 75
+CFG
+say "IMG.CFG written (copy it to the Gotek stick's root)"
 
 say "done:"
 ls -la "$OUT"
