@@ -3,42 +3,50 @@
 Working notes on what's next. Ratified architecture decisions live in
 `docs/decisions.md`; this file is the rolling task list.
 
-## Status snapshot (2026-06-06)
+## Status snapshot (2026-08-01)
 
-The faithful spine now runs for **display + navigation**: boot → main menu
-→ Play → Training Hall → (bridge) → a walkable, correctly-perspectived
-first-person dungeon. Lifted & working: the Toolbox shim (Memory Manager
-done; QuickDraw/Resource/File/Event/Window/Menu/Dialog/Control/TextEdit/
-Sound all functional-`wip`), the boot/menu chrome, `jt918` Training Hall
-with all 12 case skeletons, the **faithful 3D view** (`render_3d_faithful`,
-live in `jt221`+`jt312`), and arrow/mouse movement (`jt297`→`L1908`).
+> ⚠️ **The 2026-06-06 snapshot that used to sit here was EIGHT WEEKS STALE and
+> contradicted reality** — it described the play-entry chain as "in progress"
+> and combat as port-local scaffolding, both long since landed. It was removed
+> rather than patched. Everything below the next heading is older working notes:
+> treat it as history, verify before acting on it.
 
-The two large faithful efforts standing between this and a playable game:
-1. **CODE 15/19 play-entry chain** (the real Begin-Adventuring → in-dungeon
-   loop) — also closes the overland→dungeon reachability gap and replaces
-   the `port_play_demo`/`port_begin_adventure` bridges. **← in progress
-   (task #100).** Progress so far: the faithful adventure loop **jt948 runs**
-   (jt942→l0bbc→jt103→jt935→**jt953** command-bar loop, no crash); the play
-   screen **renders cleanly** — 3D view + party roster HUD (NAME/AC HP) +
-   compass + the bottom command bar (`AREA CAST VIEW ENCAMP SEARCH LOOK INV`),
-   matching the Mac HUD. Two fixes landed: the native-scale decoupling
-   (`g_cwf_force_deep` + play screen at `g_a5_2347=1`, 253a2e4) and the
-   command-bar stripes (l1bfe's jt452 type-7 arg order, 5a09d42). **Remaining
-   for #100:** lift `jt164`'s `l23b4` poll to return real command selections;
-   lift `jt171` + the state-3 Move step arms; wire l07dc's case-10 return-1
-   path and drop the l1142 `port_play_demo` bridge; then faithful combat.
-   See the `faithful-play-entry-chain` memory note for the full map.
-2. **CODE 17 character generation** (~10k asm, task #101) — to create a real
-   party instead of `port_test_seed_design`'s static stand-in.
+**Do not maintain a status snapshot in this file.** Three live sources already
+carry it and are kept current:
 
-Caveat: combat/encounters/rest/leveling are currently **port-local**
-scaffolding (`port_run_encounter`, `encounter_check`, `port_rest`,
-`load_monsters`), NOT the faithful CODE 15-19 combat engine. Replacing them
-is part of target (1).
+- `docs/milestone.md` — the high-level burn-down. START HERE.
+- `docs/subsystem-status.md` — per-subsystem register + the `*-wall.md` index.
+- `python3 tools/stub_audit.py --stubs` / `--arms`, `tools/jt_progress.py` —
+  the authoritative numbers. As of 2026-07-30: 1201 done / 1 stub / 4 missing
+  of 1206 JT entries; **0 live gaps, 0 deferred arms**. A zero means no
+  reachable PROBE stub body, NOT feature-complete.
 
-NOTE (process): `jt452` is the full Mac DLItem stream parser (verified vs
-CODE 3 + 0x29a0) — the old "simplified for the boot menu" claim was stale and
-cost a detour; don't relitigate it.
+The game **plays on real hardware** (Falcon 030@50MHz, VGA) and ships engine +
+data media for Falcon/TT, Mega ST, Amiga AGA and Amiga ECS.
+
+### Genuinely open
+
+1. **Mono ST/STE (BWMODE) is BROKEN at RUNTIME and uncovered.** It still
+   COMPILES clean (`make CPU68K=68000 EXTRA_CFLAGS=-DFRUA_BWMODE`, re-verified
+   2026-08-01), so this is not bit-rot in the build — last known runtime state
+   (2026-07-30) is a hang at boot on the disk-swap prompt, while the 68000
+   colour build boots in ~6s. It rotted silently because nothing in CI or the
+   harness exercises it. Resuming = bisect the hang FIRST, then re-check the
+   render work. Deprioritised 2026-07-19.
+2. **The compass after an AREA toggle is fixed-by-observation only.** Both the
+   repaint added in `0f27830f` and the facing fix in `de8931b6` plausibly
+   explain it; neither was isolated. If it recurs on hardware, that is the
+   thread to pull.
+3. **TT draw-time planar writer (ADR-0016) deliberately not done.** The layer
+   is `#ifdef FRUA_PLANAR`, which the Atari 020 build (one binary for Falcon +
+   TT) does not define, and only ~6% of the conversion work is left to win. See
+   the TT section of `docs/planar-plan.md`.
+4. **The play loop is still unmeasured** for planar conversion cost — the
+   "~47% of rows still convert" figure is a BOOT measurement, and the
+   post-menu screens converted zero. See the #90 section of
+   `docs/planar-plan.md`.
+5. **1.0.0 is RESERVED for real hardware** and deliberately not cut yet; the
+   user has asked to stay on 0.9.x while game-breaking bugs remain.
 
 ## Play-screen HUD polish (future work)
 

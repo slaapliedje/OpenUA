@@ -189,6 +189,75 @@ memory-fit configurations — the shipping floor is 4MB today, 1MB the goal).
 - Env: `GEMDOS_DIR` (C: mount, default `data/work/gamedata`), `FALCON_TOS`,
   `FRUA_XVFB_DISPLAY` (default `:99`), or set `DISPLAY` to reuse a real X server.
 
+## Run the Falcon on a VGA monitor — DO THIS FOR ANY DISPLAY CHANGE
+
+The harness default is **RGB**, which lands on the 320x200 mode where the
+engine's frame exactly fills the screen. A real Falcon is often on **VGA**,
+which has no 200-line mode at all (VGA+VERTFLAG = 320x240, VGA alone =
+640x480), so there are 40 spare lines and a whole second code path:
+
+```bash
+export HATARI_ARGS="--monitor vga"
+"$D" start                  # status bar reads "VGA 60 Hz"
+"$D" shots /tmp/vga.png
+```
+
+Confirm from the console log (these lines run BEFORE the file-sink switch, so
+they are in `/tmp/frua-ui/conout.log`, **not** `DBG.LOG`):
+
+```
+videl_init: height   = 240
+videl_init: letterbox= 20     # 0 on RGB
+```
+
+A correct VGA frame is **20 black rows / 200 rows of game / 20 black rows**.
+Measure it, do not eyeball it:
+
+```python
+from PIL import Image
+im = Image.open('vga.png').convert('RGB'); w,_ = im.size; px = im.load()
+blk = lambda y: all(px[x,y] == (0,0,0) for x in range(0, w, 4))
+top = 0
+while top < 480 and blk(top): top += 1
+bot = 479
+while bot > 0 and blk(bot): bot -= 1
+print(top//2, (bot-top+1)//2, (479-bot)//2)   # -> 20 200 20
+```
+
+This class of bug is INVISIBLE on RGB — the VGA light-band shipped to real
+hardware because every test ran RGB. Run both monitors and diff: RGB frames
+must stay byte-identical to the previous build, VGA frames must measure
+20/200/20.
+
+## Driving into the game — the HEIRS walk view at 10,8
+
+`beginplay` lands on the entry-event chain, NOT the walk view. The chain ends
+on the **treasure screen, which ignores Return** — sixteen of them will sit
+there with every later key eaten. Clear it with `e` then `n`:
+
+```bash
+"$D" beginplay                                  # party seated, in the dungeon
+"$D" key Return; "$D" key Return; "$D" key Return   # -> treasure screen
+"$D" key e            # EXIT the treasure screen
+"$D" key n            # NO, don't go back and claim the rest
+for i in $(seq 10); do "$D" key Return; done    # caravan farewell messages
+# now at the walk view: 10,8  12:00 AM, command bar AREA CAST VIEW ...
+```
+
+Pace these ~2s apart and screenshot to confirm — a fixed Return count desyncs
+if any key is dropped.
+
+**`PLAY_NUDGE=0` for ANY test that reads a direction.** `beginplay` ends with a
+Right+Left "view nudge" that is net-zero *only if both keys land*; when one is
+dropped the party is silently rotated 90 degrees and every direction
+measurement after it is wrong by a quarter turn with nothing on screen to say
+so. Two such runs once produced an "observed = 6 - f" reflection that looked
+like an engine axis bug and was entirely this.
+
+**(10,8) is deliberately asymmetric.** A transposed-coordinate bug is invisible
+wherever row == col — a trace taken at (9,9) looked perfectly clean and
+disproved nothing. Break the diagonal before concluding coordinates are fine.
+
 ## Run the TT030 variant (same binary, TT-low letterbox)
 
 The same `frua.prg` runs on an emulated TT (the `_VDO` cookie picks the
