@@ -26,6 +26,20 @@ data media for Falcon/TT, Mega ST, Amiga AGA and Amiga ECS.
 
 ### Genuinely open
 
+0. **`geo.py`'s STRG encoder is not byte-faithful to SSI** (found 2026-08-02).
+   Re-encoding a decoded SSI string table gives **6 628 of 7 168 bytes
+   different**: every 6-bit character code comes out exactly ONE LESS than
+   SSI's, and the third header word is written 0 where SSI has 0x137e. The
+   engine still READS what we write — an authored message displays correctly —
+   so this is a fidelity gap, not a functional break. It matters because the
+   only existing check is `strg_write(strg_read(x)) == x`, which is CIRCULAR:
+   encoder and decoder share the bias and agree with each other. **The
+   non-circular oracle is free and sitting in `data/`:** re-encode every SSI
+   area and require byte equality. Until then, anything that edits an existing
+   area's strings rewrites the whole table into a dialect.
+
+
+
 1. ~~Mono ST/STE (BWMODE) is BROKEN at runtime.~~ **NOT A CODE REGRESSION —
    RESOLVED 2026-08-02.** It boots to the menu in ~5 s at `5297636a` once the
    data tree has art it can use. In mono the engine selects the **`.tlb`** art
