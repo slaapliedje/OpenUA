@@ -315,6 +315,31 @@ Two overrides that bite (both cost time here):
 - **`FRUA_MEM=4`** — its default is 14 MB, which is illegal on an ST and aborts
   the boot.
 
+★ **MONO NEEDS THE MAC B&W ART SET, AND IT IS A DIFFERENT `.TLB`.** In mono
+`jt1200()` returns 3 and the engine selects the **`.tlb`** art set — but a Mac
+B&W `.TLB` and a DOS HLIB `.TLB` share an extension and are DIFFERENT FORMATS.
+`jt398` tells them apart with `ua_refnum_is_hlib()` and deliberately fails an
+HLIB one ("mono synthesis is install-time only"), which `jt987` then turns into
+an INFINITE disk-swap retry — headless, that is the "mono hangs at boot".
+
+`data/work/gamedata` is a DOS-derived tree (DOS `.TLB` + our converted `.ctl`),
+so it has no art mono can use. Build a mono tree instead — symlinks, so it
+costs nothing and the real tree is untouched:
+
+```bash
+MONO=/tmp/gd-mono; rm -rf $MONO; mkdir -p $MONO
+cd data/work/gamedata
+for f in *; do case "$f" in *.TLB|*.tlb) continue;; esac; ln -s "$PWD/$f" "$MONO/$f"; done
+cd -
+for f in $(find data/frua-mac -iname "*.TLB"); do ln -sf "$PWD/$f" "$MONO/$(basename $f)"; done
+ln -sf "$PWD/frua.prg" "$MONO/frua.prg"
+export GEMDOS_DIR=$MONO      # then boot as above
+```
+
+Sanity check that you got the right ones: the Mac B&W `ALWAYS.TLB` is **1816
+bytes**; the DOS HLIB one is **5368**. Verified booting to the menu in ~5 s at
+`5297636a` (2026-08-02) — there was never a code regression.
+
 Verified (2026-07-18) to `menu: modal up`; the conout log shows the native mono
 path — `Atari ST high (640x400 mono, 2x2 dither)` and `sthigh: 640x400 mono,
 ENGINE B&W 480x300 1:1 up` — and the status bar reads `8MHz(CE)/- 4MB ST(WS3),

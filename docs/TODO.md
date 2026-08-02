@@ -26,13 +26,19 @@ data media for Falcon/TT, Mega ST, Amiga AGA and Amiga ECS.
 
 ### Genuinely open
 
-1. **Mono ST/STE (BWMODE) is BROKEN at RUNTIME and uncovered.** It still
-   COMPILES clean (`make CPU68K=68000 EXTRA_CFLAGS=-DFRUA_BWMODE`, re-verified
-   2026-08-01), so this is not bit-rot in the build — last known runtime state
-   (2026-07-30) is a hang at boot on the disk-swap prompt, while the 68000
-   colour build boots in ~6s. It rotted silently because nothing in CI or the
-   harness exercises it. Resuming = bisect the hang FIRST, then re-check the
-   render work. Deprioritised 2026-07-19.
+1. ~~Mono ST/STE (BWMODE) is BROKEN at runtime.~~ **NOT A CODE REGRESSION —
+   RESOLVED 2026-08-02.** It boots to the menu in ~5 s at `5297636a` once the
+   data tree has art it can use. In mono the engine selects the **`.tlb`** art
+   set, and a Mac B&W `.TLB` is a DIFFERENT FORMAT from a DOS HLIB `.TLB`
+   despite the shared extension; `jt398` rejects the HLIB one by design and
+   `jt987` turns that into an infinite disk-swap retry. `data/work/gamedata` is
+   DOS-derived, so mono had nothing to load. Recipe for a mono data tree is in
+   the run-falcon-port skill.
+   **Still genuinely open:** (a) nothing in CI or the harness exercises mono, so
+   it can rot again silently; (b) `jt987`'s retry loop is unbounded — a missing
+   resource hangs headlessly instead of failing, which is what made this look
+   like a boot hang for two weeks.
+
 2. ~~The compass after an AREA toggle is fixed-by-observation only.~~
    **CLOSED 2026-08-01 (`84511949`)** — root-caused: `l67ca` read the 8-entry
    direction table with an unmasked facing, and `l1908` normalises facing to
