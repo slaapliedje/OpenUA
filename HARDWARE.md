@@ -122,3 +122,19 @@ Anything at all, but especially:
 
 Emulator baselines for comparison, menu to the tavern in the sample module:
 TT 2:50, Falcon 2:35, AGA 4:00, STE 6:23, ECS 9:52.
+
+## Monochrome (SM124 / ST-High) needs the MAC release
+
+The colour builds play from **either** the DOS or the Mac release (ADR-0017).
+**Mono is the one exception: it requires the Mac release.**
+
+In mono the engine selects the `.tlb` art set, and a Mac B&W `.TLB` is a
+different FORMAT from a DOS HLIB `.TLB` despite sharing the extension. The
+install-time mono synthesiser (`tools/art_convert.py`) can derive 17 of the 23
+libraries from colour art, but not the six chrome ones — **ALWAYS, FRAME, GEN,
+MENU, TITLE, TOPVIEW** — and ALWAYS is the first thing the boot loads. With a
+DOS-only install the mono build stops with `LBLoad: Bad Lib: 'always.TLB'`
+rather than starting.
+
+Mono is also deprioritised: it is not part of the shipped zips and is built
+explicitly (`make CPU68K=68000 EXTRA_CFLAGS=-DFRUA_BWMODE`).

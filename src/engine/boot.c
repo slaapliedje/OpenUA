@@ -81917,15 +81917,44 @@ static short l17e2(short kind, const char *name, short mode, void *cbp)
  * dialog body is cold. */
 static short jt987(short kind, const char *name, short mode, void *cb)
     __attribute__((unused));
+/* ★ BOUNDS ON THE COLD DISK-RETRY DIALOG (2026-08-02). The Mac's loop is
+ * unbounded by design — a floppy-era affordance: it spins until the user
+ * inserts the disk, cancels or quits. The port normally runs from a hard disk
+ * or a GEMDOS mount where there is no disk to insert, and NOTHING in the wait
+ * loop below terminates without a keypress. So a single missing resource was
+ * an unkillable hang with no diagnostic: the mono build spent two weeks
+ * "hanging at boot" when it was really failing to open ALWAYS.tlb and sitting
+ * on "LOADING...PLEASE INSERT DISK" forever.
+ *
+ * Two bounds, both generous enough that a real user swapping a real floppy
+ * never notices, and the FIRST-MISS LOG that would have settled it in one run.
+ * Giving up returns 0 = "not loaded", which is what every call site already
+ * assumes — all six ignore the result — and what jt398's comment already
+ * claims happens ("falls back to base art"). */
+#define JT987_WAIT_TICKS  (60 * 15)   /* per round: 15 s at 60 Hz            */
+#define JT987_MAX_ROUNDS  3           /* then give up rather than spin       */
+
 static short jt987(short kind, const char *name, short mode, void *cb)
 {
 	short k = (short)(unsigned char)kind;
 	short group, key;
+	short rounds = 0;
 
 	PROBE("jt987");
 	for (;;) {
 		if (l17e2(kind, name, mode, cb))
 			return 1;                /* loaded */
+
+		/* Say WHICH resource missed, once, before any dialog. This is the
+		 * datum whose absence made the mono hang undiagnosable. */
+		if (rounds == 0)
+			dbg_file_str("jt987: resource NOT loaded: ",
+			             name ? name : "(null)");
+		if (++rounds > JT987_MAX_ROUNDS) {
+			dbg_file_str("jt987: GIVING UP (no disk to swap): ",
+			             name ? name : "(null)");
+			return 0;                /* caller treats as "absent" */
+		}
 
 		/* L1a14 — the cold disk-retry dialog */
 		jt1152();
@@ -81937,8 +81966,20 @@ static short jt987(short kind, const char *name, short mode, void *cb)
 		 * 0x0f9c) services the sound driver's next voice, so the music
 		 * keeps playing while the dialog waits on the disk.  The port
 		 * spun on an empty body, which silenced it. */
-		while (!l0088() && jt1121() == 0)
-			jt980();
+		{
+			/* Faithful body (jt980 keeps the music going), plus a
+			 * deadline — without one this loop never exits when
+			 * there is no user, which IS the hang. Expiry leaves no
+			 * key pending, so the round simply ends and the bound
+			 * above decides whether to retry or give up. */
+			long deadline = jt1134() + (long)JT987_WAIT_TICKS;
+
+			while (!l0088() && jt1121() == 0) {
+				jt980();
+				if (jt1134() > deadline)
+					break;
+			}
+		}
 		key = jt1118() ? jt1133() : (l00a8(), (short)0);
 		l157c(0, 0, 0L);
 		if (key == 81) {             /* 'Q' -> quit */

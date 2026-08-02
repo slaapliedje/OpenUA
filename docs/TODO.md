@@ -34,10 +34,22 @@ data media for Falcon/TT, Mega ST, Amiga AGA and Amiga ECS.
    `jt987` turns that into an infinite disk-swap retry. `data/work/gamedata` is
    DOS-derived, so mono had nothing to load. Recipe for a mono data tree is in
    the run-falcon-port skill.
-   **Still genuinely open:** (a) nothing in CI or the harness exercises mono, so
-   it can rot again silently; (b) `jt987`'s retry loop is unbounded — a missing
-   resource hangs headlessly instead of failing, which is what made this look
-   like a boot hang for two weeks.
+   **Both follow-ups are now DONE** (2026-08-02): `tests/test_mono_boot.py`
+   builds and boots mono and asserts the menu marker (slow-marked, skips when
+   the Mac release is not unpacked; mutation-checked), and `jt987`'s retry is
+   bounded (3 rounds, 15 s each) and names the missing resource on the first
+   miss — the DOS-only tree now stops with `LBLoad: Bad Lib: 'always.TLB'`
+   instead of hanging.
+
+   **Remaining, tracked:** mono requires the MAC release. `MONO_FAMILIES` in
+   `tools/art_convert.py` synthesises 17 of 23 libraries from colour art but
+   not the six chrome ones — **ALWAYS, FRAME, GEN, MENU, TITLE, TOPVIEW** — and
+   ALWAYS is the first the boot wants. Adding them is tractable, not
+   speculative: the Mac base game ships BOTH halves of every pair, so the
+   per-family scale and mode are measurable exactly as the other ten were
+   (ALWAYS 5368/1816, FRAME 34320/23672, GEN 26818/7748, MENU 11064/1458,
+   TITLE 171744/51736, TOPVIEW 1552/1392). Until then the caveat is documented
+   in `HARDWARE.md`.
 
 2. ~~The compass after an AREA toggle is fixed-by-observation only.~~
    **CLOSED 2026-08-01 (`84511949`)** — root-caused: `l67ca` read the 8-entry
