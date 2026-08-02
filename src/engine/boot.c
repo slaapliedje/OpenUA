@@ -7956,8 +7956,35 @@ static void l67ca(void)
 	L67_T("piece 9  ", jt1001(8000, 8000, 1, 9));
 	L67_T("piece 21 ", jt1001(8000, 8000, 1, 21));
 
-	/* Direction byte at g_a5_27980[g_a5_12286 * 3], sign-extended. */
-	letter = (short)(signed char)g_a5_27980[g_a5_12286 * 3];
+	/* Direction byte at g_a5_27980[facing * 3], sign-extended.
+	 *
+	 * ★ MASK THE FACING. The table is EIGHT entries indexed 0..7 — a compass
+	 * ring labelled with the nearest cardinal, dumped live from the replayed
+	 * DATA pool:
+	 *
+	 *     entry  0    1    2    3    4    5    6    7  |   8
+	 *     byte  'N'  'N'  'E'  'S'  'S'  'S'  'W'  'N' |  0x07
+	 *     ring   N   NE    E   SE    S   SW    W   NW  | (next array)
+	 *
+	 * but l1908 normalises facing into 1..8, not 0..7 (`facing <= 0` -> +8).
+	 * So NORTH arrives as 8, the unmasked index reads entry 8 — which is the
+	 * first byte of the NEXT array, 0x07, not a letter — and the switch falls
+	 * to `default`: no compass face at all.
+	 *
+	 * Symptom, and it is not subtle: face north, open the AREA map, close it,
+	 * and the compass loses its needle AND its letter, leaving a bare arch.
+	 * (l67ca redraws the chrome after the force-full recompose that closing
+	 * the map arms, so this is the draw that decides what you end up looking
+	 * at.) Every other facing is unaffected, which is why it read as an
+	 * AREA-map bug for so long — the repro needs facing 8 specifically, and
+	 * a facing-2 A/B is byte-identical before and after the toggle.
+	 *
+	 * `& 7` maps 8 -> 0 = 'N' and leaves 1..7 alone. port_draw_compass (#124)
+	 * already masks; this is the same table read and was simply missed there.
+	 * The Mac asm (CODE 22 L67ca 0x...: moveb a5@(-12286),d0 / muluw #3) does
+	 * NOT mask, so if its facing also reaches 8 the original has the same bug;
+	 * we diverge deliberately rather than reproduce a missing compass. */
+	letter = (short)(signed char)g_a5_27980[(g_a5_12286 & 7) * 3];
 	switch (letter) {
 	case 'E': jt1001(8000, 8000, 1, 25); break;
 	case 'N': jt1001(8000, 8000, 1, 22); break;
