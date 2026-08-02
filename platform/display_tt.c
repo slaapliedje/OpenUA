@@ -52,6 +52,62 @@ static short          g_save_shift = -1;
 static void          *g_save_phys, *g_save_log;
 static unsigned char  s_seeded;             /* #99: see tt_present below */
 
+#ifdef FRUA_PLANAR
+/* ★ ADR-0016 B4 on the TT — the draw-time WRITER half.
+ *
+ * The TT is the SIMPLE case, exactly like AGA: 8 planes = 256 colours and the
+ * palette is hardware (dsp_backend_t.hw_palette, #99), so the writers' remap is
+ * the IDENTITY and none of the ST's quantiser machinery (bands, re-band, epoch
+ * reset, new-ink trigger) exists here. A stamp can never be invalidated, so
+ * there is no epoch to reset.
+ *
+ * Layout is ST-Low's WORD-INTERLEAVE with nplanes = 8, not the Amiga's separate
+ * planes — `planar_put_stlow` and friends are already generic in nplanes and a
+ * `slot` byte covers 8 planes exactly, so the whole compat/quickdraw.c writer
+ * layer works here UNCHANGED. That is why this half of the ADR is a display-file
+ * change plus a build flag, and nothing else.
+ *
+ * The one thing the TT does that no other planar backend does is LINE-DOUBLE:
+ * engine row y lands on screen rows TOP_BORDER + 2y and +1. So the stamp buffer
+ * is the ENGINE frame (320x200 interleaved) and the doubling stays where it
+ * always was, at present time — the writers never see it.
+ *
+ * Allocated at init rather than declared static: this file is compiled into the
+ * ONE Atari 020 binary shared with the Falcon, which never registers a draw
+ * target, and ~190 KB of BSS it can never use is not worth carrying. If the
+ * allocation fails we simply do not register, dsp_planar_draw_target() returns
+ * 0, and every writer keeps its chunky store — the pre-B4 path, intact. */
+#define TT_DEPTH    8
+#define DT_BYTES    ((long)LINE_BYTES * ENGINE_H)   /* interleaved, 8 planes */
+#define COV_BYTES   ((long)TT_W * ENGINE_H)
+
+static unsigned char *t_dt;          /* draw-time plane accumulation buffer  */
+static unsigned char *t_dt_cov;      /* w*h: 1 where a writer stamped        */
+static unsigned char *t_dt_idx;      /* w*h: the chunky index it stamped     */
+static short         *t_dt_rowcov;   /* ENGINE_H: covered pixels in the row  */
+static unsigned char  t_dt_ident[256];
+
+static int tt_dt_target(struct dsp_planar_dt *dt)
+{
+	if (t_dt == NULL)
+		return 0;
+	dt->planes       = t_dt;
+	dt->remap        = t_dt_ident;
+	dt->cov          = t_dt_cov;
+	dt->idx          = t_dt_idx;
+	dt->rowcov       = t_dt_rowcov;
+	dt->chunky       = g_chunky;
+	dt->chunky_pitch = TT_W;
+	dt->line_bytes   = LINE_BYTES;   /* interleaved: a whole engine row */
+	dt->plane_bytes  = 0;            /* interleaved layout: unused      */
+	dt->w            = TT_W;
+	dt->h            = ENGINE_H;
+	dt->nplanes      = TT_DEPTH;
+	dt->nbands       = 1;            /* identity: one band is enough    */
+	return 1;
+}
+#endif /* FRUA_PLANAR */
+
 /* Convert one 16-pixel-aligned span of a chunky row into TT interleaved
  * planes at `dst` (8 words per 16-pixel group: plane 0..7), then the caller
  * duplicates the line. `w` and the source offset are multiples of 32 except
@@ -120,11 +176,40 @@ static int tt_init(short want_w, short want_h)
 	g_surface.height = ENGINE_H;
 	g_surface.pitch  = TT_W;
 	g_surface.pixels = g_chunky;
+
+#ifdef FRUA_PLANAR
+	/* ADR-0016 B4: bring up the draw-time plane target. Any allocation
+	 * failure leaves t_dt NULL and simply does not register — writers keep
+	 * their chunky store and the present converts, exactly as before. */
+	t_dt        = (unsigned char *)Mxalloc(DT_BYTES, 0);
+	t_dt_cov    = (unsigned char *)Mxalloc(COV_BYTES, 0);
+	t_dt_idx    = (unsigned char *)Mxalloc(COV_BYTES, 0);
+	t_dt_rowcov = (short *)Mxalloc((long)ENGINE_H * sizeof(short), 0);
+	if ((long)t_dt <= 0 || (long)t_dt_cov <= 0
+	 || (long)t_dt_idx <= 0 || (long)t_dt_rowcov <= 0) {
+		dbg_log("tt: draw-time plane alloc FAILED - chunky path");
+		t_dt = NULL;
+	} else {
+		short i;
+		for (i = 0; i < 256; i++)
+			t_dt_ident[i] = (unsigned char)i;
+		memset(t_dt, 0, (size_t)DT_BYTES);
+		memset(t_dt_cov, 0, (size_t)COV_BYTES);
+		memset(t_dt_idx, 0, (size_t)COV_BYTES);
+		memset(t_dt_rowcov, 0, (size_t)ENGINE_H * sizeof(short));
+		planar_draw_target_register(tt_dt_target);
+		dbg_log("tt: draw-time plane path up (identity remap, 8 planes)");
+	}
+#endif
 	return 0;
 }
 
 static void tt_shutdown(void)
 {
+#ifdef FRUA_PLANAR
+	planar_draw_target_register((int (*)(struct dsp_planar_dt *))0);
+	t_dt = NULL;                  /* writers fall back to chunky at once */
+#endif
 	if (g_save_shift >= 0) {
 		EsetShift((short)g_save_shift);
 		Setscreen(g_save_log, g_save_phys, -1);
@@ -142,7 +227,44 @@ static dsp_surface_t *tt_surface(void)
 	return &g_surface;
 }
 
-/* Convert + line-double the given chunky rows into the letterboxed screen. */
+#ifdef FRUA_PLANAR
+#ifdef FRUA_TTPROF
+static long s_ttp_skipped;              /* rows the writers had already stamped */
+#endif
+
+/* Make row y of t_dt authoritative, and say whether we had to convert.
+ *
+ * Straight from aga_dt_ready_row (#41), including the SELF-HEALING OWNERSHIP:
+ * a row we convert here IS remap[chunky] — trivially so, the remap being the
+ * identity — which is exactly the ownership invariant the skip tests. So claim
+ * it. A coverage hole (a region drawn by one of the engine-direct blitters that
+ * never stamps) converts ONCE and is skipped thereafter; an overwrite breaks
+ * idx == chunky and re-converts. Without this the same rows re-convert every
+ * present and the skip never fires in play.
+ *
+ * Returns 1 if a conversion ran, 0 if the writers had already stamped the row. */
+static int tt_dt_ready_row(short y)
+{
+	const unsigned char *crow = g_chunky + (long)y * TT_W;
+
+	if (t_dt_rowcov[y] == TT_W
+	    && memcmp(t_dt_idx + (long)y * TT_W, crow, TT_W) == 0)
+		return 0;                       /* writer-stamped: t_dt is correct */
+
+	tt_c2p_span(crow, t_dt + (long)y * LINE_BYTES, TT_W);
+	memset(t_dt_cov + (long)y * TT_W, 1, TT_W);
+	memcpy(t_dt_idx + (long)y * TT_W, crow, TT_W);
+	t_dt_rowcov[y] = TT_W;
+	return 1;
+}
+#endif /* FRUA_PLANAR */
+
+/* Convert + line-double the given chunky rows into the letterboxed screen.
+ *
+ * With the draw-time writers active (ADR-0016 B4) the conversion is skipped for
+ * any row the writers already stamped: t_dt holds the planes and the present is
+ * two row copies. The LINE DOUBLING stays here either way — it is a property of
+ * the TT screen, not of the frame, so the writers never see it. */
 static void tt_blit_rows(short x0, short w, short y0, short h)
 {
 	short y;
@@ -154,6 +276,23 @@ static void tt_blit_rows(short x0, short w, short y0, short h)
 		    + (long)(TOP_BORDER + (y0 + y) * 2) * LINE_BYTES
 		    + (long)(x0 / 16) * 16;
 
+#ifdef FRUA_PLANAR
+		/* Whole-width rows only: t_dt is a full-row accumulation and the
+		 * coverage test is per row, so a partial-width call (tt_present_rect)
+		 * cannot use it. Those are rare and already correct via the c2p. */
+		if (t_dt != NULL && x0 == 0 && w == TT_W) {
+			short yy = (short)(y0 + y);
+#ifdef FRUA_TTPROF
+			if (!tt_dt_ready_row(yy)) s_ttp_skipped++;
+#else
+			(void)tt_dt_ready_row(yy);
+#endif
+			memcpy(dst, t_dt + (long)yy * LINE_BYTES,
+			       (size_t)LINE_BYTES);
+			memcpy(dst + LINE_BYTES, dst, (size_t)LINE_BYTES);
+			continue;
+		}
+#endif
 		tt_c2p_span(src, dst, w);
 		memcpy(dst + LINE_BYTES, dst, (size_t)((w / 16) * 16));
 	}
@@ -236,6 +375,12 @@ static void tt_present(void)
 		dbg_file_num("ttprof:   full    ", s_ttp_full);
 		dbg_file_num("ttprof:   rows    ", s_ttp_rows);
 		dbg_file_num("ttprof:   rows/pr ", s_ttp_rows / s_ttp_presents);
+#ifdef FRUA_PLANAR
+		/* B4: rows the writers had already stamped, so the present did two
+		 * copies instead of a conversion. This is the number the draw-time
+		 * writer half exists to move. */
+		dbg_file_num("ttprof:   SKIPPED ", s_ttp_skipped);
+#endif
 		/* WHO forced the full presents. Same six counters the ST backend
 		 * dumps (#63) — needs FRUA_STPROF for the QDT() macro to compile to
 		 * anything, so build with BOTH to get attribution. */

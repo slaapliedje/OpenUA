@@ -137,14 +137,25 @@ CFLAGS += $(INCLUDE)
 # as it was. That is already how the shipped ST zip behaves when it boots on a
 # Falcon or TT.
 #
-#   make CPU68K=68000 PLANAR=0    opt out (the pre-0.5.0 chunky + c2p path)
+#   make PLANAR=0                 opt out (the pre-0.5.0 chunky + c2p path)
 #
-# 020+ builds (Falcon/TT VIDEL, Amiga AGA/RTG) are chunky-native by ADR-0016
-# and are NOT affected.
-ifeq ($(CPU68K),68000)
+# ★ NOW THE DEFAULT ON EVERY TARGET, not just CPU68K=68000 (2026-08-01).
+# The old gate said "020+ builds (Falcon/TT VIDEL, Amiga AGA/RTG) are
+# chunky-native by ADR-0016 and are NOT affected". That was already only half
+# true — the AGA zip has shipped -DFRUA_PLANAR since 0.5.1, so a plain
+# `make MACHINE=amiga` was testing a different binary from the one released —
+# and it stopped being true at all when the TT grew its draw-time writer half
+# (display_tt.c registers a target now). Gating on the CPU would have left the
+# TT's new path out of every dev build and every emulator soak.
+#
+# Still safe on a backend that does not want it, and for the same reason as
+# before: the draw-time target is REGISTERED BY THE ACTIVE BACKEND at runtime.
+# VIDEL, RTG and ST-High never register, so dsp_planar_draw_target() returns 0,
+# the shim writers skip the plane stamp and take their chunky store unchanged.
+# Verified byte-identical on the Falcon across this switch (the Falcon and the
+# TT share ONE 020 binary, so that was the load-bearing check).
 ifneq ($(PLANAR),0)
 CFLAGS += -DFRUA_PLANAR
-endif
 endif
 
 CFLAGS += $(EXTRA_CFLAGS)

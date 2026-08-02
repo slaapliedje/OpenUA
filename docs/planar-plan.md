@@ -905,9 +905,14 @@ differing pixels (it shares the binary; `hw_palette` is 0 there so the shim path
 is byte-for-byte the old one), and the STE 68000 planar build still boots its
 quantised path. Four targets build, 417 tests pass.
 
-**WHAT WAS NOT DONE, DELIBERATELY: the draw-time WRITER half of ADR-0016.** On
-the TT the writers still paint chunky and the present converts; they do not stamp
-planes. Two reasons, both worth recording:
+**★ DONE 2026-08-01 — see "#160 THE TT WRITER HALF" at the end of this file.**
+The text below records why it was deferred; it is history now. The TT registers
+a draw-time target, the shim writers stamp its planes, and 87% of the rows the
+present still handles need no conversion at all.
+
+**WHAT WAS NOT DONE AT THE TIME, DELIBERATELY: the draw-time WRITER half of
+ADR-0016.** On the TT the writers still paint chunky and the present converts;
+they do not stamp planes. Two reasons, both worth recording:
 
 - It is not a display-file change. The whole draw-time writer layer in
   `compat/quickdraw.c` is `#ifdef FRUA_PLANAR`, which the Atari 020 build does
@@ -4821,3 +4826,72 @@ far brackets `jt312`'s call site, which is not the one firing.
 
 ★ It also explains, at last, #126's *"20 `l67ca` runs against 5 full composes"*
 — recorded, flagged as odd, and left alone for fifteen entries.
+
+## #160 THE TT WRITER HALF — DONE, AND IT WAS MOSTLY A BUILD FLAG (2026-08-01)
+
+The deferral above gave two reasons. Both turned out softer than they read.
+
+**"It is not a display-file change."** It very nearly is. The whole writer layer
+in `compat/quickdraw.c` dispatches through `DC_PUT` / `DC_C2P` / `DC_SPAN`,
+whose non-Amiga arm is `planar_*_stlow` — and those are already **generic in
+`nplanes`** (`slot >> p` for `p < nplanes`, with `slot` a byte, which covers 8
+planes exactly). TT-Low is ST-Low's word-interleave with 8 planes instead of 4.
+So not one line of the writer layer changed. What was needed:
+
+- `display_tt.c`: a draw-time plane buffer + cov/idx/rowcov, an identity remap,
+  `tt_dt_target()`, and `planar_draw_target_register()` at init;
+- `tt_blit_rows`: ask `tt_dt_ready_row(y)` first and copy the row out of the
+  plane buffer instead of converting it;
+- the Makefile flag.
+
+**The TT is the SIMPLE case, like AGA, not like the ST.** 8 planes = 256
+colours and the palette is hardware (`hw_palette`, #99), so the remap is the
+IDENTITY: no bands, no re-band, no epoch reset, no new-ink trigger. A stamp can
+never be invalidated, so there is nothing to reset. `tt_dt_ready_row` is
+`aga_dt_ready_row` with a different span converter, self-healing ownership
+included — a row an engine-direct blitter drew converts ONCE, is then claimed
+(`cov=1`, `idx=chunky`, `rowcov=W`) and skipped thereafter.
+
+**The line doubling never reaches the writers.** Engine row `y` lands on screen
+rows `TOP_BORDER + 2y` and `+1`. The stamp buffer is the ENGINE frame
+(320x200 interleaved) and the doubling stays at present time, where it always
+was — which is why the ST's writer contract needed no row-mapping extension.
+
+**"The headroom left is small."** Measured, same scripted drive, 176 presents:
+
+| build | presents | rows presented | rows CONVERTED |
+|---|---|---|---|
+| chunky (#99 dirty-row present) | 176 | 23 748 | 23 748 |
+| draw-time planar | 176 | 23 894 | **3 024** |
+
+20 870 of 23 894 rows were already writer-stamped: an **87% cut in conversion
+work** on top of what #99 removed. The "~6%" in the deferral was the share of
+the ORIGINAL 95 092-row figure still being converted; as a fraction of the work
+the present still does each frame, it was 100%.
+
+**Byte-identical on both machines**, chunky vs draw-time, walk view + the
+post-AREA-toggle frame: TT 2/2 and **Falcon 2/2**. The Falcon check is the
+load-bearing one — Falcon and TT share ONE 020 binary, and this switch enables
+the whole writer layer in it. VIDEL never registers a target, so
+`dsp_planar_draw_target()` returns 0 and every writer takes its chunky store.
+
+**`FRUA_PLANAR` is now the default on EVERY target**, not just `CPU68K=68000`.
+Gating on the CPU would have kept the TT's new path out of every dev build and
+every emulator soak — the exact "the binary under test is not the binary that
+ships" gap that making it the 68000 default was meant to close. It also closes
+the same gap for AGA, whose zip has carried the flag since 0.5.1 while
+`make MACHINE=amiga` compiled the chunky path. `PLANAR=0` still opts out.
+
+★ **Trap, and it cost a wrong conclusion for one run.** The first TT A/B came
+back "DIFFERS" with the planar PNG 6 KB larger — which reads exactly like
+plane corruption. It was the HARNESS: the drive's sleeps were tuned on the
+Falcon, the planar build shifts the per-present timing, and the entry chain
+desynced so the run parked on the TREASURE screen while the baseline was in the
+walk view. Two different game states, not two renderings. Re-paced for the TT
+(~2x) both runs reached 10,8 facing north and the frames were byte-identical.
+**Confirm both arms are in the same state before believing a pixel diff.**
+
+**NOT measured: wall-clock.** Same caveat as #99 — under Hatari the host sets
+the frame pace, so only conversion WORK is meaningful here. This wants real
+hardware, and the TT now has a reason to be measured on it.
+
