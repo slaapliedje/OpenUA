@@ -38,10 +38,12 @@ data media for Falcon/TT, Mega ST, Amiga AGA and Amiga ECS.
    direction table with an unmasked facing, and `l1908` normalises facing to
    1..8, so NORTH (8) indexed past the letters and drew no face. Not an
    AREA-map bug; the map only forced the redraw that exposed it.
-3. **TT draw-time planar writer (ADR-0016) deliberately not done.** The layer
-   is `#ifdef FRUA_PLANAR`, which the Atari 020 build (one binary for Falcon +
-   TT) does not define, and only ~6% of the conversion work is left to win. See
-   the TT section of `docs/planar-plan.md`.
+3. ~~TT draw-time planar writer (ADR-0016) deliberately not done.~~
+   **DONE 2026-08-01 (`0227b5aa`)** — the TT registers a draw-time target and
+   87% of the rows the present still handled need no conversion. `FRUA_PLANAR`
+   is now the default on every target. The "~6% left to win" was a share of the
+   original figure, not of the work the present actually still did. See
+   "#160 THE TT WRITER HALF" in `docs/planar-plan.md`.
 4. **The play loop is still unmeasured** for planar conversion cost — the
    "~47% of rows still convert" figure is a BOOT measurement, and the
    post-menu screens converted zero. See the #90 section of
