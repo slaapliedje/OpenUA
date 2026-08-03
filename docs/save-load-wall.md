@@ -51,6 +51,30 @@ stand-in.
 > and on Amiga AGA; a nonexistent slot falls back to the menu and logs
 > `autoload: no such slot`.
 >
+> ✅ **CAMP SAVE vs CAMP LOAD — SETTLED AGAINST DOS FRUA 1.2 (2026-08-03).**
+> Reported from real hardware: camp SAVE -> "Exit Play? YES" dropped back into
+> the dungeon, and only camp LOAD got you out. The SAVE half was a real bug
+> (see the l4cda note in boot.c). The LOAD half is NOT: driven end to end in
+> SSI's own DOS build — roll a fighter, Begin Adventuring, ENCAMP -> SAVE ->
+> slot A -> "EXIT PLAY?" -> NO, then ENCAMP -> LOAD -> slot A — **DOS lands in
+> the TRAINING HALL with the loaded party**, exactly as the port does. So
+> "Load should drop you into the dungeon" is not what the original does, and
+> nothing needs changing there. From the Hall it is one BEGIN ADVENTURING.
+>
+> Two side observations from the same run, both worth acting on eventually:
+>
+>   - **DOS keeps saves in `<design>.DSN\SAVE\`** — `SAVGAMA.CSV` and the
+>     character `.CCH` files all land in that subdirectory. The port flattens
+>     them into the design folder (`savgam_path`), so **saves do not
+>     interchange between DOS FRUA and the port in either direction**. The Mac
+>     built the same `<design>:SAVE:` path; flattening was the port's choice.
+>   - **DOS writes `VAULTA.DAT` beside `SAVGAMA.CSV`** — a PER-SLOT vault file
+>     the port does not write at all. Relevant to the vault event (l3a32).
+>
+> The "Game not saved, load anyway?" confirm did NOT appear on that camp LOAD,
+> because the save had just happened — which matches the port's `-27946` gate
+> exactly. A small but real parity signal.
+>
 > ★ **Two traps it walked into, both worth knowing.** (1) Skipping `jt315`
 > also skips `load_menu_ui`, and then EVERY scrap of HUD text is invisible —
 > roster, coords, clock, button labels — because `port_hud_text_clut` bails on
