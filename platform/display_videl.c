@@ -87,6 +87,15 @@ static short          g_save_mode;
 static void          *g_save_log;
 static void          *g_save_phys;
 static long           g_save_palette[256];
+/* ★ The Falcon palette is NOT the whole picture. In an ST-COMPATIBLE mode —
+ * which is what a TOS 4 desktop usually is — the colours come from the 16
+ * ST/e palette registers at 0xFF8240, not from the 256-entry VIDEL palette
+ * VgetRGB/VsetRGB reach. Restoring only the latter left the desktop redrawn
+ * in the wrong colours (teal came back pale green, reproduced in Hatari on
+ * `--monitor vga`). Setcolor(i, COL_INQUIRE) reads a register without
+ * changing it — the documented way to snapshot them (Compendium p.274). */
+#define COL_INQUIRE (-1)
+static short          g_save_stpal[16];
 
 /* 8-bit palette index -> RGB565 word. Rebuilt by videl_set_palette. */
 static unsigned short g_lut[256];
@@ -180,6 +189,11 @@ static int videl_init(short want_w, short want_h)
 	g_save_log  = (void *)Logbase();
 	g_save_phys = (void *)Physbase();
 	VgetRGB(0, 256, g_save_palette);
+	{
+		short i;
+		for (i = 0; i < 16; i++)
+			g_save_stpal[i] = Setcolor(i, COL_INQUIRE);
+	}
 
 	/* 16bpp TrueColor, same geometry as the 8bpp path: 320x240 on VGA
 	 * (VGA + double-line), 320x200 on an RGB/TV monitor. BPS16 swaps the
@@ -363,9 +377,19 @@ static void videl_shutdown(void)
 		Supexec(vbl_remove_super);
 		g_vbl_installed = 0;
 	}
-	VsetMode(g_save_mode);
-	VsetScreen(g_save_log, g_save_phys, -1, -1);
+	/* ★ ONE VsetScreen, not VsetMode + a bases-only VsetScreen.
+	 * "VsetMode() does not reset the video base address, reserve memory, or
+	 * reinitialize the VDI. To do this, use VsetScreen()" (Compendium
+	 * p.289), and a VsetScreen with mode/modecode = SCR_NOCHANGE changes no
+	 * mode either — so between them the VDI was never reinitialised and the
+	 * desktop came back drawn with our 320x200 geometry, shifted up the
+	 * screen with its menu bar cut off. SCR_MODECODE (3) says "use the
+	 * modecode", and that form DOES reinitialise the VDI and the VT52
+	 * emulator (p.290). Reported from real hardware as "doesn't drop out
+	 * cleanly to TOS"; reproduced in Hatari on --monitor vga. */
+	VsetScreen(g_save_log, g_save_phys, 3 /* SCR_MODECODE */, g_save_mode);
 	VsetRGB(0, 256, g_save_palette);
+	Setpalette(g_save_stpal);            /* the ST-compat 16 — see above */
 	for (b = 0; b < 3; b++)
 		if (g_screen_raw[b] != NULL) {
 			Mfree(g_screen_raw[b]);
