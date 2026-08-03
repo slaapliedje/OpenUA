@@ -176,6 +176,89 @@ static long vbl_remove_super(void)
 	return 0;
 }
 
+/* videl_cfg_mode — the player's resolution choice, or 0 for "decide for me".
+ *
+ * PORT-LOCAL, opt-in. Reads `video.cfg` from the current directory: one line,
+ * one token, case-insensitive.
+ *
+ *   auto        (or the file absent)  pick from the monitor type, as before
+ *   rgb200      the RGB/TV timing: 320x200, NO letterbox. This is the one to
+ *               try on a VGA monitor or an LCD scaler that will sync it —
+ *               `auto` will never choose it there, and it is the only way to
+ *               get the engine's frame with no blanked bands.
+ *   vga240      VGA + double-line: 320x240, a 20-line band above and below
+ *   vga480      VGA, no double-line: 320x480, a 140-line band above and below
+ *   0x<hex>     a raw VsetMode word, for a monitor none of the presets suit
+ *
+ * ★ THE TOKENS NAME A MODE WORD, NOT A GUARANTEED GEOMETRY, because VERTFLAG
+ * means OPPOSITE things on the two monitor types: on VGA it DOUBLES lines and
+ * so HALVES the vertical resolution (480 -> 240), while on RGB/TV it engages
+ * interlace and DOUBLES it (200 -> 400). An earlier cut of this offered
+ * "320x200" and "320x240" as if they were monitor-independent; measured, they
+ * gave 320x480 on VGA and 320x400 on RGB. There is no 320x200 VGA mode — a
+ * VGA Falcon letterboxes because 200 lines have to sit inside 240.
+ *
+ * Why this exists: choosing from the monitor type alone is a guess, and it is
+ * the person at the machine who knows what their monitor will sync. Requested
+ * from real hardware. Whatever is picked still has to give a 320-wide frame
+ * with at least the engine's 200 lines; if it does not, videl_init logs that
+ * and falls back to the automatic choice, so a bad line here cannot leave you
+ * with an unusable display. The resulting width/height/letterbox are logged
+ * either way, so `0x<hex>` experiments are self-documenting.
+ *
+ * The raw-hex form is deliberate: if none of the presets sync on some monitor,
+ * it lets the mode be found by experiment on the machine itself, and DBG.LOG
+ * records what worked. Bits are in mint/falcon.h (VGA 0x10, PAL 0x20,
+ * VERTFLAG 0x100, COL80 0x08, BPS16 0x04). GEMDOS directly rather than the
+ * Toolbox shim: this runs before the shim has a screen. */
+static short videl_cfg_mode(void)
+{
+	char  buf[32];
+	long  fh, n;
+	int   i = 0, j;
+
+	fh = Fopen("video.cfg", 0);
+	if (fh < 0)
+		return 0;                       /* not opted in — the normal case */
+	n = Fread((short)fh, (long)sizeof buf - 1, buf);
+	Fclose((short)fh);
+	if (n <= 0)
+		return 0;
+	buf[n] = '\0';
+
+	while (buf[i] == ' ' || buf[i] == '\t')
+		i++;
+	for (j = i; buf[j]; j++) {           /* terminate at EOL/space */
+		if (buf[j] == '\r' || buf[j] == '\n' || buf[j] == ' ') {
+			buf[j] = '\0';
+			break;
+		}
+		if (buf[j] >= 'A' && buf[j] <= 'Z')
+			buf[j] = (char)(buf[j] - 'A' + 'a');
+	}
+
+	if (strcmp(buf + i, "auto") == 0)
+		return 0;
+	if (strcmp(buf + i, "rgb200") == 0)      /* no VGA bit: RGB/TV timing */
+		return (short)((VsetMode(-1) & PAL) | BPS16);
+	if (strcmp(buf + i, "vga240") == 0)
+		return (short)(VGA | VERTFLAG | BPS16);
+	if (strcmp(buf + i, "vga480") == 0)
+		return (short)(VGA | BPS16);
+	if (buf[i] == '0' && (buf[i + 1] == 'x' || buf[i + 1] == 'X')) {
+		short v = 0;
+		for (j = i + 2; buf[j]; j++) {
+			char c = buf[j];
+			if      (c >= '0' && c <= '9') v = (short)(v * 16 + (c - '0'));
+			else if (c >= 'a' && c <= 'f') v = (short)(v * 16 + (c - 'a' + 10));
+			else break;
+		}
+		return v;
+	}
+	dbg_log("  videl_init: video.cfg not understood - want auto|rgb200|vga240|vga480|0xNNN");
+	return 0;
+}
+
 static int videl_init(short want_w, short want_h)
 {
 	short w, h, newmode;
@@ -193,6 +276,35 @@ static int videl_init(short want_w, short want_h)
 		short i;
 		for (i = 0; i < 16; i++)
 			g_save_stpal[i] = Setcolor(i, COL_INQUIRE);
+	}
+
+	/* PORT-LOCAL: let the player override the mode (see videl_cfg_mode).
+	 * Requested on real hardware — deciding purely from the monitor type is
+	 * a guess, and on a Falcon run from the hard disk it is the user who
+	 * knows what their monitor will sync to. */
+	{
+		short forced = videl_cfg_mode();
+		if (forced != 0) {
+			dbg_log_num("  videl_init: video.cfg forces mode = ", forced);
+			long fbytes;
+			short fh_lines;
+
+			VsetMode(forced);
+			linea0();
+			fbytes   = VgetSize(forced);
+			fh_lines = (short)(V_X_MAX ? fbytes / ((long)V_X_MAX * 2) : 0);
+			/* 320 wide AND room for the engine's 200 lines — a mode
+			 * shorter than that would drive g_top_border negative. */
+			if ((short)V_X_MAX == 320 && fh_lines >= ENGINE_H) {
+				newmode = forced;
+				goto mode_chosen;
+			}
+			dbg_log_num("  videl_init: forced mode gave width ",
+			            (long)(short)V_X_MAX);
+			dbg_log_num("  videl_init:              and height ",
+			            (long)fh_lines);
+			dbg_log("  videl_init: ...unusable, ignoring video.cfg");
+		}
 	}
 
 	/* 16bpp TrueColor, same geometry as the 8bpp path: 320x240 on VGA
@@ -255,6 +367,9 @@ static int videl_init(short want_w, short want_h)
 		if (w != 320)
 			dbg_log("  videl_init: NO 320-wide mode found - report DBG.LOG");
 	}
+mode_chosen:
+	linea0();
+	w = (short)V_X_MAX;
 	bytes = VgetSize(newmode);                   /* 16bpp: W*H*2 bytes */
 	h = (short)(bytes / ((long)w * 2));
 	g_scr_words = (short)(bytes / h / 2);        /* rowbytes / 2 = words/row */

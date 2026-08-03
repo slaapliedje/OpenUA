@@ -145,6 +145,34 @@ failure to launch.
 `UAINST` (`UAINST.TTP` / `uainst`) is optional and installs DOS fan modules
 from their ZIP, converting the art in place.
 
+### Choosing the video mode (Falcon)
+
+By default the engine picks from the monitor type: 320x200 on RGB/TV, and on
+VGA 320x240 with the engine's 200 lines centred and a blanked 20-line band
+above and below. That choice is a guess — you know what your monitor syncs.
+Put one token in a file called **`video.cfg`** beside the binary to override it:
+
+| token | mode word | result |
+|---|---|---|
+| `auto` (or no file) | from the monitor type | the default above |
+| `rgb200` | RGB/TV timing, no VGA bit | **320x200, no letterbox** — try this first on VGA |
+| `vga240` | VGA + double-line | 320x240, 20-line bands |
+| `vga480` | VGA, no double-line | 320x480, 140-line bands |
+| `0x<hex>` | raw `VsetMode` word | for a monitor none of the presets suit |
+
+`rgb200` is the interesting one: it asks for the RGB timing on whatever monitor
+you have, which `auto` will never do on VGA, and it is the only way to get the
+frame with no blanked bands. If the monitor will not sync it you will see it
+immediately — and the engine still checks the mode gives a 320-wide frame with
+at least 200 lines, falling back to the automatic choice if not, so a bad line
+here cannot strand you.
+
+The tokens name a MODE, not a guaranteed geometry: `VERTFLAG` halves the
+vertical resolution on VGA (480→240) and doubles it on RGB/TV (200→400), so
+there is no monitor-independent "320x240". There is no 320x200 VGA mode at all
+— that is why a VGA Falcon letterboxes. `DBG.LOG` records the width, height and
+letterbox actually obtained, so a `0x<hex>` experiment documents itself.
+
 **Step 3 is not optional, and running the engine straight off the disk looks
 broken.** Launched from the floppy, it initialises fully — display, sound,
 `frua.rsc` — and then hits a black screen, because the game data it needs is
