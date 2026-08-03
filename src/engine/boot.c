@@ -3448,8 +3448,30 @@ static short l5484(short row, short col, short dir)
  * gets a short centre mark (fill 8) — the dashed top-down automap look. The
  * earlier lift only drew the top edge (and returned early when it was absent),
  * so the map showed nothing but horizontal walls; this is the faithful 1:1 of
- * CODE 7 L54f2..L56ee (all four edge arms). */
-static void l54f2(short maprow, short mapcol, short sy, short sx)
+ * CODE 7 L54f2..L56ee (all four edge arms).
+ *
+ * ★ THE TWO CELL COORDINATES ARRIVE (col, row) AND GO OUT (row, col). All four
+ * Mac call sites push `dir`, then fp@(8), then fp@(10) — and 68k C pushes
+ * RIGHT TO LEFT, so the LAST push is the FIRST argument: L5484 receives
+ * (fp@10, fp@8, dir), the reverse of the order L54f2 got them in. The lift
+ * passed them straight through, which transposed the whole automap: walls
+ * appeared where there were none and openings where there was a wall, while
+ * the 3D view and the movement code (which never go through here) stayed
+ * right. Reported from real hardware 2026-08-02.
+ *
+ * Two independent facts pin which coordinate is which, so this is not a guess:
+ *   - L50fe clamps the OUTER (screen-Y) loop count with lvl[2] = WIDTH and the
+ *     INNER (screen-X) count with lvl[3] = HEIGHT. Those only pair correctly
+ *     if screen-Y walks COLUMNS and screen-X walks ROWS.
+ *   - the scroll origins agree: -12278 is clamped against lvl[2] in l5368 and
+ *     used as the COL in `ds[3]*(-12278) + (-12276)` (boot.c ~18330), while
+ *     -12276 is the row. L50fe adds -12278 to the outer index, -12276 to the
+ *     inner.
+ * So the automap really does run columns down the screen; the port's job is
+ * only to stop transposing it. See docs/geo-format.md for the format side and
+ * the map-axis-pairing note for why nothing here may be settled on a
+ * geo.py-generated fixture. */
+static void l54f2(short mapcol, short maprow, short sy, short sx)
 {
 	short cs     = (short)g_a5_word(-12272);        /* cell size */
 	short bottom = (short)(sy + cs);
@@ -3546,10 +3568,13 @@ static void l50fe(short y, short x, short facing, short p4, short p5,
 	sy = oy;
 	for (r = 0; r < (short)(unsigned char)g_a5_byte(-12274); r++) {
 		for (c = 0; c < (short)(unsigned char)g_a5_byte(-12273); c++) {
-			short maprow = (short)(r + (short)g_a5_word(-12278));
-			short mapcol = (short)(c + (short)g_a5_word(-12276));
+			/* The outer (screen-Y) index walks COLUMNS and the inner
+			 * walks ROWS — see the L54f2 header. Positional order is
+			 * unchanged from the asm; only the names were lying. */
+			short mapcol = (short)(r + (short)g_a5_word(-12278));
+			short maprow = (short)(c + (short)g_a5_word(-12276));
 			short sx = (short)(c * (short)g_a5_word(-12272) + ox);
-			l54f2(maprow, mapcol, sy, sx);
+			l54f2(mapcol, maprow, sy, sx);
 		}
 		sy = (short)(sy + (short)g_a5_word(-12272));
 	}
