@@ -26963,11 +26963,58 @@ static void l435a(void)
 	}
 	g_a5_long(-17526) = g_a5_long(-17526) + count;
 	t = jt1134();
-	if (t > g_a5_long(-17526))
+	if (t > g_a5_long(-17526)) {
 		g_a5_long(-17526) = t;          /* fell behind: catch the target up */
-	else
-		while (jt1134() < g_a5_long(-17526))
-			;                       /* pace to the target tick */
+		return;                         /* ...and do NOT add a present to it */
+	}
+
+	/* ★ SHOW THE GLYPH WE JUST DREW, while we have the time to.
+	 *
+	 * Nothing else presents during a typewriter run: the glyphs go into the
+	 * QuickDraw buffer and the only thing putting pixels on screen is the
+	 * idle-visibility concession inside jt1134, which is rate-limited to one
+	 * present every 12 ticks (5 Hz). MEASURED on the KOBOLD entry message:
+	 * presents at ticks 7009/7021/7033/7045/7057 — exactly 12 apart — with
+	 * FIVE glyphs drawn between each pair. So the text does not type, it
+	 * arrives in five-character jumps, and the last jump completes the word.
+	 * Reported from real hardware as "it gets to about 'the wandering trav'
+	 * then it redraws and finishes"; there is no redraw, that is the 5 Hz
+	 * sampling of a typewriter running faster than it.
+	 *
+	 * The fix is placed here rather than by loosening the 12-tick limit
+	 * because THIS is the point where the engine is provably idle: we only
+	 * reach it when t <= target, i.e. the pacer is about to burn the
+	 * remainder of the glyph's interval in the busy-wait below. Spending
+	 * some of that on a present costs the machine nothing it was not already
+	 * giving away. A machine that has FALLEN BEHIND returns above and never
+	 * gets here, so the slow case is bit-for-bit what it was — which is the
+	 * property that matters for the 8 MHz ST, where the 12-tick limit was
+	 * measured into existence in the first place (#61: a present there costs
+	 * more than a tick, and presenting per glyph starved the engine).
+	 *
+	 * Bounded to every other tick so a design authored at the fastest text
+	 * speed cannot ask for 60 full presents a second. */
+	{
+		static long s_text_present = -1;
+		long        now = TickCount();
+
+		/* ★ FLUSH FIRST. The glyph is drawn before l435a is called, but
+		 * its rows are not ANNOUNCED until the pending InvalRect is
+		 * flushed — which is the first thing jt1134 does. Without this
+		 * l4d88, qd_dirty_any() reads false here every single time and
+		 * the present below never fires: measured 0 of 20 presents at
+		 * this site, with the 5-glyph jumps completely unchanged. */
+		l4d88();
+
+		if ((now - s_text_present >= 2 || now < s_text_present)
+		    && qd_dirty_any()) {
+			qd_present();
+			s_text_present = now;
+		}
+	}
+
+	while (jt1134() < g_a5_long(-17526))
+		;                               /* pace to the target tick */
 }
 
 /* L177a (CODE 7+0x177a) — lay the "Press <Return> to continue." prompt: pump
