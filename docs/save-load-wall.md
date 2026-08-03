@@ -70,6 +70,14 @@ stand-in.
 >     built the same `<design>:SAVE:` path; flattening was the port's choice.
 >   - **DOS writes `VAULTA.DAT` beside `SAVGAMA.CSV`** — a PER-SLOT vault file
 >     the port does not write at all. Relevant to the vault event (l3a32).
+>   - **DOS's save is 10,285 bytes; ours is 10,284** — one byte SHORT. The
+>     10 284 figure quoted all through these notes came from the Mac side.
+>     Dropping a port-written `SAVGAMB.CSV` into DOS's `SAVE\` folder and
+>     opening the camp picker lists only slot A: **DOS will not enumerate our
+>     save.** Supplying a `VAULTB.DAT` alongside does not change that, so the
+>     vault file is not the gate — it is the save itself. 1360 of the bytes
+>     differ, which is mostly party content, but the LENGTH is the cheap
+>     suspect and the first thing to check if cross-loading is ever wanted.
 >
 > The "Game not saved, load anyway?" confirm did NOT appear on that camp LOAD,
 > because the save had just happened — which matches the port's `-27946` gate

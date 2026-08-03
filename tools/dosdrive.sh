@@ -12,10 +12,20 @@
 #   tools/dosdrive.sh type NAME            type a string
 #   tools/dosdrive.sh stop
 #
-# ★ FRUA'S DOS MENUS ARE MOUSE-ONLY. The letter accelerators that drive the
-#   Mac/port builds (p / l / e ...) do NOTHING here — verified by pressing them
-#   at the Hall with no effect, then clicking the same control and having it
-#   open. Every menu step below has to be a click.
+# ★ THE KEYBOARD DRIVES EVERYTHING — prefer it. An earlier note here claimed
+#   FRUA's DOS menus were mouse-only; that was WRONG, and the user said so.
+#   Verified end to end with no mouse at all: p (Play) c (Create) d (Done)
+#   <name> d y (save char) a (Add) Down a e (Exit) b (Begin) — main menu into
+#   the dungeon. In camp: e s <slot> n l. Same accelerators as the port.
+#
+#   What fooled me: pressing `l` at the Hall did nothing, so I concluded the
+#   key was dead and switched to clicking. The picker was simply EMPTY — with
+#   no save on disk it returns immediately and paints nothing, exactly as the
+#   port's jt582 does. With a save present, `l` opens it. A silent control is
+#   not a dead control; check its preconditions before blaming the input path.
+#
+#   The mouse helpers below still work and are kept for controls with no
+#   accelerator, but reach for `key` first.
 #
 # ★ THE CAPTURED MOUSE IS DELTA-DRIVEN *AND ACCELERATED*. The host->screen
 #   ratio measured 0.92/0.78 on one move and 0.99/0.88 on the very next, so a
