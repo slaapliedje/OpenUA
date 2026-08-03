@@ -504,7 +504,19 @@ static void videl_shutdown(void)
 	 * cleanly to TOS"; reproduced in Hatari on --monitor vga. */
 	VsetScreen(g_save_log, g_save_phys, 3 /* SCR_MODECODE */, g_save_mode);
 	VsetRGB(0, 256, g_save_palette);
-	Setpalette(g_save_stpal);            /* the ST-compat 16 — see above */
+	/* ★ ONLY IN AN ST-COMPATIBLE MODE. The ST/e palette registers are
+	 * "simulated for compatibility on newer model machines" (Compendium
+	 * p.740) — which means writing them on a Falcon reaches VIDEL colour
+	 * registers 0..15, exactly the range a desktop lives in. In an
+	 * ST-compat mode those registers ARE the palette and this restores it;
+	 * in a native Falcon mode VsetRGB above has already restored all 256
+	 * with more precision, and pushing 4-bit-per-gun ST words over the top
+	 * would only degrade them. Hatari's TOS 4 desktop reports mode 434 =
+	 * BPS | VGA | PAL | STMODES | VERTFLAG, so the ST path is the one that
+	 * runs there; a machine whose desktop is a native Falcon mode takes the
+	 * other. */
+	if (g_save_mode & STMODES)
+		Setpalette(g_save_stpal);
 	for (b = 0; b < 3; b++)
 		if (g_screen_raw[b] != NULL) {
 			Mfree(g_screen_raw[b]);

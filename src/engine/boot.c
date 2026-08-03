@@ -5296,12 +5296,29 @@ static void jt948(void)
 		 * swap); gate that on l4738()==0 so a camp LOAD (l4738 set) falls
 		 * through to the JT[582] exit instead of being swallowed by the
 		 * reload — the bug that made in-game "Load" flash and do nothing. */
-		if (g_a5_byte(-27982) != 0) {
-			g_a5_byte(-27982) = 0;
-			if (l4738() == 0)
-				continue;               /* stair swap -> L4a1a reload */
-			/* camp LOAD requested -> fall through to the JT[582] exit */
-		}
+		/* ★ THE SECOND TEST IS ON -27982, NOT L4738 (Mac L4ce2).
+		 *
+		 * L4cda reads:
+		 *     tstb -27982 ; beqw L4be8   -- clear: keep playing
+		 *     tstb -27982 ; beqw L4a1a   -- clear: reload the level
+		 *     clrb -27982 ; <walk list> ; if (L4738) JT[582] ; rts
+		 *
+		 * The lift turned that second (redundant, THINK-C-emitted) test
+		 * into `if (l4738() == 0) continue`, which is a different
+		 * predicate entirely — and it is why CAMP -> SAVE -> "Exit Play?
+		 * YES" dropped the player back into the dungeon instead of the
+		 * main menu. Camp case 6 sets -27982 but NOT -4944, so l4738()
+		 * read 0 and the loop went round again. Camp case 5 (Load) calls
+		 * jt942(1) as well, which is the only reason exiting via LOAD
+		 * appeared to work: reported from real hardware, where the DOS
+		 * build exits on Save and the port only exited on Load.
+		 *
+		 * With the flag as the predicate, BOTH camp exits leave jt948 and
+		 * l4738() decides only whether the slot picker opens on the way
+		 * out — which is exactly what the last two lines of L4cda say. */
+		if (g_a5_byte(-27982) == 0)
+			continue;                       /* L4a1a — reload the level */
+		g_a5_byte(-27982) = 0;
 
 		/* exit: walk the party-handle list (JT[19]) then JT[582]. */
 		node = (unsigned char *)(uintptr_t)g_a5_long(-27928);
