@@ -822,9 +822,14 @@ uainst.info: tools/make_amiga_icon.py
 # FRUA_CORRIDOR / FRUA_RAYCAST swap the renderer). Those must never ship, and
 # "we'll remember" is not a mechanism — see src/engine/release_guard.h.
 #
-# Emulator-validated only: nothing here has been run on real Falcon030/TT030
-# hardware. Say so in the release notes.
-VERSION ?= 0.3.1-beta
+# A real Falcon030 plays this; the TT, ST/STE and both Amigas are still
+# emulator-validated only. Keep the release notes honest about which is which.
+#
+# ★ KEEP THIS DEFAULT CURRENT. `make release-all` without VERSION= uses it, and
+# it sat at 0.3.1-beta through nine releases — a no-argument run would have
+# built and named artifacts eight versions in the past. The release recipe
+# passes VERSION explicitly (see docs/release.md), so nothing caught it.
+VERSION ?= 0.9.4-beta
 
 # Every release binary is REDISTRIBUTABLE: NOEMBED=1 stubs the copyrighted DATA
 # pool (rebuilt at runtime from the user's frua.rsc), the link is stripped, and
