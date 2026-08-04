@@ -32,13 +32,22 @@ machines.
 [releases page](https://github.com/slaapliedje/OpenUA/releases) — the binaries
 are redistributable (no game data inside; you supply your own, below).
 
-The runtime plays a real adventure end to end. Everything below is
-**emulator-validated only** — Hatari for the Atari builds, amiberry for the
-Amiga — and has **never been run on real hardware**. Treat it accordingly.
+The runtime plays a real adventure end to end. **A real Atari Falcon030 has now
+played it** — installed to hard disk, VGA monitor, through the dungeon, the
+area map, events and encampment — so the Falcon column below is no longer a
+claim about an emulator. The other five backends are still
+**emulator-validated only** (Hatari for the Atari builds, amiberry for the
+Amiga); treat those accordingly.
+
+Three things the real machine found that no emulator had: the AREA map drew
+every wall transposed, the Falcon never restored the desktop's video mode on
+exit, and a VGA monitor has no 320×200 mode at all (hence `video.cfg` — see
+[`HARDWARE.md`](HARDWARE.md)). That is the value of a hardware report, and more
+are wanted.
 
 | Target | Backend | Status |
 |---|---|---|
-| **Atari Falcon030** | VIDEL 16bpp | Playable beta — the original target; full play-through verified in Hatari. |
+| **Atari Falcon030** | VIDEL 16bpp | Playable beta — the original target. **Verified on real hardware** (Falcon030@50, VGA, hard-disk install) as well as in Hatari. Pick the video mode with `video.cfg` if your monitor dislikes the automatic choice. |
 | **Atari TT030** | TT-low 8bpl, 320×200 line-doubled into a 320×400 letterbox | Verified in Hatari + EmuTOS: menu → load → caravan event → 3D town walk; STE-DMA sound (music + SFX). |
 | **Atari ST/STE** | ST-low 4bpl, quantized to 16 colours with a Timer-B raster split (per-band palette) | Verified in Hatari `--machine ste` + EmuTOS: the menu renders in 16 colours, quantizer live, STE 4-bit palette, per-band colours via an MFP raster interrupt. A 68000 build (runs on any Atari). *Faint band-boundary seams at 16 colours remain.* |
 | **Amiga AGA** (A1200/A4000) | Direct copper list, AGA bank palette, hardware-sprite pointer | Playable — verified in amiberry through **combat**: save-load, the caravan event, the town walk, the animated fireplace, and a full fight. Keyboard, mouse, and Paula audio all live. |

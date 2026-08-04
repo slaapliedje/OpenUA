@@ -1,8 +1,17 @@
 # Installing OpenUA on real hardware
 
-Everything here is **untested on real machines** — that is the whole point of
-writing it down. If you get further than this document expects, or less far,
+**A real Falcon030 has now done this**, from a hard-disk install, on a VGA
+monitor, and played — so the Falcon route below is walked, not theoretical. The
+rest (TT, ST/STE, both Amigas) is still untested on real machines, and the
+floppy/Gotek media have been verified as filesystems rather than by booting a
+physical drive. If you get further than this document expects, or less far,
 that is worth reporting either way.
+
+What the first real machine changed, so you know what to look for: the AREA map
+was drawing every wall transposed, quitting did not restore the desktop's video
+mode, and a VGA monitor has **no 320×200 mode at all** — which is why
+`video.cfg` exists (see "Choosing the video mode" below). None of the three
+could have been found in an emulator.
 
 `tools/mkhwdist.sh <version>` builds the disk images described below from the
 release zips, into `dist/hw/`.

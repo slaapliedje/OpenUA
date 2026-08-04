@@ -3,7 +3,7 @@
 Working notes on what's next. Ratified architecture decisions live in
 `docs/decisions.md`; this file is the rolling task list.
 
-## Status snapshot (2026-08-01)
+## Status snapshot (2026-08-03)
 
 > ⚠️ **The 2026-06-06 snapshot that used to sit here was EIGHT WEEKS STALE and
 > contradicted reality** — it described the play-entry chain as "in progress"
@@ -22,9 +22,21 @@ carry it and are kept current:
   reachable PROBE stub body, NOT feature-complete.
 
 The game **plays on real hardware** (Falcon 030@50MHz, VGA) and ships engine +
-data media for Falcon/TT, Mega ST, Amiga AGA and Amiga ECS.
+data media for Falcon/TT, Mega ST (plus a Gotek image that needs no unzip),
+Amiga AGA and Amiga ECS. Five hardware reports have been closed; the running
+list of what the real machine found — and what it is still owed — is
+**`docs/milestone.md` §2a and §3.C**.
 
 ### Genuinely open
+
+00. **Does the port exit cleanly to TOS?** The reported symptom is a dark-blue
+   desktop after QUIT. Two documentation-grounded fixes shipped (`52f62796`:
+   restore through `VsetScreen(SCR_MODECODE)` because `VsetMode` does not
+   reinitialise the VDI, and re-`Setpalette` the ST-compat registers when the
+   old mode had `STMODES`), but **neither has ever been observed to fix it** —
+   the symptom does not reproduce in Hatari. Settling it needs one hardware run
+   and the `videl_init: old mode = NNN` line out of `DBG.LOG`. Until then treat
+   it as open, not fixed.
 
 0. **`geo.py`'s STRG encoder is not byte-faithful to SSI** (found 2026-08-02).
    Re-encoding a decoded SSI string table gives **6 628 of 7 168 bytes

@@ -1132,3 +1132,56 @@ tail-clear diag settled it in one run by printing `t1=15, t3=14` — a degenerat
 rect, i.e. the loop had painted the whole page and had nothing left to clear.
 Screenshot evidence said "rows are stale"; the instrument said "rows were
 painted twice". Only the second is actionable.
+
+## #161 — the event text was really drawn twice (2026-08-03)
+
+Reported from real hardware twice, in the same words both times: an unprompted
+square-text event ("THE WEARY WANDERER", the kind with no `[RETURN]` prompt)
+"starts to print it out, stops, then prints the whole thing along with a frame
+redraw", plus "a few extra, quick redraws around encounters".
+
+The first fix (`6543b358`) was about the typewriter presenting at 5 Hz, and it
+was correct — a burst capture shows `T`, `TH`, `THE W`, `THE WEA` … arriving one
+glyph at a time. It just was not what the second half of the report meant.
+
+**Diff the QuickDraw surface between the stages of one event and it falls out:**
+
+| stage | rows changed |
+|---|---|
+| `l4d26` types the text | 136..166, glyph-shaped (50-160 px/row) |
+| `l4d26`'s tail runs `jt23()` | the play screen is recomposed: the box AND the command bar go |
+| `play_sticky_text_replay()` | 136..166 again, **byte-identical counts** to the whole-message diff — the box really had gone blank |
+| the step's `play_screen_relayout` + `jt312` | 187..197, ~300 of 320 px/row: the command bar |
+
+Eight full presents (present census) fall between the last glyph and the settled
+frame, so every one of those states is on screen. The A/B is unambiguous when
+you capture it: the control run goes typing → **blank box, no command bar** →
+settled; the fixed run goes typing → settled, with identical final pixels.
+
+The fix is a present hold spanning exactly that window — `l4d26` takes it before
+the `jt23` refresh, `l63c0` drops it once the bar is back. It cannot be done
+inside either function alone: the wipe happens in `l4d26` and the repair one
+call frame up in the walk loop's re-render.
+
+Three traps this cost, all worth keeping:
+
+1. **The obvious fix was wrong, and measurement is what said so — after it had
+   already said the opposite.** The DLItem pool is bit-for-bit identical across
+   an unprompted text event (13 items in, 13 out, same bytes), so gating the
+   relayout on "did the event disturb the pool" looked exactly right. It ships a
+   dungeon with **no command bar**. The relayout is not repairing the pool
+   there; it is repairing the BAR.
+2. **The instrument nearly hid it.** It bucketed every changed row from 136 down
+   as "text box", so a command-bar repaint reported as a text repaint, and the
+   conclusion "the rebuild only redraws the text, so it is redundant" followed
+   straight from a mislabelled counter. Rows 136..186 are the box; 187..197 are
+   the bar.
+3. **"Looks the same" is not "is the same".** The bar compared AE = 0 against a
+   mid-typing frame while 94% of its bytes had changed — because the two frames
+   compared were both *after* a repair, from different moments. A pixel metric
+   only answers the question you actually pointed it at.
+
+Fixture: `tools/mk_texttest_design.py`. `confirm_mask=0` is what selects the
+sticky arm — the kobold design's message (confirm after every line) takes the
+`l1806` path and does **not** reproduce this. Build `-DFRUA_EVFRAME` for the
+per-row diffs, `-DFRUA_NOEVHOLD` for the control arm.

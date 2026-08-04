@@ -1,6 +1,9 @@
 > ⚠️ **COUNTS STALE — snapshot 2026-06-26. See `docs/function-audit-2026-07-24.md`
 > for measured current numbers** (1201/1206 JT done, boot.c 99.4k lines, 358
 > tests). The structure of this burn-down is still useful; the figures are not.
+>
+> §2/§3/§5 were rewritten 2026-08-03 and ARE current. §0/§1/§4 are the stale
+> parts — read them as history.
 
 # MILESTONE — FRUA Falcon030/TT030 port
 
@@ -217,7 +220,30 @@ complete, runtime-pending; spell effects land, weapon damage is the next gap."
 
 ---
 
-## 3. REMAINING — rewritten 2026-08-02
+## 2a. THE REAL MACHINE — what changed when it stopped being an emulator
+
+Added 2026-08-03. A **Falcon030@50 with a VGA monitor**, installed to hard disk,
+played the game. That single session is worth more than the preceding month of
+Hatari runs, because everything it found was invisible in emulation:
+
+| Reported | Root cause | Fixed |
+|---|---|---|
+| AREA map showed walls where there were none, and blocked open corridors | `l54f2` passed its cell coordinates to `l5484` **in reverse** — the whole map was transposed | `82ec4b82` |
+| No resolution check or change; a VGA monitor letterboxed oddly | there IS no 320×200 VGA mode; `VERTFLAG` halves vertical res on VGA and doubles it on RGB, so no mode word means the same geometry on both | `39985da5` — `video.cfg` picks `auto`/`rgb200`/`vga240`/`vga480`/raw hex |
+| Quitting left a dark-blue desktop | the mode was restored with `VsetMode`, which the Atari Compendium says does NOT reinitialise the VDI; `VsetScreen(SCR_MODECODE)` does, and the ST-compat palette needs `Setpalette` too | `52f62796` — **unconfirmed on hardware** |
+| Camp → SAVE → "Exit Play? YES" dropped back into the dungeon | the exit predicate read `-4944` (the play-loop flag) instead of `-27982` (the camp/stairs exit flag) | `632bfd92` |
+| Event text typed partway, then finished all at once with a frame redraw | two separate causes, a month apart: the typewriter presented at 5 Hz (`6543b358`), and the event tail wipes the box + command bar and rebuilds them across two call frames (`af8149bf`) | both fixed |
+
+Also from that campaign: `autoload.dat` (a one-byte opt-in that resumes a save
+with zero keystrokes), and **Gotek/FlashFloppy media** — slowing the emulated
+rotation instead of the bit rate serves 255 cylinders, so the ST engine ships
+raw on a 1.44 MB image and the entire ~7.4 MB data set fits on ONE 9.4 MB image
+instead of six disks (`HARDWARE.md`).
+
+The lesson worth keeping: **an emulator agrees with your assumptions.** Three of
+those five were in code that had been "verified" repeatedly.
+
+## 3. REMAINING — rewritten 2026-08-02, refreshed 2026-08-03
 
 The old table is gone. It had gone stale in a way that actively cost time: it
 still named `l14bc` the keystone (lifted 2026-06-24), `jt512` a blocking stub
@@ -236,10 +262,14 @@ nothing here can be "blocked by a stub". What follows is graded by EVIDENCE.
 Boot -> title -> menu -> design select -> Training Hall -> build/load party ->
 dungeon walk (arrows, turns, per-step events) -> 3D view -> AREA automap ->
 event text + BIGPIC chains -> treasure -> ENCAMP (VIEW MAGIC REST ALT FIX LOAD
-SAVE EXIT) -> **save to an A-J slot (10 284-byte design-state block)** ->
-combat (headless auto-turn, `FRUA_CBTPLAY`) -> magic end-to-end (capacity ->
-memorize -> rest -> cast, 2026-07-14) -> audio. Five targets build and boot:
-Falcon, TT, ST/STE, Amiga AGA, Amiga ECS. Mono boots too, with the Mac art set.
+SAVE EXIT) -> **save to an A-J slot (10 284-byte design-state block)** -> **camp
+SAVE -> "Exit Play? YES" -> main menu -> QUIT** -> combat (headless auto-turn,
+`FRUA_CBTPLAY`) -> magic end-to-end (capacity -> memorize -> rest -> cast,
+2026-07-14) -> audio. Five targets build and boot: Falcon, TT, ST/STE, Amiga
+AGA, Amiga ECS. Mono boots too, with the Mac art set.
+
+On the **Falcon that is a hardware statement, not an emulator one** (§2a),
+including the `video.cfg` mode picker and `autoload.dat`.
 
 ### B. Lifted but NOT live-verified — the real frontier
 
@@ -258,10 +288,26 @@ Nothing here is known broken; nobody has driven it. Each is a drive, not a lift.
 
 | Work | Note |
 |---|---|
+| **Clean exit to TOS** | the `VsetScreen` + ST-palette restore (`52f62796`) is documentation-grounded but has NEVER been seen to fix the reported dark-blue desktop. Needs a hardware retest and the `videl_init: old mode = NNN` line from `DBG.LOG` |
 | **Mono's six chrome families** | ALWAYS/FRAME/GEN/MENU/TITLE/TOPVIEW — lifts the Mac-only caveat (see `docs/TODO.md`) |
 | **Present-cost narrowing** | glyph (2 557) + fill (1 653) touch-all announcements dominate; 135 of 200 rows are presented per present on the TT. Palette and cursor are already at ZERO |
 | **Play-loop planar measurement** | the "~47% of rows convert" figure is a BOOT number; post-menu screens converted zero |
+| **Save-file shape vs DOS** | DOS writes 10 285 bytes into `<design>.DSN\SAVE\` plus a per-slot `VAULT<X>.DAT`; the port writes 10 284 beside the binary. Deliberately left alone — moving the path would strand existing saves. The maintainer's call |
 | **Smooth-scroll + move sound** | cosmetic, deferred |
+
+### D. Authoring vs the in-game editor — not the same thing
+
+Easy to conflate, so: the **authoring tools** (`tools/dsn.py`, `geo.py`, the
+`mk_*_design.py` generators) build loadable modules from Python and are proven —
+`mk_kobold_design.py` produces a message → combat → treasure dungeon that plays
+live, and `mk_texttest_design.py` is the fixture for the event-text render. That
+is a Python path, not the engine's editor.
+
+The engine's **in-game editor** is separately, partially proven: the GEO map
+editor's SAVE round-trips a real edit (`#110`), the event editor authors a TEXT
+STATEMENT event through a full headless click path (`#115`), and both record
+editors commit numeric and string fields across a reboot (`#102`). Nobody has
+built a whole module inside it. ADR-0008 still puts the runtime first.
 
 ## 4. DEFERRED — editor / authoring tools (⏸ ADR-0008: runtime first)
 
@@ -278,16 +324,23 @@ Not gaps — deliberately last. Charted when the authoring-tools track opens.
 
 ## 5. Bottom line
 
-**The game plays, on real hardware, on five targets.** Boot -> party -> dungeon
--> events -> combat -> camp -> save. A Falcon 030@50 runs it from an installed
-hard-drive image; engine + data media exist for Falcon/TT, Mega ST, Amiga AGA
-and Amiga ECS.
+**The game plays on a real Falcon030, and builds and boots on five targets.**
+Boot -> party -> dungeon -> events -> combat -> camp -> save -> quit. A Falcon
+030@50 runs it from an installed hard-drive image; engine + data media exist for
+Falcon/TT, Mega ST (and a Gotek variant that needs no unzip), Amiga AGA and
+Amiga ECS.
 
-The centre of gravity has moved again — from "can it fight" (yes) to **"has
-anyone actually driven every screen?"** Section B is the honest frontier: code
-that is lifted, stub-free and unexercised. That is a testing campaign, not a
-lifting one, and it is why the editor end-goal (author a small dungeon and play
-it) is a better acceptance test than any coverage percentage.
+The maintainer's own verdict after the 2026-08-03 hardware pass was "**this is
+almost flawless**", with one visual blemish (the event-text redraw, fixed in
+`af8149bf`) and the editor not yet exercised by hand. That is a fair summary of
+where this stands.
+
+The centre of gravity has moved again — from "can it fight" (yes) through "has
+anyone driven every screen?" to **"what does the real machine say?"** §2a is the
+answer so far, and it is unflattering in a useful way: five reports, five real
+bugs, three of them in code an emulator had signed off repeatedly. The next
+targets to put on real hardware are the TT and the ST/STE, in that order, since
+both share a binary with something already proven.
 
 ⚠️ **Do not plan from a percentage on this page.** The per-CODE table in §1
 counts JT entries, and anything lifted under an `lXXXX` name counts as
