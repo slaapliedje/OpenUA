@@ -45,13 +45,26 @@ stand-in.
 > then enumerated **only** F, loading it restored the party, and
 > `autoload.dat` resumed straight into the caravan event from the new path.
 >
-> **Two DOS behaviours deliberately NOT copied**, both flagged in
-> `docs/TODO.md`: the 916-byte `VAULT<c>.DAT` companion (layout undecoded —
-> inventing one is worse than omitting it) and the 10 285th byte (DOS writes
-> one more than we do). Saved CHARACTERS are a third: DOS keeps `<NAME>.CCH`
-> in the same `SAVE` folder, while the port still uses slot-numbered
-> `CHAR0000.CHR` files in the flat folder — a bigger change (name-derived
-> paths + directory enumeration) that the code has always flagged as pending.
+> ✅ **AND DOS SAVES LOAD AS THEY ARE (2026-08-03).** A DOS-written pair —
+> `SAVGAMA.CSV` 10 285 bytes + `VAULTA.DAT` 916 bytes — dropped into
+> `HEIRS.DSN\SAVE\` loaded through PLAY → LOAD SAVED GAME → A with all six
+> characters intact (BARBARUS, LADY ILLIS, MALTIER, NIVLOC, CLARANA,
+> STRANILLA), and saving to B then wrote both `SAVGAMB.CSV` and `VaultB.DAT`
+> beside them. The one-byte length difference does not obstruct it: the
+> deserializer is field-driven, not length-driven.
+>
+> ★ **`VAULT<c>.DAT` WAS NEVER AN UNKNOWN FORMAT.** It is lifted as `jt74` /
+> `jt75`, and the port had been writing it all along — into the flat gamedata
+> folder, which is why nobody noticed. It now follows the slot into
+> `<design>.DSN\SAVE\`. Spec: `docs/vault-format.md`. The Mac pads the file
+> to 200 item records (3616 B) and DOS to 50 (916 B), but the reader takes its
+> count from the header and never touches the pad.
+>
+> **Still divergent:** the 10 285th byte, and saved CHARACTERS. That second one
+> is the only real interop gap left, and it is OURS: `<NAME>.CCH` in the design
+> SAVE folder is what BOTH releases use — the Mac's `jt584` builds design +
+> `"SAVE"` + name + `"cch"` and is already lifted — while the port uses
+> slot-numbered `CHAR0000.CHR` in the flat folder as an 8.3 workaround.
 >
 > Old saves at the design root become invisible. That was the maintainer's
 > call: *"I can always move the files there if I want."*

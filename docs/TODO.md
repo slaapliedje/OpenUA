@@ -55,16 +55,24 @@ list of what the real machine found — and what it is still owed — is
 0a. **Save-file parity with DOS: three deltas left.** The path and spelling now
    match (`<design>.DSN\SAVE\SAVGAM<c>.CSV`, 2026-08-03), verified against a
    headless DOS run. Not copied, in rising order of effort:
-   - `VAULT<c>.DAT`, 916 bytes, written beside every DOS save. Layout
-     undecoded. To make a specimen: `tools/dosdrive.sh boot`, then keys
-     `p a a e s <slot>` — Play, Add, Add, Exit, Save, pick a slot — and it
-     appears in `data/work/dos-run/<design>.DSN/SAVE/`.
-   - DOS writes **10 285** bytes to our 10 284. One byte, never chased.
-   - saved CHARACTERS: DOS keeps `<NAME>.CCH` in the same `SAVE` folder; the
-     port uses slot-numbered `CHAR0000.CHR` in the flat folder. The comment at
-     `cg_char_fn` has always called the name-derived path + `JT[589]`
-     enumeration "the next steps". Doing it makes DOS characters visible to
-     the port and vice versa.
+   - ~~`VAULT<c>.DAT`~~ **NOT A GAP — it never was.** The format is fully
+     lifted (`jt74` read / `jt75` write) and the port has been writing the file
+     all along, just into the flat folder; it now goes to
+     `<design>.DSN\SAVE\` with the slot. Spec in `docs/vault-format.md`.
+     Mac pads to 200 item records (3616 B) and DOS to 50 (916 B), but the
+     reader is count-driven so the pad is never read and **DOS vaults load
+     unchanged**.
+   - DOS writes **10 285** bytes to our 10 284. One byte, never chased — and
+     it does not obstruct anything: a DOS slot file loads (verified
+     2026-08-03, all six characters back with AC/HP).
+   - saved CHARACTERS: DOS keeps `<NAME>.CCH` in the same `SAVE` folder — and
+     **so does the Mac**: `jt584` builds design + `"SAVE"` + name + `"cch"`
+     through `jt431`, and is already lifted. The slot-numbered
+     `CHAR0000.CHR` scheme in the flat folder is the PORT's own 8.3 workaround,
+     not a release difference. `cg_char_fn`'s comment has always called the
+     name-derived path + `JT[589]` enumeration "the next steps"; doing it makes
+     DOS and Mac characters visible to the port and vice versa. **This is now
+     the only real save-interop gap left.**
 
 0. **`geo.py`'s STRG encoder is not byte-faithful to SSI** (found 2026-08-02).
    Re-encoding a decoded SSI string table gives **6 628 of 7 168 bytes

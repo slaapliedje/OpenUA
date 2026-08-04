@@ -40705,29 +40705,45 @@ static void jt28(long arg0, long item, short s16, short s18,
  * '\' for the enumerate glob — so ONE construction serves the FSOpen (write /
  * load) and Fsfirst (scan) paths alike. g_a5_-31336 already holds "<name>.DSN".
  * The Amiga backend rewrites '\' to '/' on the way through (files_amiga.c). */
-static void savgam_path(char *out, int c)
+/* Prefix `name` with the current design's SAVE folder:
+ * "<design>.DSN\SAVE\<name>", or bare `name` when no design is current.
+ *
+ * Shared by the slot saves and the VAULT files, because DOS keeps both there
+ * and so does the Mac (jt584 builds the same design + "SAVE" + name chain
+ * through jt431 for character .cch files).
+ *
+ * The design name is capped at 26 chars so the longest product,
+ * "<26>\SAVE\SAVGAMA.CSV", fits the smallest caller buffer (fn[44]). Design
+ * folders are 8.3 in practice, so this never bites; it only guards a
+ * pathological 34-byte start.dat name. */
+static void design_save_path(char *out, const char *name)
 {
 	const char *dsn = (const char *)g_a5_buf(-31336);
 	const char *s;
 	int j = 0;
 
-	/* "<design>.DSN\SAVE\" folder prefix. Cap the design name so the whole
-	 * path fits the smallest caller buffer (fn[44]):
-	 * 44 - strlen("\\SAVE\\SAVGAMA.CSV") - 1 = 26 chars. Design folders are
-	 * 8.3 in practice, so this never bites; it only guards a pathological
-	 * 34-byte start.dat name. */
 	if (dsn && dsn[0]) {
 		while (dsn[j] && j < 26) { out[j] = dsn[j]; j++; }
 		out[j++] = '\\';
 		for (s = "SAVE"; *s; s++) out[j++] = *s;
 		out[j++] = '\\';
 	}
-	for (s = "SAVGAM"; *s; s++) out[j++] = *s;
-	out[j++] = (char)c;
-	for (s = ".CSV"; *s; s++) out[j++] = *s;
+	for (s = name; *s; s++) out[j++] = *s;
 	out[j] = '\0';
+}
+
+static void savgam_path(char *out, int c)
+{
+	char base[16];
+	const char *s;
+	int j = 0;
+
+	for (s = "SAVGAM"; *s; s++) base[j++] = *s;
+	base[j++] = (char)c;
+	for (s = ".CSV"; *s; s++) base[j++] = *s;
+	base[j] = '\0';
+	design_save_path(out, base);
 #ifdef FRUA_SAVETRACE
-	dbg_file_str("savgam_path design", (dsn && dsn[0]) ? dsn : "(flat)");
 	dbg_file_str("savgam_path ->", out);
 #endif
 }
@@ -99009,13 +99025,19 @@ static void jt583(void)
 {
 	unsigned char fn[42];                            /* fp@(-42) */
 
+	char          path[64];
+
 	PROBE("jt583");
 	jt73();
 	if (g_a5_byte(-22218) == 90)                     /* 'Z' = no vault */
 		return;
 	jt394((char *)fn, ua_strs_at(0x4d28),            /* "Vault%c.DAT" */
 	      (int)(unsigned char)g_a5_byte(-22218));
-	l00e0_load((const char *)fn, (void *)jt74);
+	/* Same design\SAVE folder as the slot itself — see design_save_path.
+	 * This used to open the bare name, so vaults piled up in the flat
+	 * gamedata folder while their saves lived in the design. */
+	design_save_path(path, (const char *)fn);
+	l00e0_load(path, (void *)jt74);
 }
 
 /* JT[586] (CODE 15 + 0x1cd2) — save the pending-treasure list to the per-level
@@ -99026,12 +99048,16 @@ static void jt586(void)
 {
 	unsigned char fn[42];                            /* fp@(-42) */
 
+	char          path[64];
+
 	PROBE("jt586");
 	if (g_a5_byte(-22218) == 90)                     /* 'Z' = no vault */
 		return;
 	jt394((char *)fn, ua_strs_at(0x4d34),            /* "Vault%c.DAT" */
 	      (int)(unsigned char)g_a5_byte(-22218));
-	l00e0((const char *)fn, (void *)jt75);
+	savgam_dir_ensure();                             /* may be the first save */
+	design_save_path(path, (const char *)fn);
+	l00e0(path, (void *)jt75);
 }
 
 /* L1d42 (CODE 12 + 0x1d42) — count the party members eligible for a money
