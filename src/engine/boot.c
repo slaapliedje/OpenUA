@@ -16896,7 +16896,43 @@ static void jt297(void *rec_v, short key, long cb)
 		 * declined level-transfer left a dead "RETURN" button. Rebuilding after
 		 * any dispatched event is what the Mac does. */
 		g_event_modal_shown = 0;
+#ifdef FRUA_EVFRAME
+		/* TEMPORARY (#161): what does the EVENT ITSELF damage on screen?
+		 * Snapshot before the dispatch, diff straight after it — before the
+		 * relayout gets a chance to repair anything. */
+		{
+			static unsigned char evd[320 * 200];
+			unsigned char *sp; short sp_p, sp_w, sp_h;
+			short r_, c_;
+
+			if (special != 0
+			    && qd_screen_pixels_nomark(&sp, &sp_p, &sp_w, &sp_h) && sp) {
+				for (r_ = 0; r_ < 200 && r_ < sp_h; r_++)
+					memcpy(evd + (long)r_ * 320, sp + (long)r_ * sp_p,
+					       (size_t)((sp_w < 320) ? sp_w : 320));
+				l709e(special);
+				if (qd_screen_pixels_nomark(&sp, &sp_p, &sp_w, &sp_h) && sp) {
+					short w_ = (sp_w < 320) ? sp_w : 320;
+
+					for (r_ = 0; r_ < 200 && r_ < sp_h; r_++) {
+						const unsigned char *a = evd + (long)r_ * 320;
+						const unsigned char *b = sp + (long)r_ * sp_p;
+						long m = 0;
+
+						for (c_ = 0; c_ < w_; c_++)
+							if (a[c_] != b[c_]) m++;
+						if (m)
+							dbg_log_num("evdmg: row*1000+n = ",
+							            (long)r_ * 1000 + m);
+					}
+				}
+			} else {
+				l709e(special);
+			}
+		}
+#else
 		l709e(special);
+#endif
 		if (special != 0)
 			g_event_modal_shown = 1;
 	}
@@ -17541,6 +17577,75 @@ static void port_cycle_present(void)
 	}
 }
 
+#ifdef FRUA_EVFRAME
+static short          g_evf_armed;
+static unsigned char *g_evf_snap;
+#endif
+
+/* #161 — THE POST-EVENT FRAME HOLD.
+ *
+ * The reported artifact: a square-text event ("THE WEARY WANDERER", the kind
+ * with no [RETURN] prompt) types its text out, STOPS partway, and then the
+ * whole message reappears at once together with a redraw of the frame.
+ *
+ * There is a real double-draw, and it is not the typewriter. MEASURED on the
+ * Falcon, diffing the QuickDraw surface across each stage of one event:
+ *
+ *   l4d26 types the text          rows 136..166 arrive glyph by glyph
+ *   l4d26's tail calls jt23()     the play screen is recomposed: the text box
+ *                                 is wiped AND so is the command-bar band
+ *   play_sticky_text_replay()     redraws all four lines AT ONCE — the
+ *                                 before/after diff is byte-identical to the
+ *                                 whole-message diff (136:148 137:102 ...),
+ *                                 i.e. the box really was empty again
+ *   the step's play_screen_relayout + jt312 repaint rows 187..197, ~300 of
+ *                                 320 pixels per row: the command bar
+ *
+ * Every one of those stages presents (the census counts eight full presents
+ * between the last glyph and the settled frame), so the player sees the
+ * text vanish, the bar vanish, and both come back. The engine's own frame
+ * bracket cannot coalesce it: the wipe happens inside l4d26 and the repair
+ * one call frame up, in the walk loop's re-render.
+ *
+ * So hold the frame across exactly that span. l4d26 takes the hold before
+ * its jt23 refresh; l63c0 releases it after the relayout has put the bar
+ * back, immediately before the present that ends the step. Intermediates
+ * are discarded rather than shown (that is what a released hold does), so
+ * the whole event tail lands as ONE frame.
+ *
+ * The hold is a ref-count, so it is taken and released exactly once — hence
+ * the flag rather than a bare qd_present_hold pair — and l63c0 releases on
+ * every path out of an iteration, including the exitflag break, so a hold
+ * can never outlive the step that took it. */
+static short g_event_tail_hold;
+
+static void port_event_tail_hold(void)
+{
+#ifdef FRUA_NOEVHOLD
+	return;                 /* A/B control: the pre-#161 behaviour */
+#endif
+	if (!g_event_tail_hold) {
+		g_event_tail_hold = 1;
+		qd_present_hold(1);
+	}
+}
+
+/* Returns 1 if a hold was actually dropped. Releasing DISCARDS the held
+ * intermediate rather than presenting it, so the caller owes the screen a
+ * present — and it has to be port_present_full(), not qd_present(): the
+ * frame is a full rebuild and on the page-flipped VIDEL a single present
+ * seeds one page only, leaving the other holding the pre-event frame for
+ * the next flip to show (#61/#151). */
+static short port_event_tail_release(void)
+{
+	if (g_event_tail_hold) {
+		g_event_tail_hold = 0;
+		qd_present_hold(0);
+		return 1;
+	}
+	return 0;
+}
+
 static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
                          short a_deep, long cb1, long cb2)
 {
@@ -17984,6 +18089,7 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 			g_walk_cmd = procres;
 			exitflag = (procres == 0 && (unsigned char)a_deep == 0)
 			           ? 1 : -1;
+			port_event_tail_release();      /* #161 — never outlive the step */
 			break;
 		}
 
@@ -18038,8 +18144,14 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 			jt1080();
 			break;
 		}
-		if (exitflag != 0)
+		if (exitflag != 0) {
+			/* #161: leaving the loop without the re-render — drop the
+			 * hold here, and present, so the caller's screen is not
+			 * composed under a hold this iteration never releases. */
+			if (port_event_tail_release())
+				port_present_full();
 			break;
+		}
 
 		/* Re-render after a move so it's visible (the faithful per-step
 		 * re-render arms L64f2..L666c are deferred). Repaint the view +
@@ -18069,6 +18181,27 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 #ifdef FRUA_BARTRACE
 			dbg_file_num("STEPRENDER modal_shown", (long)g_event_modal_shown);
 #endif
+#ifdef FRUA_EVFRAME
+			/* TEMPORARY (#161): what does the post-event rebuild
+			 * actually CHANGE on screen? Snapshot the whole surface
+			 * before the relayout, diff it after jt312. */
+			{
+				static unsigned char evf[320 * 200];
+				unsigned char *sp; short sp_p, sp_w, sp_h;
+
+				g_evf_armed = g_event_modal_shown;
+				g_evf_snap  = evf;
+				if (g_evf_armed
+				    && qd_screen_pixels_nomark(&sp, &sp_p, &sp_w, &sp_h)
+				    && sp) {
+					short r_;
+					for (r_ = 0; r_ < 200 && r_ < sp_h; r_++)
+						memcpy(evf + (long)r_ * 320,
+						       sp + (long)r_ * sp_p,
+						       (size_t)((sp_w < 320) ? sp_w : 320));
+				}
+			}
+#endif
 			if (g_event_modal_shown) {
 				g_event_modal_shown = 0;
 				play_screen_relayout(rec);
@@ -18087,6 +18220,52 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 			jt1173((short)8024, (short)8092, (short)8058, (short)8156);
 			jt312(ctx);
 			jt1193();       /* balance the box clip (see above) */
+#ifdef FRUA_EVFRAME
+			if (g_evf_armed) {
+				unsigned char *sp; short sp_p, sp_w, sp_h;
+
+				g_evf_armed = 0;
+				if (qd_screen_pixels_nomark(&sp, &sp_p, &sp_w, &sp_h) && sp) {
+					short r_, c_, w_ = (sp_w < 320) ? sp_w : 320;
+					long  n = 0, ntext = 0, nbar = 0;
+					short y0 = -1, y1 = -1;
+
+					for (r_ = 0; r_ < 200 && r_ < sp_h; r_++) {
+						const unsigned char *a = g_evf_snap + (long)r_ * 320;
+						const unsigned char *b = sp + (long)r_ * sp_p;
+						int d = 0;
+						for (c_ = 0; c_ < w_; c_++)
+							if (a[c_] != b[c_]) {
+								n++; d = 1;
+								/* ★ ROWS 136..186 ARE THE TEXT BOX AND
+								 * 187..197 THE COMMAND BAR — two different
+								 * things. Lumping everything from 136 down
+								 * into one "text box" bucket is what made a
+								 * bar repaint read as a text repaint, and
+								 * sent a whole measurement the wrong way. */
+								if (r_ < 187) ntext++;
+								else          nbar++;
+							}
+						if (d) { if (y0 < 0) y0 = r_; y1 = r_; }
+					}
+					dbg_log_num("evframe: changed px  = ", n);
+					dbg_log_num("evframe: in text box = ", ntext);
+					dbg_log_num("evframe: in cmd bar  = ", nbar);
+					dbg_log_num("evframe: rows y0*1000+y1 = ",
+					            (long)y0 * 1000 + y1);
+					for (r_ = (short)((y0 > 0) ? y0 : 0);
+					     r_ <= y1 && r_ < 200 && r_ < sp_h; r_++) {
+						const unsigned char *a = g_evf_snap + (long)r_ * 320;
+						const unsigned char *b = sp + (long)r_ * sp_p;
+						long m = 0;
+						for (c_ = 0; c_ < w_; c_++)
+							if (a[c_] != b[c_]) m++;
+						dbg_log_num("evframe: row*1000+n = ",
+						            (long)r_ * 1000 + m);
+					}
+				}
+			}
+#endif
 		} else {
 			jt280(rec, (short)8024, (short)8092, (short)0);
 		}
@@ -18105,10 +18284,17 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 			((void (*)(unsigned char *))(uintptr_t)cb1)(rec);
 		if ((unsigned char)a_deep)
 			port_draw_compass();    /* track the party facing */
-		qd_present();
+		/* #161: the frame is whole again — text replayed, command bar
+		 * relaid — so drop the event-tail hold just before the present
+		 * that ends the step. The wipe in between is never shown. */
+		if (port_event_tail_release())
+			port_present_full();
+		else
+			qd_present();
 	}
 
 	g_walk_input = 0;
+	port_event_tail_release();      /* #161: belt and braces */
 	jt451();
 	(void)l4268;
 	return (exitflag > 0) ? exitflag : 0;
@@ -27009,8 +27195,14 @@ static void l435a(void)
 	 * measured into existence in the first place (#61: a present there costs
 	 * more than a tick, and presenting per glyph starved the engine).
 	 *
-	 * Bounded to every other tick so a design authored at the fastest text
-	 * speed cannot ask for 60 full presents a second. */
+	 * Bounded to ONE PRESENT PER TICK — the video frame rate, above which a
+	 * second present in the same tick cannot be seen by anyone. It was every
+	 * OTHER tick at first, out of caution about a design authored at the
+	 * fastest text speed; that threw away half the typewriter's visible
+	 * resolution to guard against a case the fell-behind return above
+	 * already governs (present, overrun the glyph budget, skip the next
+	 * one, present again — a self-limiting ~50% duty cycle, arrived at by
+	 * measurement rather than by a constant). */
 	{
 		static long s_text_present = -1;
 		long        now = TickCount();
@@ -27023,7 +27215,7 @@ static void l435a(void)
 		 * this site, with the 5-glyph jumps completely unchanged. */
 		l4d88();
 
-		if ((now - s_text_present >= 2 || now < s_text_present)
+		if ((now - s_text_present >= 1 || now < s_text_present)
 		    && qd_dirty_any()) {
 			qd_present();
 			s_text_present = now;
@@ -50880,6 +51072,11 @@ static void  l4d26(void *ev_v)
 	}
 
 	jt399(&g_a5_byte(-22302), 2, 0);
+	/* #161: from here the frame is torn down and rebuilt — jt23 wipes the
+	 * text box and the command-bar band, the sticky replay below puts the
+	 * text back, and the walk loop's relayout puts the bar back. Hold the
+	 * present until all three have run (l63c0 releases). */
+	port_event_tail_hold();
 	if (g_a5_byte(-27990) == 4 && ev[6] < 240) {            /* refresh view */
 		jt23();
 		jt935();
@@ -50977,6 +51174,16 @@ static void play_sticky_text_replay(void)
 	g_a5_byte(-27911) = 17;
 	g_a5_byte(-27912) = 1;
 	g_a5_byte(-27981) = 0;           /* explicit: never pace a repaint */
+#ifdef FRUA_EVFRAME
+	{
+		static unsigned char rsnap[320 * 200];
+		unsigned char *sp; short sp_p, sp_w, sp_h; short r_, c_;
+
+		if (qd_screen_pixels_nomark(&sp, &sp_p, &sp_w, &sp_h) && sp)
+			for (r_ = 0; r_ < 200 && r_ < sp_h; r_++)
+				memcpy(rsnap + (long)r_ * 320, sp + (long)r_ * sp_p,
+				       (size_t)((sp_w < 320) ? sp_w : 320));
+#endif
 	for (i = first; i <= last; i++) {
 		unsigned char *entry = ev + i * 2;
 
@@ -50990,6 +51197,24 @@ static void play_sticky_text_replay(void)
 			     (long)(uintptr_t)&g_a5_byte(-5213), 17);
 		}
 	}
+#ifdef FRUA_EVFRAME
+		if (qd_screen_pixels_nomark(&sp, &sp_p, &sp_w, &sp_h) && sp) {
+			short w_ = (sp_w < 320) ? sp_w : 320;
+
+			for (r_ = 0; r_ < 200 && r_ < sp_h; r_++) {
+				const unsigned char *a = rsnap + (long)r_ * 320;
+				const unsigned char *b = sp + (long)r_ * sp_p;
+				long m = 0;
+
+				for (c_ = 0; c_ < w_; c_++)
+					if (a[c_] != b[c_]) m++;
+				if (m)
+					dbg_log_num("replaydmg: row*1000+n = ",
+					            (long)r_ * 1000 + m);
+			}
+		}
+	}
+#endif
 }
 
 /* New PROBE-stub helpers L206e calls. */
