@@ -60,11 +60,36 @@ stand-in.
 > to 200 item records (3616 B) and DOS to 50 (916 B), but the reader takes its
 > count from the header and never touches the pad.
 >
-> **Still divergent:** the 10 285th byte, and saved CHARACTERS. That second one
-> is the only real interop gap left, and it is OURS: `<NAME>.CCH` in the design
-> SAVE folder is what BOTH releases use — the Mac's `jt584` builds design +
-> `"SAVE"` + name + `"cch"` and is already lifted — while the port uses
-> slot-numbered `CHAR0000.CHR` in the flat folder as an 8.3 workaround.
+> ✅ **SAVED CHARACTERS TOO (2026-08-03).** They move from slot-numbered
+> `CHAR0000.CHR` in the flat folder to `<design>.DSN\SAVE\<NAME>.CCH` — the
+> name put through the faithful `jt130` (strip the 17 hostile characters at A5
+> -31268, truncate to 8, uppercase), which is exactly DOS's 8.3 rule: LADY
+> ILLIS → `LADYILLI.CCH`, STRANILLA → `STRANILL.CCH`. The list still shows the
+> FULL name, because that comes from rec[96] inside the file.
+>
+> **The two files are the same format.** A DOS `BARBARUS.CCH` and our
+> `CHAR0000.CHR` are both 506 bytes with the name at offset 96 — so this was
+> only ever a naming and location difference.
+>
+> Proven in BOTH directions: a DOS-authored `BARBARUS.CCH` dropped into
+> `HEIRS.DSN\SAVE\` appears in Add A Character and joins the party at the
+> AC/HP the DOS release shows for it (-3 / 62); and after our engine had
+> rewritten that file, **DOS FRUA still lists it**.
+>
+> Existing installs migrate automatically: when the SAVE folder holds no
+> `.CCH`, the loader falls back to the flat `CHAR*.CHR` and immediately writes
+> the roster out under the new names. The old files are left in place rather
+> than deleted — a failed migration that also destroyed the source would be
+> unrecoverable.
+>
+> ★ **There is deliberately NO sweep of the SAVE folder.** Under the old scheme
+> `save_roster` could delete every `CHAR*.CHR` it did not write, because it
+> owned that namespace. It does not own this one: characters authored by DOS or
+> the Mac live in the same folder, and "delete what we did not write" would
+> destroy them. Each pool slot now remembers the file it owns and drops only
+> that one on a rename or a delete.
+>
+> **Still divergent:** the 10 285th byte of the slot file, and nothing else.
 >
 > Old saves at the design root become invisible. That was the maintainer's
 > call: *"I can always move the files there if I want."*

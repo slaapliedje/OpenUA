@@ -20697,6 +20697,104 @@ static void node_pool_init(void)
 	g_a5_21156 = (long)(uintptr_t)g_node_pool_bucket;
 }
 
+/* --- saved characters live in the design's SAVE folder, under their own names
+ *
+ * "<design>.DSN\SAVE\<NAME>.CCH" is what BOTH original releases use. The Mac's
+ * own jt584 builds design + "SAVE" + name + "cch" through jt431 (it is lifted,
+ * a few thousand lines down), and a DOS install has BARBARUS.CCH sitting in
+ * exactly that folder. The port's slot-numbered CHARnnnn.CHR in the flat
+ * gamedata folder was never a release difference — it was our 8.3 workaround,
+ * written when the name-derived path had not been lifted yet.
+ *
+ * Consequence, and the point of the change: characters made in DOS or on the
+ * Mac now show up in the Training Hall, and characters made here are readable
+ * by them. */
+static void design_save_path(char *out, const char *name);
+static void savgam_dir_ensure(void);
+static void jt130(char *buf);            /* filename sanitiser (CODE 6) */
+static void str_c2p(unsigned char *p, const char *s);
+
+static int cch_same(const char *a, const char *b)
+{
+	while (*a && *a == *b) { a++; b++; }
+	return *a == *b;
+}
+
+static void cch_copy(char *dst, const char *src)
+{
+	short i = 0;
+	while (src[i] != 0 && i < 15) { dst[i] = src[i]; i++; }
+	dst[i] = 0;
+}
+
+/* Build "<SANITISED>.CCH" from the character's own name at rec[96].
+ *
+ * jt130 is the faithful sanitiser: it strips the 17 filename-hostile
+ * characters listed at A5 -31268 (space = + < > " [ ] ...), truncates to 8 and
+ * uppercases — i.e. exactly the 8.3 name DOS produces, which is why BARBARUS
+ * round-trips. A name made entirely of stripped characters would leave nothing
+ * at all, so fall back rather than emit ".CCH". */
+static void cch_file_name(const unsigned char *rec, char *out)
+{
+	char  stem[24];
+	short i;
+
+	for (i = 0; i < 15 && rec[96 + i] != 0; i++)
+		stem[i] = (char)rec[96 + i];
+	stem[i] = '\0';
+	jt130(stem);
+	if (stem[0] == '\0')
+		cch_copy(stem, "CHAR");
+	for (i = 0; stem[i] != 0; i++)
+		out[i] = stem[i];
+	out[i++] = '.'; out[i++] = 'C'; out[i++] = 'C'; out[i++] = 'H';
+	out[i] = '\0';
+}
+
+/* Two characters whose first 8 legal characters agree would otherwise
+ * overwrite each other. Force the last stem character to a slot-unique one;
+ * if that still collides, fall back to a name only this slot can produce.
+ * Deterministic, terminates, and only ever runs on a real collision. */
+static void cch_disambiguate(char *base, short slot)
+{
+	static const char k_tag[] = "0123456789ABCDEF";
+	short len = 0;
+
+	while (base[len] != 0 && base[len] != '.')
+		len++;
+	if (len > 0)
+		base[len - 1] = k_tag[slot & 15];
+}
+
+static void cch_fallback(char *base, short slot)
+{
+	static const char k_tag[] = "0123456789ABCDEF";
+
+	cch_copy(base, "CHAR000X.CCH");
+	base[7] = k_tag[slot & 15];
+}
+
+/* Delete the saved-character file `base` from the design's SAVE folder. */
+static void cch_unlink(const char *base)
+{
+	unsigned char pstr[64];
+	char          path[64];
+
+	design_save_path(path, base);
+	str_c2p(pstr, path);
+	(void)FSDelete((ConstStr255Param)pstr, 0);
+}
+
+/* The file each pool slot was last written to, so a rename or a delete can
+ * remove the file that slot used to own.
+ *
+ * ★ THERE IS DELIBERATELY NO SWEEP OF THE SAVE FOLDER. Characters authored by
+ * DOS or by the Mac release live in exactly the same place and are NOT in this
+ * 16-slot pool; a "delete everything we did not write" pass would destroy the
+ * user's own characters. The old CHARnnnn.CHR scheme could sweep safely
+ * because it owned a private namespace. This one does not. */
+static char cg_pool_fn[16][16];
+
 /* Write each pool character to its own CHARnnnn.CHR file; delete the files
  * for the now-unused higher slots so a removed character doesn't linger.
  *
@@ -20717,22 +20815,40 @@ static void node_pool_init(void)
  * Mac never has this problem. */
 static void save_roster(void)
 {
-	short i;
-	char  fn[16], fnc[16];
+	short i, j;
 
+	savgam_dir_ensure();                    /* the folder may not exist yet */
 	for (i = 0; i < 16; i++) {
-		cg_char_fn(i, fn);
+		char base[16], path[64];
+
 		/* A slot with an empty name (rec[96]==0) is a hole — either a
 		 * never-used slot (>= cg_pool_count) or one blanked by Delete (the
 		 * faithful Delete frees a slot WITHOUT shifting the array, to keep
-		 * the live -27928 node addresses valid; see l15e2). Holes get no
-		 * .CHR file, so the on-disk pool stays a clean set. */
+		 * the live -27928 node addresses valid; see l15e2). A hole drops
+		 * the file it used to own, and nothing else. */
 		if (i < cg_pool_count && cg_pool[i][96] != 0) {
-			cg_char_fn_c(i, fnc);
+			cch_file_name(cg_pool[i], base);
+			for (j = 0; j < i; j++)
+				if (cg_pool_fn[j][0] != 0
+				    && cch_same(cg_pool_fn[j], base)) {
+					cch_disambiguate(base, i);
+					break;
+				}
+			for (j = 0; j < i; j++)
+				if (cg_pool_fn[j][0] != 0
+				    && cch_same(cg_pool_fn[j], base)) {
+					cch_fallback(base, i);
+					break;
+				}
+			if (cg_pool_fn[i][0] != 0 && !cch_same(cg_pool_fn[i], base))
+				cch_unlink(cg_pool_fn[i]);   /* renamed: drop the old */
+			design_save_path(path, base);
 			g_a5_long(-6902) = (long)(uintptr_t)cg_pool[i];
-			l00e0(fnc, (void *)jt578);
-		} else {
-			(void)FSDelete((ConstStr255Param)fn, 0);  /* hole -> no file */
+			l00e0(path, (void *)jt578);
+			cch_copy(cg_pool_fn[i], base);
+		} else if (cg_pool_fn[i][0] != 0) {
+			cch_unlink(cg_pool_fn[i]);
+			cg_pool_fn[i][0] = 0;
 		}
 	}
 }
@@ -20751,18 +20867,53 @@ static void save_roster(void)
  * tail from a previously-loaded character must not show through. */
 static int load_roster(void)
 {
-	char  cname[16];
+	char  pat[64], cname[16], path[64];
 	short n2 = 0;
-	int   found;
+	int   found, migrating = 0;
 
-	for (found = files_find_first("CHAR*.CHR", cname, (int)sizeof cname);
-	     found && n2 < 16;
+	/* The design's own SAVE folder first — where DOS and the Mac put them. */
+	design_save_path(pat, "*.CCH");
+	found = files_find_first(pat, cname, (int)sizeof cname);
+	if (!found) {
+		/* MIGRATION: an install made before 2026-08-03 has this port's
+		 * slot-numbered CHAR*.CHR in the flat gamedata folder. Read those
+		 * so an existing roster is not lost; the next save writes them out
+		 * under their own names, in the right place. The old files are left
+		 * alone rather than deleted — they are somebody's characters, and a
+		 * failed migration that also deleted the source would be
+		 * unrecoverable. */
+		migrating = 1;
+		found = files_find_first("CHAR*.CHR", cname, (int)sizeof cname);
+	}
+#ifdef FRUA_CCHTRACE
+	dbg_file_str("cch: pattern", pat);
+	dbg_file_num("cch: first found", (long)found);
+	dbg_file_num("cch: migrating", (long)migrating);
+	if (found) dbg_file_str("cch: name", cname);
+#endif
+	for (; found && n2 < 16;
 	     found = files_find_next(cname, (int)sizeof cname)) {
 		int a;
 
 		memset(cg_pool[n2], 0, 512);
-		if (l_cch_read(cname, cg_pool[n2]) == 0)
+		/* Fsfirst reports the bare 8.3 name out of the DTA, so a scan of a
+		 * subfolder still has to be re-prefixed before it can be opened. */
+		if (migrating)
+			cch_copy(path, cname);
+		else
+			design_save_path(path, cname);
+#ifdef FRUA_CCHTRACE
+		dbg_file_str("cch: opening", path);
+#endif
+		if (l_cch_read(path, cg_pool[n2]) == 0) {
+#ifdef FRUA_CCHTRACE
+			dbg_file_str("cch:   READ FAILED", path);
+#endif
 			continue;
+		}
+#ifdef FRUA_CCHTRACE
+		dbg_file_str("cch:   name@96", (const char *)&cg_pool[n2][96]);
+#endif
 		if (cg_pool[n2][96] == 0)              /* no name -> not a character */
 			continue;
 		/* The 13 equip-by-kind slots rec[12..60] are DERIVED POINTERS into the
@@ -20792,11 +20943,29 @@ static int load_roster(void)
 			if (cg_pool[n2][113 + a * 2] == 0)
 				cg_pool[n2][113 + a * 2] =
 				    cg_pool[n2][112 + a * 2];
+		/* Remember which file this slot owns, so a later rename or delete
+		 * removes the right one. A migrated slot owns nothing yet — its
+		 * first save creates the .CCH. */
+		if (migrating)
+			cg_pool_fn[n2][0] = 0;
+		else
+			cch_copy(cg_pool_fn[n2], cname);
 		n2++;
 	}
+#ifdef FRUA_CCHTRACE
+	dbg_file_num("cch: loaded into pool", (long)n2);
+#endif
 	if (n2 == 0)
 		return 0;
 	cg_pool_count = n2;
+	if (migrating) {
+		/* Put the migrated roster where it now belongs, immediately.
+		 * Add-a-Character enumerates FILES in the design SAVE folder
+		 * (l01be), not this pool, so until something writes them out the
+		 * Hall would report "No characters to load" while the pool sat
+		 * full — the old flat files being invisible to the new scan. */
+		save_roster();
+	}
 	/* The loaded .CHR are the saved-character pool, BENCHED — the party is
 	 * built in the Hall via Add Character / Load Saved Game. (#141/#100) */
 	return 1;
@@ -21144,8 +21313,9 @@ void frua_areatest_entry(void)
 }
 #endif
 
-/* Merge persisted CHAR*.CHR character files into the pool that aren't already
- * present (dedup by the 16-byte name at +96), appending up to the 16-slot cap.
+/* Merge persisted <design>.DSN\SAVE\*.CCH character files into the pool that
+ * aren't already present (dedup by the 16-byte name at +96), appending up to
+ * the 16-slot cap.
  *
  * A created character persists as its own .CHR file (the faithful jt574 tail /
  * jt584 write -> save_roster). Running this after whichever source populated
@@ -21157,22 +21327,30 @@ static void cg_roster_merge_files(void)
 	int   found;
 	static unsigned char rec[512];
 
-	for (found = files_find_first("CHAR*.CHR", cname, (int)sizeof cname);
+	char pat[64];
+
+	design_save_path(pat, "*.CCH");
+	for (found = files_find_first(pat, cname, (int)sizeof cname);
 	     found && cg_pool_count < 16;
 	     found = files_find_next(cname, (int)sizeof cname)) {
-		char  pfn[18];
+		char  pfn[68], full[64];
 		short len = 0, refnum, c;
 		long  n;
 
-		while (cname[len] != 0 && len < 16) {
-			pfn[len + 1] = cname[len];
+		design_save_path(full, cname);
+		while (full[len] != 0 && len < 63) {
+			pfn[len + 1] = full[len];
 			len++;
 		}
 		pfn[0] = (char)len;
 		if (FSOpen((ConstStr255Param)pfn, 0, &refnum) != noErr)
 			continue;
+		/* ★ The record is 398 bytes and the FILE is ~506 (record + the
+		 * inventory and spell streams), so the old `n != 512` test never
+		 * passed and this whole merge has been quietly dead. Read what is
+		 * there and require enough of it to hold the name. */
 		n = 512;
-		if (FSRead(refnum, &n, rec) != noErr || n != 512) {
+		if (FSRead(refnum, &n, rec) != noErr || n < 398) {
 			(void)FSClose(refnum);
 			continue;
 		}
@@ -21363,9 +21541,10 @@ void port_test_seed_design(void)
 					}
 				}
 				cg_pool_count = k_count;
-				save_roster();       /* persist the seed as CHAR*.CHR so
-				                      * the saved-character roster
-				                      * (jt589 / L01be) can enumerate it */
+				save_roster();       /* persist the seed as
+				                      * <design>.DSN\SAVE\<NAME>.CCH so the
+				                      * saved-character roster (jt589 /
+				                      * L01be) can enumerate it */
 			}
 			/* Surface characters created in a previous session — their
 			 * CHAR*.CHR files would otherwise be shadowed by the savegame
@@ -32492,13 +32671,26 @@ static void l01be(const char *suffix, long *out1, long *out2)
 	if (out2 != NULL) *out2 = 0;
 	if (out1 != NULL) *out1 = 0;
 
-	jt990(0, "CHAR*.CHR", NULL, 1, 0);             /* scan saved-char files */
+	{
+		char pat[64];
+
+		/* "<design>.DSN\SAVE\*.CCH" — the folder both original releases
+		 * use, so DOS- and Mac-authored characters enumerate here too. */
+		design_save_path(pat, "*.CCH");
+		jt990(0, pat, NULL, 1, 0);             /* scan saved-char files */
+#ifdef FRUA_CCHTRACE
+		dbg_file_str("cch: l01be pattern", pat);
+#endif
+	}
 	entry = jt991(&isdir);                         /* first entry           */
+#ifdef FRUA_CCHTRACE
+	dbg_file_num("cch: l01be first", (long)(entry != 0));
+#endif
 	if (entry == 0)
 		return;                                /* no saved characters   */
 
 	for (;;) {
-		char          pfn[20];
+		char          pfn[68];
 		unsigned char rec[128];
 		const char   *cfn;
 		short         refnum, len;
@@ -32516,8 +32708,21 @@ static void l01be(const char *suffix, long *out1, long *out2)
 
 		/* Pull the display name from the record (name@96, a C string). */
 		cfn = (const char *)(uintptr_t)entry;
-		for (len = 0; cfn[len] != 0 && len < 16; len++)
-			pfn[len + 1] = cfn[len];
+		{
+			/* Fsfirst gives the bare name; re-prefix it to open. */
+			char full[64];
+
+			design_save_path(full, cfn);
+			/* ★ 63, not 19. The old cap sized a BARE 8.3 name; with the
+			 * folder in front, "HEIRS.DSN\SAVE\BARBARUS.CCH" is 27
+			 * characters and a 19-char cap silently truncated it to
+			 * "HEIRS.DSN\SAVE\BARB". FSOpen then failed, the name node
+			 * stayed empty, and the Add-a-Character list rendered as a
+			 * blank box — which reads exactly like "the file was not
+			 * found" rather than "the path was cut in half". */
+			for (len = 0; full[len] != 0 && len < 63; len++)
+				pfn[len + 1] = full[len];
+		}
 		pfn[0] = (char)len;
 		if (FSOpen((ConstStr255Param)pfn, 0, &refnum) == noErr) {
 			n = (long)sizeof rec;

@@ -65,14 +65,15 @@ list of what the real machine found — and what it is still owed — is
    - DOS writes **10 285** bytes to our 10 284. One byte, never chased — and
      it does not obstruct anything: a DOS slot file loads (verified
      2026-08-03, all six characters back with AC/HP).
-   - saved CHARACTERS: DOS keeps `<NAME>.CCH` in the same `SAVE` folder — and
-     **so does the Mac**: `jt584` builds design + `"SAVE"` + name + `"cch"`
-     through `jt431`, and is already lifted. The slot-numbered
-     `CHAR0000.CHR` scheme in the flat folder is the PORT's own 8.3 workaround,
-     not a release difference. `cg_char_fn`'s comment has always called the
-     name-derived path + `JT[589]` enumeration "the next steps"; doing it makes
-     DOS and Mac characters visible to the port and vice versa. **This is now
-     the only real save-interop gap left.**
+   - ~~saved CHARACTERS~~ **DONE 2026-08-03.** They live at
+     `<design>.DSN\SAVE\<NAME>.CCH` now, named through the faithful `jt130`
+     8.3 rule. Verified both ways: a DOS-authored character appears in Add A
+     Character with the right AC/HP, and DOS still reads one our engine
+     rewrote. Existing installs migrate off `CHAR*.CHR` on first boot.
+     Follow-up worth knowing about: `jt584` (the Mac's own per-character save,
+     with its "Update %s?" collision prompt) is lifted but not wired to the
+     Hall — the port's `save_roster` writes the whole pool instead, and
+     resolves a name collision silently by slot rather than by asking.
 
 0. **`geo.py`'s STRG encoder is not byte-faithful to SSI** (found 2026-08-02).
    Re-encoding a decoded SSI string table gives **6 628 of 7 168 bytes
