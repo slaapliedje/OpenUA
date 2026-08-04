@@ -18,6 +18,7 @@
 #include "display.h"          /* dsp_detect — ExitToShell display restore  */
 #include "input.h"            /* plat_input_shutdown                       */
 #include "plat_sound.h"       /* plat_sound_shutdown                       */
+#include "dbglog.h"           /* mark which exit door the quit took        */
 
 /*
  * InitGraf — QuickDraw startup. The Mac caller passes a pointer to its
@@ -86,8 +87,16 @@ void toolbox_init(void)
  */
 void ExitToShell(void)
 {
+	/* ★ MARK IT IN THE LOG. This is the exit the game actually takes — the
+	 * main menu's QUIT reaches it through jt415, so `ua_main` never returns
+	 * and NONE of main()'s teardown markers are written. A DBG.LOG that
+	 * simply stops at "menu: modal up" after a clean quit therefore looked
+	 * like the shutdown had never run at all, which is a hard thing to
+	 * diagnose from a photograph of a screen. Say which door was used. */
+	dbg_log("ExitToShell: tearing down (sound, input, display)");
 	plat_sound_shutdown();
 	plat_input_shutdown();
 	dsp_detect()->shutdown();
+	dbg_log("ExitToShell: display mode restored, exiting");
 	exit(0);
 }

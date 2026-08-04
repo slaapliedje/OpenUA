@@ -182,6 +182,32 @@ there is no monitor-independent "320x240". There is no 320x200 VGA mode at all
 — that is why a VGA Falcon letterboxes. `DBG.LOG` records the width, height and
 letterbox actually obtained, so a `0x<hex>` experiment documents itself.
 
+### If quitting leaves the desktop in the wrong colours
+
+There is one open bug here and you can help settle it: on at least one real
+Falcon, QUIT comes back to a desktop with the right layout and the wrong
+colours. Restoring the mode reinitialises the VDI (but *not* the AES — Atari
+Compendium p.290), so whether the saved palette should be put back before that,
+after it, or not at all is genuinely not obvious, and it cannot be tested in an
+emulator: Hatari never draws a desktop before an auto-started program, so the
+one it shows afterwards says nothing about our restore.
+
+So the strategy is selectable. Add a second token to `video.cfg`, on the same
+line or its own:
+
+| token | on exit |
+|---|---|
+| `exit=full` | (default) restore the mode, then the palette |
+| `exit=vdi` | restore the mode only, and let the VDI's own reinitialisation set the colours |
+| `exit=palfirst` | restore the palette first, so the VDI reinitialisation has the last word |
+| `exit=mode` | the older `VsetMode` route, then the palette |
+
+A file containing only `exit=vdi` leaves the video mode on its automatic
+choice. `DBG.LOG` records which strategy ran and the mode word being restored
+(`videl_shutdown: exit style` / `restoring mode`), so a report of "this one
+worked" is self-documenting. If one of them fixes it, please say which — that
+is the whole experiment.
+
 **Step 3 is not optional, and running the engine straight off the disk looks
 broken.** Launched from the floppy, it initialises fully — display, sound,
 `frua.rsc` — and then hits a black screen, because the game data it needs is

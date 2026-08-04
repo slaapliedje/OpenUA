@@ -94,7 +94,9 @@ static long           g_save_palette[256];
  * in the wrong colours (teal came back pale green, reproduced in Hatari on
  * `--monitor vga`). Setcolor(i, COL_INQUIRE) reads a register without
  * changing it — the documented way to snapshot them (Compendium p.274). */
+#ifndef COL_INQUIRE                     /* mint/falcon.h defines it too */
 #define COL_INQUIRE (-1)
+#endif
 static short          g_save_stpal[16];
 
 /* 8-bit palette index -> RGB565 word. Rebuilt by videl_set_palette. */
@@ -211,9 +213,34 @@ static long vbl_remove_super(void)
  * records what worked. Bits are in mint/falcon.h (VGA 0x10, PAL 0x20,
  * VERTFLAG 0x100, COL80 0x08, BPS16 0x04). GEMDOS directly rather than the
  * Toolbox shim: this runs before the shim has a screen. */
+/* How videl_shutdown puts the desktop back. Set from an optional second
+ * `exit=` token in video.cfg; see videl_shutdown for what each one does and
+ * why the choice is not obvious. */
+enum { EXIT_FULL = 0, EXIT_VDI = 1, EXIT_PALFIRST = 2, EXIT_MODE = 3 };
+static short g_exit_style = EXIT_FULL;
+
+/* Find "exit=<word>" anywhere in the (already lower-cased) config text. */
+static void videl_cfg_exit(const char *buf)
+{
+	int i;
+
+	for (i = 0; buf[i]; i++) {
+		if (buf[i] != 'e' || strncmp(buf + i, "exit=", 5) != 0)
+			continue;
+		i += 5;
+		if      (strncmp(buf + i, "full",     4) == 0) g_exit_style = EXIT_FULL;
+		else if (strncmp(buf + i, "vdi",      3) == 0) g_exit_style = EXIT_VDI;
+		else if (strncmp(buf + i, "palfirst", 8) == 0) g_exit_style = EXIT_PALFIRST;
+		else if (strncmp(buf + i, "mode",     4) == 0) g_exit_style = EXIT_MODE;
+		else dbg_log("  videl_init: exit= not understood -"
+		             " want full|vdi|palfirst|mode");
+		return;
+	}
+}
+
 static short videl_cfg_mode(void)
 {
-	char  buf[32];
+	char  buf[64];
 	long  fh, n;
 	int   i = 0, j;
 
@@ -225,6 +252,13 @@ static short videl_cfg_mode(void)
 	if (n <= 0)
 		return 0;
 	buf[n] = '\0';
+
+	/* Lower-case the whole text once, then pick the exit style out of it —
+	 * BEFORE the mode parse below chops the first token at its terminator. */
+	for (j = 0; buf[j]; j++)
+		if (buf[j] >= 'A' && buf[j] <= 'Z')
+			buf[j] = (char)(buf[j] - 'A' + 'a');
+	videl_cfg_exit(buf);
 
 	while (buf[i] == ' ' || buf[i] == '\t')
 		i++;
@@ -239,6 +273,8 @@ static short videl_cfg_mode(void)
 
 	if (strcmp(buf + i, "auto") == 0)
 		return 0;
+	if (strncmp(buf + i, "exit=", 5) == 0)
+		return 0;               /* an exit-only config: mode stays automatic */
 	if (strcmp(buf + i, "rgb200") == 0)      /* no VGA bit: RGB/TV timing */
 		return (short)((VsetMode(-1) & PAL) | BPS16);
 	if (strcmp(buf + i, "vga240") == 0)
@@ -439,6 +475,14 @@ mode_chosen:
 		g_vbl_installed = 1;
 	dbg_log_num("  videl_init: buffers  = ", g_nbuf);
 	dbg_log_num("  videl_init: vbl flip = ", g_vbl_installed);
+	/* ★ REPEAT THE MODE WORDS INTO THE FILE. They are logged above too, but
+	 * that is BEFORE dbg_log_screen_owned() — i.e. to the console, which the
+	 * takeover then paints over. So the one number a "it didn't come back to
+	 * the desktop cleanly" report needs was, by construction, never in
+	 * DBG.LOG, and asking a user to send it could not have worked. Cheap to
+	 * emit twice; expensive to be missing. */
+	dbg_log_num("  videl_init: old mode (restored on exit) = ", g_save_mode);
+	dbg_log_num("  videl_init: new mode = ", newmode);
 
 	/* Black the VIDEL overscan border: even in TrueColor the border colour is
 	 * driven by Falcon palette register 0 (the desktop left it light). The
@@ -502,8 +546,46 @@ static void videl_shutdown(void)
 	 * modecode", and that form DOES reinitialise the VDI and the VT52
 	 * emulator (p.290). Reported from real hardware as "doesn't drop out
 	 * cleanly to TOS"; reproduced in Hatari on --monitor vga. */
-	VsetScreen(g_save_log, g_save_phys, 3 /* SCR_MODECODE */, g_save_mode);
-	VsetRGB(0, 256, g_save_palette);
+	/* ★ AND THE ORDER OF THE PALETTE AGAINST IT IS A GENUINE UNKNOWN.
+	 *
+	 * The Compendium (p.290) is explicit that VsetScreen "does not reinitialize
+	 * the AES. The VDI and VT52 emulator are, however, correctly reinitialized."
+	 * A VDI reinitialisation sets the VDI's own colour table — so restoring the
+	 * saved hardware palette AFTER it can leave the desktop drawing with the
+	 * VDI's fresh notion of an index against a palette we forced back to
+	 * something else. That is the shape of the surviving report: the desktop
+	 * comes back with the right LAYOUT and the wrong COLOURS ("blue windows
+	 * with white wall paper and black outline of icons").
+	 *
+	 * It cannot be settled here. Hatari's own launcher never draws a desktop
+	 * before the program starts, so the desktop it shows afterwards is not
+	 * evidence about our restore — a trap already paid for once, when a
+	 * pale-green shifted desktop was reported as a reproduction and turned out
+	 * to be Hatari's `--auto` path (proved by aiming --auto at a program that
+	 * does not exist). Two documented fixes have shipped against this symptom
+	 * and neither has ever been observed to change it.
+	 *
+	 * So make it a one-line experiment on the machine that has the problem:
+	 * `exit=` in video.cfg picks the strategy and DBG.LOG records which ran.
+	 *   full     (default) VsetScreen, then palette — today's behaviour
+	 *   vdi      VsetScreen only; the VDI reinit owns the palette
+	 *   palfirst palette, then VsetScreen; the VDI reinit has the last word
+	 *   mode     VsetMode, then palette — the pre-52f62796 behaviour
+	 */
+	dbg_log_num("videl_shutdown: exit style = ", (long)g_exit_style);
+	dbg_log_num("videl_shutdown: restoring mode = ", (long)g_save_mode);
+
+	if (g_exit_style == EXIT_PALFIRST)
+		VsetRGB(0, 256, g_save_palette);
+
+	if (g_exit_style == EXIT_MODE)
+		VsetMode(g_save_mode);
+	else
+		VsetScreen(g_save_log, g_save_phys,
+		           3 /* SCR_MODECODE */, g_save_mode);
+
+	if (g_exit_style == EXIT_FULL || g_exit_style == EXIT_MODE)
+		VsetRGB(0, 256, g_save_palette);
 	/* ★ ONLY IN AN ST-COMPATIBLE MODE. The ST/e palette registers are
 	 * "simulated for compatibility on newer model machines" (Compendium
 	 * p.740) — which means writing them on a Falcon reaches VIDEL colour
@@ -514,8 +596,9 @@ static void videl_shutdown(void)
 	 * would only degrade them. Hatari's TOS 4 desktop reports mode 434 =
 	 * BPS | VGA | PAL | STMODES | VERTFLAG, so the ST path is the one that
 	 * runs there; a machine whose desktop is a native Falcon mode takes the
-	 * other. */
-	if (g_save_mode & STMODES)
+	 * other. Skipped under exit=vdi along with the rest of the palette
+	 * restore, so that arm really is "the VDI decides". */
+	if ((g_save_mode & STMODES) && g_exit_style != EXIT_VDI)
 		Setpalette(g_save_stpal);
 	for (b = 0; b < 3; b++)
 		if (g_screen_raw[b] != NULL) {
