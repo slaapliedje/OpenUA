@@ -40674,40 +40674,87 @@ static void jt28(long arg0, long item, short s16, short s18,
 #define g_a5_13776 g_a5_long(-13776)   /* JT[182] target buffer for save picker */
 #define g_a5_22733 g_a5_byte(-22733)   /* save-mode flag */
 
-/* Build the DESIGN-SCOPED save-slot path "<design>\SavGam<c>.csv" (c = a slot
- * letter 'A'..'J', or '*' for the enumerate glob). The Mac keeps each design's
- * saves in that design's own SAVE folder; the port keeps them in the design's
- * .DSN staging folder, so switching designs in-game (which updates the current
- * design name g_a5_-31336 via jt133) switches which slots Load/Save sees. When
- * the design name is empty the path stays flat, the pre-fix behaviour.
+/* Build the DESIGN-SCOPED save-slot path "<design>.DSN\SAVE\SAVGAM<c>.CSV"
+ * (c = a slot letter 'A'..'J', or '*' for the enumerate glob).
+ *
+ * ★ THIS IS WHERE SSI'S OWN GAME PUTS THEM, verified rather than assumed.
+ * DOS FRUA 1.2 was driven headlessly to Training Hall -> SAVE CURRENT GAME ->
+ * slot F, and the two files it produced were:
+ *
+ *     HEIRS.DSN\SAVE\SAVGAMF.CSV   10 285 bytes
+ *     HEIRS.DSN\SAVE\VAULTF.DAT       916 bytes
+ *
+ * The port used to write "<design>.DSN\SavGam<c>.csv" — right folder, missing
+ * the SAVE level, and mixed case. (A pair of DOS-written SAVGAMA.CSV /
+ * VAULTA.DAT sitting at a design ROOT in the staged gamedata is what made the
+ * flat layout look confirmed; those had been moved there by hand. Believing a
+ * file's location instead of watching the program write one cost a wrong answer
+ * in an earlier session.)
+ *
+ * Uppercase because that is what DOS writes: TOS and FAT do not care, but the
+ * Amiga and any Linux-side staging do, and a name that differs only in case is
+ * the kind of thing that works everywhere except the one machine that matters.
+ *
+ * NOT written: VAULT<c>.DAT. Its 916-byte layout has not been decoded, and
+ * inventing one would be worse than leaving it absent — see docs/TODO.md.
+ *
+ * When the design name is empty the path stays flat, the pre-fix behaviour.
  *
  * The separator is the GEMDOS '\': mac_path_to_c passes a '\'-containing path
  * through unchanged (it only special-cases "<x>.DSN:<file>"), and Fsfirst needs
  * '\' for the enumerate glob — so ONE construction serves the FSOpen (write /
  * load) and Fsfirst (scan) paths alike. g_a5_-31336 already holds "<name>.DSN".
- * (The '\' is GEMDOS-specific; revisit for the Amiga file backend.) */
+ * The Amiga backend rewrites '\' to '/' on the way through (files_amiga.c). */
 static void savgam_path(char *out, int c)
 {
 	const char *dsn = (const char *)g_a5_buf(-31336);
 	const char *s;
 	int j = 0;
 
-	/* "<design>.DSN\" folder prefix. Cap the design name so "<dsn>\SavGamX.csv"
-	 * fits the smallest caller buffer (fn[44]): 44 - strlen("\\SavGamA.csv") - 1
-	 * = 31 chars. Design folders are 8.3 in practice, so this never bites; it
-	 * only guards a pathological 34-byte start.dat name. */
+	/* "<design>.DSN\SAVE\" folder prefix. Cap the design name so the whole
+	 * path fits the smallest caller buffer (fn[44]):
+	 * 44 - strlen("\\SAVE\\SAVGAMA.CSV") - 1 = 26 chars. Design folders are
+	 * 8.3 in practice, so this never bites; it only guards a pathological
+	 * 34-byte start.dat name. */
 	if (dsn && dsn[0]) {
-		while (dsn[j] && j < 31) { out[j] = dsn[j]; j++; }
+		while (dsn[j] && j < 26) { out[j] = dsn[j]; j++; }
+		out[j++] = '\\';
+		for (s = "SAVE"; *s; s++) out[j++] = *s;
 		out[j++] = '\\';
 	}
-	for (s = "SavGam"; *s; s++) out[j++] = *s;
+	for (s = "SAVGAM"; *s; s++) out[j++] = *s;
 	out[j++] = (char)c;
-	for (s = ".csv"; *s; s++) out[j++] = *s;
+	for (s = ".CSV"; *s; s++) out[j++] = *s;
 	out[j] = '\0';
 #ifdef FRUA_SAVETRACE
 	dbg_file_str("savgam_path design", (dsn && dsn[0]) ? dsn : "(flat)");
 	dbg_file_str("savgam_path ->", out);
 #endif
+}
+
+/* Make sure "<design>.DSN\SAVE" exists before a slot is written into it.
+ *
+ * GEMDOS Fcreate will not make the folder, and neither will AmigaDOS Open() —
+ * a first save into a design that has never been saved would simply fail, and
+ * l00e0 reports that as "couldn't write" with no clue why. DirCreate treats an
+ * existing directory as success on both backends, so this is idempotent and
+ * costs one call per save. No-op when the design name is empty (flat layout). */
+static void savgam_dir_ensure(void)
+{
+	const char   *dsn = (const char *)g_a5_buf(-31336);
+	unsigned char pstr[64];
+	char          dir[48];
+	const char   *s;
+	int           j = 0;
+
+	if (dsn == NULL || dsn[0] == '\0')
+		return;
+	while (dsn[j] && j < 26) { dir[j] = dsn[j]; j++; }
+	dir[j++] = '\\';
+	for (s = "SAVE"; *s; s++) dir[j++] = *s;
+	dir[j] = '\0';
+	str_c2p(pstr, dir);
+	(void)DirCreate(0, 0, (ConstStr255Param)pstr, NULL);
 }
 
 /* JT[585] (CODE 15 + 0x1a24, 104 lines) — save / load slot picker.
@@ -40829,7 +40876,8 @@ static void   jt585(void)
 	(void)jt94((short)0, (short)24, (short)0, (short)7,
 	           "%s", "Saving...Please Wait");
 
-	savgam_path(fn, (int)slot_char);   /* "<design>\SavGam<slot>.csv" */
+	savgam_dir_ensure();               /* "<design>.DSN\SAVE\" may not exist */
+	savgam_path(fn, (int)slot_char);   /* "<design>.DSN\SAVE\SAVGAM<slot>.CSV" */
 
 	g_a5_22733 = 1;
 	if (l00e0(fn, (void *)jt580) == 0) {

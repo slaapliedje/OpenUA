@@ -29,14 +29,41 @@ list of what the real machine found — and what it is still owed — is
 
 ### Genuinely open
 
-00. **Does the port exit cleanly to TOS?** The reported symptom is a dark-blue
-   desktop after QUIT. Two documentation-grounded fixes shipped (`52f62796`:
-   restore through `VsetScreen(SCR_MODECODE)` because `VsetMode` does not
-   reinitialise the VDI, and re-`Setpalette` the ST-compat registers when the
-   old mode had `STMODES`), but **neither has ever been observed to fix it** —
-   the symptom does not reproduce in Hatari. Settling it needs one hardware run
-   and the `videl_init: old mode = NNN` line out of `DBG.LOG`. Until then treat
-   it as open, not fixed.
+00. **Does the port exit cleanly to TOS?** STILL OPEN — confirmed still
+   happening on hardware 2026-08-03, with the fixes in. What that round DID
+   settle, and it is worth having:
+   - **the teardown runs.** The quit goes through `jt415` → `ExitToShell`, so
+     `ua_main` never returns and NONE of `main()`'s markers are written; a
+     `DBG.LOG` that simply stops at `menu: modal up` after a clean quit looked
+     like no shutdown at all. `ExitToShell` now logs both sides of it.
+   - **the number I asked the user for could not have existed.**
+     `videl_init: old mode = NNN` is logged BEFORE `dbg_log_screen_owned()`,
+     i.e. to the console, which the screen takeover then paints over. It is now
+     repeated into the file.
+   - **an emulator cannot answer this.** Hatari never draws a desktop before an
+     auto-started program, so the one it shows afterwards is not evidence —
+     already paid for once (a pale-green shifted desktop reported as a
+     reproduction, proved to be Hatari's `--auto` path).
+
+   The live hypothesis is ORDER: `VsetScreen` reinitialises the VDI but not the
+   AES (Compendium p.290), so restoring the saved palette after it can leave
+   the desktop drawing VDI indices against our palette — which matches the
+   reported symptom exactly (right layout, wrong colours). Rather than guess,
+   `video.cfg` now takes `exit=full|vdi|palfirst|mode` and `DBG.LOG` records
+   which ran. **Next step is a hardware run of the four, not more code.**
+
+0a. **Save-file parity with DOS: three deltas left.** The path and spelling now
+   match (`<design>.DSN\SAVE\SAVGAM<c>.CSV`, 2026-08-03), verified against a
+   headless DOS run. Not copied, in rising order of effort:
+   - `VAULT<c>.DAT`, 916 bytes, written beside every DOS save. Layout
+     undecoded; `data/work/dos-run/HEIRS.DSN/SAVE/VAULTF.DAT` is a fresh
+     specimen to work from.
+   - DOS writes **10 285** bytes to our 10 284. One byte, never chased.
+   - saved CHARACTERS: DOS keeps `<NAME>.CCH` in the same `SAVE` folder; the
+     port uses slot-numbered `CHAR0000.CHR` in the flat folder. The comment at
+     `cg_char_fn` has always called the name-derived path + `JT[589]`
+     enumeration "the next steps". Doing it makes DOS characters visible to
+     the port and vice versa.
 
 0. **`geo.py`'s STRG encoder is not byte-faithful to SSI** (found 2026-08-02).
    Re-encoding a decoded SSI string table gives **6 628 of 7 168 bytes

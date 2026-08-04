@@ -25,6 +25,37 @@ stand-in.
 > SAVE → slot C produced a 10 284-byte `SavGamC.csv` differing from the
 > fixture in 46 bytes (position, facing, clock, per-character state).
 >
+> ✅ **THE SAVE PATH NOW MATCHES SSI'S (2026-08-03).** Saves move from
+> `<design>.DSN\SavGam<c>.csv` to `<design>.DSN\SAVE\SAVGAM<c>.CSV` — the
+> location and spelling DOS FRUA 1.2 actually uses. Not inferred: the DOS
+> release was driven headlessly (`tools/dosdrive.sh`) through Training Hall →
+> SAVE CURRENT GAME → slot F, and it wrote
+>
+>     HEIRS.DSN\SAVE\SAVGAMF.CSV   10 285 bytes
+>     HEIRS.DSN\SAVE\VAULTF.DAT       916 bytes
+>
+> ★ **A pair of DOS-written `SAVGAMA.CSV` / `VAULTA.DAT` sitting at a design
+> ROOT in the staged gamedata is what made the flat layout look confirmed.**
+> They had been moved there by hand. Watching the program write a file beats
+> reading where a file happens to be, and this cost a wrong answer once.
+>
+> Verified live on the Falcon: Hall → SAVE → slot F wrote
+> `HEIRS.DSN/SAVE/SAVGAMF.CSV` (the `SAVE` folder created on demand — GEMDOS
+> Fcreate will not make it and neither will AmigaDOS Open), the load picker
+> then enumerated **only** F, loading it restored the party, and
+> `autoload.dat` resumed straight into the caravan event from the new path.
+>
+> **Two DOS behaviours deliberately NOT copied**, both flagged in
+> `docs/TODO.md`: the 916-byte `VAULT<c>.DAT` companion (layout undecoded —
+> inventing one is worse than omitting it) and the 10 285th byte (DOS writes
+> one more than we do). Saved CHARACTERS are a third: DOS keeps `<NAME>.CCH`
+> in the same `SAVE` folder, while the port still uses slot-numbered
+> `CHAR0000.CHR` files in the flat folder — a bigger change (name-derived
+> paths + directory enumeration) that the code has always flagged as pending.
+>
+> Old saves at the design root become invisible. That was the maintainer's
+> call: *"I can always move the files there if I want."*
+
 > The drive that makes this portable is **keyboard-only** — `p` → `l` → slot
 > letter → `b`, no coordinates — so one script runs on every machine. Clicks
 > position the pointer on the slot pickers but do not commit there.
