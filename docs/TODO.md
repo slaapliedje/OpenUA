@@ -56,8 +56,9 @@ list of what the real machine found — and what it is still owed — is
    match (`<design>.DSN\SAVE\SAVGAM<c>.CSV`, 2026-08-03), verified against a
    headless DOS run. Not copied, in rising order of effort:
    - `VAULT<c>.DAT`, 916 bytes, written beside every DOS save. Layout
-     undecoded; `data/work/dos-run/HEIRS.DSN/SAVE/VAULTF.DAT` is a fresh
-     specimen to work from.
+     undecoded. To make a specimen: `tools/dosdrive.sh boot`, then keys
+     `p a a e s <slot>` — Play, Add, Add, Exit, Save, pick a slot — and it
+     appears in `data/work/dos-run/<design>.DSN/SAVE/`.
    - DOS writes **10 285** bytes to our 10 284. One byte, never chased.
    - saved CHARACTERS: DOS keeps `<NAME>.CCH` in the same `SAVE` folder; the
      port uses slot-numbered `CHAR0000.CHR` in the flat folder. The comment at
