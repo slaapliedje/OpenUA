@@ -521,3 +521,171 @@ def test_wrong_type_rejected():
         g.question(0)
     with pytest.raises(GeoError):
         g.variable(0)
+
+
+# ---------------------------------------------------------------------------
+# STRG fidelity vs SSI's own bytes.
+#
+# The tests above are all synthetic and CIRCULAR by construction: encoder and
+# decoder share every assumption, so `strg_write(strg_read(x)) == x` passes even
+# when both are wrong together. The ones below use real SSI-authored areas as an
+# outside oracle. They skip when `data/` is not unpacked (it is copyrighted and
+# git-ignored), so they must never be the only check on a change — run them
+# locally before touching the codec.
+# ---------------------------------------------------------------------------
+
+_REPO = os.path.join(os.path.dirname(__file__), "..")
+
+
+def _ssi_areas(limit=None):
+    """Real GEO areas authored by SSI's own editor (the base game plus fan
+    modules, which exercise MORE editing history than the base game does).
+    Excludes anything under a design we generate ourselves — those were written
+    by this encoder and would make the oracle circular again."""
+    import glob
+    ours = ("GENAREA.DSN", "KOBOLD.DSN", "INNTAV.DSN", "TEMPLE.DSN",
+            "WALKTEST.DSN", "TEXTTEST.DSN")
+    out = []
+    for p in sorted(glob.glob(os.path.join(_REPO, "data", "work", "**",
+                                           "GEO*.DAT"), recursive=True)):
+        if any(o in p for o in ours):
+            continue
+        out.append(p)
+    return out[:limit] if limit else out
+
+
+def _require_ssi_areas(limit=None):
+    areas = _ssi_areas()
+    if len(areas) < 20:
+        pytest.skip("needs real SSI areas under data/work (copyrighted, "
+                    "git-ignored); found %d" % len(areas))
+    return areas[:limit] if limit else areas
+
+
+def test_strg_reencode_is_byte_exact_vs_ssi():
+    """THE NON-CIRCULAR ORACLE: decoding a real area and writing it straight
+    back must reproduce SSI's STRG chunk bit for bit."""
+    bad = []
+    for p in _require_ssi_areas():
+        with open(p, "rb") as fh:
+            g = Geo.parse(fh.read())
+        orig = bytes(g.strg)
+        g.strg_write(g.strg_read())
+        if bytes(g.strg) != orig:
+            n = sum(1 for a, b in zip(orig, bytes(g.strg)) if a != b)
+            bad.append("%s (%d bytes)" % (os.path.basename(p), n))
+    assert not bad, "%d of %d areas not byte-exact: %s" % (
+        len(bad), len(_ssi_areas()), ", ".join(bad[:6]))
+
+
+def test_strg_alphabet_matches_ssi_bytes():
+    """The 6-bit alphabet and the 4-codes-per-3-bytes packing, checked against
+    SSI's bytes independently of our own length bookkeeping. This is the layer
+    docs/TODO.md wrongly accused of being off by one."""
+    import geo as _geo
+    checked = mismatch = 0
+    for p in _require_ssi_areas(limit=60):
+        with open(p, "rb") as fh:
+            g = Geo.parse(fh.read())
+        strings = g.strg_read()
+        for (n, raw), s in zip(g._strg_slot, strings):
+            if n in (0, 255):
+                continue
+            ours = _geo._pack6([_geo._char_to_code6(c)
+                                for c in s.encode("mac-roman", "replace")] + [0])
+            k = min(len(raw), len(ours))
+            checked += 1
+            if raw[:k] != ours[:k]:
+                mismatch += 1
+    assert checked > 500, "oracle too small (%d strings)" % checked
+    assert mismatch == 0, "%d of %d strings re-pack differently" % (mismatch,
+                                                                   checked)
+
+
+def test_strg_header_word_is_used_body_length():
+    """Header word 2 is the used body length. The port wrote 0 here, which was
+    the one field every real area disagreed with."""
+    for p in _require_ssi_areas(limit=40):
+        with open(p, "rb") as fh:
+            g = Geo.parse(fh.read())
+        want = struct.unpack_from("<H", g.strg, 4)[0]
+        index = bytes(g.strg[6:406])
+        assert want == sum(n for n in index if n != 255), os.path.basename(p)
+
+
+def test_strg_edit_perturbs_only_the_edited_string():
+    """Editing one string must not rewrite the whole table — the slots before it
+    keep SSI's exact bytes. This is the property that makes the in-place editor
+    safe on someone else's module."""
+    target = None
+    for p in _require_ssi_areas():
+        with open(p, "rb") as fh:
+            g = Geo.parse(fh.read())
+        s = g.strg_read()
+        # find an area with a used string at slot >= 3 to edit
+        hits = [i for i, (n, _) in enumerate(g._strg_slot) if n not in (0, 255)]
+        if len(hits) > 6 and hits[0] < 3:
+            target = (g, s, hits)
+            break
+    if target is None:
+        pytest.skip("no suitable SSI area found")
+    g, s, hits = target
+    orig_index = bytes(g.strg[6:406])
+    orig_body = bytes(g.strg[406:])
+    victim = hits[4]
+    before = sum(g._strg_slot[i][0] for i in hits if i < victim
+                 and g._strg_slot[i][0] != 255)
+    s[victim] = "REPLACED TEXT"
+    g.strg_write(s)
+    # every earlier slot's index byte and body bytes are untouched
+    assert bytes(g.strg[6:406])[:victim] == orig_index[:victim]
+    assert bytes(g.strg[406:])[:before] == orig_body[:before]
+    assert g.strg_read()[victim] == "REPLACED TEXT"
+
+
+def test_strg_write_preserve_false_still_reads_back():
+    """A forced fresh encode is allowed to differ from SSI byte-wise, but must
+    still decode to the same strings (the engine reads what we write)."""
+    for p in _require_ssi_areas(limit=8):
+        with open(p, "rb") as fh:
+            g = Geo.parse(fh.read())
+        s = g.strg_read()
+        g.strg_write(s, preserve=False)
+        assert g.strg_read() == s, os.path.basename(p)
+
+
+def test_strg_fresh_encode_reproduces_ssi_allocation():
+    """Pins the NUL-terminator rule against SSI's own allocations, so a fresh
+    encode of a NEW string matches what SSI's editor would have written.
+
+    Also documents the irreducible residue: a minority of real strings carry one
+    byte LESS than the terminator rule, because SSI's allocation is editing
+    history, not a function of the string (see the note in tools/geo.py). Those
+    are exactly one byte short — never longer, never off by more."""
+    import geo as _geo
+    def alloc(ncodes):
+        return 3 * (ncodes // 4) + (ncodes % 4)
+    exact = shorter = other = 0
+    for p in _require_ssi_areas(limit=60):
+        with open(p, "rb") as fh:
+            g = Geo.parse(fh.read())
+        strings = g.strg_read()          # must run before _strg_slot is read
+        for (n, raw), s in zip(g._strg_slot, strings):
+            if n in (0, 255):
+                continue
+            want = alloc(len(s.encode("mac-roman", "replace")) + 1)
+            if n == want:
+                exact += 1
+                # and the bytes themselves, not just the length
+                ours = _geo._pack6([_geo._char_to_code6(c)
+                                    for c in s.encode("mac-roman", "replace")] + [0])
+                assert ours == raw, "%s slot bytes differ" % os.path.basename(p)
+            elif n == want - 1:
+                shorter += 1
+            else:
+                other += 1
+    total = exact + shorter + other
+    assert total > 500, "oracle too small (%d)" % total
+    assert other == 0, "%d strings neither match nor are 1 byte short" % other
+    # The terminator rule is the dominant form by a wide margin.
+    assert exact > total * 0.9, "only %d of %d match the rule" % (exact, total)

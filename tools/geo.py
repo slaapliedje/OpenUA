@@ -114,6 +114,10 @@ class Geo:
         if len(self.map)  != MAP_SIZE:  raise GeoError("MAP wrong size")
         if len(self.encr) != ENCR_SIZE: raise GeoError("ENCR wrong size")
         if len(self.strg) != STRG_SIZE: raise GeoError("STRG wrong size")
+        # STRG provenance, filled in by strg_read() — see the STRG note below.
+        self._strg_src  = None    # the strings as decoded, to detect edits
+        self._strg_slot = None    # per-slot (index byte, raw packed bytes)
+        self._strg_tail = None    # bytes after the used body (SSI leaves residue)
 
     # ---- HDR fields (design-state[0..289]) ----
     @property
@@ -622,40 +626,86 @@ class Geo:
                 "yes_chain": ev[10], "no_chain": ev[11]}
 
     # ---- STRG string table ----
+    #
+    # ★ SSI's packed length is NOT a function of the string, so a pure encoder
+    #   cannot reproduce a real area byte-for-byte. Measured over 635 real areas
+    #   (the base game plus fan modules): in HEIRS' GEO005, slot 4 and slot 67
+    #   are BOTH 38 characters and carry DIFFERENT allocations, 29 and 30 bytes.
+    #   The extra byte is the NUL terminator's group, and whether it was
+    #   allocated is editing history — a string shortened in SSI's editor keeps
+    #   the older, roomier allocation. 1218 of HEIRS' 1270 used strings have it.
+    #   SSI also leaves the body TAIL full of deleted-string residue (1740
+    #   nonzero bytes in GEO001), which no encoder could derive either.
+    #
+    #   The alphabet and the bit packing ARE byte-faithful: re-packing every one
+    #   of those 1270 strings reproduces SSI's bytes exactly. An earlier note in
+    #   docs/TODO.md claimed "every 6-bit character code comes out exactly ONE
+    #   LESS than SSI's" — that was WRONG, and it aimed the investigation at the
+    #   wrong layer. What was actually broken was the header word (always 0
+    #   where SSI stores the used body length) and the missing terminator.
+    #
+    #   So fidelity comes from PRESERVING provenance rather than deriving it:
+    #   strg_read() keeps each slot's original index byte and packed bytes plus
+    #   the tail, and strg_write() reuses them for any string it did not change.
+    #   Editing one string then perturbs only that string and the offsets after
+    #   it, instead of rewriting all 400 slots into a dialect.
     def strg_read(self):
         """Decode the area string table -> a list of up to 400 strings (empty
-        strings for unused slots). Uppercase, per the 6-bit alphabet."""
+        strings for unused slots). Uppercase, per the 6-bit alphabet.
+
+        Also records provenance so a later strg_write() can rebuild untouched
+        slots byte-for-byte; see the note above."""
         lt = self.strg[STRG_INDEX_OFF:STRG_INDEX_OFF + STRG_MAX_STR]
         body = self.strg[STRG_BODY_OFF:]
-        strings, off = [], 0
+        strings, slots, off = [], [], 0
         for i in range(STRG_MAX_STR):
             n = lt[i]
             if n == 255:                 # unused-slot marker
                 strings.append("")
+                slots.append((255, b""))
                 continue
             if n == 0:
                 strings.append("")
+                slots.append((0, b""))
                 continue
             nchars = (n << 2) // 3
             codes = _unpack6(body[off:off + n + 1], nchars)
             s = "".join(chr(_code6_to_char(c)) for c in codes).split("\x00")[0]
             strings.append(s)
+            slots.append((n, bytes(body[off:off + n])))
             off += n
+        self._strg_src  = list(strings)
+        self._strg_slot = slots
+        self._strg_tail = bytes(body[off:])   # residue of deleted strings
         return strings
 
-    def strg_write(self, strings):
+    def strg_write(self, strings, preserve=True):
         """Build the string table from a list of strings (<=400; text folds to
-        uppercase). Event text ids are 1-based (jt232 reads index num-1)."""
+        uppercase). Event text ids are 1-based (jt232 reads index num-1).
+
+        With `preserve` (the default) any string identical to what strg_read()
+        decoded is re-emitted from its ORIGINAL bytes, so re-writing an area you
+        only partly edited stays byte-faithful to SSI. Pass preserve=False to
+        force a fresh encode of everything."""
         if len(strings) > STRG_MAX_STR:
             raise GeoError("at most %d strings" % STRG_MAX_STR)
+        keep = (self._strg_slot if preserve and self._strg_slot else None)
         index = bytearray(STRG_MAX_STR)
         body = bytearray()
         for i, s in enumerate(strings):
+            # Unchanged slot: reuse SSI's own bytes, allocation history and all.
+            if keep and i < len(keep) and self._strg_src[i] == s:
+                n, raw = keep[i]
+                index[i] = n
+                body += raw
+                continue
             b = s.encode("mac-roman", "replace") if isinstance(s, str) else bytes(s)
             if not b:
                 index[i] = 0
                 continue
-            packed = _pack6([_char_to_code6(c) for c in b])
+            # SSI packs the string PLUS a NUL terminator (1218 of 1270 real
+            # strings); the terminator is what the reader stops on.
+            packed = _pack6([_char_to_code6(c) for c in b] + [0])
             if len(packed) > 254:      # index byte is 1 byte; 255 = unused marker
                 raise GeoError("string %d too long (%d packed bytes > 254)"
                                % (i, len(packed)))
@@ -663,10 +713,26 @@ class Geo:
                 raise GeoError("string body exceeds %d bytes" % STRG_BODY_CAP)
             index[i] = len(packed)
             body += packed
-        header = struct.pack("<HHH", STRG_BODY_CAP, 0xffff, 0)  # LE on disk
-        strg = header + bytes(index) + bytes(body)
-        strg += bytes(STRG_SIZE - len(strg))                    # zero-pad body
-        self.strg = bytearray(strg)
+        # Unused slots past the supplied list keep their original marker (SSI
+        # uses 0 throughout HEIRS, but the reader honours 255 too).
+        if keep:
+            for i in range(len(strings), STRG_MAX_STR):
+                if keep[i][0] == 255:
+                    index[i] = 255
+        # Header word 2 is the used body length — the port wrote 0 here, which
+        # is the one field every real area disagreed with (26 of 26 in HEIRS).
+        used = sum(n for n in index if n != 255)
+        header = struct.pack("<HHH", STRG_BODY_CAP, 0xffff, used)  # LE on disk
+        pad = STRG_SIZE - (len(header) + STRG_MAX_STR + len(body))
+        # Restore the deleted-string residue when the body is the same length;
+        # once offsets move, that residue no longer belongs anywhere, so zero.
+        if keep and self._strg_tail is not None and len(self._strg_tail) == pad:
+            tail = self._strg_tail
+        else:
+            tail = bytes(pad)
+        self.strg = bytearray(header + bytes(index) + bytes(body) + tail)
+        if len(self.strg) != STRG_SIZE:
+            raise GeoError("STRG built wrong size (%d)" % len(self.strg))
 
     # ---- container round-trip ----
     @classmethod
