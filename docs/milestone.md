@@ -230,7 +230,7 @@ Hatari runs, because everything it found was invisible in emulation:
 |---|---|---|
 | AREA map showed walls where there were none, and blocked open corridors | `l54f2` passed its cell coordinates to `l5484` **in reverse** — the whole map was transposed | `82ec4b82` |
 | No resolution check or change; a VGA monitor letterboxed oddly | there IS no 320×200 VGA mode; `VERTFLAG` halves vertical res on VGA and doubles it on RGB, so no mode word means the same geometry on both | `39985da5` — `video.cfg` picks `auto`/`rgb200`/`vga240`/`vga480`/raw hex |
-| Quitting left a dark-blue desktop | the mode was restored with `VsetMode`, which the Atari Compendium says does NOT reinitialise the VDI; `VsetScreen(SCR_MODECODE)` does, and the ST-compat palette needs `Setpalette` too | `52f62796` — **unconfirmed on hardware** |
+| Quitting left a dark-blue desktop | the mode was restored with `VsetMode`, which the Atari Compendium says does NOT reinitialise the VDI; `VsetScreen(SCR_MODECODE)` does, and the ST-compat palette needs `Setpalette` too | `52f62796` + `933d25c3` — **confirmed fixed on hardware 2026-08-04** |
 | Camp → SAVE → "Exit Play? YES" dropped back into the dungeon | the exit predicate read `-4944` (the play-loop flag) instead of `-27982` (the camp/stairs exit flag) | `632bfd92` |
 | Event text typed partway, then finished all at once with a frame redraw | two separate causes, a month apart: the typewriter presented at 5 Hz (`6543b358`), and the event tail wipes the box + command bar and rebuilds them across two call frames (`af8149bf`) | both fixed |
 
@@ -288,7 +288,6 @@ Nothing here is known broken; nobody has driven it. Each is a drive, not a lift.
 
 | Work | Note |
 |---|---|
-| **Clean exit to TOS** | the `VsetScreen` + ST-palette restore (`52f62796`) is documentation-grounded but has NEVER been seen to fix the reported dark-blue desktop. Needs a hardware retest and the `videl_init: old mode = NNN` line from `DBG.LOG` |
 | **Mono's six chrome families** | ALWAYS/FRAME/GEN/MENU/TITLE/TOPVIEW — lifts the Mac-only caveat (see `docs/TODO.md`) |
 | **Present-cost narrowing** | glyph (2 557) + fill (1 653) touch-all announcements dominate; 135 of 200 rows are presented per present on the TT. Palette and cursor are already at ZERO |
 | **Play-loop planar measurement** | the "~47% of rows convert" figure is a BOOT number; post-menu screens converted zero |

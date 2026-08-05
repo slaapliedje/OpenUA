@@ -29,28 +29,23 @@ list of what the real machine found — and what it is still owed — is
 
 ### Genuinely open
 
-00. **Does the port exit cleanly to TOS?** STILL OPEN — confirmed still
-   happening on hardware 2026-08-03, with the fixes in. What that round DID
-   settle, and it is worth having:
-   - **the teardown runs.** The quit goes through `jt415` → `ExitToShell`, so
-     `ua_main` never returns and NONE of `main()`'s markers are written; a
-     `DBG.LOG` that simply stops at `menu: modal up` after a clean quit looked
-     like no shutdown at all. `ExitToShell` now logs both sides of it.
-   - **the number I asked the user for could not have existed.**
-     `videl_init: old mode = NNN` is logged BEFORE `dbg_log_screen_owned()`,
-     i.e. to the console, which the screen takeover then paints over. It is now
-     repeated into the file.
-   - **an emulator cannot answer this.** Hatari never draws a desktop before an
-     auto-started program, so the one it shows afterwards is not evidence —
-     already paid for once (a pale-green shifted desktop reported as a
-     reproduction, proved to be Hatari's `--auto` path).
-
-   The live hypothesis is ORDER: `VsetScreen` reinitialises the VDI but not the
-   AES (Compendium p.290), so restoring the saved palette after it can leave
-   the desktop drawing VDI indices against our palette — which matches the
-   reported symptom exactly (right layout, wrong colours). Rather than guess,
-   `video.cfg` now takes `exit=full|vdi|palfirst|mode` and `DBG.LOG` records
-   which ran. **Next step is a hardware run of the four, not more code.**
+00. ~~**Does the port exit cleanly to TOS?**~~ **CLOSED 2026-08-04** — reported
+   fixed on the reporting Falcon. It took three rounds and the useful part is
+   what each one established:
+   - the teardown DOES run. QUIT goes `jt415` -> `ExitToShell`, so `ua_main`
+     never returns and none of `main()`'s markers are written; a `DBG.LOG` that
+     stops at `menu: modal up` after a clean quit is NORMAL. `ExitToShell` now
+     logs both sides.
+   - `videl_init: old mode = NNN` was logged BEFORE `dbg_log_screen_owned()`,
+     i.e. to the console the screen takeover then paints over — so the one
+     number the diagnosis needed could never have been in the file. It is now.
+   - an emulator could not answer it: Hatari never draws a desktop before an
+     auto-started program, so the desktop it shows afterwards is not evidence
+     (already paid for once — see `falcon-vga-hardware`).
+   The restore goes through `VsetScreen(SCR_MODECODE)` (`VsetMode` does not
+   reinitialise the VDI — Compendium p.289/290) plus the ST-compat palette, and
+   `video.cfg`'s `exit=full|vdi|palfirst|mode` remains as an escape hatch for a
+   machine the default does not suit.
 
 0a. **Save-file parity with DOS: three deltas left.** The path and spelling now
    match (`<design>.DSN\SAVE\SAVGAM<c>.CSV`, 2026-08-03), verified against a

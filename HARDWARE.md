@@ -184,16 +184,12 @@ letterbox actually obtained, so a `0x<hex>` experiment documents itself.
 
 ### If quitting leaves the desktop in the wrong colours
 
-There is one open bug here and you can help settle it: on at least one real
-Falcon, QUIT comes back to a desktop with the right layout and the wrong
-colours. Restoring the mode reinitialises the VDI (but *not* the AES — Atari
-Compendium p.290), so whether the saved palette should be put back before that,
-after it, or not at all is genuinely not obvious, and it cannot be tested in an
-emulator: Hatari never draws a desktop before an auto-started program, so the
-one it shows afterwards says nothing about our restore.
-
-So the strategy is selectable. Add a second token to `video.cfg`, on the same
-line or its own:
+This was an open bug through 0.9.4 and is **fixed as of 0.9.5** — a real Falcon
+now returns to a correct desktop. It is worth knowing the escape hatch exists
+anyway, because restoring the video mode reinitialises the VDI but *not* the
+AES (Atari Compendium p.290), and a machine with a different desktop mode or a
+VDI replacement may want a different order. Add a second token to `video.cfg`,
+on the same line or its own:
 
 | token | on exit |
 |---|---|
@@ -205,8 +201,7 @@ line or its own:
 A file containing only `exit=vdi` leaves the video mode on its automatic
 choice. `DBG.LOG` records which strategy ran and the mode word being restored
 (`videl_shutdown: exit style` / `restoring mode`), so a report of "this one
-worked" is self-documenting. If one of them fixes it, please say which — that
-is the whole experiment.
+worked" is self-documenting.
 
 **Step 3 is not optional, and running the engine straight off the disk looks
 broken.** Launched from the floppy, it initialises fully — display, sound,
