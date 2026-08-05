@@ -160,6 +160,11 @@ verified byte-identical to the `release-ste` / `release-amiga-ecs` output.
 - `-std=gnu99`, `-fomit-frame-pointer`, `-Wall -Wextra`.
 - Verify with: `m68k-atari-mint-objdump -d build/<obj>.o | grep -E 'muls\.l|bfextu|bfins'`
   — if you see none of these across the whole build, the flag isn't taking effect.
+  **On the AMIGA side you must pass `-m m68k:68020`**: an Amiga hunk binary
+  carries no CPU tag, so objdump falls back to 68000 and silently MISDECODES
+  020 instructions. The AGA build shows 433 `mulsl` / 233 `bfextu` with the
+  flag and exactly zero without it — i.e. the bare recipe reports a perfectly
+  good 020 build as broken.
 
 If a build error looks fixable by changing flags, fix the Makefile and
 show the diff before touching source.
