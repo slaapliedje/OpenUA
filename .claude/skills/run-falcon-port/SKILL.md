@@ -498,6 +498,16 @@ brought up Xvfb, e.g. `DISPLAY=:99 make test-slow`.
 - Boot speed varies with host load (~12s here at `--fast-forward`); the
   "Your system is too slow … sound samples" warning is cosmetic.
 
+- **A `pgrep -f`/`pkill -f` pattern MATCHES ITS OWN SHELL.** The `pkill -f
+  hatari` warning below is one instance of a general trap, and the polling form
+  is worse because it fails silently and forever: `until ! pgrep -f "make
+  release-all"; do sleep 10; done` can never exit, because the shell running the
+  pgrep has that literal string in its own command line. Four such waiters were
+  found alive after 9, 6, 3 and 3 DAYS, each respawning a `sleep` and burning a
+  few seconds of CPU per day — invisible unless you go looking. Wait on a
+  *marker in a file* the work itself writes, or bracket the pattern
+  (`pgrep -f "[m]ake release-all"`), or just run the command in the foreground
+  with a generous timeout.
 - **`tools/hatari_ui.sh` does NOT bootstrap an Xvfb — `driver.sh` does.** Call
   the inner script directly under `env -u DISPLAY` and SDL fails with
   *"could not initialize the SDL library: x11 not available"*, which reads like
