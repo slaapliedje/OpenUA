@@ -1185,3 +1185,41 @@ Fixture: `tools/mk_texttest_design.py`. `confirm_mask=0` is what selects the
 sticky arm — the kobold design's message (confirm after every line) takes the
 `l1806` path and does **not** reproduce this. Build `-DFRUA_EVFRAME` for the
 per-row diffs, `-DFRUA_NOEVHOLD` for the control arm.
+
+### #161 follow-up — the hold froze the Merchant chain (2026-08-04)
+
+Shipped in v0.9.4-beta and reported from real hardware within the day: "the
+second screen from the Merchant, when you hit enter, it seems the game freezes
+(I think that is when it normally tries to load the treasure screen)."
+
+It did, and it was this hold. The repair half lives in `l63c0`'s per-step
+re-render, so the hold is only safe where that re-render is guaranteed to
+follow. The area-ENTRY chain (`jt948`/`jt953` -> `l709e`) is not such a place:
+the HEIRS caravan pages run and hand off to the give-treasure modal without
+ever reaching the step render, so a hold taken in `l4d26`'s tail was released
+by nobody. Every later present was swallowed and the display stopped while the
+engine ran on behind it.
+
+Reproduced in one drive with `autoload.dat` on a HEIRS save: the caravan
+hand-over page takes the Return (the button visibly highlights) and nothing
+advances; ten seconds later the frame is byte-identical. The A/B settles the
+attribution outright — the same drive on a `-DFRUA_NOEVHOLD` build goes
+straight to "EACH CHARACTER RECEIVES 100 EXPERIENCE POINTS", and the fixed
+build now produces that frame **byte-identical** to the control.
+
+Three changes, in order of how much they matter:
+
+1. **`g_event_step_ctx`** — the hold arms ONLY inside the walk step's event
+   dispatch. Everywhere else `port_event_tail_hold()` is a no-op.
+2. **`l4d26` drops any outstanding hold on entry**, so a chained event cannot
+   draw under the previous one's.
+3. **`l1806` drops it too.** That is the "Press RETURN to continue" wait, and
+   the general rule it encodes is the one worth remembering: **never wait for
+   the player behind a held frame** — that is exactly what "the game freezes"
+   looks like from the chair.
+
+The lesson for any future coalescing hold: a hold whose release lives in a
+different function than its acquire is only as safe as the narrowest path
+between them, and the cost of getting it wrong is not a flicker — it is a
+frozen game. Prefer arming it in the one context you can prove reaches the
+release, and add a backstop at every point that draws or blocks.

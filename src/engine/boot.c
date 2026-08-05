@@ -12200,6 +12200,14 @@ static long g_ss_n;
  * is a port reconstruction, so it has to drive that recompose explicitly. */
 static short g_event_modal_shown = 0;
 
+/* #161 — the post-event frame hold. `g_event_step_ctx` is set ONLY around the
+ * walk step's event dispatch, because l63c0's per-step re-render is the only
+ * thing that releases the hold; port_event_tail_show() drops an outstanding
+ * one anywhere else. Both live next to the flag above because they answer the
+ * same question — what has to be repainted after an event. See l63c0. */
+static short g_event_step_ctx;
+static void  port_event_tail_show(void);
+
 /* Backdrop (BACK.CTL) — the floor/ceiling/sky drawn behind the walls.
  * 20 backdrops, each an 88x88 8bpp image whose indices live at clut
  * [BACK_PAL_BASE..] (the image's own 32-colour palette is item 0); image
@@ -16896,6 +16904,7 @@ static void jt297(void *rec_v, short key, long cb)
 		 * declined level-transfer left a dead "RETURN" button. Rebuilding after
 		 * any dispatched event is what the Mac does. */
 		g_event_modal_shown = 0;
+		g_event_step_ctx = 1;      /* #161: the ONLY place the tail hold is safe */
 #ifdef FRUA_EVFRAME
 		/* TEMPORARY (#161): what does the EVENT ITSELF damage on screen?
 		 * Snapshot before the dispatch, diff straight after it — before the
@@ -16933,6 +16942,7 @@ static void jt297(void *rec_v, short key, long cb)
 #else
 		l709e(special);
 #endif
+		g_event_step_ctx = 0;
 		if (special != 0)
 			g_event_modal_shown = 1;
 	}
@@ -17619,11 +17629,30 @@ static unsigned char *g_evf_snap;
  * can never outlive the step that took it. */
 static short g_event_tail_hold;
 
+/* ★ AND IT IS ARMED ONLY FOR A WALK STEP. The repair half of this hold lives
+ * in l63c0's per-step re-render, so the hold is only safe where that re-render
+ * is guaranteed to follow. It is NOT guaranteed on the area-ENTRY chain
+ * (jt948/jt953 -> l709e), which runs its pages and hands off to the next modal
+ * without ever reaching the step render — so a hold taken there was released by
+ * nobody, every later present was swallowed, and the screen froze while the
+ * engine ran on behind it.
+ *
+ * That shipped in v0.9.4-beta and was reported from real hardware as "the
+ * second screen from the Merchant, when you hit enter, it seems the game
+ * freezes". It reproduces exactly: the HEIRS caravan hand-over page takes the
+ * Return (the button highlights) and the display never advances, while
+ * -DFRUA_NOEVHOLD on the same drive goes straight to the treasure screen.
+ *
+ * A frozen display is far worse than the flicker this was fixing, so the rule
+ * is now: arm only inside the step dispatch, and drop any outstanding hold
+ * before anything else draws or waits for the player. */
 static void port_event_tail_hold(void)
 {
 #ifdef FRUA_NOEVHOLD
 	return;                 /* A/B control: the pre-#161 behaviour */
 #endif
+	if (!g_event_step_ctx)
+		return;             /* not a walk step: nobody would release it */
 	if (!g_event_tail_hold) {
 		g_event_tail_hold = 1;
 		qd_present_hold(1);
@@ -17644,6 +17673,16 @@ static short port_event_tail_release(void)
 		return 1;
 	}
 	return 0;
+}
+
+/* Drop an outstanding tail hold and put the frame on screen. The release
+ * DISCARDS the held intermediate, so this owes the screen a present. Called
+ * anywhere the engine is about to draw something new or wait for the player,
+ * so a hold can never outlive the moment it was meant to cover. */
+static void port_event_tail_show(void)
+{
+	if (port_event_tail_release())
+		port_present_full();
 }
 
 static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
@@ -42575,6 +42614,9 @@ static void l1806(short v)
 	short tmp;
 
 	PROBE("L1806");
+	/* #161: this waits for the player. Never do that behind a held frame —
+	 * that is precisely what "the game freezes" looks like from the chair. */
+	port_event_tail_show();
 	l177a();
 	l2858((short)2);
 	g_press_to_continue = 1;
@@ -51311,6 +51353,8 @@ static void  l4d26(void *ev_v)
 	PROBE("L4d26");
 	if (ev == NULL || rec == NULL)
 		return;
+	/* #161: a chained event must never draw under the PREVIOUS event's hold. */
+	port_event_tail_show();
 	jt20();
 	l40b4();
 	if (ev[6]) l442e(ev);
