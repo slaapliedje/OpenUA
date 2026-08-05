@@ -689,3 +689,37 @@ def test_strg_fresh_encode_reproduces_ssi_allocation():
     assert other == 0, "%d strings neither match nor are 1 byte short" % other
     # The terminator rule is the dominant form by a wide margin.
     assert exact > total * 0.9, "only %d of %d match the rule" % (exact, total)
+
+
+def test_strg_write_allocates_the_terminator_like_ssi():
+    """Drives strg_write() ITSELF and compares its index bytes against SSI's.
+
+    The sibling test above checks the terminator RULE against SSI's data but
+    computes the rule in the test, so it cannot see the encoder regress — a
+    mutation that dropped the `+ [0]` terminator passed all 61 other tests.
+    This one fresh-encodes real strings through the encoder and requires the
+    allocation to match SSI slot for slot."""
+    def alloc(ncodes):
+        return 3 * (ncodes // 4) + (ncodes % 4)
+    compared = 0
+    for p in _require_ssi_areas(limit=40):
+        with open(p, "rb") as fh:
+            g = Geo.parse(fh.read())
+        strings = g.strg_read()
+        ssi_index = [n for n, _ in g._strg_slot]
+        fresh = Geo.blank(8, 8)                    # no provenance to preserve
+        try:
+            fresh.strg_write(strings)
+        except GeoError:
+            continue        # re-adding terminators overflows this dense area
+        got = bytes(fresh.strg[6:406])
+        for i, (n, s) in enumerate(zip(ssi_index, strings)):
+            if n in (0, 255):
+                continue
+            # only the majority form (terminator allocated) is reproducible
+            if n != alloc(len(s.encode("mac-roman", "replace")) + 1):
+                continue
+            compared += 1
+            assert got[i] == n, "%s slot %d: encoder wrote %d, SSI has %d (%r)" % (
+                os.path.basename(p), i, got[i], n, s[:40])
+    assert compared > 400, "oracle too small (%d slots)" % compared
