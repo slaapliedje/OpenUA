@@ -72,7 +72,7 @@ umbrella campaigns or polish, not blockers.
 |--:|------|---------|
 | 100 | Play-entry chain (CODE 15/19) | Front-of-game flow works (design → Hall → Load → walk; empty-boot party + faithful View done this session). Remaining = save/load completion + full CODE 15/19. |
 | 106 | DOS `.DSN` compatibility | Enhancement, late (ADR-0001 is Mac-first). |
-| 115 | Combat / encounter subsystem | Spine + CODE-16 handlers lifted; **runtime-untested**, physical damage + field-render leaves pending. |
+| 115 | Combat / encounter subsystem | Spine + CODE-16 handlers lifted; **runtime-verified** (headless, on the maintainer's Falcon, and against DOS side by side). Physical damage leaves `l14bc`/`l2b24` are lifted too. Remaining = field-render polish. |
 | 129 | 3D-view: event-bigpic frame-stomp + left-column clip | 3D view *renders* (l579e blocker resolved); down to two isolated render bugs. |
 | 132 | Band 6 (ranks 501–600) JT campaign | Partial (~69/100); demand-driven tail, not load-bearing. |
 | 137 | Char-gen icon grid (silhouettes / speed) | Renders; interactivity + draw-speed polish. |
@@ -193,7 +193,7 @@ dungeon** — the full front-of-game journey is real, faithful, and Hatari-verif
 - **Events** (`l709e`): text, picture, treasure/vault, tavern, temple,
   stat-check / set-flag / rumor / pass-time arms lifted.
 
-### Combat (🟢 spine lifted — **major recent advance**, runtime-untested)
+### Combat (✅ spine lifted AND runtime-verified)
 The combat **spine is wired top-to-bottom** and both turn-dispatch sides are
 fully lifted (this was the "🔴 not started" block in older docs — now mostly
 done):
@@ -211,12 +211,18 @@ l709e case 21 → l3b0e (encounter prompt) → l159a ("A battle begins…")
   initiative-queue enqueue). **Both carry zero stubs.**
 - **Effects engine** (CODE 18) is ~98% — the hard damage/save payloads are done.
 
-⚠️ Combat lifts are **breadth-first / not yet runtime-tested**: the spine is
-wired and the **effect handlers are now all lifted** (CODE 16 complete), so a
-*spell* round resolves with real damage/saves — but no live playthrough has
-confirmed a full round renders and resolves, and a **physical** swing still
-deals no damage (`l14bc`/`l2b24` PROBE no-ops). Treat combat as "structurally
-complete, runtime-pending; spell effects land, weapon damage is the next gap."
+✅ **Combat is runtime-verified** (this paragraph carried a "not yet
+runtime-tested / physical swings deal no damage" warning long after both ceased
+to be true — `l14bc` and `l2b24` are full lifts, not PROBE no-ops). It has been
+driven three ways: headlessly via `FRUA_CBTPLAY` (#74 auto-turn resolves a
+fight with no keys), live by the maintainer on a Falcon 030@50, and **against
+SSI's DOS 1.2 side by side** on the HEIRS rider/ogre encounter (2026-08-05).
+
+That DOS comparison also settled a suspected render bug as **faithful**: the
+viewport does not pan to an off-window monster taking its turn — you get the
+footstep sound and no picture, because `l076e` gates the visual half of the turn
+on `-22626` while `jt52(11)` sits outside every guard. Full measurement and the
+asm in `docs/combat-audit.md`. Remaining here is field-render polish.
 
 ---
 
@@ -291,7 +297,8 @@ Nothing here is known broken; nobody has driven it. Each is a drive, not a lift.
 | **Mono's six chrome families** | ALWAYS/FRAME/GEN/MENU/TITLE/TOPVIEW — lifts the Mac-only caveat (see `docs/TODO.md`) |
 | **Present-cost narrowing** | glyph (2 557) + fill (1 653) touch-all announcements dominate; 135 of 200 rows are presented per present on the TT. Palette and cursor are already at ZERO |
 | **Play-loop planar measurement** | the "~47% of rows convert" figure is a BOOT number; post-menu screens converted zero |
-| **Save-file shape vs DOS** | DOS writes 10 285 bytes into `<design>.DSN\SAVE\` plus a per-slot `VAULT<X>.DAT`; the port writes 10 284 beside the binary. Deliberately left alone — moving the path would strand existing saves. The maintainer's call |
+| **Save-file shape vs DOS: ONE BYTE** | The path, the vault and the characters all match now (`<design>.DSN\SAVE\SAVGAM<c>.CSV` + `VAULT<c>.DAT` + `<NAME>.CCH`, 2026-08-03; existing installs migrate on first boot). What is left is that DOS writes **10 285** bytes to our 10 284, never chased. It obstructs nothing **in either direction**: a DOS slot loads in the port, and DOS loads a port slot — driven live 2026-08-05, picker pre-selected the slot and all six characters came back with the right AC/HP |
+| **`jt584` not wired to the Hall** | Lifted, including the Mac's "Update %s?" collision prompt, but `save_roster` writes the whole pool instead — so a saved-character name collision resolves *silently by slot* where the original asks |
 | **Smooth-scroll + move sound** | cosmetic, deferred |
 
 ### D. Authoring vs the in-game editor — not the same thing
