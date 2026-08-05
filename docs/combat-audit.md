@@ -75,3 +75,57 @@ projectiles (jt501/jt502), the effect pipeline (jt599 + 160 handlers), AI
 four twin fixes above were the last silent no-ops in the hot path; what
 remains is five small leaves (table 2), the audio mixer, and the UNKNOWN
 sweep.
+
+## Off-screen monster movement is FAITHFUL — do not "fix" it
+
+Reported as a possible bug (2026-08-05): during combat you hear the monsters'
+footstep sounds while the viewport stays on the party and never pans to whoever
+is moving. **That is the original's behaviour, on both the Mac and DOS
+releases.** Verified twice over, and the code is a one-for-one lift.
+
+One flag, `-22626`, gates the whole *visual* half of an actor's turn. It is set
+at the top of `l076e` (CODE 13+0x76e, "execute one actor's combat turn"):
+
+```
+07d8:  moveb %a0@(95),%d0     ; the combat-side byte
+       tstw  %d0
+       beqs  L07fa            ; side == 0 (party side) -> flag = 1, always
+       jsr   JT[516]          ; l6554(actor, 0) — any part of it in the window?
+       tstb  %d0
+       bnes  L07fa            ; already visible -> flag = 1
+       moveq #0,%d0           ; off-window monster -> flag = 0
+L07fa: moveq #1,%d0
+L07fc: moveb %d0,%a5@(-22626)
+```
+
+With the flag clear, the move commit `jt551` skips both `jt521`
+scroll-and-repaint calls and the `l635e` trail repaint — but `jt52(11)`, the
+step sound, sits **outside every guard**. Hence sound with no picture. Two
+things re-arm it, both in `l56d8`'s resolution (L5a6c): the `-22628` hit flag
+(it connected with someone) or `l6554` going true (it walked into the window).
+Party-side actors short-circuit to 1 before the window test even runs.
+
+### The DOS confirmation (HEIRS rider/ogre encounter)
+
+Driven headless with `tools/dosdrive.sh` against SSI's DOS 1.2. Handy trick:
+**our port's slot save loads directly in DOS**, so copying
+`gamedata/HEIRS.DSN/SAVE/SAVGAM<c>.CSV` (+ `VAULT<c>.DAT`) into
+`dos-run/HEIRS.DSN/SAVE/` puts DOS at the exact same spot as the Atari build —
+no replaying to the encounter. DOS pre-selected the slot and listed all six
+characters.
+
+`AIM` -> `NEXT` scrolls the view unconditionally, which is how you prove the
+horde starts off-window: it jumped clean off the party to minotaurs and ogres
+at **RANGE = 14**. Then, tagging every captured frame by the active actor's
+name colour (green = monster, `(0,170,0)` — *not* >170, an off-by-one that made
+the first pass read `?` for every frame) against the % of the field viewport
+that changed:
+
+| | party-side actor | monster |
+|---|---|---|
+| off-window, approaching | 34–38% = full recentre, every time | **0.0%** — 36 consecutive frames (~15 s) with a HILL GIANT acting and not one pixel drawn |
+| in contact | 43–47% recentre | 36–43% recentre (hit flag / on-window) |
+
+The horde crossed all 14 cells and simply *arrived* in frame; the view never
+followed it in. Once engaged, monster turns recentre exactly like party turns.
+So both arms of the rule reproduce in DOS, and our port matches.
