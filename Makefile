@@ -736,7 +736,7 @@ clean:
 	$(RM) $(OBJ) $(DEP) $(TARGET) $(DATAPOOL_FILES) $(A4MAP_C)
 	find src compat platform third_party -name '*.o' -delete 2>/dev/null || true
 	find src compat platform third_party -name '*.d' -delete 2>/dev/null || true
-	$(RM) frua frua.prg uainst.prg uainst.ttp uainst_amiga uainst.info
+	$(RM) frua frua.prg uainst.prg uainst.ttp uainst_amiga uainst.info frua.info
 
 # clean does NOT remove dist/ — release-all cleans objects between platforms and
 # must keep the earlier binaries' packaged output. `distclean` wipes dist too.
@@ -796,7 +796,7 @@ instdisk_amiga: installer/instdisk.c
 	$(AMIGA_CROSS)gcc -m68000 -msoft-float -noixemul -std=gnu99 -O2 \
 	    -fomit-frame-pointer -s -o $@ $<
 
-installer-amiga: uainst_amiga uainst.info
+installer-amiga: uainst_amiga uainst.info frua.info
 uainst_amiga: installer/main.c installer/asl_amiga.c installer/miniz.c src/convert/artconv.c src/convert/artconv.h
 	$(AMIGA_CROSS)gcc -m68000 -msoft-float -noixemul -std=gnu99 -O2 \
 	    -fomit-frame-pointer -s \
@@ -813,6 +813,14 @@ uainst_amiga: installer/main.c installer/asl_amiga.c installer/miniz.c src/conve
 uainst.info: tools/make_amiga_icon.py
 	python3 tools/make_amiga_icon.py --type tool --stack 200000 \
 	    --tooltype 'STACK=200000' --x 12 --y 8 -o $@
+
+# Workbench icon for the ENGINE, so an Amiga hard-drive install is usable from
+# Workbench and not just the Shell. Verified rendering + opening on a real
+# WB3.2 under amiberry (the drawer icon needs DrawerData; see
+# tools/make_amiga_icon.py).
+frua.info: tools/make_amiga_icon.py tools/ua_icon.glyph
+	python3 tools/make_amiga_icon.py --type tool --stack 200000 \
+	    --tooltype 'STACK=200000' --glyph tools/ua_icon.glyph -o $@
 
 # --- release ----------------------------------------------------------------
 #
@@ -869,7 +877,8 @@ define PKG_DIST
 		cp uainst.ttp dist/$(1)/UAINST.TTP;; \
 	*amiga*) \
 		cp uainst_amiga dist/$(1)/uainst; \
-		cp uainst.info dist/$(1)/uainst.info;; \
+		cp uainst.info dist/$(1)/uainst.info; \
+		cp frua.info dist/$(1)/frua.info;; \
 	esac
 	@case "$(1)" in \
 	*amiga*) \

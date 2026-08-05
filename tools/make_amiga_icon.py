@@ -104,6 +104,40 @@ def pack_string(s):
     return struct.pack(">I", len(b)) + b
 
 
+def drawer_data(left=60, top=40, width=380, height=160):
+    """The 56-byte DrawerData that a DRAWER or DISK icon must carry.
+
+    ★ A drawer icon with a NULL do_DrawerData is BROKEN — Workbench has nowhere
+    to keep the drawer window's geometry, and a folder whose .info is malformed
+    (or missing) does not appear in Workbench at all. Decoded field-for-field
+    against WB3.2's own Storage.info / Devs.info, which are 628-byte drawer
+    icons: do_Type 2, do_DrawerData non-zero, then this block immediately after
+    the 78-byte DiskObject. The values below are constructed here rather than
+    lifted from Commodore's file, same rule as the glyph.
+
+    struct DrawerData = struct NewWindow (48 bytes) + dd_CurrentX + dd_CurrentY.
+    DetailPen/BlockPen are 0xFF (= -1, "use the screen default"), which is what
+    the stock icons carry."""
+    nw = struct.pack(
+        ">hhhh BB I I I I I I I hh HH H",
+        left, top, width, height,   # window rect on the Workbench screen
+        0xFF, 0xFF,                 # DetailPen, BlockPen = default
+        0,                          # IDCMPFlags  (Workbench fills these in)
+        0x0000_120F,                # Flags: SIZEGADGET|DRAGBAR|DEPTHGADGET|
+                                    #        CLOSEGADGET|SIZEBRIGHT|ACTIVATE
+        0,                          # FirstGadget
+        0,                          # CheckMark
+        0,                          # Title
+        0,                          # Screen
+        0,                          # BitMap
+        90, 40,                     # MinWidth, MinHeight
+        0xFFFF, 0xFFFF,             # MaxWidth, MaxHeight (clamp to screen)
+        1,                          # Type = WBENCHSCREEN
+    )
+    assert len(nw) == 48, len(nw)
+    return nw + struct.pack(">ii", 0, 0)        # dd_CurrentX, dd_CurrentY
+
+
 def build_icon(icon_type=WB_TOOL, stack=200000, tooltypes=None,
                default_tool="", glyph=None, curr_x=None, curr_y=None):
     """curr_x/curr_y pin the icon at a fixed drawer position (do_CurrentX/Y).
@@ -140,10 +174,15 @@ def build_icon(icon_type=WB_TOOL, stack=200000, tooltypes=None,
     out += struct.pack(">I", 1 if default_tool else 0)  # do_DefaultTool
     out += struct.pack(">I", 1 if tooltypes else 0)     # do_ToolTypes
     out += struct.pack(">II", cx, cy)                    # do_CurrentX / do_CurrentY
-    out += struct.pack(">I", 0)                         # do_DrawerData
+    # Drawers and disks carry a DrawerData block; tools and projects must not.
+    needs_dd = icon_type in (WB_DRAWER, WB_DISK)
+    out += struct.pack(">I", 1 if needs_dd else 0)      # do_DrawerData
     out += struct.pack(">I", 0)                         # do_ToolWindow
     out += struct.pack(">I", stack)                     # do_StackSize
 
+    if needs_dd:
+        out += drawer_data()                            # immediately after the
+                                                        # DiskObject, before the image
     out += img                                          # ga_GadgetRender image
     if default_tool:
         out += pack_string(default_tool)
