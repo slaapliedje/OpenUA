@@ -703,8 +703,11 @@ class Geo:
             if not b:
                 index[i] = 0
                 continue
-            # SSI packs the string PLUS a NUL terminator (1218 of 1270 real
-            # strings); the terminator is what the reader stops on.
+            # SSI packs the string PLUS a NUL terminator. The ENGINE'S OWN
+            # allocator says so: l4e8a takes `len = jt423(text) + 1` and
+            # allocates `size = (len * 3 + 3) / 4`, i.e. ceil(3*(strlen+1)/4) —
+            # exactly this packing of strlen+1 codes. (Corroborated by the data:
+            # 1218 of HEIRS' 1270 used strings carry it.)
             packed = _pack6([_char_to_code6(c) for c in b] + [0])
             if len(packed) > 254:      # index byte is 1 byte; 255 = unused marker
                 raise GeoError("string %d too long (%d packed bytes > 254)"
@@ -719,8 +722,15 @@ class Geo:
             for i in range(len(strings), STRG_MAX_STR):
                 if keep[i][0] == 255:
                     index[i] = 255
-        # Header word 2 is the used body length — the port wrote 0 here, which
-        # is the one field every real area disagreed with (26 of 26 in HEIRS).
+        # ★ Header word 2 is the pool's USED-REGION LENGTH, and the engine both
+        # reads and updates it — writing 0 was a FUNCTIONAL bug, not cosmetic.
+        # l4e8a (add a string) capacity-checks `size + hdr[2] > hdr[0]`, opens
+        # the gap with `jt406(data+slot+size, data+slot, hdr[2] - slot)`, then
+        # does `hdr[2] += size`; l501e (delete) closes it with
+        # `hdr[2] - (off+size)` and does `hdr[2] -= size`. With hdr[2] == 0 and
+        # any slot past the first, BOTH move lengths go negative — so adding or
+        # deleting a string in the in-game editor, on a module we generated,
+        # would move the wrong span over the packed data.
         used = sum(n for n in index if n != 255)
         header = struct.pack("<HHH", STRG_BODY_CAP, 0xffff, used)  # LE on disk
         pad = STRG_SIZE - (len(header) + STRG_MAX_STR + len(body))

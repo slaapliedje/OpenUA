@@ -70,17 +70,36 @@ list of what the real machine found — and what it is still owed — is
      Hall — the port's `save_roster` writes the whole pool instead, and
      resolves a name collision silently by slot rather than by asking.
 
-0. **`geo.py`'s STRG encoder is not byte-faithful to SSI** (found 2026-08-02).
-   Re-encoding a decoded SSI string table gives **6 628 of 7 168 bytes
-   different**: every 6-bit character code comes out exactly ONE LESS than
-   SSI's, and the third header word is written 0 where SSI has 0x137e. The
-   engine still READS what we write — an authored message displays correctly —
-   so this is a fidelity gap, not a functional break. It matters because the
-   only existing check is `strg_write(strg_read(x)) == x`, which is CIRCULAR:
-   encoder and decoder share the bias and agree with each other. **The
-   non-circular oracle is free and sitting in `data/`:** re-encode every SSI
-   area and require byte equality. Until then, anything that edits an existing
-   area's strings rewrites the whole table into a dialect.
+0. ~~**`geo.py`'s STRG encoder is not byte-faithful to SSI**~~ **CLOSED
+   2026-08-05.** 635 of 635 real SSI-authored areas now re-encode byte-for-byte.
+   Three things this entry got wrong are worth keeping, because each one aimed
+   the work at the wrong place:
+   - **"Every 6-bit character code comes out exactly ONE LESS than SSI's" was
+     FALSE.** Re-packing all 1 270 used strings in HEIRS reproduces SSI's bytes
+     exactly — the alphabet and the 4-codes-per-3-bytes packing were always
+     right. The body bytes were never the problem; the LENGTH INDEX was. Read
+     the actual diff before naming a cause.
+   - **"A fidelity gap, not a functional break" was FALSE.** The third header
+     word is the string pool's USED-REGION LENGTH: `l4e8a` (add) opens its gap
+     with `jt406(data+slot+size, data+slot, hdr[2] - slot)` and `l501e`
+     (delete) closes it with `hdr[2] - (off+size)`. Writing 0 there makes both
+     move lengths NEGATIVE, so adding or deleting a string in the in-game
+     editor on a module we generated would move the wrong span over the packed
+     data. Every module `mk_*_design.py` ever wrote had 0 in that field.
+   - **The proposed oracle — "re-encode every SSI area and require byte
+     equality" — is UNSATISFIABLE by any pure encoder.** SSI's allocation is
+     editing history, not a function of the string: GEO005 slot 4 and slot 67
+     are both 38 characters and carry 29 and 30 bytes, in the same file. The
+     body tail is likewise deleted-string residue (1 740 nonzero bytes in
+     GEO001). Fidelity comes from PRESERVING provenance — `strg_read()` records
+     each slot's bytes and the tail, `strg_write()` reuses them for anything it
+     did not change — so editing one string perturbs that string and the
+     offsets after it, not all 400 slots.
+   The other real fix: SSI packs each string PLUS a NUL terminator, which the
+   engine's own allocator confirms (`len = jt423(text) + 1`,
+   `size = (len*3+3)/4`). Six tests over real areas plus two data-free ones;
+   all five mutations caught, and a regenerated KOBOLD.DSN was booted in Hatari
+   to confirm the engine still reads what we write.
 
 
 

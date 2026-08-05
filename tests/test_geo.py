@@ -723,3 +723,56 @@ def test_strg_write_allocates_the_terminator_like_ssi():
             assert got[i] == n, "%s slot %d: encoder wrote %d, SSI has %d (%r)" % (
                 os.path.basename(p), i, got[i], n, s[:40])
     assert compared > 400, "oracle too small (%d slots)" % compared
+
+
+def test_strg_allocation_matches_the_engine_allocator():
+    """Our packed length must equal what the ENGINE'S allocator reserves.
+
+    l4e8a (src/engine/boot.c, the string-pool add) computes
+        len  = jt423(text) + 1          # strlen PLUS the NUL terminator
+        size = (len * 3 + 3) / 4        # ceil(3*len/4)
+    and that `size` is what goes in the length-index byte. This pins our encoder
+    to the engine's arithmetic independently of any sampled data, so it holds
+    even where data/ is absent — and it is the reason the terminator is not
+    optional: drop it and every allocation is short by the engine's reckoning."""
+    import geo as _geo
+    for strlen in range(0, 300):
+        engine_size = ((strlen + 1) * 3 + 3) // 4        # l4e8a, integer div
+        ours = len(_geo._pack6([_geo._char_to_code6(ord("A"))] * strlen + [0]))
+        assert ours == engine_size, "strlen %d: ours %d, engine %d" % (
+            strlen, ours, engine_size)
+
+
+def test_strg_header_used_word_tracks_the_body():
+    """Header word 2 must equal the used body length (the engine's hdr[2]); it
+    is the memmove extent in l4e8a/l501e, so a wrong value corrupts the pool."""
+    g = Geo.blank(4, 4)
+    g.strg_write(["", "HELLO THERE", "SECOND STRING", "", "THIRD"])
+    index = bytes(g.strg[6:406])
+    used = struct.unpack_from("<H", g.strg, 4)[0]
+    assert used == sum(n for n in index if n != 255)
+    assert used > 0
+    # and it stays correct after an edit that changes a length
+    s = g.strg_read()
+    s[1] = "A MUCH LONGER REPLACEMENT STRING THAN BEFORE"
+    g.strg_write(s)
+    index = bytes(g.strg[6:406])
+    assert struct.unpack_from("<H", g.strg, 4)[0] == sum(n for n in index
+                                                         if n != 255)
+
+
+def test_strg_write_allocation_matches_engine_formula_without_data():
+    """The CI-visible guard on the terminator.
+
+    test_strg_write_allocates_the_terminator_like_ssi drives the encoder but
+    needs real areas, so it SKIPS in CI; test_strg_allocation_matches_the_engine
+    _allocator is data-free but hardcodes the terminator in the test itself. A
+    dropped terminator therefore survived CI. This closes it: drive strg_write()
+    and require its index byte to equal l4e8a's `size = ((strlen+1)*3+3)/4`."""
+    for strlen in (1, 2, 3, 4, 5, 7, 11, 23, 40, 41, 42, 43, 75, 100, 137):
+        g = Geo.blank(4, 4)
+        g.strg_write(["", "A" * strlen])
+        want = ((strlen + 1) * 3 + 3) // 4
+        assert g.strg[6 + 1] == want, "strlen %d: index %d, engine wants %d" % (
+            strlen, g.strg[6 + 1], want)
+        assert g.strg_read()[1] == "A" * strlen
