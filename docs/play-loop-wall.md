@@ -1223,3 +1223,43 @@ different function than its acquire is only as safe as the narrowest path
 between them, and the cost of getting it wrong is not a flicker — it is a
 frozen game. Prefer arming it in the one context you can prove reaches the
 release, and add a backstop at every point that draws or blocks.
+
+### #161 follow-up 2 — a chained COMBAT froze too (2026-08-05)
+
+Third shape of the same bug, reported from real hardware: the rider-and-ogres
+encounter on the southern edge of HEIRS. "After the soldier talks to the party,
+and hitting enter through the dialogs, a combat should start, and it sounds like
+it does, but it keeps the bigpic of the rider on the screen (clicking on areas
+by the menu bar then kicks off sounds as if turns are being taken in the
+background)."
+
+The step-context gate from the previous round is right as far as it goes, and
+the backstops in `l4d26` (a chained TEXT event) and `l1806` (the Return prompt)
+were not enough: a step-triggered text event that **chains into combat** goes
+through neither. `jt511`'s combat loop runs, draws its field, plays its turn
+sounds — and every present is swallowed, because the hold `l4d26`'s tail took is
+still outstanding and only the walk loop's step render drops it, which cannot
+run until combat returns.
+
+Reproduced with a purpose-built fixture rather than by navigating HEIRS: a
+message event with `chain` pointing at a combat event on the same cell. Five
+Returns, and the frame never changed — identical hashes throughout. The
+`-DFRUA_NOEVHOLD` control on the identical drive reaches the combat field, and
+the fixed build now produces that field **byte-identical (AE = 0)** to it.
+
+**The fix changes the shape of the guarantee.** Twice I believed I had
+enumerated the exits and was wrong, so correctness no longer depends on the
+enumeration being complete: the hold is bounded in TIME. It records the tick it
+was taken on, and `port_event_tail_expire()` — called from `jt1134` (the tick)
+and `l604e` (the event pump), which between them are reached by every
+interactive loop in the engine — drops any hold older than 30 ticks and shows
+the frame.
+
+The exact releases stay, because they keep the common case flicker-free. What
+the bound adds is that missing one now costs **a blink**, not a frozen game: the
+worst outcome available is the pre-#161 flash, which is where this started.
+
+If a fourth shape of this ever appears, delete the hold. The typewriter fix
+(`6543b358`, the per-glyph present) is independent and is what actually fixed
+the reported text problem; the hold only removes the end-of-event flash, and
+that is not worth a third regression.

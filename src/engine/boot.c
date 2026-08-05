@@ -12206,7 +12206,9 @@ static short g_event_modal_shown = 0;
  * one anywhere else. Both live next to the flag above because they answer the
  * same question — what has to be repainted after an event. See l63c0. */
 static short g_event_step_ctx;
+static long  g_event_tail_tick;
 static void  port_event_tail_show(void);
+static void  port_event_tail_expire(void);
 
 /* Backdrop (BACK.CTL) — the floor/ceiling/sky drawn behind the walls.
  * 20 backdrops, each an 88x88 8bpp image whose indices live at clut
@@ -17655,8 +17657,42 @@ static void port_event_tail_hold(void)
 		return;             /* not a walk step: nobody would release it */
 	if (!g_event_tail_hold) {
 		g_event_tail_hold = 1;
+		g_event_tail_tick = TickCount();
 		qd_present_hold(1);
 	}
+}
+
+/* ★ AND IT CANNOT OUTLIVE HALF A SECOND, whatever path it is on.
+ *
+ * This is the third shape of the same bug. Gating the hold on the walk step
+ * (6106cf5d) fixed the area-ENTRY chain, and the backstops in l4d26 and l1806
+ * covered a chained TEXT event and the Return prompt — but a step-triggered
+ * text event that CHAINS INTO COMBAT goes through none of them: jt511's combat
+ * loop runs, draws its field, plays its turn sounds, and every present is
+ * swallowed because the hold from l4d26's tail is still outstanding. Reported
+ * from real hardware as the rider-and-ogres encounter on the southern edge of
+ * HEIRS: "it keeps the bigpic of the rider on the screen ... clicking by the
+ * menu bar then kicks off sounds as if turns are being taken in the
+ * background."
+ *
+ * Twice now I have believed I had enumerated the exits and been wrong, which is
+ * evidence that enumeration is the wrong shape for this. So the hold is bounded
+ * in TIME as well: any interactive loop reaching the tick or the event pump
+ * drops a hold older than the limit and shows the frame. Enumeration then only
+ * has to be good enough to keep the common case exact; correctness no longer
+ * depends on it being complete.
+ *
+ * The limit is generous next to the window it protects (a wipe and a repair
+ * inside one step render) and short enough that a missed release costs a blink
+ * rather than a frozen game. A slow machine that exceeds it simply gets the
+ * pre-#161 flash back — the cosmetic outcome, never the frozen one. */
+#define EVENT_TAIL_HOLD_TICKS 30        /* 0.5s at 60Hz */
+
+static void port_event_tail_expire(void)
+{
+	if (g_event_tail_hold
+	    && (long)(TickCount() - g_event_tail_tick) > EVENT_TAIL_HOLD_TICKS)
+		port_event_tail_show();
 }
 
 /* Returns 1 if a hold was actually dropped. Releasing DISCARDS the held
@@ -25430,6 +25466,7 @@ static long jt1134(void)
 	long elapsed;
 
 	PROBE("jt1134");
+	port_event_tail_expire();       /* #161: never let a hold outlive the tick */
 #ifdef FRUA_KBTRACE
 	{ extern long g_kbt_1134; g_kbt_1134++; }
 #endif
@@ -27354,6 +27391,7 @@ static void l604e(void)
 {
 	long a = 0, b = 0;
 	PROBE("L604e");
+	port_event_tail_expire();       /* #161: ...nor the event pump */
 	if (jt1118())
 		(void)l5f84();
 	(void)jt1125((short)7, (long)&b, (long)&a);
