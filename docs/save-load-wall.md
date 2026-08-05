@@ -662,3 +662,33 @@ DAMAGE 1D8+4, ENCUMBRANCE 880** (the encumbrance proves the whole rec+8 chain is
 walked, not just the equipped pair); zero faults in engine address space. The six
 .cch files are 480–526 bytes — *different sizes per character*, where the raw dump
 was always exactly 512.
+
+## "Load Saved Game does nothing" with an empty SAVE folder is FAITHFUL
+
+Asked 2026-08-05, and settled two ways.
+
+**The Mac's own asm returns silently.** `jt582` builds a present-slots bitmap by
+enumerating the design's SAVE folder, compacts it into an index, and then:
+
+    if (idx[0]==0xFF) return;      ; nothing to load
+
+No alert, no message, straight back to the Training Hall — which is what this
+port does.
+
+**DOS 1.2 agrees, observed.** Driven headlessly with no `SAVGAM*.CSV` in
+`HEIRS.DSN\SAVE\`: pressing `L` at the Hall produces a screenshot
+**byte-identical** to the one before the keypress. (This is also what once made
+me conclude the DOS `L` key was dead and switch to mouse driving — see the
+header of `tools/dosdrive.sh`. A silent control is not a dead control.)
+
+★ **Do not "fix" this into a notice.** SSI clearly knew how: the CHARACTER
+roster builder `jt589` DOES post "No characters to load." / "...to delete."
+through `jt42` when its list comes back empty. The save-game picker has no such
+call. The asymmetry is theirs, and adding one here would be a divergence.
+
+**And the case is reachable on a fresh install** — designs do NOT ship a save.
+Neither the DOS install disks nor an installed `HEIRS.DSN` contain any
+`SAVGAM*.CSV` or `VAULT*.DAT`; the pair sitting in this repo's staged
+`data/work/gamedata/HEIRS.DSN/` is an artefact of our own July DOS session, not
+something SSI shipped. So every design starts in this state until the player
+saves once.
