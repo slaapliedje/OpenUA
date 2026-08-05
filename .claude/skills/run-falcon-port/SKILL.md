@@ -498,6 +498,23 @@ brought up Xvfb, e.g. `DISPLAY=:99 make test-slow`.
 - Boot speed varies with host load (~12s here at `--fast-forward`); the
   "Your system is too slow … sound samples" warning is cosmetic.
 
+- **`tools/hatari_ui.sh` does NOT bootstrap an Xvfb — `driver.sh` does.** Call
+  the inner script directly under `env -u DISPLAY` and SDL fails with
+  *"could not initialize the SDL library: x11 not available"*, which reads like
+  a broken X install on a machine where X is all there is. It means DISPLAY is
+  unset. `start` now says so outright instead of letting SDL guess.
+- **Writing to Hatari's `--cmd-fifo` blocks until Hatari opens it for reading.**
+  Every writer goes through `fifo_send`, which refuses when the emulator is not
+  running and bounds the write with `timeout` regardless. Do not go back to
+  `echo > "$STATE/cmd.fifo"`: `2>/dev/null || true` does not protect you,
+  because the block is in `open(2)` and there is no error to ignore. Two shells
+  were found still alive after **7 days** and **4 days** holding that pipe open
+  — one on `dbg`, one on `quit` — burning no CPU and reporting nothing.
+- **`quit` needs `--confirm-quit off`** or Hatari waits on a dialog and the
+  30-second graceful window expires into a force-kill (harmless for a
+  screenshot run, fatal for an `--avirecord` AVI, which is the only reason
+  `quit` exists). With the flag it returns in ~1s.
+
 ## Troubleshooting
 
 | Symptom | Fix |

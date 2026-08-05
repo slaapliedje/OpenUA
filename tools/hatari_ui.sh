@@ -159,6 +159,40 @@ fi
 
 die() { echo "hatari_ui: $*" >&2; exit 1; }
 
+# Send one command line to Hatari's --cmd-fifo. Never blocks.
+#
+# ★ A WRITE TO A FIFO BLOCKS UNTIL SOMETHING OPENS IT FOR READING. If Hatari
+# has died — or never started, which is what happens when this script is called
+# directly without a DISPLAY — then `echo > cmd.fifo` waits FOREVER, and
+# `2>/dev/null || true` does NOT save you: the block is in open(2), so there is
+# no error and no exit status to ignore.
+#
+# That is not theoretical. Two shells were found still alive after **7 days**
+# and **4 days** respectively, each holding this pipe open and burning no CPU,
+# long after the session that started them had ended: one on `dbg`, one on
+# `quit`. A harness command that can hang forever will eventually hang forever.
+#
+# So: refuse when the emulator is not running, and bound the write anyway.
+# Returns non-zero instead of hanging; callers decide whether that is fatal.
+fifo_send() {
+	local line="$1" secs="${2:-5}"
+
+	if [[ ! -p "$STATE/cmd.fifo" ]]; then
+		echo "hatari_ui: no cmd.fifo — dropping '$line'" >&2
+		return 1
+	fi
+	if ! pgrep -x hatari >/dev/null; then
+		echo "hatari_ui: hatari is not running — dropping '$line'" >&2
+		return 1
+	fi
+	if ! FIFO_LINE="$line" FIFO_PATH="$STATE/cmd.fifo" \
+	     timeout "$secs" sh -c 'printf "%s\n" "$FIFO_LINE" > "$FIFO_PATH"'; then
+		echo "hatari_ui: cmd.fifo write timed out after ${secs}s (no reader) — dropped '$line'" >&2
+		return 1
+	fi
+	return 0
+}
+
 find_window() {
 	# The child window with class "hatari", not the WM frame parent.
 	local wid
@@ -227,6 +261,14 @@ start)
 	: > "$GEMDOS_DIR/DBG.LOG" 2>/dev/null || true
 	rm -f "$STATE/cmd.fifo"      # Hatari creates the fifo itself
 	[[ -x "$HATARI_BIN" || "$(command -v "$HATARI_BIN")" ]] || die "hatari binary not found: $HATARI_BIN"
+	# ★ CHECK THE DISPLAY, or SDL reports it as "could not initialize the SDL
+	# library: x11 not available" — which reads like a broken X install on a
+	# machine where X is the only thing there is. It really means DISPLAY is
+	# unset or unreachable. This script does NOT bootstrap an Xvfb; that is
+	# driver.sh's job, so calling this one directly under `env -u DISPLAY` gets
+	# exactly that message. Fail with the actual cause instead.
+	[[ -n "${DISPLAY:-}" ]] || die "DISPLAY is unset — this script needs one (use .claude/skills/run-falcon-port/driver.sh, which starts an Xvfb)"
+	timeout 5 xdpyinfo >/dev/null 2>&1 || die "DISPLAY=$DISPLAY is not reachable (use driver.sh, which starts and health-checks an Xvfb)"
 	SDL_VIDEODRIVER=x11 "$HATARI_BIN" \
 		--machine falcon \
 		--memsize "$FRUA_MEM" \
@@ -261,12 +303,12 @@ start)
 	fi
 	# Drop back to real speed for interaction. The explicit option
 	# form is idempotent (the fastforward shortcut TOGGLES — racy).
-	echo "hatari-option --fast-forward no" > "$STATE/cmd.fifo" || true
+	fifo_send "hatari-option --fast-forward no" || true
 	# In debug mode (HATARI_BIN=hrdb), auto-load the running program's symbol
 	# table so `dbg` can reference engine names (_l309c, _g_lc_x0,
 	# _g_a5_below, ...). Stock Hatari 2.4.1+ supports `symbols prg`.
 	if [[ -n "$FRUA_DBG" ]]; then
-		echo "hatari-debug symbols prg" > "$STATE/cmd.fifo" || true
+		fifo_send "hatari-debug symbols prg" || true
 	fi
 	find_window > /dev/null
 	echo "hatari_ui: ready ($HATARI_BIN), window $(cat "$STATE/wid" 2>/dev/null)"
@@ -409,7 +451,7 @@ dbg)
 	[[ $# -ge 1 ]] || die "dbg needs a debugger command (e.g. 'm _g_lc_x0')"
 	[[ -e "$STATE/cmd.fifo" ]] || die "no cmd.fifo — run 'start' with HATARI_BIN=hrdb first"
 	dbg_before=$(wc -l < "$LOG" 2>/dev/null || echo 0)
-	echo "hatari-debug $*" > "$STATE/cmd.fifo"
+	fifo_send "hatari-debug $*" || die "could not reach the debugger"
 	sleep 0.6
 	tail -n "+$((dbg_before + 1))" "$LOG" 2>/dev/null
 	;;
@@ -482,12 +524,12 @@ dump)
 	out="${1:-$STATE/dump.png}"
 	[[ -p "$STATE/cmd.fifo" ]] || die "no cmd.fifo — run 'start' first"
 	before="$(ls -t "$STATE/shots"/*.png 2>/dev/null | head -1)"
-	echo "hatari-shortcut screenshot" > "$STATE/cmd.fifo"
+	fifo_send "hatari-shortcut screenshot" || die "could not reach hatari"
 	for i in $(seq 1 25); do
 		newest="$(ls -t "$STATE/shots"/*.png 2>/dev/null | head -1)"
 		[[ -n "$newest" && "$newest" != "$before" ]] && break
 		# re-send once if the first request was dropped (boot-time FIFO race)
-		[[ "$i" == 8 ]] && echo "hatari-shortcut screenshot" > "$STATE/cmd.fifo"
+		[[ "$i" == 8 ]] && { fifo_send "hatari-shortcut screenshot" || true; }
 		sleep 0.2
 	done
 	[[ -n "${newest:-}" && "$newest" != "$before" ]] || die "no new screenshot appeared"
@@ -508,7 +550,7 @@ quit)
 	# this whenever a recording is open. Needs --confirm-quit off (the sound
 	# capture in driver.sh passes it), else Hatari waits on a dialog.
 	if [[ -p "$STATE/cmd.fifo" ]]; then
-		echo "hatari-shortcut quit" > "$STATE/cmd.fifo" 2>/dev/null || true
+		fifo_send "hatari-shortcut quit" || true
 	fi
 	for _ in $(seq 1 30); do
 		pgrep -x hatari >/dev/null || break
