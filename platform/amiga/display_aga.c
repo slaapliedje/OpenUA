@@ -23,8 +23,9 @@
  * Status: VERIFIED on amiberry (boots to the main menu, 7108aa1). Known
  * bring-up simplifications, all flagged inline: pointer/palette patches are
  * not VBL-synchronised (a one-frame glitch under heavy churn, never a tear
- * lock), and the display is NTSC-timed 200 lines inside a PAL-tolerant
- * window.
+ * lock). The 200-line display is centred for the detected field rate: NTSC
+ * keeps the classic V=0x2C window, PAL drops it 28 lines so the picture is
+ * not jammed against the top of the frame (see cop_build).
  */
 
 #include "display.h"
@@ -53,8 +54,9 @@
 #define CUSTOM ((volatile struct Custom *)0xDFF000)
 
 /* The engine's fixed play resolution (see the screen-320x200 note): 320x200,
- * 8 bitplanes = 256 colours, lores. On PAL the 200 lines sit in a 256-line
- * frame's top; the remainder is border. */
+ * 8 bitplanes = 256 colours, lores. On PAL the 200 lines are centred inside
+ * the 256-line frame (cop_build shifts the display window down 28 lines);
+ * the remainder is border above and below. */
 #define AGA_W      320
 #define AGA_H      200
 #define AGA_DEPTH  8
@@ -211,9 +213,36 @@ static void cop_build(void)
 	/* 8 separate contiguous planes: no modulo on either field. */
 	cl = cop_move(cl, R_BPL1MOD, 0x0000);
 	cl = cop_move(cl, R_BPL2MOD, 0x0000);
-	/* Standard lores window: top-left 0x2C,0x81; 200 lines -> bottom 0xF4. */
-	cl = cop_move(cl, R_DIWSTRT, 0x2C81);
-	cl = cop_move(cl, R_DIWSTOP, 0xF4C1);
+	/* Standard lores window: top-left 0x2C,0x81; 200 lines -> bottom 0xF4.
+	 *
+	 * ★ CENTRE IT ON PAL. Those are the NTSC numbers: 200 lines from V=44
+	 * fills a 262-line NTSC frame, but in PAL's 312 it leaves the picture
+	 * jammed against the TOP with a fat border underneath. Reported from a
+	 * real A1200 + Icedrake as "it shifted the screen to the top of the
+	 * monitor (might be the fault of my monitor though)" — it is not the
+	 * monitor, it is us, and this file's own header called it out as a
+	 * bring-up simplification ("on PAL the 200 lines sit in a 256-line
+	 * frame's top; the remainder is border").
+	 *
+	 * A PAL display is 256 lines from V=0x2C, so centre 200 inside it:
+	 * (256-200)/2 = 28 lines down. DIWSTOP's VSTOP field is 8 bits with V8
+	 * implied as the COMPLEMENT of bit 7, so 244+28 = 272 encodes as 0x10
+	 * (bit 7 clear -> the hardware adds 256). Safe to move: the palette is
+	 * set in this prologue and the list holds no line-locked WAITs, so
+	 * nothing else is pinned to a scanline. */
+	{
+		UWORD dstrt = 0x2C81, dstop = 0xF4C1;
+
+		if (GfxBase != NULL && (GfxBase->DisplayFlags & PAL)) {
+			dstrt = 0x4881;         /* V 44 + 28 = 72  */
+			dstop = 0x10C1;         /* V 244 + 28 = 272 */
+			dbg_log("aga: PAL - display window centred (+28 lines)");
+		} else {
+			dbg_log("aga: NTSC timing - display window at 0x2C");
+		}
+		cl = cop_move(cl, R_DIWSTRT, dstrt);
+		cl = cop_move(cl, R_DIWSTOP, dstop);
+	}
 	cl = cop_move(cl, R_DDFSTRT, 0x0038);
 	cl = cop_move(cl, R_DDFSTOP, 0x00D0);
 
