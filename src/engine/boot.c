@@ -7822,7 +7822,15 @@ static void jt76(void)
 	 * the PICK lists sit in. (An earlier cut called a stub l4bf6 with the
 	 * args reversed, so the rect was degenerate and no panel drew.) */
 	PROBE("jt76");
-#ifdef FRUA_STEPTIME
+/* ★ NESTED BRACKETS INCLUDE THE INNER LOGGING. Each dbg_log_num is an
+ * Fopen + Fseek + 3x Fwrite + Fclose through GEMDOS, so an OUTER bracket that
+ * spans these inner logs measures the logger as much as the work — that is how
+ * `pdpf l67ca tk` came to read a suspiciously constant 222 ticks (40 of 43
+ * samples) while the wall clock said the whole step took less than that.
+ * So the per-piece detail is now opt-in: plain -DFRUA_STEPPROF gives CLEAN
+ * outer totals, and -DFRUA_STEPPROF_DEEP adds the breakdown (whose outer
+ * numbers are then known to be inflated and must not be quoted as absolutes). */
+#if defined(FRUA_STEPTIME) && defined(FRUA_STEPPROF_DEEP)
 #define J76_T(label, call) do { \
 		long t_ = TickCount(); \
 		call; \
@@ -8031,9 +8039,10 @@ static void l67ca(void)
 	short letter;
 
 	PROBE("l67ca");
-#ifdef FRUA_STEPTIME
-	/* #125d: l67ca is 99% of port_draw_play_frame, which is 97% of the chrome
-	 * phase, which is ~10 s of a ~16-20 s full recompose. Time each piece. */
+	/* #125d: l67ca is 99% of port_draw_play_frame. The per-piece breakdown is
+	 * opt-in (-DFRUA_STEPPROF_DEEP) because the outer brackets span it — see
+	 * the note on J76_T. */
+#if defined(FRUA_STEPTIME) && defined(FRUA_STEPPROF_DEEP)
 #define L67_T(label, call) do { \
 		long t_ = TickCount(); \
 		call; \
@@ -15389,10 +15398,22 @@ static void port_draw_play_frame(unsigned char *px, short pitch, short sw, short
 #ifdef FRUA_STEPTIME
 	{
 		extern long g_mpf_p0, g_mpf_p1, g_mpf_p2, g_mpf_p3;
+		/* ★ SAMPLE THE CLOCK BEFORE ANY LOGGING. This line used to read
+		 * `TickCount() - g_mpf_p3` down where the l67ca value is printed —
+		 * i.e. AFTER the three dbg_log_num calls above, each of which is an
+		 * Fopen + Fseek + 3x Fwrite + Fclose through GEMDOS. It was timing
+		 * the logger, not l67ca, and the giveaway was the value: 222 ticks
+		 * on 40 of 43 samples (223 on the other 3), because three
+		 * open/write/close cycles are far more deterministic than the work
+		 * they were supposed to be measuring. It also made the play loop
+		 * look several times slower than the wall clock said it was, which
+		 * is how the disagreement surfaced. Every other bracket here already
+		 * differences two pre-captured stamps; this one did not. */
+		long t_l67ca = TickCount() - g_mpf_p3;
 		dbg_log_num("    pdpf load tk  ", g_mpf_p1 - g_mpf_p0);
 		dbg_log_num("    pdpf clut tk  ", g_mpf_p2 - g_mpf_p1);
 		dbg_log_num("    pdpf memset tk", g_mpf_p3 - g_mpf_p2);
-		dbg_log_num("    pdpf l67ca tk ", TickCount() - g_mpf_p3);
+		dbg_log_num("    pdpf l67ca tk ", t_l67ca);
 	}
 #endif
 #ifdef FRUA_BWMODE
