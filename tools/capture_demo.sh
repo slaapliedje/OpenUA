@@ -89,7 +89,7 @@ capture_atari() {
 	# an artefact of the frame the game does not draw. The 020 machines have no
 	# such border, so this only affects the ST arm.
 	env -u DISPLAY \
-	  HATARI_ARGS="--machine $machine --borders no --confirm-quit off --avirecord --avi-file $RAW --avi-vcodec png --png-level 1 --fast-forward no" \
+	  HATARI_ARGS="--machine $machine ${EXTRA_HATARI:-} --borders no --confirm-quit off --avirecord --avi-file $RAW --avi-vcodec png --png-level 1 --fast-forward no" \
 	  READY_TIMEOUT=600 \
 	  "$REPO/.claude/skills/run-falcon-port/driver.sh" start
 	t1=$(date +%s)
@@ -192,6 +192,32 @@ tt)     capture_atari tt ;;
 # picks from --machine. The ST/STe build is a different binary: CPU68K=68000
 # implies -DFRUA_PLANAR, the draw-time bitplane path of ADR-0016.
 ste)    capture_atari ste CPU68K=68000 ;;
+# ★ `st` is the SAME BINARY as `ste` on a DIFFERENT MACHINE, and it is not a
+# redundant target. Every ST-side capture and screenshot this project has ever
+# taken used --machine ste (TOS 2.06); the plain ST (TOS 1.04) arm had no
+# caller. The two machines differ in ways this engine touches directly:
+#   - palette depth. STE is 4 bits/gun, ST is 3 — the ST ignores bit 3 of each
+#     nibble. st_build_hw_palette emits the STE encoding ((v0 << 3) | (v >> 1)),
+#     which is ST-SAFE BY CONSTRUCTION (the extra LSB lands in the bit the ST
+#     drops), so this is not itself a suspect — but it does mean the ST sees a
+#     coarser 512-colour quantisation of the same CLUT, and a re-band that
+#     separates two colours on an STE can collapse them on an ST.
+#   - the STE's extra hardware (line-width register, hardware scroll, DMA sound)
+#     simply is not there.
+# A Stacy is an ST, so this is the target that matches the field report.
+#
+# ★ TOS 2.06, NOT the 1.04 the harness would pick for --machine st. The engine
+# does not survive TOS 1.04: it takes a double bus error immediately after the
+# backend announces itself, at 4 MB and at 14 MB alike. That is OUR bug, proven
+# by a control — TOS 1.04 on the same emulated ST with the same GEMDOS mount and
+# no frua.prg boots to the GEM desktop with a HARD DISK icon and zero bus errors
+# (so 1.04 does support GEMDOS emulation), while the same ST hardware running
+# TOS 2.06 reaches the main menu with `ste: blitter = 0`. TOS 2.06 was a real,
+# widely fitted ST ROM upgrade, so this is a legitimate machine — but it is a
+# machine that WORKS AROUND a live bug, and this comment is here so nobody reads
+# a clean `st` capture as evidence that a stock ST is fine. It is not.
+st)     EXTRA_HATARI="--tos /usr/share/hatari/tos206us.img" \
+        capture_atari st CPU68K=68000 ;;
 aga)    capture_amiga "$HOME/Amiberry/Configurations/openua.uae" MACHINE=amiga ;;
 ecs)    EXTRA_DEFS=-DFRUA_FORCE_ECS \
         capture_amiga "$HOME/Amiberry/Configurations/openua-ecs.uae" \

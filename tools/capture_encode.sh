@@ -45,6 +45,11 @@ case "$TARGET" in
 falcon) LABEL="Atari Falcon030   16 MHz 68030   VIDEL, 8-bit chunky" ;;
 tt)     LABEL="Atari TT030   32 MHz 68030   TT-shifter, 8 bitplanes" ;;
 ste)    LABEL="Atari STe   8 MHz 68000   4 bitplanes, native planar" ;;
+# Same binary as `ste`, different machine: TOS 1.04, 3 bits/gun instead of 4,
+# and NO BLiTTER — so this is the arm that exercises the memcpy fallback in the
+# present. Labelled distinctly because a viewer comparing the two files needs to
+# know the difference is the machine, not the build.
+st)     LABEL="Atari ST   8 MHz 68000   4 bitplanes, native planar, no BLiTTER" ;;
 aga)    LABEL="Amiga 1200 AGA   14 MHz 68020   8 bitplanes, native planar" ;;
 ecs)    LABEL="Amiga ECS   7 MHz 68000   5 bitplanes, native planar" ;;
 # The reference, not a port: SSI's own MS-DOS build (FRUA 1.2, 28 June 1993)
