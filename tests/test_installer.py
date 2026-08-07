@@ -20,13 +20,24 @@ import art_convert as ac
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 SRC = [os.path.join(ROOT, "installer", "main.c"),
        os.path.join(ROOT, "installer", "miniz.c"),
-       os.path.join(ROOT, "src", "convert", "artconv.c")]
+       os.path.join(ROOT, "src", "convert", "artconv.c"),
+       # main.c dispatches CKIT.EXE to the native frua.rsc builder (ADR-0017),
+       # so the host build needs it too — and -Iinstaller for the generated
+       # strs_map_dos12.h it includes.
+       os.path.join(ROOT, "installer", "rsrc_from_dos.c")]
 
 
 @pytest.fixture(scope="module")
 def uainst(tmp_path_factory):
     exe = str(tmp_path_factory.mktemp("uainst") / "uainst")
-    subprocess.run(["cc", "-O2", "-std=gnu99", "-o", exe] + SRC, check=True)
+    # The map header is generated (like src/engine/a4_map.c); a bare pytest run
+    # must not depend on `make installer` having happened first.
+    subprocess.run([sys.executable,
+                    os.path.join(ROOT, "tools", "gen_strs_map_h.py")],
+                   check=True, capture_output=True)
+    subprocess.run(["cc", "-O2", "-std=gnu99",
+                    "-I" + os.path.join(ROOT, "installer"),
+                    "-o", exe] + SRC, check=True)
     return exe
 
 

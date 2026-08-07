@@ -733,7 +733,8 @@ test-slow:
 # into the next build (seen live: a 68020 sys_amiga.o survived a falcon-mode
 # clean and linked into a -m68000 build).
 clean:
-	$(RM) $(OBJ) $(DEP) $(TARGET) $(DATAPOOL_FILES) $(A4MAP_C)
+	$(RM) $(OBJ) $(DEP) $(TARGET) $(DATAPOOL_FILES) $(A4MAP_C) \
+	    installer/strs_map_dos12.h
 	find src compat platform third_party -name '*.o' -delete 2>/dev/null || true
 	find src compat platform third_party -name '*.d' -delete 2>/dev/null || true
 	$(RM) frua frua.prg uainst.prg uainst.ttp uainst_amiga uainst.info frua.info
@@ -767,10 +768,21 @@ distclean: clean
 # because the desktop has already left GEM by the time it runs.
 installer: uainst.prg uainst.ttp
 UAINST_SRC = installer/main.c installer/fsel_atari.c installer/miniz.c \
-	     src/convert/artconv.c
-uainst.prg: $(UAINST_SRC) src/convert/artconv.h installer/fsel_atari.c
+	     src/convert/artconv.c installer/rsrc_from_dos.c
+
+# The STRS positions map as C. Generated (like src/engine/a4_map.c) rather than
+# committed, from the JSON the release zips already ship — so a fresh clone
+# builds it and there is exactly one copy of the table in the repo. The
+# generator also imports the 37 port-authored strings straight out of
+# tools/rsrc_from_dos.py, so the native and PC builders cannot drift.
+installer/strs_map_dos12.h: installer/strs_map_dos12.json \
+			    tools/gen_strs_map_h.py tools/rsrc_from_dos.py
+	python3 tools/gen_strs_map_h.py -o $@
+
+uainst.prg: $(UAINST_SRC) src/convert/artconv.h installer/fsel_atari.c \
+	    installer/rsrc_from_dos.h installer/strs_map_dos12.h
 	$(CC) -m68000 -msoft-float -std=gnu99 -O2 -fomit-frame-pointer \
-	    -DUAINST_GUI -o $@ $(UAINST_SRC)
+	    -DUAINST_GUI -Iinstaller -o $@ $(UAINST_SRC)
 	$(STRIP) $@
 uainst.ttp: uainst.prg
 	cp $< $@
@@ -797,12 +809,12 @@ instdisk_amiga: installer/instdisk.c
 	    -fomit-frame-pointer -s -o $@ $<
 
 installer-amiga: uainst_amiga uainst.info frua.info
-uainst_amiga: installer/main.c installer/asl_amiga.c installer/miniz.c src/convert/artconv.c src/convert/artconv.h
+uainst_amiga: installer/main.c installer/asl_amiga.c installer/miniz.c src/convert/artconv.c src/convert/artconv.h installer/rsrc_from_dos.c installer/rsrc_from_dos.h installer/strs_map_dos12.h
 	$(AMIGA_CROSS)gcc -m68000 -msoft-float -noixemul -std=gnu99 -O2 \
 	    -fomit-frame-pointer -s \
-	    -DUAINST_GUI \
+	    -DUAINST_GUI -Iinstaller \
 	    -o $@ installer/main.c installer/asl_amiga.c installer/miniz.c \
-	    src/convert/artconv.c
+	    src/convert/artconv.c installer/rsrc_from_dos.c
 	# no post-link strip: m68k-amigaos-strip corrupts hunk executables
 	# (see toolchain/m68k-amigaos.mk) — '-s' above strips at link time
 

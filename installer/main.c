@@ -36,6 +36,7 @@
 #include "miniz.c"
 
 #include "../src/convert/artconv.h"
+#include "rsrc_from_dos.h"
 
 #ifdef __MINT__
 #define SEP '\\'
@@ -278,7 +279,31 @@ static int installer_main(int argc, char **argv)
 	}
 	if (zip_path[0] == 0) {
 		printf("usage: uainst <module.zip> [destination-dir]\n");
+		printf("       uainst CKIT.EXE [destination-dir]   "
+		       "(build frua.rsc from a DOS install)\n");
 		return 1;
+	}
+
+	/* ★ CKIT.EXE instead of a ZIP: build frua.rsc from the DOS release,
+	 * here, on this machine (ADR-0017). Dispatching on the extension is
+	 * deliberate — it means dragging CKIT.EXE onto UAINST.TTP just works,
+	 * exactly as dragging a module ZIP does, and the GUI picker needs no
+	 * new mode. Nothing else in the fan corpus is a .EXE, so there is no
+	 * ambiguity to resolve. */
+	if (ends_with_ci(zip_path, ".exe")) {
+		char out[MAXPATH], msg[256];
+		int rc;
+
+		path_join(out, sizeof out, dest_dir, "frua.rsc");
+		printf("Building frua.rsc from %s\n", zip_path);
+		printf("(verifying - the DOS executable is 574 KB, this takes "
+		       "a moment on a 68000)\n");
+		rc = uainst_rsrc_from_dos(zip_path, out, msg, sizeof msg);
+		printf("%s\n", msg);
+		if (rc == UAINST_RSRC_WRONGBUILD)
+			printf("Only the v1.2 CKIT.EXE (GOG/Steam, and the "
+			       "1993 retail disks) matches the string map.\n");
+		return rc == UAINST_RSRC_OK ? 0 : 1;
 	}
 
 	g_scratch = malloc(SCRATCH_CAP);

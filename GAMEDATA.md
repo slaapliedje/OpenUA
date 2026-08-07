@@ -101,6 +101,34 @@ Copy the engine binary from the release zip into that folder and you are done.
 Re-running the script later is safe — it overwrites data but deletes nothing,
 so save games and rolled characters survive.
 
+### No PC? Build `frua.rsc` on the Atari or Amiga itself
+
+`uainst` can do the `frua.rsc` step natively, so a set of DOS floppies and the
+retro machine are enough on their own. Drag **`CKIT.EXE`** onto `UAINST.TTP`
+(or `uainst CKIT.EXE .` from a Shell/CLI) and it writes `frua.rsc` beside it.
+The `.EXE` extension is what selects this mode — a `.ZIP` still installs a fan
+module, exactly as before.
+
+This works because an ST reads DOS 720K/1.44M floppies natively and CrossDOS is
+standard on Workbench 2.1+, so the original disks mount without help. It needs
+about 30 KB of free RAM: the executable is streamed for its checksum and the
+strings are read a slice at a time, never loaded whole.
+
+It refuses anything that is not the v1.2 `CKIT.EXE` (both size and SHA-256 are
+checked) rather than writing a plausible archive full of wrong strings, which
+is what a shifted offset table would otherwise produce.
+
+Two things to know about the result. It is byte-identical to what
+`rsrc_from_dos.py` produces on a PC — verified on an emulated 8 MHz ST, same
+MD5. And it is the **DOS-sourced** archive: 29 KB holding just the `STRS`
+string pool, versus ~67 KB from the Mac application, which also carries the
+`FONT` resource. Everything works either way; with the DOS one the engine draws
+its own built-in 8x8 font instead of the Mac face, so the menus look slightly
+different. That is the only visible difference.
+
+You still need the rest of the game data (the libraries and designs) copied
+from your DOS disks; only `frua.rsc` has to be *built*.
+
 Fan modules from the [fan-module archive](http://frua.rosedragon.org) —
 hundreds of community adventures, mostly authored on the PC — install with
 the native `uainst` on the machine itself, or convert on the PC with
