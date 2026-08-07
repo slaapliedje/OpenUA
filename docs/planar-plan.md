@@ -1056,6 +1056,49 @@ transitions, not by the play loop. Nobody has yet measured the walk itself with
 this instrument, because the walk is unreachable headlessly right now (see
 below).
 
+### #90 CLOSED 2026-08-06 — THE WALK IS MEASURED, ON BOTH BITPLANE TARGETS
+
+The measurement this section asked for ("nobody has yet measured the walk
+itself") is done. It needed the INSTRUMENT fixed first, which is why it stayed
+open: `pdpf l67ca tk` sampled `TickCount()` at LOG time, after three
+`dbg_log_num` calls that are each an Fopen + Fseek + 3x Fwrite + Fclose through
+GEMDOS. It was timing the logger. The tell was the value — **222 ticks on 40 of
+43 samples** — and the contradiction that exposed it was one bracket claiming
+3.7 s inside a step the wall clock timed at 2.4 s. Structurally, J76_T/L67_T log
+inline, so ANY outer bracket spanning them measures their logging too; the
+per-piece detail is now opt-in behind `-DFRUA_STEPPROF_DEEP` and plain
+`-DFRUA_STEPPROF` gives clean outer totals.
+
+Twelve walk actions on `WALKTEST.DSN`, 24 redraw samples each, ticks are 60 Hz
+on both targets (Atari `_hz_200 * 3/10`; Amiga `vbl * 6/5` on PAL). Both took
+the same `jt312 RECT path (viewport-only)`, both with a seated party.
+
+| target | render | present | total | ms/redraw | ms/action | present share |
+|---|--:|--:|--:|--:|--:|--:|
+| Atari STE 8 MHz (4 planes, 16 col) | 17 | 18 | **35** | 583 | **~1170** | 51% |
+| Amiga ECS 7 MHz (5 planes, 32 col) | 11 | 22 | **34** | 567 | **~1130** | 65% |
+
+**They are the same speed.** The expectation going in was that ECS would be
+clearly worse — slower CPU, more bitplanes — and it is not; the totals differ by
+one tick, inside the sample spread (STE 34-42, ECS 31-37). What differs is the
+SPLIT: ECS renders faster (11 vs 17) and presents slower (22 vs 18).
+
+**Present dominates on both** — 51% on the STE, 65% on ECS. That is the lever,
+not the renderer, and it is where the next work belongs. Two redraws are issued
+per walk action on both targets; halving that would be worth as much as any
+present optimisation.
+
+HYPOTHESIS, not measured: ECS renders cheaper because 32 colours needs less
+quantisation than the STE's 16 (cf. #121, `qd_nearest_color` at 26-34%). Do not
+build on it without an A/B.
+
+Two traps for the next run. The play screen ANIMATES (torch/fire), so a
+"wait for two identical frames" settle detector NEVER fires and silently
+reports its poll limit as the step time — it reported 26 s on 3 of 4 samples
+here. And fast-forward is safe for TICK measurements (the emulated timer tracks
+emulated time) but not for wall-clock ones; mixing the two is what surfaced the
+instrument bug, so it is worth keeping both instruments and comparing them.
+
 **Consequence for #63.** Reband work is boot/transition work. If boot time is
 the target it is worth attacking (deferring the quant on near-blank frames
 would remove ~25% of them); if the 8 MHz PLAY loop is the target, the evidence

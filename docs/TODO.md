@@ -139,10 +139,13 @@ list of what the real machine found — and what it is still owed — is
    is now the default on every target. The "~6% left to win" was a share of the
    original figure, not of the work the present actually still did. See
    "#160 THE TT WRITER HALF" in `docs/planar-plan.md`.
-4. **The play loop is still unmeasured** for planar conversion cost — the
-   "~47% of rows still convert" figure is a BOOT measurement, and the
-   post-menu screens converted zero. See the #90 section of
-   `docs/planar-plan.md`.
+4. ~~**The play loop is still unmeasured** for planar conversion cost~~
+   **MEASURED 2026-08-06.** A walk action costs ~1.17 s on an 8 MHz STE and
+   ~1.13 s on a 7 MHz Amiga ECS — the same, which contradicts the expectation
+   that ECS would be clearly worse. Present is 51% / 65% of a redraw, so the
+   present is the lever, not the renderer; two redraws are issued per action on
+   both. The step profiler had to be fixed first (it was timing its own
+   logger). Full table + traps in the #90 section of `docs/planar-plan.md`.
 5. **1.0.0 is RESERVED for real hardware** and deliberately not cut yet; the
    user has asked to stay on 0.9.x while game-breaking bugs remain.
 6. ~~Amiga input does not commit — the save/load round-trip is stuck on
