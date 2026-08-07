@@ -34,6 +34,7 @@
 #include "dbglog.h"
 #include "c2p32.h"
 #include "planar.h"
+#include "plat_sys.h"          /* plat_stram_alloc: Mxalloc is TOS 2.01+ */
 
 #define TT_W        320
 #define TT_H        480
@@ -147,7 +148,7 @@ static int tt_init(short want_w, short want_h)
 {
 	(void)want_w; (void)want_h;             /* fixed 320x200 engine frame */
 
-	g_screen_raw = (unsigned char *)Mxalloc(SCREEN_BYTES + 256, 0); /* ST-RAM */
+	g_screen_raw = (unsigned char *)plat_stram_alloc(SCREEN_BYTES + 256); /* ST-RAM */
 	if (g_screen_raw == NULL) {
 		dbg_log("tt: Mxalloc screen FAILED");
 		return 1;
@@ -181,10 +182,10 @@ static int tt_init(short want_w, short want_h)
 	/* ADR-0016 B4: bring up the draw-time plane target. Any allocation
 	 * failure leaves t_dt NULL and simply does not register — writers keep
 	 * their chunky store and the present converts, exactly as before. */
-	t_dt        = (unsigned char *)Mxalloc(DT_BYTES, 0);
-	t_dt_cov    = (unsigned char *)Mxalloc(COV_BYTES, 0);
-	t_dt_idx    = (unsigned char *)Mxalloc(COV_BYTES, 0);
-	t_dt_rowcov = (short *)Mxalloc((long)ENGINE_H * sizeof(short), 0);
+	t_dt        = (unsigned char *)plat_stram_alloc(DT_BYTES);
+	t_dt_cov    = (unsigned char *)plat_stram_alloc(COV_BYTES);
+	t_dt_idx    = (unsigned char *)plat_stram_alloc(COV_BYTES);
+	t_dt_rowcov = (short *)plat_stram_alloc((long)ENGINE_H * sizeof(short));
 	if ((long)t_dt <= 0 || (long)t_dt_cov <= 0
 	 || (long)t_dt_idx <= 0 || (long)t_dt_rowcov <= 0) {
 		dbg_log("tt: draw-time plane alloc FAILED - chunky path");

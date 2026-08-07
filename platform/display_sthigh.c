@@ -27,6 +27,7 @@
 
 #include "display.h"
 #include "dbglog.h"
+#include "plat_sys.h"          /* plat_stram_alloc: Mxalloc is TOS 2.01+ */
 
 #define EN_W        320                 /* engine surface (colour-dither mode) */
 #define EN_H        200
@@ -102,17 +103,17 @@ static int sthigh_init(short want_w, short want_h)
 {
 	(void)want_w; (void)want_h;
 
-	s_screen_raw = (unsigned char *)Mxalloc(SCREEN_BYTES + 256, 0);
-	s_chunky     = (unsigned char *)Mxalloc((long)SURF_W * SURF_H, 0);
+	s_screen_raw = (unsigned char *)plat_stram_alloc(SCREEN_BYTES + 256);
+	s_chunky     = (unsigned char *)plat_stram_alloc((long)SURF_W * SURF_H);
 #ifdef FRUA_BWMODE
 	/* #16: the mono shadow holds the last PACKED rows (SURF_W/8 bytes each),
 	 * not a chunky copy. The present diffs in packed space (60 B/row) and
 	 * folds the pack in, instead of memcmp'ing 480 B of chunky then re-packing
 	 * changed rows — ~1.5x less memory traffic on the 8 MHz diff-present
 	 * hotspot, byte-identical output. */
-	s_shadow     = (unsigned char *)Mxalloc((long)(SURF_W / 8) * SURF_H, 0);
+	s_shadow     = (unsigned char *)plat_stram_alloc((long)(SURF_W / 8) * SURF_H);
 #else
-	s_shadow     = (unsigned char *)Mxalloc((long)SURF_W * SURF_H, 0);
+	s_shadow     = (unsigned char *)plat_stram_alloc((long)SURF_W * SURF_H);
 #endif
 	if (s_screen_raw == NULL || s_chunky == NULL || s_shadow == NULL) {
 		dbg_log("sthigh: Mxalloc FAILED");

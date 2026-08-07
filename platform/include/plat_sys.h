@@ -38,6 +38,18 @@ void plat_get_datetime(struct plat_datetime *out);
  * this probes XBIOS Blitmode(-1). Queried once at display init. */
 int plat_have_blitter(void);
 
+/* Allocate `bytes` of memory the video shifter / DMA sound / DSP can reach
+ * (ST-RAM on Atari), or NULL. Free it with the platform's normal free — on
+ * Atari that is Mfree, which handles blocks from either GEMDOS allocator.
+ *
+ * ATARI BACKEND ONLY: the Amiga backends allocate chip RAM through exec and
+ * have no caller for this, so sys_amiga.c deliberately does not define it.
+ *
+ * Exists because Mxalloc is a TOS 2.01+ call and returns EINVFN (-32), not
+ * NULL, on the older ROMs — see the long note in sys_falcon.c. Every Atari
+ * platform buffer that used to call Mxalloc directly now comes through here. */
+void *plat_stram_alloc(long bytes);
+
 /* Run `fn` on a stack with at least 256 KB of headroom and return its result.
  * The engine's lifted draw chain runs deep, and the ECS/ST backends re-band
  * (quant_banded, ~2 KB of locals) from the BOTTOM of it. The Atari crt0

@@ -31,6 +31,7 @@
 
 #include "plat_sound.h"
 #include "display.h"           /* dsp_vdo_cookie: Falcon-vs-TT gate */
+#include "plat_sys.h"          /* plat_stram_alloc: Mxalloc is TOS 2.01+ */
 #ifdef FRUA_SNDPROF
 #include "dbglog.h"
 #endif
@@ -498,7 +499,7 @@ static int ring_start(void)
 	if (g_ring_live)
 		return 0;
 	if (g_ring == NULL) {
-		g_ring = (char *)Mxalloc(RING_SAMPLES, 0);      /* 0 = ST-RAM */
+		g_ring = (char *)plat_stram_alloc(RING_SAMPLES);
 		if (g_ring == NULL)
 			return -1;
 	}
@@ -619,7 +620,7 @@ int plat_sound_play_mono8(const signed char *samples, long count, int rate_hz)
 	if (g_buf_size < out_count) {
 		if (g_buf != NULL)
 			Mfree(g_buf);
-		g_buf = (char *)Mxalloc(out_count, 0);  /* 0 = ST-RAM */
+		g_buf = (char *)plat_stram_alloc(out_count);
 		if (g_buf == NULL) {
 			g_buf_size = 0;
 			return -1;

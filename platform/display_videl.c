@@ -31,6 +31,7 @@
 #include "display.h"
 #include "dbglog.h"
 #include "input.h"              /* plat_mouse_pos — the VBL cursor reads it */
+#include "plat_sys.h"          /* plat_stram_alloc: Mxalloc is TOS 2.01+ */
 
 static dsp_surface_t  g_surface;          /* the 8-bit chunky buffer the game draws */
 
@@ -439,10 +440,10 @@ mode_chosen:
 	g_screen_bytes = bytes;
 	g_nbuf = 0;
 	for (b = 0; b < 3; b++) {
-		raw = Mxalloc(bytes + 256, 0);           /* 0 = ST-RAM */
+		raw = (long)plat_stram_alloc(bytes + 256);
 		if (raw <= 0) {
 			if (b < 2) {                     /* need at least two */
-				dbg_log("  videl_init: Mxalloc FAILED");
+				dbg_log("  videl_init: ST-RAM alloc FAILED");
 				while (b-- > 0) Mfree(g_screen_raw[b]);
 				free(g_surface.pixels);
 				g_surface.pixels = NULL;

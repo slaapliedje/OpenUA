@@ -58,6 +58,59 @@ int plat_have_blitter(void)
 	return (Blitmode(-1) & 0x0002) != 0;
 }
 
+/*
+ * ST-RAM allocation, portable across every TOS this engine can boot on.
+ *
+ * ★ Mxalloc DOES NOT EXIST BEFORE TOS 2.01, AND ITS ABSENCE IS NOT SAFE.
+ * The Compendium's Sversion table pins the GEMDOS revisions exactly:
+ *
+ *     0.13  TOS 1.00, 1.02        0.15  TOS 1.04, 1.06
+ *     0.17  TOS 1.62              0.19  TOS 2.01, 2.05, 2.06, 3.0x
+ *     0.30  TOS 4.0x
+ *
+ * and Mxalloc (GEMDOS 0x44) is "available from GEMDOS version 0.19". So it is
+ * missing on EVERY plain-ST ROM and on TOS 1.62 — the ROM most STes actually
+ * shipped with. An unimplemented GEMDOS opcode returns EINVFN (-32), which is
+ * NOT NULL, so a `== NULL` check waves it through and the caller then memsets
+ * through a pointer of 0xFFFFFFE0. Observed live: frua on an emulated ST with
+ * TOS 1.04 took a double bus error inside st_init, immediately after the
+ * backend logged its name and before it could log anything else. Controls: the
+ * same TOS 1.04 with the same GEMDOS mount and no frua.prg boots to the GEM
+ * desktop with a HARD DISK icon and zero bus errors, and the same emulated ST
+ * hardware with TOS 2.06 reaches the main menu. The variable is the ROM.
+ *
+ * Falling back to Malloc loses NOTHING on those machines, and that is provable
+ * rather than hopeful: alternative (non-ST) RAM is reached through Maddalt,
+ * which is ALSO "available as of GEMDOS version 0.19 only". A system that has
+ * no Mxalloc therefore has no alternative RAM either — every byte Malloc can
+ * return is already ST-RAM, which is exactly what Mxalloc(size, 0) was asking
+ * for. The distinction only starts to matter on the TT and Falcon, and those
+ * are 0.19 and 0.30, so they keep taking the Mxalloc path.
+ *
+ * Gating on the version rather than calling Mxalloc and inspecting the result
+ * is deliberate: it means we never issue the unimplemented trap at all.
+ *
+ * Mfree is GEMDOS 0x49 and predates all of this, so it frees blocks from
+ * either allocator — callers keep using Mfree and need no matching helper.
+ */
+void *plat_stram_alloc(long bytes)
+{
+	long p;
+
+	if (bytes <= 0)
+		return NULL;
+	if ((Sversion() & 0xffff) >= 0x1900)
+		p = (long)Mxalloc(bytes, 0);         /* 0 = ST-RAM */
+	else
+		p = (long)Malloc(bytes);
+	/* GEMDOS reports failure as a small negative error code (EINVFN is -32);
+	 * a real allocation is never in that range. Collapse both to NULL so the
+	 * existing `== NULL` checks at every call site become correct. */
+	if (p <= 0 && p > -4096L)
+		return NULL;
+	return (void *)p;
+}
+
 /* The MiNT crt0 already sets a large stack (the 256 KB floor the HAL contract
  * asks for), so the Atari backend runs the engine right where it is. */
 int plat_run_big_stack(int (*fn)(void))

@@ -1914,8 +1914,8 @@ static void st_blitbench(void)
 	int have = plat_have_blitter();
 
 	dbg_log_num("blitbench: plat_have_blitter = ", (long)have);
-	s_bb_dst = (void *)Mxalloc((long)ST_W * ST_H, 0); /* 64000: every shape */
-	s_bb_src = (void *)Mxalloc((long)ST_W * ST_H, 0);
+	s_bb_dst = (void *)plat_stram_alloc((long)ST_W * ST_H); /* 64000: every shape */
+	s_bb_src = (void *)plat_stram_alloc((long)ST_W * ST_H);
 	if (s_bb_dst == NULL || s_bb_src == NULL) {
 		dbg_log("blitbench: Mxalloc FAILED — skipped");
 		if (s_bb_dst) Mfree(s_bb_dst);
@@ -1983,9 +1983,9 @@ static int st_init(short want_w, short want_h)
 {
 	(void)want_w; (void)want_h;
 
-	s_screen_raw = (unsigned char *)Mxalloc(NPAGES * SCREEN_BYTES + 256, 0); /* ST-RAM */
-	s_chunky     = (unsigned char *)Mxalloc((long)ST_W * ST_H, 0);
-	s_shadow_raw = (unsigned char *)Mxalloc((long)NPAGES * ST_W * ST_H, 0);
+	s_screen_raw = (unsigned char *)plat_stram_alloc(NPAGES * SCREEN_BYTES + 256); /* ST-RAM */
+	s_chunky     = (unsigned char *)plat_stram_alloc((long)ST_W * ST_H);
+	s_shadow_raw = (unsigned char *)plat_stram_alloc((long)NPAGES * ST_W * ST_H);
 	if (s_screen_raw == NULL || s_chunky == NULL || s_shadow_raw == NULL) {
 		dbg_log("ste: Mxalloc FAILED");
 		if (s_screen_raw) { Mfree(s_screen_raw); s_screen_raw = NULL; }
@@ -2044,10 +2044,10 @@ static int st_init(short want_w, short want_h)
 
 #ifdef FRUA_PLANAR
 	/* Draw-time plane accumulation buffer + hook (ADR-0016 B4). */
-	s_dt        = (unsigned char *)Mxalloc(SCREEN_BYTES, 0);
-	s_dt_cov    = (unsigned char *)Mxalloc((long)ST_W * ST_H, 0);
-	s_dt_idx    = (unsigned char *)Mxalloc((long)ST_W * ST_H, 0);
-	s_dt_rowcov = (short *)Mxalloc(ST_H * sizeof(short), 0);
+	s_dt        = (unsigned char *)plat_stram_alloc(SCREEN_BYTES);
+	s_dt_cov    = (unsigned char *)plat_stram_alloc((long)ST_W * ST_H);
+	s_dt_idx    = (unsigned char *)plat_stram_alloc((long)ST_W * ST_H);
+	s_dt_rowcov = (short *)plat_stram_alloc(ST_H * sizeof(short));
 	if (s_dt != NULL)
 		memset(s_dt, 0, SCREEN_BYTES);
 	if (s_dt_cov != NULL)
@@ -2074,7 +2074,7 @@ static int st_init(short want_w, short want_h)
 
 #ifdef FRUA_STPROF
 	/* B3.0b scratch: a non-displayed ST-RAM page the c2p can target for timing. */
-	s_offpage = (unsigned char *)Mxalloc(SCREEN_BYTES, 0);
+	s_offpage = (unsigned char *)plat_stram_alloc(SCREEN_BYTES);
 	if (s_offpage != NULL)
 		memset(s_offpage, 0, SCREEN_BYTES);
 #endif
