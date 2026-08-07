@@ -1823,9 +1823,16 @@ void CopyBits(const BitMap *srcBits, const BitMap *dstBits,
 
 			for (x = 0; x < w; x++)
 				dp[x] = sp[x];
-#ifdef FRUA_PLANAR
+#if defined(FRUA_PLANAR) && !defined(FRUA_DIAG_NOCOPYBRIDGE)
 			/* B4: own the blitted row (art/event pics; screen-aliasing
-			 * dst only — the address map skips offscreen targets). */
+			 * dst only — the address map skips offscreen targets).
+			 *
+			 * FRUA_DIAG_NOCOPYBRIDGE drops just this stamp, leaving every
+			 * other draw-time plane store in place — the bisect partner to
+			 * FRUA_DIAG_NOBRIDGE (which drops only l309c's art-leaf rect).
+			 * Needed because "art/event pics" arrive HERE, not through
+			 * l309c, so NOBRIDGE alone does not answer whether the picture
+			 * on screen came from this path. */
 			if (dt_on)
 				dc_plane_bridge_span(&dt, dp, w);
 #endif
