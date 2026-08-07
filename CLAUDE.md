@@ -165,6 +165,15 @@ verified byte-identical to the `release-ste` / `release-amiga-ecs` output.
   020 instructions. The AGA build shows 433 `mulsl` / 233 `bfextu` with the
   flag and exactly zero without it — i.e. the bare recipe reports a perfectly
   good 020 build as broken.
+  **Run it on the OBJECT FILES, not on `frua.prg`, when asking the INVERSE
+  question** ("is this 68000 build really 68000?"). A GEMDOS PRG's TEXT segment
+  also holds the read-only data GCC parks in `.text`, and objdump disassembles
+  that too: a clean `CPU68K=68000` build reports ~6 phantom `bfextu`/`bfins`
+  hits, all of them a monotonic lookup table (`e9ba,61c6 / e9c2,61d4 / …`)
+  being read as opcodes. The honest check is
+  `objdump -d --section=.text <each .o> | grep -cE 'bfextu|bfins|muls\.l|divs\.l'`,
+  which sums to exactly 0 on a real 68000 build — verified 2026-08-07 before
+  putting a binary on real Mega STe hardware.
 
 If a build error looks fixable by changing flags, fix the Makefile and
 show the diff before touching source.
