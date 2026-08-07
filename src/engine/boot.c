@@ -49,6 +49,7 @@
 #include "toolbox.h"          /* ExitToShell (jt415)                     */
 #include "quickdraw.h"        /* MoveTo, DrawString, GetPort (jt1089) */
 #include "display.h"          /* dsp_viewport_scratch/commit (ADR-0016 B2 viewport) */
+#include "planar.h"           /* planar_viewport_overwrite — l309c blits over the vp */
 #include "printing.h"         /* the Pr* face over GDOS/VDI (jt428 print chain) */
 #include "dialogs.h"          /* GetNewDialog / ModalDialog (l6d40)   */
 #include "events.h"           /* WaitNextEvent (jt1125 event poll)   */
@@ -7127,7 +7128,16 @@ static void l309c(short a, short b, long handle, short size)
 #endif
 	l2d4e((const unsigned char *)(uintptr_t)info, bpp_w, height,
 	      sy, sx, mode);
-#if defined(FRUA_PLANAR) && !defined(FRUA_DIAG_NOBRIDGE)
+#ifdef FRUA_PLANAR
+	/* This blit supersedes the committed 3D viewport wherever the rects
+	 * overlap — the event bigpics land HERE (l2d4e), not through CopyBits,
+	 * which is why the composite invalidation must sit at this site too.
+	 * Outside the NOBRIDGE guard on purpose: invalidation is about what
+	 * chunky now holds, not about plane stamping, and the diag flag must
+	 * not resurrect the wrong-event-picture bug it exists to bisect.
+	 * (No-op dispatcher on backends that register no composite.) */
+	planar_viewport_overwrite(g_lc_x0, g_lc_y0, g_lc_w, g_lc_h);
+#ifndef FRUA_DIAG_NOBRIDGE
 	/* B4 immediate-c2p bridge: l2d4e just wrote the chrome/glyph rect to the
 	 * screen chunky — stamp it into the draw-time plane buffer so those pixels
 	 * are native-planar owned (l2d4e always targets the screen via
@@ -7135,6 +7145,7 @@ static void l309c(short a, short b, long handle, short size)
 	qd_planar_bridge_rect(g_lc_x0, g_lc_y0,
 	                      (short)(g_lc_x0 + g_lc_w),
 	                      (short)(g_lc_y0 + g_lc_h));
+#endif
 #endif
 }
 

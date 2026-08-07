@@ -105,6 +105,28 @@ void planar_viewport_register(unsigned char *(*scratch)(short *pitch),
                               void (*commit)(short x, short y, short w, short h));
 
 /*
+ * Tell the composite that a SCREEN blit just overwrote rect (x,y,w,h) of the
+ * shared chunky surface. The backend invalidates its committed viewport if the
+ * rects intersect — the scratch no longer represents what belongs on screen.
+ *
+ * ★ WHY THIS EXISTS (the ST wrong-event-picture bug, 2026-08-07). The commit
+ * scratch is a SNAPSHOT: the composite repaints it onto the pages not just at
+ * the present after the commit but again after every force-full (#61 — a
+ * rebuild from s_dt leaves a hole where the composite content was, because the
+ * composite writes the PAGE, never s_dt). That re-arm is right while the 3D
+ * view is the newest content, and exactly wrong after an event picture blits
+ * OVER the viewport: the event's palette install triggers a reband, the reband
+ * force-fulls, the force-full re-arms the owes — and the next present paints
+ * the STALE corridor over the freshly-drawn picture, through the new palette's
+ * remap. On screen: the hallway wearing the event's colours, indefinitely,
+ * while the engine believes it drew the picture. Registered by the same
+ * backends that register the viewport hooks; a no-op everywhere else.
+ */
+void planar_viewport_overwrite_register(void (*fn)(short x, short y,
+                                                   short w, short h));
+void planar_viewport_overwrite(short x, short y, short w, short h);
+
+/*
  * Install the active backend's draw-time plane target (ADR-0016 B4). The shared
  * dsp_planar_draw_target() (display.h) dispatches through the hook a backend
  * running the draw-time plane model installs at init; a backend that keeps the

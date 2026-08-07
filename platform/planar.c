@@ -40,6 +40,20 @@ void dsp_viewport_commit(short x, short y, short w, short h)
 		s_vp_commit_fn(x, y, w, h);
 }
 
+/* Committed-viewport invalidation — see the long note in planar.h. */
+static void (*s_vp_overwrite_fn)(short x, short y, short w, short h);
+
+void planar_viewport_overwrite_register(void (*fn)(short, short, short, short))
+{
+	s_vp_overwrite_fn = fn;
+}
+
+void planar_viewport_overwrite(short x, short y, short w, short h)
+{
+	if (s_vp_overwrite_fn)
+		s_vp_overwrite_fn(x, y, w, h);
+}
+
 /* --- draw-time plane target dispatch (ADR-0016 B4) ----------------------- */
 
 static int (*s_dt_fn)(struct dsp_planar_dt *dt);

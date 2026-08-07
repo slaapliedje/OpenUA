@@ -198,6 +198,7 @@ static short         s_vp_have;                 /* scratch holds a valid rect */
 static short         s_st_active;               /* this backend is the live one */
 static unsigned char *st_vp_scratch(short *pitch);
 static void           st_vp_commit(short x, short y, short w, short h);
+static void           st_vp_overwrite(short x, short y, short w, short h);
 static void           st_vp_composite(void);
 
 /* --- raster-split interrupt handlers -------------------------------------
@@ -2041,6 +2042,7 @@ static int st_init(short want_w, short want_h)
 	s_vp_active = 0;
 	s_st_active = 1;
 	planar_viewport_register(st_vp_scratch, st_vp_commit);
+	planar_viewport_overwrite_register(st_vp_overwrite);
 
 #ifdef FRUA_PLANAR
 	/* Draw-time plane accumulation buffer + hook (ADR-0016 B4). */
@@ -2088,6 +2090,8 @@ static void st_shutdown(void)
 	if (s_st_active) {
 		planar_viewport_register((unsigned char *(*)(short *))0,
 		                         (void (*)(short, short, short, short))0);
+		planar_viewport_overwrite_register(
+		    (void (*)(short, short, short, short))0);
 #ifdef FRUA_PLANAR
 		planar_draw_target_register((int (*)(struct dsp_planar_dt *))0);
 		if (s_dt)        { Mfree(s_dt); s_dt = NULL; }
@@ -2157,6 +2161,36 @@ static void st_vp_commit(short x, short y, short w, short h)
 	s_vp_have   = 1;
 	s_vp_owe[0] = 1;                         /* #61: EVERY page owes it */
 	s_vp_owe[1] = 1;
+}
+
+/* A screen blit landed on rect (x,y,w,h) of the shared chunky surface. If it
+ * touches the committed viewport, the scratch is history — drop it, or the
+ * next force-full re-arms the owes (see l1649) and the composite paints the
+ * STALE 3D view back over whatever the blit drew. That was the ST wrong-event-
+ * picture bug: the caravan bigpic replaced the corridor in chunky/s_dt, the
+ * event's palette install triggered reband -> force-full -> re-arm, and every
+ * subsequent present wore the corridor through the new palette's remap.
+ *
+ * ANY overlap invalidates, not just full coverage: compositing the whole
+ * scratch would clobber the blit's pixels wherever they intersect. The cost of
+ * over-invalidating is small and self-healing — the next engine 3D render
+ * re-commits a fresh scratch (every walk step does) — while under-invalidating
+ * is this bug. Partial overlap does leave the UNCOVERED part of the old
+ * viewport to whatever s_dt/chunky holds (the composite never wrote s_dt, so
+ * that can be pre-viewport content), which is strictly less wrong than the
+ * whole rect showing a stale frame, and the event pictures that trigger this
+ * in practice cover the viewport box entirely. */
+static void st_vp_overwrite(short x, short y, short w, short h)
+{
+	if (!s_vp_have || w <= 0 || h <= 0)
+		return;
+	if (x >= (short)(s_vp_x + s_vp_w) || (short)(x + w) <= s_vp_x ||
+	    y >= (short)(s_vp_y + s_vp_h) || (short)(y + h) <= s_vp_y)
+		return;                          /* disjoint: scratch still valid */
+	s_vp_have   = 0;
+	s_vp_active = 0;
+	s_vp_owe[0] = 0;
+	s_vp_owe[1] = 0;
 }
 
 /* Convert EIGHT chunky pixels straight into their four ST-Low plane bytes.

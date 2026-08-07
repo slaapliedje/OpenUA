@@ -1809,6 +1809,26 @@ void CopyBits(const BitMap *srcBits, const BitMap *dstBits,
 #ifdef FRUA_PLANAR
 		dsp_planar_dt_t dt;
 		int             dt_on = dsp_planar_draw_target(&dt);
+
+		/* A screen-target blit supersedes the committed 3D viewport
+		 * wherever they overlap — tell the composite before it repaints
+		 * a stale scratch over this rect on the next force-full (the ST
+		 * wrong-event-picture bug; see planar_viewport_overwrite in
+		 * planar.h). Deliberately OUTSIDE the FRUA_DIAG_NOCOPYBRIDGE
+		 * guard: invalidation is about what chunky now holds, not about
+		 * plane stamping, and the diag flag must not resurrect the bug
+		 * it exists to bisect. dc_map answers "is this row the screen"
+		 * exactly as the bridge does; offscreen pixmaps fall through. */
+		if (dt_on) {
+			const unsigned char *dp0 =
+			    (const unsigned char *)dstBits->baseAddr
+			    + (dst.top - dstBits->bounds.top) * dstBits->rowBytes
+			    + (dst.left - dstBits->bounds.left);
+			short ox, oy, ob;
+
+			if (dc_map(&dt, dp0, &ox, &oy, &ob))
+				planar_viewport_overwrite(ox, oy, w, h);
+		}
 #endif
 		for (y = 0; y < h; y++) {
 			const unsigned char *sp = (const unsigned char *)srcBits->baseAddr
