@@ -50,6 +50,15 @@ int plat_have_blitter(void);
  * platform buffer that used to call Mxalloc directly now comes through here. */
 void *plat_stram_alloc(long bytes);
 
+/* Ask the machine for its fastest safe CPU setting, returning 1 if anything
+ * was changed. Today this is the Mega STe only (8 MHz + no cache at boot ->
+ * 16 MHz + cache); every other Atari either has no such control or is already
+ * at full speed, and the Amiga backend does not define these at all.
+ * plat_cpu_boost_restore() puts the user's setting back and must be called on
+ * every exit path that plat_cpu_boost() ran on. */
+int  plat_cpu_boost(void);
+void plat_cpu_boost_restore(void);
+
 /* Run `fn` on a stack with at least 256 KB of headroom and return its result.
  * The engine's lifted draw chain runs deep, and the ECS/ST backends re-band
  * (quant_banded, ~2 KB of locals) from the BOTTOM of it. The Atari crt0

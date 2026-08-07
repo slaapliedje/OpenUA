@@ -389,6 +389,13 @@ static int frua_main_body(void)
 
 	dbg_log("main: entered");
 	dbg_log("main: OpenUA " FRUA_VERSION);
+#ifndef FRUA_AMIGA
+	/* A Mega STe boots at 8 MHz with its cache off unless a control panel
+	 * says otherwise, and this engine's 68000 play loop is the thing that
+	 * notices. No-op on every other machine. Restored at shutdown. */
+	if (plat_cpu_boost())
+		dbg_log("main: Mega STe -> 16 MHz + cache");
+#endif
 #ifdef FRUA_VDIPRINT_TEST
 	/* Printing Manager face smoke test (docs/gdos-printing-wall.md step
 	 * 3): drive the compat Pr* face EXACTLY the way the engine print
@@ -719,6 +726,9 @@ static int frua_main_body(void)
 	plat_sound_shutdown();
 	plat_input_shutdown();
 	dsp->shutdown();
+#ifndef FRUA_AMIGA
+	plat_cpu_boost_restore();       /* hand the machine back as we found it */
+#endif
 	dbg_log("main: shutdown ok");
 	return rc;
 }
