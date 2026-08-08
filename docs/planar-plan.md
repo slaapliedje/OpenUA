@@ -1112,6 +1112,49 @@ wedges the boot 100% of the time — not because of anything autoplay does, but
 because it adds BSS to `platform/input.c`, which is enough to make the #91
 boot hang deterministic. The play-loop measurement waits on that fix.
 
+### #90 COMPOSITE INTERNALS — MEASURED 2026-08-08 (Mega STe, HEIRS slot I walk)
+
+The present dominates the walk (51% above); this breaks the viewport composite
+itself down. Driven headlessly by autoloading a first-person save (autoload.dat
+='I') straight into the corridor, walking with injected arrows, reading the
+`b63play` census (`-DFRUA_STPROF`). A span census plus two stub A/Bs on a
+STEADY 8-composite scene (`tex32 ≈ 2590`, `col8 = 4224`, ~239 t200):
+
+| part of the composite | t200 (8-comp) | share | isolated by |
+|---|--:|--:|---|
+| block compute (`c2p4st_32`, mostly textured walls) | ~136 | 57% | `239 − block_store` |
+| **edge columns** (`st_c2p8`, 528 calls/comp) | ~102 | **43%** | NOCOL8 stub (`137` w/o edges) |
+| block **video stores** (aligned words) | **~1** | ~0% | DUMMYSTORE stub (block c2p → RAM = `238`) |
+
+Static structure per composite (both pages): `352` 32-blocks + `528` 8px edge
+columns; the 32-block split is **~8% flat / ~92% textured** — the floor is a
+tiled stone pattern and the ceiling a starfield, so `c2p4st_is_flat` almost
+never fires and the fills composite as texture.
+
+**Consequences (each measured, not argued):**
+
+1. **ADR-0016 Stage A (draw-time plane-stamp the trapezoid FILLS) is not worth
+   doing.** The fills are ~8% of blocks and ~1% of cost (the flat-detect
+   already makes them ~free). Skipped.
+2. **The edges (43%) are overhead-bound, not compute-bound.** Routing them
+   through the word-parallel `c2p4st_8` (vs the scalar per-bit scatter) dropped
+   the composite only ~4% — the cost is the 528 calls + strided single-byte
+   video stores, not the arithmetic. Landed anyway (byte-identical, cleaner);
+   the real edge lever is ELIMINATING the columns by aligning the composite
+   (render/​composite a 16-aligned x=16..112 span incl. the static border), not
+   converting them faster.
+3. **Video stores are ~free** (block store ≈ 1 t200; aligned word writes, the
+   shifter is not stealing much at 4-plane ST-Low). So **Stage C is not
+   store-capped** — a pre-computed plane blit writes to the pages for ~nothing.
+   BUT for TEXTURED walls the c2p transpose does not vanish under draw-time
+   planar, it MOVES into the 3D renderer (stamping 4 plane bits per varying
+   pixel is the same work earlier). Stage C's net win is the intermediate
+   chunky buffer + read-back it removes, not the 57% block-compute figure.
+
+Next levers, cheapest first: (a) align the composite to kill the 43% edge
+overhead; (b) halve the two-redraws-per-action (named above); (c) Stage C
+draw-time planar walls, net-win-bounded per (3).
+
 ### #91 — THE SHIPPING ST/STE PLANAR BUILD WEDGES AT BOOT (found 2026-07-26)
 
 Found while trying to drive the #90 soak. `make CPU68K=68000` — the default,
