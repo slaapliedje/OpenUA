@@ -259,14 +259,28 @@ static void nova_present_rect(short x, short y, short w, short h)
 
 static void nova_present(void) { nova_present_rect(0, 0, NOVA_SURF_W, NOVA_CONTENT_H); }
 
-/* Hardware CLUT via VDI. TODO(NOVA.LOG): the card is index==slot (hw_palette),
- * so this is correct; only the 0..1000 scaling is VDI-standard. A faster path
- * writes the card CLUT registers directly once their address is known. */
+/* VDI reserves the first 16 pens and does NOT map pen p to hardware CLUT slot p
+ * for p < 16 — it uses the standard Atari VDI pen->register table, so a
+ * vs_color(p, ...) on a low pen lands on a DIFFERENT hardware slot. A framebuffer
+ * byte b, however, selects hardware CLUT[b] directly. So to make framebuffer
+ * index i (i < 16) show colour C we must set the pen whose hardware slot is i,
+ * i.e. vs_color(hw_inverse[i], C). Confirmed on the ATW800/2 by the PALTEST
+ * corners (fb 1 showed pen 2's blue, fb 2 pen 3's white, fb 3 pen 6's orange =
+ * pen->hw {2->1, 3->2, 6->3}, the standard table). Pens >= 16 are identity, so
+ * the churning art/3D indices are unaffected; only the low UI palette moved
+ * (the "cyan title renders gold"). */
+static const unsigned char nova_hw_inverse[16] =
+	{ 0, 2, 3, 6, 4, 7, 5, 8, 9, 10, 11, 14, 12, 15, 13, 1 };
+
 static void nova_set_palette(const dsp_color_t *c, short first, short count)
 {
 	short i;
-	for (i = 0; i < count; i++)
-		nova_vs_color((short)(first + i), c[i].r, c[i].g, c[i].b);
+	for (i = 0; i < count; i++) {
+		short idx = (short)(first + i);
+		short pen = (idx >= 0 && idx < 16)
+		          ? (short)nova_hw_inverse[idx] : idx;
+		nova_vs_color(pen, c[i].r, c[i].g, c[i].b);
+	}
 }
 
 static const dsp_backend_t nova_backend = {
