@@ -64,13 +64,22 @@ static void aes(short op, short n_intout)
 	(void)d0; (void)d1;
 }
 
-/* --------------------------------------------------------------- backend state */
+/* --------------------------------------------------------------- backend state
+ * Confirmed on a real ATW800/2 + xVDI (data/work/ship/NOVA-card.log): the card
+ * is 640x400x256 8bpp CHUNKY, aperture at Logbase()=$FEA00000. The engine
+ * renders a 320x240 chunky surface in local RAM; present centres it into the
+ * card framebuffer (640x400 = 2x 320x200, so a 320x240 window sits centred with
+ * a black surround — a later pass 2x-scales to fill the screen). */
+#define NOVA_SURF_W 320
+#define NOVA_SURF_H 240
+
 static dsp_surface_t   s_surf;
 static unsigned char  *s_chunky;        /* engine renders here (local RAM)      */
-static unsigned char  *s_vram;          /* card linear aperture                 */
+static unsigned char  *s_vram;          /* card linear aperture ($FEA00000)     */
 static short           s_handle;        /* VDI virtual workstation              */
-static short           s_w, s_h;
-static long            s_pitch;         /* card bytes/row (TODO(NOVA.LOG))      */
+static short           s_cardw, s_cardh;/* card mode (640x400 confirmed)        */
+static long            s_pitch;         /* card bytes/row                        */
+static short           s_xoff, s_yoff;  /* where the 320x240 window lands        */
 static short           s_aes_ok;
 static short           s_phys;          /* AES physical handle = the LIVE screen */
 
@@ -103,25 +112,34 @@ static void nova_close_ws(void)
  * workstation open). init() only allocates the render surface + binds VRAM. */
 static int nova_init(short want_w, short want_h)
 {
+	long i, n;
 	(void)want_w; (void)want_h;
 
-	/* TODO(NOVA.LOG): confirm the card aperture + row pitch. Logbase() is the
-	 * active screen base once the card is the desktop; the pitch is s_w only
-	 * if the card packs rows with no padding. If the probe shows Logbase()!=
-	 * card VRAM or a padded pitch, read them from the EdDI/NOVA structure. */
+	/* Confirmed base = Logbase() (=$FEA00000 on the card). Pitch = card width
+	 * for a linear chunky mode; if a future card pads its rows, read the true
+	 * bytes/line from EdDI vq_scrninfo — the present already loops per row so
+	 * only this constant changes. */
 	s_vram  = (unsigned char *)Logbase();
-	s_pitch = s_w;
+	s_pitch = s_cardw;
+	s_xoff  = (short)((s_cardw - NOVA_SURF_W) / 2);
+	s_yoff  = (short)((s_cardh - NOVA_SURF_H) / 2);
 
 	/* Engine renders into local RAM, we push to the card (display_rtg model). */
-	s_chunky = (unsigned char *)Mxalloc((long)s_w * s_h, 0);
-	if ((long)s_chunky <= 0) s_chunky = (unsigned char *)Malloc((long)s_w * s_h);
+	s_chunky = (unsigned char *)Mxalloc((long)NOVA_SURF_W * NOVA_SURF_H, 0);
+	if ((long)s_chunky <= 0)
+		s_chunky = (unsigned char *)Malloc((long)NOVA_SURF_W * NOVA_SURF_H);
 	if ((long)s_chunky <= 0) { dbg_log("nova: surface alloc failed"); return 1; }
 
-	s_surf.width  = s_w;
-	s_surf.height = s_h;
-	s_surf.pitch  = s_w;
+	/* Clear the whole card framebuffer to index 0 (black surround). */
+	n = (long)s_pitch * s_cardh;
+	for (i = 0; i < n; i++) s_vram[i] = 0;
+
+	s_surf.width  = NOVA_SURF_W;
+	s_surf.height = NOVA_SURF_H;
+	s_surf.pitch  = NOVA_SURF_W;
 	s_surf.pixels = s_chunky;
-	dbg_log("nova: up (8bpp chunky)");
+	dbg_log_num("nova: up 8bpp chunky, card w = ", s_cardw);
+	dbg_log_num("nova:                 card h = ", s_cardh);
 	return 0;
 }
 
@@ -141,18 +159,20 @@ static void nova_present_rect(short x, short y, short w, short h)
 	short row;
 	if (x < 0) { w += x; x = 0; }
 	if (y < 0) { h += y; y = 0; }
-	if (x + w > s_w) w = s_w - x;
-	if (y + h > s_h) h = s_h - y;
+	if (x + w > NOVA_SURF_W) w = NOVA_SURF_W - x;
+	if (y + h > NOVA_SURF_H) h = NOVA_SURF_H - y;
 	if (w <= 0 || h <= 0) return;
 	for (row = 0; row < h; row++) {
-		const unsigned char *src = s_chunky + (long)(y + row) * s_w + x;
-		unsigned char       *dst = s_vram   + (long)(y + row) * s_pitch + x;
+		const unsigned char *src = s_chunky + (long)(y + row) * NOVA_SURF_W + x;
+		unsigned char       *dst = s_vram
+		                         + (long)(s_yoff + y + row) * s_pitch
+		                         + (s_xoff + x);
 		short n = w;
 		while (n--) *dst++ = *src++;
 	}
 }
 
-static void nova_present(void) { nova_present_rect(0, 0, s_w, s_h); }
+static void nova_present(void) { nova_present_rect(0, 0, NOVA_SURF_W, NOVA_SURF_H); }
 
 /* Hardware CLUT via VDI. TODO(NOVA.LOG): the card is index==slot (hw_palette),
  * so this is correct; only the 0..1000 scaling is VDI-standard. A faster path
@@ -205,15 +225,15 @@ const dsp_backend_t *dsp_backend_nova(void)
 	 * caps (size/colours) also come from the physical handle. */
 	contrl[0] = 102; contrl[1] = 0; contrl[3] = 1; contrl[6] = s_phys;
 	intin[0] = 0; vdi();            /* vq_extnd(mode 0) -> Open-Workstation caps */
-	s_w = intout[0] + 1;
-	s_h = intout[1] + 1;
+	s_cardw = intout[0] + 1;
+	s_cardh = intout[1] + 1;
 
 	contrl[0] = 102; contrl[1] = 0; contrl[3] = 1; contrl[6] = s_phys;
 	intin[0] = 1; vdi();            /* vq_extnd(mode 1) -> planes at [4] */
 	planes = intout[4];
-	dbg_log_num("nova: width  = ", s_w);
-	dbg_log_num("nova: height = ", s_h);
-	dbg_log_num("nova: planes = ", planes);
+	dbg_log_num("nova: card width  = ", s_cardw);
+	dbg_log_num("nova: card height = ", s_cardh);
+	dbg_log_num("nova: planes      = ", planes);
 
 	if (planes != 8) {              /* not a 256-colour chunky screen */
 		dbg_log("nova: not 8bpp - handing back to the ST backend");

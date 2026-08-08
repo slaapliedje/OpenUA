@@ -63,8 +63,37 @@ live query reports 256 / planes 8.
 - xVDI does **not** set `NOVA`/`EdDI`/`NVDI`/`fVDI` — so an early cookie gate
   wrongly skipped the query. The probe no longer gates on the cookie.
 
-Send me the new `NOVA.LOG` (the "LIVE SCREEN via vq_extnd(graf_handle)" block)
-and I fill in the four `TODO(NOVA.LOG)` spots in the backend.
+### ★ Confirmed card values (real ATW800/2, `NOVA.LOG` 2026-08-08)
+
+The `graf_handle` live query settled it:
+
+| | value |
+|---|---|
+| mode | **640×400×256**, `planes=8`, `lut=1` → 8bpp **chunky** |
+| framebuffer base | **`$FEA00000`** (`Logbase` = `Physbase` = `_v_bas_ad`) — card VRAM aperture |
+| cookies | `EdDI` ($0004C59E), `xVDI` ($0001D4B4) |
+| pitch | assumed **640** (= width; unconfirmed vs padded — see below) |
+
+Both the live query and the `v_opnvwk(Getrez()+2)` path agreed on this card
+(640×400×256×8), so the only thing that ever reported ST-High was the engine's
+own `dsp_detect` (`Getrez()==2`), which the `FRUA_NOVA` hook now sidesteps.
+
+`platform/display_nova.c` is filled in with these: base `Logbase()`, card
+640×400, engine 320×240 surface **centred** (black surround) — a first render to
+validate base/pitch/format/palette before 2×-scaling to fill the screen. Build
+and run it on the card (booted into the xVDI desktop):
+
+```sh
+make CPU68K=68000 EXTRA_CFLAGS='-DFRUA_NOVA'   # the card render binary (FRUACARD.PRG)
+```
+
+On a non-card machine it detects `planes!=8` and hands back to the ST/STe
+backend (verified on an emulated STe — boots normally). **Reading the result:**
+a correct FRUA menu centred on screen confirms everything; a **diagonal
+shear/repeat** means the pitch is padded (not 640); **wrong colours, right
+shapes** means the VDI pen→slot map isn't identity (set the card CLUT directly);
+**garbage** would mean it isn't chunky (unlikely — EdDI + the geekdot spec say
+packed pixels). The known menu layout makes each failure mode self-diagnosing.
 
 ## Step 2 — the backend (`platform/display_nova.c`)
 
