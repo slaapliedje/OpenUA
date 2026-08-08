@@ -18380,6 +18380,39 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 			}
 #endif
 		} else {
+			/* ★ POST-EVENT RELAYOUT WITHOUT A STEP (the ogre-fight dead bar +
+			 * ~0,17 teleport, reported on real Mega STe hardware).
+			 *
+			 * The a_deep branch above rebuilds the walk command bar
+			 * (play_screen_relayout) ONLY after a movement key. An event that
+			 * returns to this loop on a NON-movement iteration leaves the
+			 * relayout undone: combat reached through a CHAINED message (HEIRS'
+			 * roadwarden text -> chain -> the ogre fight), or a modal that
+			 * exits and re-enters l63c0. The DLItem pool still holds the event's
+			 * own bar, so a bare accelerator (A/E) matches nothing in Phase 5
+			 * and does nothing, while Escape keeps working because it is the
+			 * DIRECT key arm (kc==27), not a DLItem — exactly the user's report.
+			 * The view cell (-12288..) is stale for the same reason, which is
+			 * the "draws a weird place, snaps back" teleport.
+			 *
+			 * A DIRECT cell combat does NOT hit this: its event fires inside the
+			 * entering step, so the a_deep branch consumes g_event_modal_shown
+			 * the same iteration (verified: KOBOLD.DSN's (3,4) combat relayouts
+			 * fine). Only a deferred/chained/modal return strands the flag here.
+			 *
+			 * Fire the SAME repair the a_deep branch does — snap the view cell
+			 * to the party mirror, rebuild the pool, force a full recompose —
+			 * but ONLY when it is pending, so every ordinary non-move iteration
+			 * (the common case) is untouched. */
+			if (g_event_modal_shown) {
+				short k3;
+				for (k3 = 0; k3 < 6; k3++)
+					g_a5_byte(-12288 + k3) = rec[46 + k3];
+				g_event_modal_shown = 0;
+				play_screen_relayout(rec);
+				g_view_force_full = 1;
+				jt312(ctx);
+			}
 			jt280(rec, (short)8024, (short)8092, (short)0);
 		}
 		/* cb1 (default jt238 -> jt304) is the AUTOMAP compose — it belongs
