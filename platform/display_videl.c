@@ -869,6 +869,9 @@ static long vdo_cookie_super(void)
 const dsp_backend_t *dsp_backend_tt(void);       /* display_tt.c     */
 const dsp_backend_t *dsp_backend_ste(void);      /* display_ste.c    */
 const dsp_backend_t *dsp_backend_sthigh(void);   /* display_sthigh.c */
+#ifdef FRUA_NOVA
+const dsp_backend_t *dsp_backend_nova(void);     /* display_nova.c   */
+#endif
 
 long dsp_vdo_cookie(void)
 {
@@ -889,6 +892,16 @@ const dsp_backend_t *dsp_detect(void)
 
 	if (vdo == 2)                           /* TT shifter        */
 		return dsp_backend_tt();
+#ifdef FRUA_NOVA
+	/* A Nova/NVDI graphics card leaves _VDO reading ST/STE (the card is not
+	 * the ST shifter), so it must be probed before the bitplane fallback. The
+	 * backend's init() confirms an 8bpp screen and returns non-zero — handing
+	 * back to the ST/STE backend — if the card isn't there or isn't paletted. */
+	if (vdo <= 1) {
+		const dsp_backend_t *nb = dsp_backend_nova();
+		if (nb) return nb;
+	}
+#endif
 	if (vdo <= 1) {                         /* 0 = ST, 1 = STE   */
 		/* A mono monitor boots the machine in ST High (rez 2): the
 		 * 640x400 1-bit backend — the Mac's own window size, and the

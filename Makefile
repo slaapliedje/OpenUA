@@ -41,10 +41,12 @@ PLATFORM_SRC := $(PLATFORM_SHARED) \
                 platform/display_tt.c \
                 platform/display_ste.c \
                 platform/display_sthigh.c \
+                platform/display_nova.c \
                 platform/sound_falcon.c \
                 platform/input.c \
                 platform/vdi.c \
                 platform/dbglog.c \
+                platform/nova_probe.c \
                 platform/sys_falcon.c
 else
 $(error unknown MACHINE '$(MACHINE)' — use 'falcon' or 'amiga')

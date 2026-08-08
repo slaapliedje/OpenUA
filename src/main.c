@@ -19,6 +19,7 @@
 #include "dbglog.h"
 #include "plat_sys.h"           /* plat_console_getc — demo key-wait */
 #include "display.h"
+#include "nova_probe.h"
 #include "files.h"
 #include "input.h"
 #include "plat_sound.h"
@@ -458,6 +459,14 @@ static int frua_main_body(void)
 		PrClose();
 		dbg_log("prn: done");
 	}
+#endif
+
+#ifdef FRUA_NOVAPROBE
+	/* One-shot graphics-card discovery (ATW800/2 / any Nova/NVDI card). Runs
+	 * while the boot screen is still whatever the card driver left up, dumps
+	 * C:\NOVA.LOG, then boot continues normally. Hardware-only; no emulator
+	 * models the card. See platform/nova_probe.c and docs/nova-card.md. */
+	nova_probe_dump();
 #endif
 
 	dsp = dsp_detect();

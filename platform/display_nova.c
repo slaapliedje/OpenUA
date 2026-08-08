@@ -1,0 +1,214 @@
+/*
+ * Nova / NVDI graphics-card display backend (ATW800/2 and any Nova-compatible
+ * card).  ADR-0005 backend, chunky-native — the engine's happy path.
+ *
+ * STATUS: PROVISIONAL SCAFFOLD, gated on -DFRUA_NOVA so it is an empty object
+ * in every shipping build and is never selected by dsp_detect() unless that
+ * flag is set.  It exists so the post-probe session is "fill in four numbers"
+ * rather than "start from scratch".  The pieces that need REAL values from a
+ * hardware NOVA.LOG (see platform/nova_probe.c, docs/nova-card.md) are marked
+ * TODO(NOVA.LOG); everything else is settled.
+ *
+ * Why a card is the cleanest non-Falcon Atari target: an 8bpp card is chunky
+ * with the palette in hardware — the same identity as the TT/AGA ports, so
+ * hw_palette = 1 and the #99 dirty-row present skip works immediately.  There
+ * is NO chunky->planar conversion here at all (that whole ADR-0016 machine is
+ * only for the bitplane machines).  A card build is conceptually display_videl
+ * re-pointed at the card's linear aperture, plus display_rtg's "render chunky
+ * rows, push to the card" data-flow.
+ *
+ * Data-flow (matches display_rtg): render the frame into a chunky surface in
+ * FAST/ST-RAM and copy it to the card aperture at present.  Do NOT let the
+ * 68000 write pixels one at a time across the bus into card VRAM.  A later
+ * pass hands the big copies to the card's 2D blitter (130 MB/s on the ATW800/2)
+ * through accelerated VDI, off the CPU entirely.
+ */
+
+#ifdef FRUA_NOVA
+
+#include <stddef.h>             /* NULL */
+#include <mint/osbind.h>        /* Getrez, Logbase, Physbase */
+#include "display.h"
+#include "dbglog.h"
+
+/* ------------------------------------------------- minimal AES + VDI (trap #2)
+ * Self-contained on purpose (a gated scaffold pulls in no shared state). The
+ * probe proved this exact open sequence returns correct caps on hardware. */
+static short contrl[12], intin[128], ptsin[128], intout[128], ptsout[128];
+static long  vdipb[5];
+static short aes_control[5], aes_global[16], aes_intin[16], aes_intout[16];
+static long  aes_addrin[4], aes_addrout[4], aespb[6];
+
+static void vdi(void)
+{
+	register long d0 __asm__("d0") = 0x73;
+	register long d1 __asm__("d1");
+	vdipb[0] = (long)contrl; vdipb[1] = (long)intin; vdipb[2] = (long)ptsin;
+	vdipb[3] = (long)intout; vdipb[4] = (long)ptsout;
+	d1 = (long)vdipb;
+	__asm__ volatile ("trap #2" : "+d"(d0), "+d"(d1) :: "d2","a0","a1","a2","memory","cc");
+	(void)d0; (void)d1;
+}
+
+static void aes(short op, short n_intout)
+{
+	register long d0 __asm__("d0") = 0xC8;
+	register long d1 __asm__("d1");
+	aes_control[0] = op; aes_control[1] = 0; aes_control[2] = n_intout;
+	aes_control[3] = 0;  aes_control[4] = 0;
+	aespb[0]=(long)aes_control; aespb[1]=(long)aes_global;
+	aespb[2]=(long)aes_intin;   aespb[3]=(long)aes_intout;
+	aespb[4]=(long)aes_addrin;  aespb[5]=(long)aes_addrout;
+	d1 = (long)aespb;
+	__asm__ volatile ("trap #2" : "+d"(d0), "+d"(d1) :: "d2","a0","a1","a2","memory","cc");
+	(void)d0; (void)d1;
+}
+
+/* --------------------------------------------------------------- backend state */
+static dsp_surface_t   s_surf;
+static unsigned char  *s_chunky;        /* engine renders here (local RAM)      */
+static unsigned char  *s_vram;          /* card linear aperture                 */
+static short           s_handle;        /* VDI virtual workstation              */
+static short           s_w, s_h;
+static long            s_pitch;         /* card bytes/row (TODO(NOVA.LOG))      */
+static short           s_aes_ok;
+
+static short nova_open_ws(short *work_out)
+{
+	short i, phys;
+	aes(10, 1);                     /* appl_init  */
+	if (aes_intout[0] < 0) return 0;
+	s_aes_ok = 1;
+	aes(77, 5);                     /* graf_handle */
+	phys = aes_intout[0];
+	intin[0] = (short)(Getrez() + 2);
+	for (i = 1; i < 10; i++) intin[i] = 1;
+	intin[10] = 2;
+	contrl[0] = 100; contrl[1] = 0; contrl[3] = 11; contrl[6] = phys;
+	vdi();
+	for (i = 0; i < 45; i++) work_out[i] = intout[i];
+	return contrl[6];
+}
+
+static void nova_close_ws(void)
+{
+	if (s_handle) { contrl[0]=101; contrl[1]=0; contrl[3]=0; contrl[6]=s_handle; vdi(); s_handle=0; }
+	if (s_aes_ok) { aes(19, 1); s_aes_ok = 0; }
+}
+
+/* ------------------------------------------------------------------- backend ops
+ * The screen is already open (dsp_backend_nova confirmed 8bpp and left the
+ * workstation open). init() only allocates the render surface + binds VRAM. */
+static int nova_init(short want_w, short want_h)
+{
+	(void)want_w; (void)want_h;
+
+	/* TODO(NOVA.LOG): confirm the card aperture + row pitch. Logbase() is the
+	 * active screen base once the card is the desktop; the pitch is s_w only
+	 * if the card packs rows with no padding. If the probe shows Logbase()!=
+	 * card VRAM or a padded pitch, read them from the EdDI/NOVA structure. */
+	s_vram  = (unsigned char *)Logbase();
+	s_pitch = s_w;
+
+	/* Engine renders into local RAM, we push to the card (display_rtg model). */
+	s_chunky = (unsigned char *)Mxalloc((long)s_w * s_h, 0);
+	if ((long)s_chunky <= 0) s_chunky = (unsigned char *)Malloc((long)s_w * s_h);
+	if ((long)s_chunky <= 0) { dbg_log("nova: surface alloc failed"); return 1; }
+
+	s_surf.width  = s_w;
+	s_surf.height = s_h;
+	s_surf.pitch  = s_w;
+	s_surf.pixels = s_chunky;
+	dbg_log("nova: up (8bpp chunky)");
+	return 0;
+}
+
+static void nova_shutdown(void)
+{
+	nova_close_ws();
+}
+
+static dsp_surface_t *nova_surface(void) { return &s_surf; }
+
+/* Copy the chunky surface to the card aperture, row by row (handles a padded
+ * card pitch). TODO(NOVA.LOG): if s_pitch==s_w this is one flat copy; the row
+ * loop is here so a padded pitch just works once the real value is filled in.
+ * A later pass replaces this with a blitter blit. */
+static void nova_present_rect(short x, short y, short w, short h)
+{
+	short row;
+	if (x < 0) { w += x; x = 0; }
+	if (y < 0) { h += y; y = 0; }
+	if (x + w > s_w) w = s_w - x;
+	if (y + h > s_h) h = s_h - y;
+	if (w <= 0 || h <= 0) return;
+	for (row = 0; row < h; row++) {
+		const unsigned char *src = s_chunky + (long)(y + row) * s_w + x;
+		unsigned char       *dst = s_vram   + (long)(y + row) * s_pitch + x;
+		short n = w;
+		while (n--) *dst++ = *src++;
+	}
+}
+
+static void nova_present(void) { nova_present_rect(0, 0, s_w, s_h); }
+
+/* Hardware CLUT via VDI. TODO(NOVA.LOG): the card is index==slot (hw_palette),
+ * so this is correct; only the 0..1000 scaling is VDI-standard. A faster path
+ * writes the card CLUT registers directly once their address is known. */
+static void nova_set_palette(const dsp_color_t *c, short first, short count)
+{
+	short i;
+	for (i = 0; i < count; i++) {
+		intin[0] = first + i;
+		intin[1] = (short)((c[i].r * 1000) / 255);
+		intin[2] = (short)((c[i].g * 1000) / 255);
+		intin[3] = (short)((c[i].b * 1000) / 255);
+		contrl[0] = 14; contrl[1] = 0; contrl[3] = 4; contrl[6] = s_handle;
+		vdi();
+	}
+}
+
+static const dsp_backend_t nova_backend = {
+	"nova (8bpp graphics card)",
+	nova_init,
+	nova_shutdown,
+	nova_surface,
+	nova_present,
+	nova_present_rect,
+	nova_set_palette,
+	1,      /* pages: single-buffered for now (present writes VRAM directly) */
+	1,      /* hw_palette: index==CLUT slot, palette is hardware (TT/AGA identity) */
+};
+
+/* Detection lives HERE (not in init) so dsp_detect() can fall through to the
+ * ST/STe backend when there is no card: open the screen workstation, read the
+ * plane count, and return the backend only for a 256-colour (8-plane) chunky
+ * screen — leaving the workstation OPEN for init()/shutdown(). Anything else
+ * (no AES, or a paletted-16/planar ST screen) closes up and returns NULL. */
+const dsp_backend_t *dsp_backend_nova(void)
+{
+	short work_out[57];
+	short planes;
+
+	s_handle = nova_open_ws(work_out);
+	if (s_handle == 0) { dbg_log("nova: no AES/VDI screen"); nova_close_ws(); return NULL; }
+
+	contrl[0] = 102; contrl[1] = 0; contrl[3] = 1; contrl[6] = s_handle;
+	intin[0] = 1; vdi();            /* vq_extnd(mode 1) -> planes at [4] */
+	planes = intout[4];
+
+	s_w = work_out[0] + 1;
+	s_h = work_out[1] + 1;
+	dbg_log_num("nova: width  = ", s_w);
+	dbg_log_num("nova: height = ", s_h);
+	dbg_log_num("nova: planes = ", planes);
+
+	if (planes != 8) {              /* not a 256-colour chunky screen */
+		dbg_log("nova: not 8bpp - handing back to the ST backend");
+		nova_close_ws();
+		return NULL;
+	}
+	return &nova_backend;
+}
+
+#endif /* FRUA_NOVA */
