@@ -2248,8 +2248,18 @@ static void st_c2p8(const unsigned char *src, const unsigned char *lut,
  * path included.
  *
  * Requires an 8-pixel-aligned x and width; the caller checks and keeps the old
- * path for anything else. The live viewport is 88x88 at (24,24), so the middle
- * loop does two 32-pixel blocks and the edges one 8-pixel column each side.
+ * path for anything else.
+ *
+ * #90: composite a 16-ALIGNED span, not the raw viewport, so every row is fast
+ * c2p4st_32 blocks and the scalar 8px edge columns disappear. Those columns
+ * measured ~43% of the composite and were OVERHEAD-bound (528 calls/present +
+ * strided single-byte video stores), so aligning is a bigger win than any
+ * faster edge c2p. The alignment adds up to 15px of the frame border on each
+ * side; those pixels come from s_chunky (the live surface, static chrome here)
+ * so the composited border is byte-identical to what is already on screen — the
+ * viewport interior still comes from the scratch. The live viewport is 88x88 at
+ * (24,24): the span is x=16..112 (96px = three 32-blocks), so the left edge
+ * gains an 8px border strip and the right edge is already aligned.
  *
  * Shadows are deliberately untouched, exactly as before: the viewport's rows in
  * s_chunky are frozen, the row-diff therefore skips them, and this write is
@@ -2257,27 +2267,34 @@ static void st_c2p8(const unsigned char *src, const unsigned char *lut,
  * flips, and the other page's hole would otherwise show a stale viewport. */
 static void st_vp_composite_fast(void)
 {
-	short pg, r;
+	short ax   = (short)(s_vp_x & ~15);              /* 16-aligned span start */
+	short aend = (short)((s_vp_x + s_vp_w + 15) & ~15);
+	short lx0 = ax, lx1 = s_vp_x;                     /* left border  [lx0,lx1) */
+	short rx0 = (short)(s_vp_x + s_vp_w), rx1 = aend; /* right border [rx0,rx1) */
+	short pg, r, x;
+
+	/* Seed the alignment-added border strips into the scratch from the live
+	 * surface (page-independent, so once — not per page). Empty when the edge
+	 * is already 16-aligned. */
+	for (r = 0; r < s_vp_h; r++) {
+		short yy = (short)(s_vp_y + r);
+		unsigned char       *scr = s_vp_scratch + (long)yy * VP_SCR_PITCH;
+		const unsigned char *chk = s_chunky + (long)yy * ST_W;
+		for (x = lx0; x < lx1; x++) scr[x] = chk[x];
+		for (x = rx0; x < rx1; x++) scr[x] = chk[x];
+	}
 
 	for (pg = 0; pg < NPAGES; pg++) {
 		for (r = 0; r < s_vp_h; r++) {
 			short yy   = (short)(s_vp_y + r);
 			short band = (short)((long)yy * ST_NBANDS / ST_H);
 			const unsigned char *lut = s_band_remap + (long)band * 256;
-			const unsigned char *sp  =
-			    s_vp_scratch + (long)yy * VP_SCR_PITCH + s_vp_x;
+			const unsigned char *scr =
+			    s_vp_scratch + (long)yy * VP_SCR_PITCH;
 			unsigned char *drow = s_page[pg] + (long)yy * LINE_BYTES;
-			short x = s_vp_x, n = s_vp_w;
 
-			/* lead-in 8px columns until x is 32-aligned */
-			while (n >= 8 && (x & 31) != 0) {
-				st_c2p8(sp, lut, drow, x);
-#ifdef FRUA_STPROF
-				sp_vp_col8++;
-#endif
-				sp += 8; x = (short)(x + 8); n = (short)(n - 8);
-			}
-			while (n >= 32) {
+			for (x = ax; x + 32 <= aend; x = (short)(x + 32)) {
+				const unsigned char *sp = scr + x;
 				unsigned short *d =
 				    (unsigned short *)(drow + (long)(x >> 4) * 8);
 
@@ -2292,14 +2309,15 @@ static void st_vp_composite_fast(void)
 					sp_vp_tex++;
 #endif
 				}
-				sp += 32; x = (short)(x + 32); n = (short)(n - 32);
 			}
-			while (n >= 8) {                 /* trailing columns */
-				st_c2p8(sp, lut, drow, x);
+			/* Trailing 16px group (only for an exotic non-32-multiple aligned
+			 * width; the live 96px viewport never reaches here). */
+			while (x < aend) {
+				st_c2p8(scr + x, lut, drow, x);
 #ifdef FRUA_STPROF
 				sp_vp_col8++;
 #endif
-				sp += 8; x = (short)(x + 8); n = (short)(n - 8);
+				x = (short)(x + 8);
 			}
 		}
 	}
