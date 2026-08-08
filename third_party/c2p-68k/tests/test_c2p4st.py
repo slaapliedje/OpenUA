@@ -72,6 +72,29 @@ int main(void)
 		src[17] ^= 0xFF;
 		if (c2p4st_is_flat(src, 32)) { printf("is_flat true on non-flat\n"); return 1; }
 	}
+
+	/* HALF-GROUP: c2p4st_8 turns 8 chunky pixels into one plane byte each
+	 * (bit 7 = leftmost). Must equal the naive per-pixel scatter. */
+	for (trial = 0; trial < 4000; trial++) {
+		unsigned char rout[4], fout[4];
+		int p;
+		for (i = 0; i < 256; i++) lut[i] = (unsigned char)(rnd() & 15);
+		for (i = 0; i < 8; i++)   src[i] = rnd();
+		for (p = 0; p < 4; p++)   rout[p] = 0;
+		for (i = 0; i < 8; i++) {
+			unsigned char v = lut[src[i]];
+			for (p = 0; p < 4; p++)
+				if (v & (1 << p))
+					rout[p] |= (unsigned char)(0x80u >> i);
+		}
+		c2p4st_8(src, lut, fout);
+		if (memcmp(rout, fout, 4)) {
+			printf("C2P8 MISMATCH trial %d\n", trial);
+			for (p = 0; p < 4; p++)
+				printf("  p%d: ref %02x fast %02x\n", p, rout[p], fout[p]);
+			return 1;
+		}
+	}
 	printf("OK 2000 trials\n");
 	return 0;
 }

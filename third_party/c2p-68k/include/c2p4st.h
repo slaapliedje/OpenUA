@@ -113,4 +113,52 @@ static int c2p4st_is_flat(const unsigned char *src, short n)
 	return 1;
 }
 
+/*
+ * Convert EIGHT chunky pixels (bytes, remapped through `lut` to 0..15) into ONE
+ * plane BYTE per plane: out[0..3] = plane 0..3, bit 7 = leftmost pixel (src[0]).
+ * This is the half-group c2p an unaligned edge column needs — a viewport that
+ * does not start on a 16-pixel boundary presents 8-pixel columns, and running
+ * them through a scalar per-bit scatter was ~45% of the ST dungeon-walk
+ * composite (measured 2026-08-08). It is the same word-parallel butterfly as
+ * c2p4st_32, restricted to the 8 pixels that land in each lane's top byte.
+ *
+ * Derivation: in c2p4st_32 pixels 0..7 occupy the `<<24` slot of lanes a0..a7
+ * (the src[c] term, c<8), and c2p4st_32's plane-word for pixels 0-15 is a7>>16
+ * (plane 0) etc. — so pixels 0-7 are exactly the HIGH BYTE of that word, a7>>24.
+ * Because every remapped nibble is <16 its byte's high nibble is zero, so the
+ * 4-shift merge is the clean `b |= a<<4` (reduction 2) and stays within each
+ * byte; zeroing the lower three bytes of every lane therefore leaves the top
+ * byte's transpose identical to the 32-pixel case. Byte-identical to the naive
+ * scatter — verified in tests/test_c2p4st.py.
+ */
+static void c2p4st_8(const unsigned char *src, const unsigned char *lut,
+                     unsigned char out[4])
+{
+	/* Same lane assignment as c2p4st_32's C2P4_LD, top-byte slot only:
+	 * a0..a7 <- pixels {0,4,1,5,2,6,3,7} (c = 0,4,1,5,2,6,3,7). */
+	c2p_u32 a0 = (c2p_u32)lut[src[0]] << 24;
+	c2p_u32 a1 = (c2p_u32)lut[src[4]] << 24;
+	c2p_u32 a2 = (c2p_u32)lut[src[1]] << 24;
+	c2p_u32 a3 = (c2p_u32)lut[src[5]] << 24;
+	c2p_u32 a4 = (c2p_u32)lut[src[2]] << 24;
+	c2p_u32 a5 = (c2p_u32)lut[src[6]] << 24;
+	c2p_u32 a6 = (c2p_u32)lut[src[3]] << 24;
+	c2p_u32 a7 = (c2p_u32)lut[src[7]] << 24;
+
+	a1 |= a0 << 4;
+	a3 |= a2 << 4;
+	a5 |= a4 << 4;
+	a7 |= a6 << 4;
+
+	C2P_DSWAP(a1, a5, 2, 0x33333333UL);
+	C2P_DSWAP(a3, a7, 2, 0x33333333UL);
+	C2P_DSWAP(a1, a3, 1, 0x55555555UL);
+	C2P_DSWAP(a5, a7, 1, 0x55555555UL);
+
+	out[0] = (unsigned char)(a7 >> 24);     /* plane 0 */
+	out[1] = (unsigned char)(a5 >> 24);     /* plane 1 */
+	out[2] = (unsigned char)(a3 >> 24);     /* plane 2 */
+	out[3] = (unsigned char)(a1 >> 24);     /* plane 3 */
+}
+
 #endif /* PLATFORM_C2P4ST_H */
