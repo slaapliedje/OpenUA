@@ -70,8 +70,9 @@ static void aes(short op, short n_intout)
  * renders a 320x240 chunky surface in local RAM; present centres it into the
  * card framebuffer (640x400 = 2x 320x200, so a 320x240 window sits centred with
  * a black surround — a later pass 2x-scales to fill the screen). */
-#define NOVA_SURF_W 320
-#define NOVA_SURF_H 240
+#define NOVA_SURF_W    320
+#define NOVA_SURF_H    240      /* engine canvas (init asks for 320x240)        */
+#define NOVA_CONTENT_H 200      /* the FRUA screen occupies the top 200 rows    */
 
 static dsp_surface_t   s_surf;
 static unsigned char  *s_chunky;        /* engine renders here (local RAM)      */
@@ -79,7 +80,6 @@ static unsigned char  *s_vram;          /* card linear aperture ($FEA00000)     
 static short           s_handle;        /* VDI virtual workstation              */
 static short           s_cardw, s_cardh;/* card mode (640x400 confirmed)        */
 static long            s_pitch;         /* card bytes/row                        */
-static short           s_xoff, s_yoff;  /* where the 320x240 window lands        */
 static short           s_aes_ok;
 static short           s_phys;          /* AES physical handle = the LIVE screen */
 
@@ -121,8 +121,6 @@ static int nova_init(short want_w, short want_h)
 	 * only this constant changes. */
 	s_vram  = (unsigned char *)Logbase();
 	s_pitch = s_cardw;
-	s_xoff  = (short)((s_cardw - NOVA_SURF_W) / 2);
-	s_yoff  = (short)((s_cardh - NOVA_SURF_H) / 2);
 
 	/* Engine renders into local RAM, we push to the card (display_rtg model). */
 	s_chunky = (unsigned char *)Mxalloc((long)NOVA_SURF_W * NOVA_SURF_H, 0);
@@ -130,7 +128,12 @@ static int nova_init(short want_w, short want_h)
 		s_chunky = (unsigned char *)Malloc((long)NOVA_SURF_W * NOVA_SURF_H);
 	if ((long)s_chunky <= 0) { dbg_log("nova: surface alloc failed"); return 1; }
 
-	/* Clear the whole card framebuffer to index 0 (black surround). */
+	/* Clear the render surface — the engine draws its 320x200 into the top, so
+	 * the unused rows 200..239 must be black, not malloc garbage (that garbage
+	 * was the static band at the bottom of the first centred render). */
+	for (i = 0; i < (long)NOVA_SURF_W * NOVA_SURF_H; i++) s_chunky[i] = 0;
+
+	/* Clear the whole card framebuffer to index 0. */
 	n = (long)s_pitch * s_cardh;
 	for (i = 0; i < n; i++) s_vram[i] = 0;
 
@@ -150,29 +153,34 @@ static void nova_shutdown(void)
 
 static dsp_surface_t *nova_surface(void) { return &s_surf; }
 
-/* Copy the chunky surface to the card aperture, row by row (handles a padded
- * card pitch). TODO(NOVA.LOG): if s_pitch==s_w this is one flat copy; the row
- * loop is here so a padded pitch just works once the real value is filled in.
- * A later pass replaces this with a blitter blit. */
+/* 2x-scale the 320x200 content to fill the 640x400 card: each engine pixel
+ * becomes a 2x2 block, so the whole card is covered with no surround. (640x400
+ * = exactly 2x 320x200 — the "doubling".) The per-row loop still lets a padded
+ * card pitch be a one-constant change; a later pass hands this to the card's 2D
+ * blitter. TODO: only the top NOVA_CONTENT_H rows carry the FRUA screen. */
 static void nova_present_rect(short x, short y, short w, short h)
 {
 	short row;
 	if (x < 0) { w += x; x = 0; }
 	if (y < 0) { h += y; y = 0; }
-	if (x + w > NOVA_SURF_W) w = NOVA_SURF_W - x;
-	if (y + h > NOVA_SURF_H) h = NOVA_SURF_H - y;
+	if (x + w > NOVA_SURF_W)    w = NOVA_SURF_W - x;
+	if (y + h > NOVA_CONTENT_H) h = NOVA_CONTENT_H - y;
 	if (w <= 0 || h <= 0) return;
 	for (row = 0; row < h; row++) {
 		const unsigned char *src = s_chunky + (long)(y + row) * NOVA_SURF_W + x;
-		unsigned char       *dst = s_vram
-		                         + (long)(s_yoff + y + row) * s_pitch
-		                         + (s_xoff + x);
+		unsigned char       *d0  = s_vram + (long)((y + row) * 2) * s_pitch + (long)x * 2;
+		unsigned char       *d1  = d0 + s_pitch;
 		short n = w;
-		while (n--) *dst++ = *src++;
+		while (n--) {
+			unsigned char v = *src++;
+			d0[0] = v; d0[1] = v;
+			d1[0] = v; d1[1] = v;
+			d0 += 2; d1 += 2;
+		}
 	}
 }
 
-static void nova_present(void) { nova_present_rect(0, 0, NOVA_SURF_W, NOVA_SURF_H); }
+static void nova_present(void) { nova_present_rect(0, 0, NOVA_SURF_W, NOVA_CONTENT_H); }
 
 /* Hardware CLUT via VDI. TODO(NOVA.LOG): the card is index==slot (hw_palette),
  * so this is correct; only the 0..1000 scaling is VDI-standard. A faster path
