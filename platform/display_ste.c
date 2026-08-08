@@ -2365,7 +2365,19 @@ static void st_vp_composite(void)
 
 		if (!s_vp_have || !s_vp_owe[pg])
 			return;
-		s_vp_owe[pg] = 0;
+		/* ★ THE DOUBLE-REDRAW FIX (#90). Both composite paths below write the
+		 * viewport into BOTH pages in this single call (fast: c2p per page;
+		 * slow: c2p once + blit twice — the B4 "drop into BOTH pages" comment).
+		 * So clear BOTH owes here, not just this page's. The per-page clear is a
+		 * leftover from #61, when the composite touched only one page: it left
+		 * the OTHER page owing, so the SECOND present of every walk step (l63c0
+		 * issues jt312's qd_present_rect then a qd_present) re-ran the whole
+		 * both-page composite — a full redundant viewport c2p per step, ~30% of
+		 * the walk redraw. Both pages are still current (the composite did both),
+		 * so #61's "no stale page on a flip" guarantee is preserved; we just stop
+		 * doing it twice. */
+		s_vp_owe[0] = 0;
+		s_vp_owe[1] = 0;
 	}
 	s_vp_active = 0;                         /* unchanged for the other users */
 	if (!s_have_pal)
@@ -3020,6 +3032,7 @@ static void st_present(void)
 		dbg_log_num("b63pr: rows SCANNED     = ", sp_ph_scanned);
 		dbg_log_num("b63pr:   copy   t200   = ", sp_ph_copy);
 		dbg_log_num("b63pr:   vpcomp t200   = ", sp_vp_t);
+		dbg_log_num("b63pr:   vpcomp COUNT  = ", sp_vp_n);
 		dbg_log_num("b63pr: rows changed    = ", sp_ph_chg_rows);
 		dbg_log_num("b63pr: rows converted  = ", sp_ph_conv_rows);
 		/* #63 REBAND SPLIT — where the boot's `band` + force-full time goes.
