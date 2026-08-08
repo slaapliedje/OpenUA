@@ -244,6 +244,12 @@ static long st_prof_hz200(void)
 }
 static long sp_vp_n, sp_vp_t, sp_rect_n, sp_rect_t, sp_play_t0 = -1;
 static long sp_vp_conv, sp_vp_blit;     /* composite split: c2p vs plane blit */
+static long sp_vp_flat, sp_vp_tex, sp_vp_col8; /* fast-composite span census:
+                                         * flat 32-blocks (fills), textured
+                                         * 32-blocks (walls), 8px edge columns.
+                                         * Zero-timing: the ratio + the known
+                                         * c2p4st_32_flat vs _32 cost gap sizes
+                                         * the Stage-A(fills) vs C(walls) win. */
 
 /* #63 FULL-PRESENT phase split. The HEIRS drive put 32.5% of all play time
  * inside st_present — ~1008 presents at ~1.6 s each — which does not square
@@ -2271,20 +2277,33 @@ static void st_vp_composite_fast(void)
 			/* lead-in 8px columns until x is 32-aligned */
 			while (n >= 8 && (x & 31) != 0) {
 				st_c2p8(sp, lut, drow, x);
+#ifdef FRUA_STPROF
+				sp_vp_col8++;
+#endif
 				sp += 8; x = (short)(x + 8); n = (short)(n - 8);
 			}
 			while (n >= 32) {
 				unsigned short *d =
 				    (unsigned short *)(drow + (long)(x >> 4) * 8);
 
-				if (c2p4st_is_flat(sp, 32))
+				if (c2p4st_is_flat(sp, 32)) {
 					c2p4st_32_flat(sp[0], lut, d);
-				else
+#ifdef FRUA_STPROF
+					sp_vp_flat++;
+#endif
+				} else {
 					c2p4st_32(sp, lut, d);
+#ifdef FRUA_STPROF
+					sp_vp_tex++;
+#endif
+				}
 				sp += 32; x = (short)(x + 32); n = (short)(n - 32);
 			}
 			while (n >= 8) {                 /* trailing columns */
 				st_c2p8(sp, lut, drow, x);
+#ifdef FRUA_STPROF
+				sp_vp_col8++;
+#endif
 				sp += 8; x = (short)(x + 8); n = (short)(n - 8);
 			}
 		}
@@ -3135,6 +3154,13 @@ static void st_prof_play_dump(void)
 	dbg_log_num("b63play: vp w*1000+h    = ", (long)s_vp_w * 1000L + s_vp_h);
 	dbg_log_num("b63play:   of which c2p = ", sp_vp_conv);
 	dbg_log_num("b63play:   of which blit= ", sp_vp_blit);
+	/* Stage A/C sizing: the fast-composite span census (summed over BOTH pages).
+	 * flat 32-blocks = the floor/ceiling FILLS (Stage A target); textured =
+	 * the WALL tiles (Stage C). A big flat share means Stage A is already cheap
+	 * (c2p4st_32_flat) and the win is in the walls. */
+	dbg_log_num("b63play:   flat32 blocks = ", sp_vp_flat);
+	dbg_log_num("b63play:   tex32  blocks = ", sp_vp_tex);
+	dbg_log_num("b63play:   col8   spans  = ", sp_vp_col8);
 	dbg_log_num("b63play: composite t200 = ", sp_vp_t);   /* SUBSET of rect  */
 	dbg_log_num("b63play: wall t200      = ", wall);
 	/* The number the lever choice turns on: per mille of wall clock spent
@@ -3155,6 +3181,7 @@ static void st_prof_play_dump(void)
 #endif
 	sp_rect_n = sp_rect_t = sp_vp_n = sp_vp_t = 0;
 	sp_vp_conv = sp_vp_blit = 0;
+	sp_vp_flat = sp_vp_tex = sp_vp_col8 = 0;
 }
 #endif
 
