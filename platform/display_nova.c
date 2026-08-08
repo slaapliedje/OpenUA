@@ -107,6 +107,74 @@ static void nova_close_ws(void)
 	if (s_aes_ok) { aes(19, 1); s_aes_ok = 0; }
 }
 
+/* Set one card CLUT entry via VDI vs_color (RGB 0..1000). */
+static void nova_vs_color(short idx, short r, short g, short b)
+{
+	intin[0] = idx;
+	intin[1] = (short)(((long)r * 1000) / 255);
+	intin[2] = (short)(((long)g * 1000) / 255);
+	intin[3] = (short)(((long)b * 1000) / 255);
+	contrl[0] = 14; contrl[1] = 0; contrl[3] = 4; contrl[6] = s_handle;
+	vdi();
+}
+
+#ifdef FRUA_NOVA_PALTEST
+/* PALETTE DIAGNOSTIC: paint a full-hue-wheel ramp so ONE photo reveals how the
+ * card maps a framebuffer BYTE to a colour. Set CLUT entry i to hue(i); fill
+ * the screen left->right with value = x*256/width. Then halt so it persists.
+ *
+ *   identity      -> smooth red -> yellow -> green -> cyan -> blue -> magenta
+ *   R<->B swap     -> the cyan band shows GOLD (cyan (0,255,255) -> (255,255,0)),
+ *                     i.e. exactly the "cyan title renders gold" symptom
+ *   permutation    -> scrambled colours instead of a smooth wheel
+ *
+ * The four corner blocks are pure R / G / B / white at known indices (0/1/2/3)
+ * as an unambiguous channel-order key. */
+static void nova_paltest(void)
+{
+	long x, y;
+	short i;
+
+	/* corner-key indices first (overwritten in the wheel below only for i<4,
+	 * so set the wheel first, then stamp these). */
+	for (i = 0; i < 256; i++) {
+		long h = (long)i * 6;           /* 0..1530 across the wheel */
+		short seg = (short)(h >> 8), f = (short)(h & 255);
+		short r = 0, g = 0, b = 0;
+		switch (seg) {
+		case 0: r = 255;     g = f;       b = 0;       break; /* red->yellow  */
+		case 1: r = 255 - f; g = 255;     b = 0;       break; /* yellow->green*/
+		case 2: r = 0;       g = 255;     b = f;       break; /* green->cyan  */
+		case 3: r = 0;       g = 255 - f; b = 255;     break; /* cyan->blue   */
+		case 4: r = f;       g = 0;       b = 255;     break; /* blue->magenta*/
+		default:r = 255;     g = 0;       b = 255 - f; break; /* magenta->red */
+		}
+		nova_vs_color(i, r, g, b);
+	}
+	nova_vs_color(0, 255, 0,   0);          /* index 0 = pure RED   */
+	nova_vs_color(1, 0,   255, 0);          /* index 1 = pure GREEN */
+	nova_vs_color(2, 0,   0,   255);        /* index 2 = pure BLUE  */
+	nova_vs_color(3, 255, 255, 255);        /* index 3 = WHITE      */
+
+	for (y = 0; y < s_cardh; y++)
+		for (x = 0; x < s_cardw; x++)
+			s_vram[y * s_pitch + x] =
+				(unsigned char)((x * 256L) / s_cardw);
+
+	/* corner blocks: 40x40 of index 0/1/2/3 at the four corners */
+	for (y = 0; y < 40; y++)
+		for (x = 0; x < 40; x++) {
+			s_vram[y * s_pitch + x]                              = 0;
+			s_vram[y * s_pitch + (s_cardw - 1 - x)]              = 1;
+			s_vram[(s_cardh - 1 - y) * s_pitch + x]              = 2;
+			s_vram[(s_cardh - 1 - y) * s_pitch + (s_cardw-1-x)]  = 3;
+		}
+
+	dbg_log("nova: PALTEST drawn — photograph the hue wheel + corners");
+	for (;;) { }                            /* halt; reset after photographing */
+}
+#endif
+
 /* ------------------------------------------------------------------- backend ops
  * The screen is already open (dsp_backend_nova confirmed 8bpp and left the
  * workstation open). init() only allocates the render surface + binds VRAM. */
@@ -121,6 +189,15 @@ static int nova_init(short want_w, short want_h)
 	 * only this constant changes. */
 	s_vram  = (unsigned char *)Logbase();
 	s_pitch = s_cardw;
+
+	/* Stop dbg_log painting the card screen (Cconws draws into the framebuffer
+	 * we now own) — route it to DBG.LOG so the debug trail stops overwriting the
+	 * game. This is what let the play loop stay legible on the card. */
+	dbg_log_screen_owned();
+
+#ifdef FRUA_NOVA_PALTEST
+	nova_paltest();                 /* draws the diagnostic + halts */
+#endif
 
 	/* Engine renders into local RAM, we push to the card (display_rtg model). */
 	s_chunky = (unsigned char *)Mxalloc((long)NOVA_SURF_W * NOVA_SURF_H, 0);
@@ -188,14 +265,8 @@ static void nova_present(void) { nova_present_rect(0, 0, NOVA_SURF_W, NOVA_CONTE
 static void nova_set_palette(const dsp_color_t *c, short first, short count)
 {
 	short i;
-	for (i = 0; i < count; i++) {
-		intin[0] = first + i;
-		intin[1] = (short)((c[i].r * 1000) / 255);
-		intin[2] = (short)((c[i].g * 1000) / 255);
-		intin[3] = (short)((c[i].b * 1000) / 255);
-		contrl[0] = 14; contrl[1] = 0; contrl[3] = 4; contrl[6] = s_handle;
-		vdi();
-	}
+	for (i = 0; i < count; i++)
+		nova_vs_color((short)(first + i), c[i].r, c[i].g, c[i].b);
 }
 
 static const dsp_backend_t nova_backend = {
