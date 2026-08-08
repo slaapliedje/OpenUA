@@ -22434,6 +22434,10 @@ static short  jt1125(short kind, long p1, long p2)
 		 * still sees the key and the cmd=5 shortcut walk fires. */
 		g_a5_word(-818) = ascii;
 		g_a5_byte(-820) = 1;
+#ifdef FRUA_ACCTRACE
+		if (g_walk_input)
+			dbg_file_num("acc: jt1125 stamp ascii ", (long)ascii);
+#endif
 		/* Honour the Toolbox event MASK: every engine call site
 		 * passes kind = 7 (null + mouseDown + mouseUp) — on the Mac
 		 * jt1125 therefore NEVER returns key events; keys flow only
@@ -22467,6 +22471,10 @@ static short  jt1125(short kind, long p1, long p2)
 		if ((kind & (8 | 32)) == 0
 		 && (!g_walk_input
 		  || !((ascii >= 257 && ascii <= 264) || ascii == 27 || ascii == 13))) {
+#ifdef FRUA_ACCTRACE
+			if (g_walk_input)
+				dbg_file_num("acc: jt1125 MASKED (no event) ", (long)ascii);
+#endif
 			*out1 = 0;
 			*out2 = 0;
 			return 0;
@@ -26828,6 +26836,11 @@ static short l2d3e(void)
 	dlitem_method_t method;
 
 	PROBE("L2d3e");
+#ifdef FRUA_ACCTRACE
+	{ static long n2d3e;
+	  if (g_walk_input && (++n2d3e % 500) == 0)
+		dbg_file_num("acc: l2d3e walk spins ", n2d3e); }
+#endif
 #ifdef FRUA_KBTRACE
 	{ extern long g_kbt_l2d3e; g_kbt_l2d3e++; }
 #endif
@@ -27203,8 +27216,16 @@ static short l2d3e(void)
 	 * code. Walk DLItems calling method(rec, 5, code); on match,
 	 * fire the kind=19 / 1 / 4(-1) / 27 method sequence and check
 	 * the commit bit. */
+#ifdef FRUA_ACCTRACE
+	if (g_walk_input && g_a5_byte(-820) != 0)
+		dbg_file_num("acc: ph5 entry, -820 SET, pending ", (long)g_a5_word(-818));
+#endif
 	if (l31ea() != 0) {
 		sel_key = l31f0();
+#ifdef FRUA_ACCTRACE
+		if (g_walk_input)
+			dbg_file_num("acc: ph5 consumed key ", (long)sel_key);
+#endif
 		rec = (unsigned char *)g_a5_9254;
 		for (i = 0; i < count; i++) {
 			method = *(dlitem_method_t *)rec;
@@ -27213,6 +27234,10 @@ static short l2d3e(void)
 				break;
 			rec += DLITEM_BYTES;
 		}
+#ifdef FRUA_ACCTRACE
+		if (g_walk_input)
+			dbg_file_num("acc: ph5 claimed item (count if none) ", (long)i * 100L + count);
+#endif
 #ifdef FRUA_CBTKEYDIAG
 		dbg_log_num("cbtkey: ph5 key =  ", (long)sel_key);
 		if (i < count)
