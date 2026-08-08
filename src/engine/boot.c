@@ -18059,14 +18059,20 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 #endif
 		if (g_cbtsnd_fire) {            /* harness: start the fight from the walk */
 			g_cbtsnd_fire = 0;
+#ifndef FRUA_CBT_CURGEO
 			/* Load the level AT FIRE TIME: the walk loads its own level
 			 * after the harness entry runs, so a jt198 up there is
 			 * overwritten before 'k' is ever pressed. */
 			jt198((short)7);
-			dbg_log_num("cbtsnd: firing GEO007 event ",
+#else
+			/* FRUA_CBT_CURGEO: fire the event in the ALREADY-LOADED area
+			 * (the fixture's GEO005), so the party stays put and combat
+			 * returns to THIS walk — the post-combat accelerator test. */
+#endif
+			dbg_file_num("cbtsnd: firing event ",
 			            (long)FRUA_CBTAUTO_EV);
 			l709e((short)FRUA_CBTAUTO_EV);
-			dbg_log("cbtsnd: combat returned");
+			dbg_file_str("cbtsnd: ", "combat returned to walk");
 		}
 #endif
 #ifdef FRUA_DROWTEST
