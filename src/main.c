@@ -389,12 +389,23 @@ static int frua_main_body(void)
 
 	dbg_log("main: entered");
 	dbg_log("main: OpenUA " FRUA_VERSION);
-#ifndef FRUA_AMIGA
+#ifdef FRUA_BOOTTRACE
+	/* Real-hardware breadcrumbs (Mega STe black-screen hunt): dbg_file_*
+	 * writes DBG.LOG regardless of the console/file sink switch, so the
+	 * LAST marker present names the step that never returned. */
+	dbg_file_str("bt:", "main entry");
+#endif
+#if !defined(FRUA_AMIGA) && !defined(FRUA_NOBOOST)
 	/* A Mega STe boots at 8 MHz with its cache off unless a control panel
 	 * says otherwise, and this engine's 68000 play loop is the thing that
-	 * notices. No-op on every other machine. Restored at shutdown. */
+	 * notices. No-op on every other machine. Restored at shutdown.
+	 * FRUA_NOBOOST exists for exactly one purpose: proving on real
+	 * hardware whether this write is what a black screen is made of. */
 	if (plat_cpu_boost())
 		dbg_log("main: Mega STe -> 16 MHz + cache");
+#endif
+#ifdef FRUA_BOOTTRACE
+	dbg_file_str("bt:", "post-boost (or boost skipped)");
 #endif
 #ifdef FRUA_VDIPRINT_TEST
 	/* Printing Manager face smoke test (docs/gdos-printing-wall.md step
@@ -451,6 +462,9 @@ static int frua_main_body(void)
 
 	dsp = dsp_detect();
 	dbg_log(dsp->name);
+#ifdef FRUA_BOOTTRACE
+	dbg_file_str("bt:", "backend detected, calling init");
+#endif
 	if (dsp->init(320, 240) != 0) {
 		dbg_log("main: display init failed");
 		return 1;

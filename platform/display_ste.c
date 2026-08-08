@@ -2012,11 +2012,17 @@ static int st_init(short want_w, short want_h)
 	s_shadow     = s_shadow_pg[s_back];
 	s_force_full = 1;                         /* first present converts both pages */
 
+#ifdef FRUA_BOOTTRACE
+	dbg_file_str("bt:", "st_init: allocs+pages done");
+#endif
 	s_save_rez  = Getrez();
 	s_save_phys = Physbase();
 	s_save_log  = Logbase();
 	Setscreen(s_save_log, s_page[0], 0);     /* ST Low; show page 0; console keeps log */
 	dbg_log_screen_owned();   /* see the videl backend: keep Cconws off the picture */
+#ifdef FRUA_BOOTTRACE
+	dbg_file_str("bt:", "st_init: Setscreen done (screen black now)");
+#endif
 
 	s_surface.width  = ST_W;
 	s_surface.height = ST_H;
@@ -2029,7 +2035,13 @@ static int st_init(short want_w, short want_h)
 	/* Install the raster split: a VBL slot (re-phases Timer B + loads band 0)
 	 * and Timer B in event-count mode firing every ST_RPB display lines. */
 	Supexec(st_vbl_install_super);
+#ifdef FRUA_BOOTTRACE
+	dbg_file_str("bt:", "st_init: VBL installed");
+#endif
 	Xbtimer(1, 8, ST_RPB, st_timerb_trampoline);   /* timer B, event count */
+#ifdef FRUA_BOOTTRACE
+	dbg_file_str("bt:", "st_init: Timer-B armed (split LIVE)");
+#endif
 	/* #63: Xbtimer both installs the vector AND enables the channel, so the
 	 * split is LIVE from here. The VBL owns arming from now on and will stop
 	 * it on the first frame that finds the bands uniform — which, until a
@@ -2059,6 +2071,9 @@ static int st_init(short want_w, short want_h)
 	if (s_dt_rowcov != NULL)
 		memset(s_dt_rowcov, 0, ST_H * sizeof(short));
 	planar_draw_target_register(st_dt_target);
+#ifdef FRUA_BOOTTRACE
+	dbg_file_str("bt:", "st_init: planar buffers up");
+#endif
 #endif
 
 #ifdef FRUA_PLANAR
