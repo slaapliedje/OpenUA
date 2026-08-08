@@ -2227,19 +2227,14 @@ static void st_c2p8(const unsigned char *src, const unsigned char *lut,
                     unsigned char *dstrow, short x)
 {
 	unsigned char *g = dstrow + (long)(x >> 4) * 8 + ((x >> 3) & 1);
-	unsigned char b0 = 0, b1 = 0, b2 = 0, b3 = 0;
-	short i;
+	unsigned char pb[4];
 
-	for (i = 0; i < 8; i++) {
-		unsigned char s = lut[src[i]];
-		unsigned char m = (unsigned char)(0x80u >> i);
-
-		if (s & 1) b0 |= m;
-		if (s & 2) b1 |= m;
-		if (s & 4) b2 |= m;
-		if (s & 8) b3 |= m;
-	}
-	g[0] = b0; g[2] = b1; g[4] = b2; g[6] = b3;
+	/* #90: the 8px edge column through the word-parallel half-group c2p — the
+	 * scalar per-bit scatter this replaces was ~45% of the walk composite
+	 * (unaligned 88px viewport = 3 of these columns per row). c2p4st_8 fills
+	 * plane 0..3 bytes; the ST-Low group places them at the +0/+2/+4/+6 words. */
+	c2p4st_8(src, lut, pb);
+	g[0] = pb[0]; g[2] = pb[1]; g[4] = pb[2]; g[6] = pb[3];
 }
 
 /* #63: chunky viewport -> ST-Low planes, straight into each page.
