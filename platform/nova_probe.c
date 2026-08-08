@@ -173,6 +173,7 @@ static void aes(short op, short n_intout)
 }
 
 static short g_aes_ok;
+static short g_phys;             /* AES physical screen handle (the live screen) */
 
 /* Open a virtual screen workstation via the AES physical handle. Returns the
  * virtual handle (0 = fail) and fills work_out[57]. */
@@ -187,6 +188,7 @@ static short ws_open(short *work_out)
 
 	aes(77, 5);                     /* graf_handle -> phys handle in [0] */
 	phys = aes_intout[0];
+	g_phys = phys;                  /* the AES-open screen ws = the LIVE screen */
 
 	intin[0] = (short)(Getrez() + 2);
 	for (i = 1; i < 10; i++)
@@ -305,56 +307,70 @@ void nova_probe_dump(void)
 		emit_nl();
 	}
 	emit_nl();
+	emit(have_gfx
+	     ? "(a NOVA/EdDI/NVDI/fVDI cookie is present)"
+	     : "(no NOVA/EdDI/NVDI/fVDI cookie — a card driver like xVDI may use a"
+	       " DIFFERENT cookie; the VDI query below is what actually settles it)");
+	emit_nl();
 	emit("phase: cookies+base captured (this is the essential data)"); emit_nl();
 	flush_log();
 
-	/* -- VDI screen workstation ------------------------------------------
-	 * Opening a physical screen workstation needs a live VDI screen driver.
-	 * On a card system that means the Nova/NVDI driver is up (a graphics-card
-	 * cookie is present) — do the full caps query there. On a plain ST/STe
-	 * launched from an AUTO program the ROM VDI screen may not be ready and
-	 * v_opnwk can block, so the control run SKIPS it (we already have the
-	 * cookie jar, which on a plain machine has no card anyway). Force it with
-	 * -DFRUA_NOVAPROBE_VDI to test the VDI path on a machine with no cookie. */
-#ifdef FRUA_NOVAPROBE_VDI
-	(void)have_gfx;                 /* forced path ignores the cookie gate */
-#else
-	if (!have_gfx) {
-		emit("No NOVA/EdDI/NVDI/fVDI cookie -> no graphics-card driver."); emit_nl();
-		emit("Skipping the VDI workstation open (would block with no active"); emit_nl();
-		emit("VDI screen). Expected on a plain ST/STe control run."); emit_nl();
-		emit("phase: done (no card)"); emit_nl();
+	/* -- VDI screen caps -------------------------------------------------
+	 * The DECISIVE query. Trust neither Getrez() nor a specific cookie: a
+	 * graphics card (xVDI/Nova/NVDI) at, say, 640x400x256 makes Getrez()
+	 * report 2 (ST-High), so BOTH the engine's dsp_detect (Getrez()==2 ->
+	 * ST-High mono backend) AND a v_opnvwk(Getrez()+2) land on the 640x400x2
+	 * COMPAT mode instead of the real 256-colour card screen.
+	 *
+	 * The card's REAL screen is the physical workstation the AES already
+	 * has open for the desktop. graf_handle() returns its handle, and
+	 * vq_extnd() on THAT handle reports the card's true planes/colours — no
+	 * new v_opnvwk, no device-id guess. This runs whenever the AES is up
+	 * (appl_init succeeds); on a plain machine that just reports the ST
+	 * screen (a fine control). Both are dumped so the discrepancy is on
+	 * record. */
+	emit("phase: opening AES + querying the LIVE screen..."); emit_nl();
+	flush_log();
+
+	handle = ws_open(work_out);     /* appl_init + graf_handle + v_opnvwk */
+	if (!g_aes_ok) {
+		emit("appl_init failed -> no AES/desktop. Boot into the card's GEM"); emit_nl();
+		emit("desktop (run xVDI), then run this from the desktop."); emit_nl();
+		emit("phase: done (no AES)"); emit_nl();
 		flush_log();
 		return;
 	}
-#endif
 
-	emit("phase: opening VDI screen workstation..."); emit_nl();
+	emit("graf_handle (LIVE physical screen) = "); emit_dec(g_phys); emit_nl();
+
+	/* (A) authoritative: query the AES physical handle directly */
+	ws_extnd(g_phys, 0, work_out);
+	emit("== LIVE SCREEN via vq_extnd(graf_handle) — the REAL card mode =="); emit_nl();
+	emit("  width   = "); emit_dec(work_out[0] + 1); emit(" px"); emit_nl();
+	emit("  height  = "); emit_dec(work_out[1] + 1); emit(" px"); emit_nl();
+	emit("  colours = "); emit_dec(work_out[13]); emit_nl();
+	emit("  full mode-0 work_out[57]:"); emit_nl();
+	emit_workout(work_out);
+	ws_extnd(g_phys, 1, work_out);
+	emit("  planes(work_out[4]) = "); emit_dec(work_out[4]);
+	emit(", lut(work_out[5]) = "); emit_dec(work_out[5]); emit_nl();
+	emit("  => 2^planes = "); emit_dec(1L << work_out[4]);
+	emit(" (planes==8 & colours==256 => 8bpp chunky card)"); emit_nl();
+	emit("  full mode-1 work_out[57]:"); emit_nl();
+	emit_workout(work_out);
+	emit("phase: live-screen query done"); emit_nl();
 	flush_log();
 
-	handle = ws_open(work_out);
-	emit("v_opnvwk(Getrez()+2) handle = "); emit_dec(handle); emit_nl();
-	if (handle == 0) {
-		emit("  (open failed — no AES, or boot into the card's GEM desktop"); emit_nl();
-		emit("   first, then run this.)"); emit_nl();
-	} else {
-		emit("  width  = "); emit_dec(work_out[0] + 1); emit(" px"); emit_nl();
-		emit("  height = "); emit_dec(work_out[1] + 1); emit(" px"); emit_nl();
-		emit("  colours(work_out[13]) = "); emit_dec(work_out[13]); emit_nl();
-		emit("  palette(work_out[39]) = "); emit_dec(work_out[39]); emit_nl();
-		emit("  full Open Workstation work_out[57]:"); emit_nl();
-		emit_workout(work_out);
-		emit("phase: v_opnvwk done"); emit_nl();
-		flush_log();
-
+	/* (B) for the record: the device-id path the engine currently uses */
+	emit("== v_opnvwk(Getrez()+2) — the DEVICE-ID path (may report ST-compat) =="); emit_nl();
+	emit("  handle = "); emit_dec(handle); emit_nl();
+	if (handle != 0) {
+		ws_extnd(handle, 0, work_out);
+		emit("  width  = "); emit_dec(work_out[0] + 1);
+		emit(", height = "); emit_dec(work_out[1] + 1);
+		emit(", colours = "); emit_dec(work_out[13]); emit_nl();
 		ws_extnd(handle, 1, work_out);
-		emit("  vq_extnd(mode 1): planes(work_out[4]) = ");
-		emit_dec(work_out[4]);
-		emit(", lut(work_out[5]) = "); emit_dec(work_out[5]); emit_nl();
-		emit("  => 2^planes = "); emit_dec(1L << work_out[4]);
-		emit(" (==colours means paletted, chunky-friendly)"); emit_nl();
-		emit("  full vq_extnd(1) work_out[57]:"); emit_nl();
-		emit_workout(work_out);
+		emit("  planes  = "); emit_dec(work_out[4]); emit_nl();
 	}
 
 	ws_close(handle);               /* v_clsvwk (if open) + appl_exit */

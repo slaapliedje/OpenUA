@@ -72,6 +72,7 @@ static short           s_handle;        /* VDI virtual workstation              
 static short           s_w, s_h;
 static long            s_pitch;         /* card bytes/row (TODO(NOVA.LOG))      */
 static short           s_aes_ok;
+static short           s_phys;          /* AES physical handle = the LIVE screen */
 
 static short nova_open_ws(short *work_out)
 {
@@ -81,6 +82,7 @@ static short nova_open_ws(short *work_out)
 	s_aes_ok = 1;
 	aes(77, 5);                     /* graf_handle */
 	phys = aes_intout[0];
+	s_phys = phys;
 	intin[0] = (short)(Getrez() + 2);
 	for (i = 1; i < 10; i++) intin[i] = 1;
 	intin[10] = 2;
@@ -193,12 +195,22 @@ const dsp_backend_t *dsp_backend_nova(void)
 	s_handle = nova_open_ws(work_out);
 	if (s_handle == 0) { dbg_log("nova: no AES/VDI screen"); nova_close_ws(); return NULL; }
 
-	contrl[0] = 102; contrl[1] = 0; contrl[3] = 1; contrl[6] = s_handle;
+	/* ★ Query the LIVE physical screen (graf_handle), NOT the v_opnvwk we just
+	 * opened. A card at 640x400x256 makes Getrez() report 2 (ST-High), so the
+	 * v_opnvwk(Getrez()+2) above binds to the ST-compat mode and reports planes
+	 * 4/1 — the same trap that makes dsp_detect pick the ST-High backend. The
+	 * AES physical handle is the real desktop screen (the card); vq_extnd on it
+	 * reports the true depth. (Proven by nova_probe.c: on the card the live
+	 * query gives 256/8 while the device-id path gives ST-compat.) The mode-0
+	 * caps (size/colours) also come from the physical handle. */
+	contrl[0] = 102; contrl[1] = 0; contrl[3] = 1; contrl[6] = s_phys;
+	intin[0] = 0; vdi();            /* vq_extnd(mode 0) -> Open-Workstation caps */
+	s_w = intout[0] + 1;
+	s_h = intout[1] + 1;
+
+	contrl[0] = 102; contrl[1] = 0; contrl[3] = 1; contrl[6] = s_phys;
 	intin[0] = 1; vdi();            /* vq_extnd(mode 1) -> planes at [4] */
 	planes = intout[4];
-
-	s_w = work_out[0] + 1;
-	s_h = work_out[1] + 1;
 	dbg_log_num("nova: width  = ", s_w);
 	dbg_log_num("nova: height = ", s_h);
 	dbg_log_num("nova: planes = ", planes);

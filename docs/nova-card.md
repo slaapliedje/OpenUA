@@ -30,28 +30,41 @@ m68k-atari-mint-strip frua.prg          # optional; smaller
 It writes **`NOVA.LOG`** in the game directory and then continues booting
 normally. The probe:
 
-- dumps the **cookie jar** — `NOVA` / `EdDI` / `NVDI` / `fVDI` prove the card +
-  driver are present, and `_VDO` will still read STE (which is exactly why
-  `dsp_detect` can't use it to spot a card);
+- dumps the **cookie jar** — `NOVA` / `EdDI` / `NVDI` / `fVDI` are *hints* a card
+  driver is up, but **do not gate on them** (see the hardware finding below);
+  `_VDO` still reads STE with a card fitted, which is why `dsp_detect` can't use
+  it to spot a card;
 - records the **framebuffer base** — `Physbase()` / `Logbase()` / `_v_bas_ad`
   (the address the fast path writes chunky pixels to, once the card is the
   active screen);
-- opens a VDI screen workstation (AES `graf_handle` → `v_opnvwk`, the documented
-  path) and dumps the caps — **`work_out[13]` = #colours**, and from
-  `vq_extnd(mode 1)` **`work_out[4]` = planes**, `[5]` = LUT flag. `planes == 8`
-  and `colours == 256` confirm an 8bpp paletted screen we can render into.
+- **queries the LIVE screen** — `vq_extnd()` on the AES physical handle from
+  `graf_handle()` (the desktop's own workstation = the card), reporting
+  **`work_out[13]` = #colours** and **`vq_extnd(mode 1) work_out[4]` = planes**.
+  `planes == 8` / `colours == 256` confirm an 8bpp paletted screen. It ALSO
+  dumps the `v_opnvwk(Getrez()+2)` device-id path for comparison.
 
-The probe is **incremental** — it flushes `NOVA.LOG` after each phase, so if a
-VDI call ever blocks the machine, the last line names the step and the cookie
-jar + base are already on disk. On a plain ST/STe (no card cookie) it records
-cookies + base and **skips the VDI open** (which would block with no active VDI
-screen) — a useful control run.
+It flushes `NOVA.LOG` after each phase (breadcrumbs), and runs whenever the AES
+is up (`appl_init` succeeds); on a plain machine it just reports the ST screen —
+a useful control. Verified on an emulated STe: `graf_handle` = 1, 320×200, 16
+colours, planes 4 (2⁴ = 16 paletted) — the query is correct; on the card the
+live query reports 256 / planes 8.
 
-Verified on an emulated STe (no card): the AES/`v_opnvwk` path returns handle 2,
-320×200, 16 colours, planes 4 (2⁴ = 16 paletted) — i.e. the code is correct; on
-the card those become planes 8 / 256 colours.
+### ★ Hardware finding (2026-08-08, ATW800/2 + xVDI driver)
 
-Send me `NOVA.LOG` and I fill in the four `TODO(NOVA.LOG)` spots in the backend.
+- The card driver is **xVDI**; its **lowest resolution is 640×400** (256-colour
+  or 16-bit). No 320×200 — but **640×400 is exactly 2× 320×200**, so the backend
+  integer-doubles the engine surface (clean, no fractional scaling).
+- **Getrez() returns 2 (ST-High) at 640×400.** That poisons two device-id
+  paths: (1) the engine's `dsp_detect` did `Getrez()==2 → ST-High mono backend`,
+  and (2) a `v_opnvwk(Getrez()+2)` opens the 640×400×**2** ST-compat mode — which
+  is exactly the "detected 640×400×2" symptom. The cure everywhere: **ask the
+  VDI (via the `graf_handle` physical workstation) for the real depth**, never
+  trust `Getrez()`.
+- xVDI does **not** set `NOVA`/`EdDI`/`NVDI`/`fVDI` — so an early cookie gate
+  wrongly skipped the query. The probe no longer gates on the cookie.
+
+Send me the new `NOVA.LOG` (the "LIVE SCREEN via vq_extnd(graf_handle)" block)
+and I fill in the four `TODO(NOVA.LOG)` spots in the backend.
 
 ## Step 2 — the backend (`platform/display_nova.c`)
 
