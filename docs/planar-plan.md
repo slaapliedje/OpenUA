@@ -1155,6 +1155,18 @@ Next levers, cheapest first: (a) align the composite to kill the 43% edge
 overhead; (b) halve the two-redraws-per-action (named above); (c) Stage C
 draw-time planar walls, net-win-bounded per (3).
 
+**LANDED (a) 2026-08-08 — composite 249 -> 195 t200, −22%, pixel-identical.**
+`st_vp_composite_fast` now converts a 16-aligned x=16..112 span (three
+`c2p4st_32` blocks/row, `col8 = 0`); the ≤15px border strips the alignment adds
+are seeded into the scratch from `s_chunky` (static frame chrome), so the result
+is byte-identical — the resume frame md5-matched the pre-alignment build whole
+(status bar included), game-area AE 0 px. This is the edge-column 43% converted
+from scalar overhead to a fast aligned block, not removed work: block count
+went 352 -> 528/present but the 528 scalar `st_c2p8` calls disappeared. Commit
+c7f88aa6; the earlier `c2p4st_8` (2b9fac49) is now used only by the exotic
+trailing-16px fallback the live viewport never hits. Remaining: (b) the two
+redraws per action, then (c) Stage C.
+
 ### #91 — THE SHIPPING ST/STE PLANAR BUILD WEDGES AT BOOT (found 2026-07-26)
 
 Found while trying to drive the #90 soak. `make CPU68K=68000` — the default,
