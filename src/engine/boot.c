@@ -17856,6 +17856,29 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 			jt1173((short)8024, (short)8092, (short)8058, (short)8156);
 		else
 			jt1193();
+		/* ★ SNAP THE CAMERA TO THE PARTY BEFORE THIS ENTRY RENDER (the
+		 * "you're probably somewhere else" / wrong-area flash at the end of an
+		 * event chain, reported on real Mega STe hardware).
+		 *
+		 * l63c0 is re-entered through jt948 -> jt240 after a CHAINED combat
+		 * (HEIRS' roadwarden text -> chain -> the ogre fight), and combat leaves
+		 * the view cell -12288.. stale (its own arena coords / the pre-move
+		 * entry cell). jt297's per-step forward-snap does not run on this entry
+		 * path, and the entry force-full (jt312 below) renders ONE frame at that
+		 * stale cell -> the dungeon drawn "from another area", which the next
+		 * step then snaps back. g_event_modal_shown is already cleared at the top
+		 * of this branch, so the step-tail repair can't catch it either.
+		 *
+		 * Do exactly what l143e's load restore does — write the camera from the
+		 * authoritative party mirror rec[46..51] (the same source the per-step
+		 * snap uses, #124) BEFORE the render. Deep play only; idempotent when the
+		 * camera already tracks the party (every ordinary command re-entry), and
+		 * on the per-command entry path, not the hot per-frame path. */
+		{
+			short ke;
+			for (ke = 0; ke < 6; ke++)
+				g_a5_byte(-12288 + ke) = rec[46 + ke];
+		}
 		g_l63c0_defer_hud = 1;          /* #17: HUD paints after cb1 */
 		jt312(ctx);
 		g_l63c0_defer_hud = 0;
