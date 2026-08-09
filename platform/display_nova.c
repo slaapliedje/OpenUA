@@ -275,6 +275,33 @@ static const unsigned char nova_hw_inverse[16] =
 static void nova_set_palette(const dsp_color_t *c, short first, short count)
 {
 	short i;
+#ifdef FRUA_NOVA_PALTRACE
+	/* FIELD PROBE: the menu's hotkey letters paint CORRECTLY and then go black
+	 * on a redraw. A wrong hw_inverse table cannot do that — it would be wrong
+	 * on the first paint too — so the question is what happens to those CLUT
+	 * entries BETWEEN the two paints. Log every palette write as
+	 * first*1000+count, plus the RGB actually landing on a watched low index,
+	 * so a later full 256-entry install (the boot log shows "clut 129
+	 * installed, entries = 256" twice) shows up as the thing that overwrites
+	 * the UI colours. Bounded so it cannot flood the card's log. */
+	{
+		static short pt_n;
+		if (pt_n < 80) {
+			pt_n++;
+			dbg_file_num("paltrace: first*1000+count = ",
+			             (long)first * 1000L + count);
+			/* what this call puts on the UI range 0..15 (packed RGB) */
+			for (i = 0; i < count; i++) {
+				short idx = (short)(first + i);
+				if (idx < 16)
+					dbg_file_num("paltrace:   idx*1e6+rgb   = ",
+					             (long)idx * 1000000L
+					             + (long)c[i].r * 10000L
+					             + (long)c[i].g * 100L + c[i].b);
+			}
+		}
+	}
+#endif
 	for (i = 0; i < count; i++) {
 		short idx = (short)(first + i);
 		short pen = (idx >= 0 && idx < 16)

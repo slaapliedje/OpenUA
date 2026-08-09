@@ -9696,6 +9696,32 @@ static void jt57(short x, short y, short kind, short rec_hi, short rec_lo)
 	 * from a null handle dereferences $0 (movew (a0)) -> Bus Error: this is
 	 * the char-gen body-review ("two-pane") crash. Skip the blit when no art
 	 * is loaded; the icon grid just stays empty until jt110 is lifted. */
+#ifdef FRUA_ICONTRACE
+	/* #137 field probe: the body-icon grid renders BLACK on real hardware via
+	 * the live character-creation path, while the FRUA_BODY harness (which
+	 * seeds its own record and never repaints) draws all 49 icons correctly on
+	 * ST-Low AND Falcon. jt57 is the chokepoint every cell blits through, and
+	 * it returns silently on a null handle — "the icon grid just stays empty",
+	 * exactly the symptom. So COUNT it: how many cells asked to draw, and how
+	 * many were refused for want of art. Two lines settle whether this is an
+	 * art-LOADING failure (handle 0 on the real path) or a drawing/palette one
+	 * (handle fine, pixels land but read black). Logged to the FILE, not the
+	 * console, so it cannot paint over the screen being diagnosed. */
+	{
+		static long ic_calls, ic_nullh, ic_logged;
+		ic_calls++;
+		if (handle == 0)
+			ic_nullh++;
+		if (ic_calls == 49 || (ic_calls > 49 && ic_logged < 3
+		                       && (ic_calls % 49) == 0)) {
+			ic_logged++;
+			dbg_file_num("icontrace: jt57 calls   = ", ic_calls);
+			dbg_file_num("icontrace: NULL handle   = ", ic_nullh);
+			dbg_file_num("icontrace: handle -27866 = ", g_a5_long(-27866));
+			dbg_file_num("icontrace: jt1200()      = ", (long)jt1200());
+		}
+	}
+#endif
 	if (handle == 0)
 		return;
 	group = *(short *)(uintptr_t)handle;
