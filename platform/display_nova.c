@@ -291,13 +291,17 @@ static void nova_set_palette(const dsp_color_t *c, short first, short count)
 			dbg_file_num("paltrace: first*1000+count = ",
 			             (long)first * 1000L + count);
 			/* what this call puts on the UI range 0..15 (packed RGB) */
+			/* BIT-packed, not decimal-packed: r/g/b are 0..255, so the
+			 * old idx*1e6 + r*1e4 + g*1e2 + b spilled r>=100 into the
+			 * index field and produced impossible indices. Shift instead —
+			 * idx<16 so the whole value stays well inside a signed long. */
 			for (i = 0; i < count; i++) {
 				short idx = (short)(first + i);
 				if (idx < 16)
-					dbg_file_num("paltrace:   idx*1e6+rgb   = ",
-					             (long)idx * 1000000L
-					             + (long)c[i].r * 10000L
-					             + (long)c[i].g * 100L + c[i].b);
+					dbg_file_num("paltrace:   idx<<24|rgb  = ",
+					             ((long)idx << 24)
+					             | ((long)c[i].r << 16)
+					             | ((long)c[i].g << 8) | c[i].b);
 			}
 		}
 	}

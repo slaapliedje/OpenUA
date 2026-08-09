@@ -9719,6 +9719,47 @@ static void jt57(short x, short y, short kind, short rec_hi, short rec_lo)
 			dbg_file_num("icontrace: NULL handle   = ", ic_nullh);
 			dbg_file_num("icontrace: handle -27866 = ", g_a5_long(-27866));
 			dbg_file_num("icontrace: jt1200()      = ", (long)jt1200());
+			/* ROUND 2 (the art loads and every cell blits, yet the grid reads
+			 * BLACK on ST-Low AND Nova). Two possibilities left, and they need
+			 * different fixes: the blit laid BAD INDICES, or it laid good ones
+			 * whose PALETTE entries are black. Both are backend-independent, so
+			 * settle it from the shim: histogram the chunky indices actually
+			 * sitting in the grid region and print the top few WITH the colour
+			 * the live shim CLUT holds for each. Sensible varied 32+ indices
+			 * carrying real colours would mean the shim is right and the fault
+			 * is downstream (ST quantiser / Nova CLUT); near-black entries mean
+			 * the icon-grid palette install is the problem, which would explain
+			 * both machines at once. */
+			{
+				static unsigned char pal768[768];
+				unsigned char *sp; short spitch, ssw, ssh;
+
+				qd_dump_palette(pal768);
+				if (qd_screen_pixels_nomark(&sp, &spitch, &ssw, &ssh) && sp) {
+					static short hist[256];
+					short xx, yy, k, top;
+					long  n;
+
+					for (k = 0; k < 256; k++) hist[k] = 0;
+					for (yy = 28; yy < 180 && yy < ssh; yy++)
+						for (xx = 16; xx < 176 && xx < ssw; xx++)
+							hist[sp[(long)yy * spitch + xx]]++;
+					for (n = 0; n < 6; n++) {
+						top = 0;
+						for (k = 1; k < 256; k++)
+							if (hist[k] > hist[top]) top = k;
+						/* idx*1e6 + r*1e4 + g*1e2 + b (0..255 each) */
+						dbg_file_num("icontrace:  top idx*1e6+rgb= ",
+						             (long)top * 1000000L
+						             + (long)pal768[top * 3 + 0] * 10000L
+						             + (long)pal768[top * 3 + 1] * 100L
+						             + pal768[top * 3 + 2]);
+						dbg_file_num("icontrace:    px count     = ",
+						             (long)hist[top]);
+						hist[top] = 0;
+					}
+				}
+			}
 		}
 	}
 #endif
@@ -34166,6 +34207,19 @@ static void l09dc(void)
 			long set1 = handle
 			    ? l37aa(jt468(*(short *)(uintptr_t)handle), 1) : 0;
 			long pal0 = set1 ? l37aa(set1, 0) : 0;
+#ifdef FRUA_ICONTRACE
+			/* The 49 icons DO draw on the real path, yet no CLUTstart line
+			 * appears — so this palette install is bailing on one of its
+			 * inner guards. Name which one: the DUNGCOM1 bind, the outer
+			 * item-1 (set) navigation, its item-0 (colour table), or the
+			 * ph[7]&15==8 "is a colour table" test. */
+			dbg_file_num("icontrace: PAL bind handle = ", (long)handle);
+			dbg_file_num("icontrace: PAL set1        = ", set1);
+			dbg_file_num("icontrace: PAL pal0        = ", pal0);
+			if (pal0 != 0)
+				dbg_file_num("icontrace: PAL ph7&15      = ",
+				             (long)(((const unsigned char *)(uintptr_t)pal0)[7] & 15));
+#endif
 			if (pal0 != 0) {
 				const unsigned char *ph =
 				    (const unsigned char *)(uintptr_t)pal0;
@@ -34175,8 +34229,34 @@ static void l09dc(void)
 					const unsigned char *rgb = ph + 8;
 					static RGBColor cpal[256];
 					short k;
-					if (start < 32) start = 32;     /* never touch the UI range */
+					/* Protecting the UI range means DROPPING the entries
+					 * below 32, not SLIDING the table up to meet 32. The
+					 * old `if (start < 32) start = 32;` left entry 0 at
+					 * index 32, entry 1 at 33 ... so a table declaring
+					 * start=31 installed every colour ONE INDEX ABOVE the
+					 * pixels using it, and the sprites resolved to the
+					 * entry below their own colour — black. Measured on
+					 * real hardware (HEIRS.DSN, FRUA_ICONTRACE): body-icon
+					 * pixels carried indices 87/72/79 whose CLUT entries
+					 * were RGB(0,0,0), while the working root-art case
+					 * carried 88/73/80 WITH colour — a clean off-by-one.
+					 * Advance the source pointer with the start so every
+					 * surviving entry lands on its own index. */
+					if (start < 32) {
+						short skip = (short)(32 - start);
+						if (count <= skip) {
+							count = 0;
+						} else {
+							rgb  += (long)skip * 3;
+							count = (short)(count - skip);
+							start = 32;
+						}
+					}
 					if (count > 256 - start) count = (short)(256 - start);
+#ifdef FRUA_ICONTRACE
+					dbg_file_num("icontrace: CLUTstart*1000+cnt= ",
+					             (long)start * 1000L + count);
+#endif
 					for (k = 0; k < count; k++) {
 						cpal[k].red   = (unsigned short)((rgb[k*3+0]<<8)|rgb[k*3+0]);
 						cpal[k].green = (unsigned short)((rgb[k*3+1]<<8)|rgb[k*3+1]);
