@@ -9719,6 +9719,17 @@ static void jt57(short x, short y, short kind, short rec_hi, short rec_lo)
 			dbg_file_num("icontrace: NULL handle   = ", ic_nullh);
 			dbg_file_num("icontrace: handle -27866 = ", g_a5_long(-27866));
 			dbg_file_num("icontrace: jt1200()      = ", (long)jt1200());
+			/* THE DIFF THAT MATTERS. Both entry paths reach this seeded block
+			 * and issue 49 blits with a valid handle, yet jt573 (FRUA_BODY)
+			 * renders all 49 in colour while jt574 (the live "Create
+			 * Character" path) leaves 48 blank and one mask-only silhouette.
+			 * jt57 blits jt1001(y, x, GROUP, piece) with group taken from the
+			 * art handle, so if the two paths hold different groups they are
+			 * drawing from different art and the missing pieces simply do not
+			 * exist. Log the group and the piece index alongside it. */
+			dbg_file_num("icontrace: GROUP         = ",
+			             (long)*(short *)(uintptr_t)handle);
+			dbg_file_num("icontrace: idx (hi*38+lo)= ", (long)idx);
 			/* ROUND 2 (the art loads and every cell blits, yet the grid reads
 			 * BLACK on ST-Low AND Nova). Two possibilities left, and they need
 			 * different fixes: the blit laid BAD INDICES, or it laid good ones
