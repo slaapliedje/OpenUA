@@ -3313,6 +3313,28 @@ static const dsp_backend_t ste_backend = {
 	                         * page then flips), so the shown page is always freshly
 	                         * drawn — no need to seed both pages (that would double
 	                         * the c2p). present_rect draws the shown page in place. */
+	0,                      /* hw_palette: NO — 4 planes hold a quantised 16-slot
+	                         * value, not the index, so a CLUT move can invalidate
+	                         * converted pixels. (Explicit, to reach the field
+	                         * below; the value is the historical default.) */
+#ifdef FRUA_STE_PALBLANKET
+	0,                      /* A/B arm: the historical blanket row mark. */
+#else
+	1,                      /* #63 palette_self_invalidates — the ECS fix
+	                         * (3cb6c121) applied here, the chain being identical:
+	                         * st_set_palette's `count >= 32` sets s_dirty, and
+	                         * st_present turns that into st_repalette() or
+	                         * st_reband(), whose tail sets s_force_full and
+	                         * rebuilds BOTH pages — a branch that bypasses pass 1
+	                         * entirely. A smaller write sets nothing, and pass 1
+	                         * compares chunky against its shadow, which a palette
+	                         * write does not touch. So the blanket row mark can
+	                         * only ever make pass 1 re-read 200 unchanged rows.
+	                         * g_qd_touched is still set (qd_touch_present_only),
+	                         * which matters MORE here than on ECS: pages == 1, so
+	                         * this backend is the one the #152 clean-present skip
+	                         * actually applies to. */
+#endif
 };
 
 const dsp_backend_t *dsp_backend_ste(void)
