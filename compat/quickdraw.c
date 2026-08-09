@@ -344,6 +344,23 @@ void qd_touch_rows(short y0, short y1)
 	planar_touch_rows(y0, y1);
 }
 
+/* "This frame needs presenting, but NO chunky row changed."
+ *
+ * The two questions qd_touch_all conflates are separable (#63/#152): whether a
+ * present must happen at all (g_qd_touched) and WHICH rows a row-diffing
+ * backend should re-read (the planar row set). A palette write is precisely the
+ * case where the first is true and the second is empty — the CLUT moved, the
+ * chunky surface did not — so blanket-marking every row buys a full-frame
+ * rescan that can only ever find the surface unchanged. Used by qd_set_palette
+ * for backends that invalidate their own converted pixels (see
+ * dsp_backend_t.palette_self_invalidates). Deliberately NOT touching the row
+ * set is the whole point; suppressing g_qd_touched as well is the trap that
+ * once made qd_present skip a frame whose work was still pending. */
+static void qd_touch_present_only(void)
+{
+	g_qd_touched = 1;
+}
+
 /* #61: "did any pixels change since the last present?" — see planar_dirty_any.
  * The engine's idle present asks this; it must NOT ask g_qd_touched, which a
  * bare pointer grab sets. */
@@ -1982,7 +1999,22 @@ void qd_set_palette(const RGBColor *colors, short first, short count)
 	 * the entire update. This was the single biggest forced-full source measured
 	 * on the TT: 521 touch_alls in 480 presents. See dsp_backend_t.hw_palette. */
 	if (dsp == NULL || !dsp->hw_palette) {
-		qd_touch_all(); QDT(3);
+		/* #63(Amiga): a quantising backend's pixels ARE invalidated by a
+		 * palette change (so hw_palette stays 0 and this branch runs), but
+		 * the blanket ROW mark is still the wrong tool — a row-diffing
+		 * present compares chunky against its shadow, and a palette write
+		 * leaves chunky untouched, so the rescan converts nothing. What
+		 * actually re-renders is the backend's own dirty flag (ECS:
+		 * s_dirty -> ecs_reband/ecs_render, which bypasses the row scan
+		 * entirely). Measured on ECS: 636 of these in 644 full presents,
+		 * scanning 128,800 rows to convert 782. Backends that own that
+		 * invalidation set palette_self_invalidates and take the cheap arm;
+		 * everyone else keeps the historical blanket. */
+		if (dsp != NULL && dsp->palette_self_invalidates)
+			qd_touch_present_only();
+		else
+			qd_touch_all();
+		QDT(3);
 	}
 	/* #123: incremental — see qd_rebake_range. 98% of writes touch <= 16 of
 	 * 256 entries, so re-scanning the whole palette for all 16 cursor

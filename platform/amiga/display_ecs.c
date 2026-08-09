@@ -910,6 +910,21 @@ static const dsp_backend_t ecs_backend = {
 	2,                      /* page-flipped (ecs_present flips s_front) — see
 	                         * the AGA note; both this and AGA left it 0 and
 	                         * were driven single-buffered. */
+	0,                      /* hw_palette: NO — 5 planes hold a quantised slot,
+	                         * not the index, so a CLUT move can invalidate
+	                         * converted pixels. (Explicit, to reach the field
+	                         * below; the value is the historical default.) */
+#ifdef FRUA_ECS_PALBLANKET
+	0,                      /* A/B arm: the historical blanket row mark. */
+#else
+	1,                      /* #63 palette_self_invalidates: ecs_set_palette's
+	                         * s_dirty -> ecs_reband/ecs_render is what re-renders
+	                         * after a CLUT move, and that branch bypasses the row
+	                         * scan entirely — so the shim's blanket row mark only
+	                         * bought a 200-row rescan of an UNCHANGED chunky
+	                         * surface (measured: 636 marks / 644 presents,
+	                         * 128,800 compares for 782 conversions). */
+#endif
 };
 
 const dsp_backend_t *dsp_backend_ecs(void)

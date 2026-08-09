@@ -92,6 +92,33 @@ typedef struct dsp_backend {
 	 * the same argument but has NOT been measured or verified here, so it is
 	 * deliberately left at 0. */
 	short hw_palette;
+
+	/* #63(Amiga): 1 = a palette change on this backend needs NO chunky row
+	 * rescan, because the backend invalidates its own converted pixels.
+	 *
+	 * Distinct from hw_palette, and the two are independent. hw_palette says
+	 * "my pixels are still valid" (the TT identity). This says "my pixels may
+	 * well be stale, but marking rows dirty is not what fixes them" — the
+	 * quantising backends re-derive their remap and re-render off their OWN
+	 * dirty flag, while the shim's blanket row mark only makes the next present
+	 * re-read all 200 rows of a chunky surface a palette write did not touch.
+	 * The present itself is still requested (qd_touch_present_only); only the
+	 * row set is left alone.
+	 *
+	 * MEASURED (Amiga ECS, FRUA_AMIGAPROF, a HEIRS walk): qd_set_palette fired
+	 * 636 blanket marks across 644 full presents, making every one of them scan
+	 * all 200 rows — 128,800 row compares to convert 782 rows (0.6%). ECS
+	 * qualifies because both of its palette paths bypass the row scan anyway: a
+	 * substantial write sets s_dirty and ecs_present takes the
+	 * ecs_reband/ecs_render branch, and a small write changes nothing the row
+	 * scan could have found.
+	 *
+	 * Conservative by construction, exactly like hw_palette: it sits last, so
+	 * every positional initialiser that stops earlier gets 0 = the historical
+	 * blanket. The ST/STe backend is eligible by the same argument (its reband
+	 * sets s_force_full, which also bypasses pass 1) but is shipping and
+	 * measured, so it is deliberately left alone. */
+	short palette_self_invalidates;
 } dsp_backend_t;
 
 /* Probe the host machine and return the best available backend, or NULL. */
