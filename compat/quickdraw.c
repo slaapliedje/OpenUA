@@ -374,7 +374,7 @@ static int qd_is_screen_pm(const PixMap *pm)
  * cannot be compiled on an 020 build (its ST profiling block references the
  * FRUA_PLANAR-only s_dt/s_pend/st_dt_build_row). So the QDT instrument answers
  * to EITHER flag. */
-#if defined(FRUA_STPROF) || defined(FRUA_TTPROF)
+#if defined(FRUA_STPROF) || defined(FRUA_TTPROF) || defined(FRUA_AMIGAPROF)
 /* #63: WHICH write path marks the surface touched? The backend's full-present
  * row scan is 76% of a present, and the #152 skip that should suppress it on a
  * single-buffered backend (STE is one) almost never fires — so something marks

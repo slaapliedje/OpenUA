@@ -618,6 +618,53 @@ static void ecs_render(void)
  * plane set — the same policy present_rect already uses (at worst one frame of
  * shear inside a changed row); the tear-free back-buffer flip is reserved for
  * the force-full path (a re-band), where every row converts anyway. */
+/* #63 SCAN NARROWING (ported from the ST backend, 2026-08-08).
+ *
+ * The full present used to run ecs_row_differs over ALL 200 rows to learn that a
+ * handful moved — and FRUA_AMIGAPROF's first census showed exactly that: full
+ * presents outnumbering rect presents while converting ~0 rows, the whole cost
+ * being the scan. Only rows a writer ANNOUNCED (planar_touch_rows, the shared
+ * machine-neutral set in platform/planar.c that the ST already drives) can have
+ * changed, so scan those and skip the rest without reading them.
+ *
+ * ONE pending set, not the ST's per-page pair: the ST alternates pages on every
+ * full present, but here the incremental path always writes s_planes[s_front]
+ * and never flips — only ecs_render flips, and it rebuilds the whole page and
+ * re-syncs the shadow, so the page it flips in is current by construction (the
+ * gather is reset there).
+ *
+ * CONSERVATIVE BY DEFAULT: before the first gather, and whenever the shared set
+ * says "scan everything" (planar_dirty_rows != 0), every row is pending — so a
+ * backend that never sees an announcement behaves exactly as before. The unsafe
+ * direction is a writer changing a row WITHOUT announcing (that row would stay
+ * stale forever), which is what FRUA_DIRTYCHECK below polices. */
+static unsigned char e_pend[ECS_H];
+static short         e_pend_init;
+#ifdef FRUA_DIRTYCHECK
+long g_ecs_dirtycheck_miss;
+#endif
+
+static void ecs_pend_all(void)
+{
+	memset(e_pend, 1, sizeof e_pend);
+	e_pend_init = 1;
+}
+
+static void ecs_pend_gather(void)
+{
+	const unsigned char *drows;
+	short y;
+
+	if (!e_pend_init)
+		ecs_pend_all();
+	else if (planar_dirty_rows(&drows))          /* "scan everything" */
+		ecs_pend_all();
+	else
+		for (y = 0; y < ECS_H; y++)
+			if (drows[y])
+				e_pend[y] = 1;
+}
+
 #ifdef FRUA_AMIGAPROF
 /* Play-loop census — the ECS analog of the Atari b63play (FRUA_STPROF). All
  * times are rasterlines (~64us); "conv" is the c2p (remap + c2p_amiga_n_rect),
@@ -625,6 +672,8 @@ static void ecs_render(void)
  * to DBG.LOG every 8 rect presents (the walk-step present is a rect). */
 static long ap_rect_n, ap_rect_t, ap_full_n, ap_full_t;
 static long ap_conv_t, ap_conv_rows, ap_wall0 = -1;
+static long ap_scanned_rows;    /* rows the narrowed scan actually READ (#63):
+                                 * 200/full-present before narrowing. */
 
 static void ecs_prof_dump(void)
 {
@@ -638,12 +687,29 @@ static void ecs_prof_dump(void)
 	dbg_log_num("apecs: full rl       = ", ap_full_t);
 	dbg_log_num("apecs:  of which conv= ", ap_conv_t);
 	dbg_log_num("apecs:  conv rows    = ", ap_conv_rows);
+	dbg_log_num("apecs:  rows SCANNED = ", ap_scanned_rows);
+#ifdef FRUA_DIRTYCHECK
+	dbg_log_num("apecs:  UNANNOUNCED  = ", g_ecs_dirtycheck_miss);
+#endif
+	/* WHICH primitive claimed the whole frame. Same site labels the TT dumps
+	 * (compat/quickdraw.c g_qdt_hits) — label the data, never infer: a
+	 * "rows SCANNED == 200 x full presents" reading means somebody called
+	 * qd_touch_all, and this names them. */
+	{
+		extern long g_qdt_hits[8];
+		dbg_log_num("apecs:  qdt0 grab    = ", g_qdt_hits[0]);
+		dbg_log_num("apecs:  qdt1 fill    = ", g_qdt_hits[1]);
+		dbg_log_num("apecs:  qdt2 blit    = ", g_qdt_hits[2]);
+		dbg_log_num("apecs:  qdt3 palette = ", g_qdt_hits[3]);
+		dbg_log_num("apecs:  qdt4 cursor  = ", g_qdt_hits[4]);
+		dbg_log_num("apecs:  qdt5 glyph   = ", g_qdt_hits[5]);
+	}
 	dbg_log_num("apecs: wall rl       = ", wall);
 	if (wall > 0)
 		dbg_log_num("apecs: display per1000= ",
 		            ((ap_rect_t + ap_full_t) * 1000L) / wall);
 	ap_rect_n = ap_rect_t = ap_full_n = ap_full_t = 0;
-	ap_conv_t = ap_conv_rows = 0;
+	ap_conv_t = ap_conv_rows = ap_scanned_rows = 0;
 }
 #endif
 
@@ -678,14 +744,43 @@ static void ecs_present(void)
 #endif
 	if (s_force_full || s_dirty) {
 		ecs_render();
+		/* The flipped-in page was rebuilt whole and the shadow re-synced:
+		 * nothing is owed. (Matches the ST force-full's pend reset.) */
+		memset(e_pend, 0, sizeof e_pend);
+		e_pend_init = 1;
 	} else {
 		front = s_planes[s_front];
 		for (p = 0; p < ECS_DEPTH; p++)
 			planes[p] = front + (ULONG)p * ECS_PITCH * ECS_H;
+		ecs_pend_gather();
 		for (y = 0; y < ECS_H; y++) {
-			if (!ecs_row_differs(s_chunky + (long)y * ECS_W,
-			                     s_shadow + (long)y * ECS_W,
-			                     ECS_W))
+			/* #63: only an announced row can have moved; the rest keep
+			 * their shadow and are skipped without being read. */
+			int changed = 0;
+
+			if (e_pend[y]) {
+				e_pend[y] = 0;
+#ifdef FRUA_AMIGAPROF
+				ap_scanned_rows++;
+#endif
+				changed = ecs_row_differs(s_chunky + (long)y * ECS_W,
+				                          s_shadow + (long)y * ECS_W,
+				                          ECS_W);
+			}
+#ifdef FRUA_DIRTYCHECK
+			/* THE POLICE (the ST's, ported): re-run the OLD unconditional
+			 * diff on the rows the set said to skip. Any hit is a writer
+			 * that changed a row without announcing it — which would leave
+			 * that row stale on screen forever. Must read ZERO over a full
+			 * drive before anyone trusts the narrowed scan. */
+			else if (ecs_row_differs(s_chunky + (long)y * ECS_W,
+			                         s_shadow + (long)y * ECS_W, ECS_W)) {
+				g_ecs_dirtycheck_miss++;
+				dbg_log_num("apecs MISS unannounced row = ", (long)y);
+				changed = 1;             /* self-heal, then report */
+			}
+#endif
+			if (!changed)
 				continue;
 #ifdef FRUA_AMIGAPROF
 			ap_conv_rows++;

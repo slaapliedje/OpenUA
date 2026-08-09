@@ -30,6 +30,7 @@
 
 #include "display.h"
 #include "dbglog.h"
+#include "amiga_prof.h"         /* FRUA_AMIGAPROF: fine play-loop timer */
 
 #ifdef FRUA_AMIGA
 
@@ -551,11 +552,44 @@ static void aga_dt_copy_row(unsigned char *set, short y)
 static long s_kbt_full, s_kbt_rect;
 #endif
 
+#ifdef FRUA_AMIGAPROF
+/* Play-loop census — the AGA analog of the ECS `apecs:` census (and of the Atari
+ * b63play). Times in rasterlines (~64us). AGA is 8 planes at 68020 speed, so the
+ * interesting split here is the draw-time-planar row path (skip-or-bridge) vs the
+ * full c2p_amiga transpose. Dumps to DBG.LOG every 8 rect presents. */
+static long ap_rect_n, ap_rect_t, ap_full_n, ap_full_t;
+static long ap_conv_t, ap_conv_rows, ap_dt_frames, ap_wall0 = -1;
+
+static void aga_prof_dump(void)
+{
+	long now = amiga_prof_rl();
+	long wall = (ap_wall0 < 0) ? 0 : now - ap_wall0;
+
+	ap_wall0 = now;
+	dbg_log_num("apaga: rect presents = ", ap_rect_n);
+	dbg_log_num("apaga: rect rl       = ", ap_rect_t);
+	dbg_log_num("apaga: full presents = ", ap_full_n);
+	dbg_log_num("apaga: full rl       = ", ap_full_t);
+	dbg_log_num("apaga:  of which conv= ", ap_conv_t);
+	dbg_log_num("apaga:  conv rows    = ", ap_conv_rows);
+	dbg_log_num("apaga:  dt frames    = ", ap_dt_frames);
+	dbg_log_num("apaga: wall rl       = ", wall);
+	if (wall > 0)
+		dbg_log_num("apaga: display per1000= ",
+		            ((ap_rect_t + ap_full_t) * 1000L) / wall);
+	ap_rect_n = ap_rect_t = ap_full_n = ap_full_t = 0;
+	ap_conv_t = ap_conv_rows = ap_dt_frames = 0;
+}
+#endif
+
 static void aga_present(void)
 {
 	unsigned char *back = s_planes[s_front ^ 1];
 	unsigned char *planes[8];
 	short p;
+#ifdef FRUA_AMIGAPROF
+	long ap_t0 = amiga_prof_rl();
+#endif
 
 #ifdef FRUA_KBTRACE
 	if (++s_kbt_full <= 30 || (s_kbt_full % 200) == 0)
@@ -568,21 +602,43 @@ static void aga_present(void)
 		 * back page. Rows the writers own cost a memcmp + 8 CopyMem
 		 * slices; only the rest pay a transpose. */
 		short y;
+#ifdef FRUA_AMIGAPROF
+		long ap_c0 = amiga_prof_rl();
+#endif
 		for (y = 0; y < AGA_H; y++) {
 			(void)aga_dt_ready_row(y);
 			aga_dt_copy_row(back, y);
 		}
+#ifdef FRUA_AMIGAPROF
+		ap_conv_t += amiga_prof_rl() - ap_c0;
+		ap_conv_rows += AGA_H;
+		ap_dt_frames++;
+#endif
 		cop_point_planes(back);
 		s_front ^= 1;
+#ifdef FRUA_AMIGAPROF
+		ap_full_t += amiga_prof_rl() - ap_t0;
+		ap_full_n++;
+#endif
 		return;
 	}
 #endif
 	for (p = 0; p < 8; p++)
 		planes[p] = back + (ULONG)p * AGA_PITCH * AGA_H;
+#ifdef FRUA_AMIGAPROF
+	{ long ap_c0 = amiga_prof_rl();
+#endif
 	c2p_amiga(s_chunky, planes, AGA_W, AGA_H, AGA_PITCH);
+#ifdef FRUA_AMIGAPROF
+	ap_conv_t += amiga_prof_rl() - ap_c0; ap_conv_rows += AGA_H; }
+#endif
 
 	cop_point_planes(back);
 	s_front ^= 1;
+#ifdef FRUA_AMIGAPROF
+	ap_full_t += amiga_prof_rl() - ap_t0;
+	ap_full_n++;
+#endif
 }
 
 static void aga_present_rect(short x, short y, short w, short h)
@@ -625,8 +681,17 @@ static void aga_present_rect(short x, short y, short w, short h)
 
 	for (p = 0; p < 8; p++)
 		planes[p] = front + (ULONG)p * AGA_PITCH * AGA_H;
+#ifdef FRUA_AMIGAPROF
+	{ long ap_t0 = amiga_prof_rl();
+#endif
 	c2p_amiga_rect(s_chunky, AGA_W, planes, AGA_PITCH,
 	               x, y, (short)(x1 - x), h);
+#ifdef FRUA_AMIGAPROF
+	{ long ap_d = amiga_prof_rl() - ap_t0;
+	  ap_rect_t += ap_d; ap_conv_t += ap_d; ap_conv_rows += h; }
+	if ((++ap_rect_n & 7) == 0)
+		aga_prof_dump(); }
+#endif
 }
 
 static void cursor_pal_reassert(void)
