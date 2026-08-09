@@ -3161,6 +3161,10 @@ static void st_prof_play_dump(void)
 	long wall = (sp_play_t0 < 0) ? 0 : now - sp_play_t0;
 
 	sp_play_t0 = now;
+	{ extern long g_jt312_render_n;   /* #90: CUMULATIVE 3D renders (not reset) —
+	                                   * drive-independent; halves with the
+	                                   * two-redraw fix vs FRUA_NO2REDRAW. */
+	  dbg_log_num("b63play: jt312 RENDERS  = ", g_jt312_render_n); }
 	dbg_log_num("b63play: rect presents  = ", sp_rect_n);
 	dbg_log_num("b63play: rect t200      = ", sp_rect_t);
 	dbg_log_num("b63play: composites     = ", sp_vp_n);

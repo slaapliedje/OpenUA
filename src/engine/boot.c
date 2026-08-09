@@ -12131,6 +12131,16 @@ static short g_cwf_force_deep;
  * command-bar DLItem match — otherwise an arrow is consumed as a command and
  * the play loop exits. Off everywhere else so the menus are unaffected. */
 static short g_walk_input;
+/* #90: set across l63c0's play-walk movement dispatch. The play walk renders the
+ * view TWICE per step — l1908 (inside jt297) draws the new cell, then l63c0 snaps
+ * the view cell and re-renders it (the l1908 draw is overpainted; see l1908's
+ * redraw-tail comment). While set, l1908 skips its redraw tail: l63c0 always
+ * re-renders after a move on the a_deep path (movement never sets exitflag there),
+ * so the frame is unchanged and one whole render+present per step is saved. Only
+ * the PLAY walk sets it (a_deep && !editor); editor walks keep both renders,
+ * where l1908 also drives jt299's status-header repaint. */
+static unsigned char g_walk_render_deferred;
+long g_jt312_render_n;                   /* #90 STPROF: cumulative 3D view renders */
 static short g_press_to_continue;       /* l1806 "press a key" modal active (defined below) */
 /* Colour slot (= wall group 0/1/2) of the tile l309c_tile is currently
  * blitting; set by jt200_layer. Selects the clut band (g_cw_base) the tile's
@@ -15730,6 +15740,9 @@ static void jt312(unsigned char *page)
 #ifdef FRUA_STEPTIME
 	{ extern long g_mpf_t1; g_mpf_t1 = TickCount(); }
 #endif
+#ifdef FRUA_STPROF
+	{ extern long g_jt312_render_n; g_jt312_render_n++; }
+#endif
 #if defined(FRUA_CORRIDOR)
 	render_3d_view(px, pitch, sw, sh);
 #elif defined(FRUA_RAYCAST)
@@ -16613,7 +16626,11 @@ static void l1908(void *rec_v, short row, short col, short facing, short redraw)
 	 * the record is wilderness-kind (rec[4]==0) OR its rec[5] flag is clear.
 	 * The earlier lift required rec[4]!=0, which skipped the wilderness
 	 * repaint the Mac performs. */
-	if (redraw && (rec[4] == 0 || rec[5] == 0))
+#ifdef FRUA_NO2REDRAW
+	if (redraw && (rec[4] == 0 || rec[5] == 0))              /* A/B: old behaviour */
+#else
+	if (redraw && (rec[4] == 0 || rec[5] == 0) && !g_walk_render_deferred)
+#endif
 		jt312((unsigned char *)rec_v);
 }
 
@@ -18230,6 +18247,11 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 		}
 
 		/* procres < 0: not a command -> dispatch the input source */
+		/* #90: on the play walk, l63c0 re-renders after this dispatch (18357),
+		 * so tell l1908 (reached via jt297 in the movement cases) to skip its
+		 * own overpainted render. */
+		g_walk_render_deferred =
+		    (unsigned char)((unsigned char)a_deep && !g_geo_editor_active);
 		switch (pollres) {              /* JT[3] min 0 max 5 */
 		case 0:                         /* keyboard (L66e8) */
 			/* Route arrow / move keys (257..264) to jt297, which itself
@@ -18280,6 +18302,7 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 			jt1080();
 			break;
 		}
+		g_walk_render_deferred = 0;     /* #90: scope it to the dispatch above */
 		if (exitflag != 0) {
 			/* #161: leaving the loop without the re-render — drop the
 			 * hold here, and present, so the caller's screen is not
