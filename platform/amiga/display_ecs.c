@@ -24,6 +24,7 @@
 
 #include "display.h"
 #include "dbglog.h"
+#include "amiga_prof.h"         /* FRUA_AMIGAPROF: fine play-loop timer */
 
 #ifdef FRUA_AMIGA
 
@@ -617,11 +618,43 @@ static void ecs_render(void)
  * plane set — the same policy present_rect already uses (at worst one frame of
  * shear inside a changed row); the tear-free back-buffer flip is reserved for
  * the force-full path (a re-band), where every row converts anyway. */
+#ifdef FRUA_AMIGAPROF
+/* Play-loop census — the ECS analog of the Atari b63play (FRUA_STPROF). All
+ * times are rasterlines (~64us); "conv" is the c2p (remap + c2p_amiga_n_rect),
+ * the walk's real cost and the same thing the ST composite work attacked. Dumps
+ * to DBG.LOG every 8 rect presents (the walk-step present is a rect). */
+static long ap_rect_n, ap_rect_t, ap_full_n, ap_full_t;
+static long ap_conv_t, ap_conv_rows, ap_wall0 = -1;
+
+static void ecs_prof_dump(void)
+{
+	long now = amiga_prof_rl();
+	long wall = (ap_wall0 < 0) ? 0 : now - ap_wall0;
+
+	ap_wall0 = now;
+	dbg_log_num("apecs: rect presents = ", ap_rect_n);
+	dbg_log_num("apecs: rect rl       = ", ap_rect_t);
+	dbg_log_num("apecs: full presents = ", ap_full_n);
+	dbg_log_num("apecs: full rl       = ", ap_full_t);
+	dbg_log_num("apecs:  of which conv= ", ap_conv_t);
+	dbg_log_num("apecs:  conv rows    = ", ap_conv_rows);
+	dbg_log_num("apecs: wall rl       = ", wall);
+	if (wall > 0)
+		dbg_log_num("apecs: display per1000= ",
+		            ((ap_rect_t + ap_full_t) * 1000L) / wall);
+	ap_rect_n = ap_rect_t = ap_full_n = ap_full_t = 0;
+	ap_conv_t = ap_conv_rows = 0;
+}
+#endif
+
 static void ecs_present(void)
 {
 	unsigned char *front;
 	unsigned char *planes[ECS_DEPTH];
 	short p, y;
+#ifdef FRUA_AMIGAPROF
+	long ap_t0 = amiga_prof_rl();
+#endif
 
 	if (s_dirty && e_quant_valid) {
 		if (memcmp(s_clut, e_clut_quant, sizeof e_clut_quant) == 0) {
@@ -640,6 +673,9 @@ static void ecs_present(void)
 			s_dirty = 0;
 		}
 	}
+#ifdef FRUA_AMIGAPROF
+	{ long ap_c0 = amiga_prof_rl();
+#endif
 	if (s_force_full || s_dirty) {
 		ecs_render();
 	} else {
@@ -651,6 +687,9 @@ static void ecs_present(void)
 			                     s_shadow + (long)y * ECS_W,
 			                     ECS_W))
 				continue;
+#ifdef FRUA_AMIGAPROF
+			ap_conv_rows++;
+#endif
 #ifdef FRUA_PLANAR
 			if (e_dt != NULL && s_have_pal) {
 				/* skip-or-bridge via the draw-time stamps, then
@@ -669,6 +708,9 @@ static void ecs_present(void)
 			        s_shadow + (long)y * ECS_W, ECS_W);
 		}
 	}
+#ifdef FRUA_AMIGAPROF
+	ap_conv_t += amiga_prof_rl() - ap_c0; }
+#endif
 	/* NEW-INK re-quant trigger: SCHEDULE only — the next full present
 	 * re-bands against the complete frame (the standing mid-draw policy). */
 	if (s_have_pal && e_new_ink >= 4) {
@@ -676,6 +718,10 @@ static void ecs_present(void)
 		e_quant_valid = 0;  /* bypass the CLUT-guard: content changed */
 	}
 	e_new_ink = 0;
+#ifdef FRUA_AMIGAPROF
+	ap_full_t += amiga_prof_rl() - ap_t0;
+	ap_full_n++;
+#endif
 }
 
 static void ecs_present_rect(short x, short y, short w, short h)
@@ -694,16 +740,25 @@ static void ecs_present_rect(short x, short y, short w, short h)
 	if (y + h > ECS_H) h = (short)(ECS_H - y);
 	if (w <= 0 || h <= 0)
 		return;
+#ifdef FRUA_AMIGAPROF
+	long ap_t0 = amiga_prof_rl();
+#endif
 
 	x1 = (short)((x + w + 7) & ~7);
 	x  = (short)(x & ~7);
 	w  = (short)(x1 - x);
 
+#ifdef FRUA_AMIGAPROF
+	{ long ap_c0 = amiga_prof_rl();
+#endif
 	remap_rect(x, y, w, h);
 	for (p = 0; p < ECS_DEPTH; p++)
 		planes[p] = front + (ULONG)p * ECS_PITCH * ECS_H;
 	c2p_amiga_n_rect(s_remap_buf, ECS_W, planes, ECS_PITCH,
 	                 x, y, w, h, ECS_DEPTH);
+#ifdef FRUA_AMIGAPROF
+	ap_conv_t += amiga_prof_rl() - ap_c0; ap_conv_rows += h; }
+#endif
 	/* Keep the row-diff shadow current for the converted spans. */
 	{
 		short r;
@@ -719,6 +774,11 @@ static void ecs_present_rect(short x, short y, short w, short h)
 		e_quant_valid = 0;  /* bypass the CLUT-guard: content changed */
 	}
 	e_new_ink = 0;
+#ifdef FRUA_AMIGAPROF
+	ap_rect_t += amiga_prof_rl() - ap_t0;
+	if ((++ap_rect_n & 7) == 0)
+		ecs_prof_dump();
+#endif
 }
 
 static void ecs_set_palette(const dsp_color_t *colors, short first, short count)
