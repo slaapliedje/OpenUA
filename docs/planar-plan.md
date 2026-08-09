@@ -1167,6 +1167,22 @@ c7f88aa6; the earlier `c2p4st_8` (2b9fac49) is now used only by the exotic
 trailing-16px fallback the live viewport never hits. Remaining: (b) the two
 redraws per action, then (c) Stage C.
 
+**LANDED (b) 2026-08-08 — the two-redraws lever, and it is the BIG one: renders
+AND presents HALVE per action.** The play walk rendered the view twice per step:
+`l1908` (inside `jt297`) draws the new cell, then `l63c0` snaps the view cell
+(#124) and re-renders it at 18357 — the first overpainted (l1908's own comment
+admits it). `jt297` restores the view cell after l1908, so l63c0's snap+render
+is the one that shows the step; l1908's is pure waste. Suppress it on the play
+walk via `g_walk_render_deferred` (set across l63c0's movement dispatch,
+`a_deep && !editor`); safe because movement never sets `exitflag` on a_deep, so
+l63c0 always re-renders. A/B via `FRUA_NO2REDRAW`, 24 turns on a real Mega STe:
+**renders 47 -> 23, rect presents 48 -> 24 — a clean 2:1.** Both halves of the
+redraw (the ~17-tick render AND the ~18-tick present, per the #90 table) drop
+once per rendering action; moves that bonk a wall render zero either way. Resume
+frame md5-identical, turned frame correct. Commit ee06d2f9. This is a bigger win
+than the composite work — it removes a whole redraw, not a slice of one.
+Remaining: (c) Stage C draw-time planar walls, net-win-bounded per (3) above.
+
 ### #91 — THE SHIPPING ST/STE PLANAR BUILD WEDGES AT BOOT (found 2026-07-26)
 
 Found while trying to drive the #90 soak. `make CPU68K=68000` — the default,
