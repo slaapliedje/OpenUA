@@ -27152,6 +27152,15 @@ static short l2d3e(void)
 			dbg_file_num("      ix ", (long)*(short *)(hr + 18));
 			dbg_file_num("      has method ", (long)(hm != NULL));
 			dbg_file_num("      hit ", (long)hit);
+			/* WHICH method — "has method 1" says a pointer is there but
+			 * not whose msg-2 rect rejected the click. Log it relative to
+			 * jt378 so nm can name it (same trick as the caller offset
+			 * above); an absolute pointer moves with every link. */
+			if (hm != NULL)
+				dbg_file_num("      method off jt378 ",
+				             (long)((char *)(void *)hm
+				                    - (char *)(void *)&jt378));
+			dbg_file_num("      rec28 ", (long)hr[28]);
 #endif
 			if (hit != 0) {
 				/* Shape-5 list/grid cell — the Hall roster AND every jt169
