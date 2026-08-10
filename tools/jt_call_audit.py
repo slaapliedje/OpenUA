@@ -57,7 +57,11 @@ HDR_RE = re.compile(
     r"^\s*/?\*+\s*(?:(L[0-9a-fA-F]{3,5})|JT\[\s*(\d+)\s*\])\s*"
     r"\(CODE\s*(\d+)\s*\+\s*0x([0-9a-fA-F]+)\)")
 # a C function definition line: `static void l09dc(void)` / `static void jt124(long h)`
-CDEF_RE = re.compile(r"^static\s+[^;{}]*?\b(l[0-9a-f]{3,5}|jt\d+)\s*\(")
+# Also matches the port's SUFFIXED helpers (l0980_slots, l36e0_c10): a lift is
+# often split into `<name>` plus `<name>_something`, and the helper must be
+# parseable so its calls can be credited to the parent (see c_called_names).
+CDEF_RE = re.compile(
+    r"^static\s+[^;{}]*?\b((?:l[0-9a-f]{3,5}|jt\d+)(?:_[A-Za-z0-9_]+)?)\s*\(")
 ASM_LABEL_RE = re.compile(r"^L([0-9a-fA-F]+):")
 ASM_INSN_RE = re.compile(r"^\s{2}([0-9a-fA-F]+):\s+[0-9a-fA-F]+\s+(.*)$")
 ASM_JT_RE = re.compile(r"\(JT\[\s*(\d+)\s*\]\)")
@@ -219,8 +223,27 @@ def parse_all_bodies():
     return out
 
 
+_COMMENT_OR_STRING = re.compile(
+    r"/\*.*?\*/|//[^\n]*|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'", re.S)
+
+
 def c_called_names(body):
-    return set(re.findall(r"\b(jt\d+|l[0-9a-f]{3,5})\s*\(", body))
+    """Every lifted function this body REFERENCES.
+
+    Not just `name(` — a callback is installed by ADDRESS, e.g.
+    `l63c0(rec, 1, 1, 0, (long)&jt237, (long)&jt236)`, and requiring a trailing
+    '(' misses those entirely. That made the tool flag every callback
+    installation in the engine as a dropped call: jt241, jt240, jt169, l1bfe,
+    jt511, l2558 and others were all reported for calls they make perfectly
+    well, just by pointer.
+
+    So match bare identifiers instead — but strip comments and string literals
+    first, or the doc comments (which name jtNNN constantly) and PROBE("jtNNN")
+    would satisfy every check and the tool would find nothing at all.
+    """
+    code = _COMMENT_OR_STRING.sub(" ", body)
+    return set(re.findall(
+        r"\b((?:jt\d+|l[0-9a-f]{3,5})(?:_[A-Za-z0-9_]+)?)\b", code))
 
 
 def main():
@@ -303,13 +326,40 @@ def main():
             callee = next(iter(others))
             if callee in bodies_by_name:
                 have = have | c_called_names(bodies_by_name[callee])
+        # Credit DERIVED helpers. The port routinely splits one Mac function
+        # into `<name>` plus `<name>_suffix` (l0980 + l0980_slots), and the
+        # suffixed half is where the dropped call usually lives — l0980 was
+        # reported for JT[661] and JT[670], both of which l0980_slots makes.
+        # Only names derived from THIS function are followed, so this cannot
+        # launder an unrelated function's calls into the parent.
+        for other in list(have):
+            if other.startswith(name + "_") and other in bodies_by_name:
+                have = have | c_called_names(bodies_by_name[other])
+        # Credit helpers named after an asm label INSIDE this function's span.
+        # The port also extracts an inner block and names it after its label:
+        # jt955's case-2/3 arm is `l45f0_menu`, and L45f0 is an address within
+        # jt955 itself. Without this, jt955 reports the four jt155 calls and
+        # the jt182 "Blocked:" prompt that l45f0_menu makes perfectly well.
+        # Restricted to labels in [start, end) so it cannot credit an unrelated
+        # function that merely shares a name shape.
+        span_lo, span_hi = abody[0][0], abody[-1][0]
+        for other in list(have):
+            m2 = re.match(r"^l([0-9a-f]{3,5})(?:_|$)", other)
+            if not m2 or other not in bodies_by_name:
+                continue
+            if span_lo <= int(m2.group(1), 16) <= span_hi:
+                have = have | c_called_names(bodies_by_name[other])
         missing = []
         for n in sorted(want):
-            if ("jt%d" % n) in have:
-                continue
-            # an lXXXX alias for the same address counts (docs/lxxxx-jt-aliases.md)
             tgt = jt.get(n)
-            if tgt and ("l%04x" % tgt[1]) in have:
+            # A JT entry may be lifted under a SUFFIXED name (JT[1154] is
+            # jt1154_pg here), so accept `jtN` or `jtN_*`; likewise the lXXXX
+            # alias for the same address (docs/lxxxx-jt-aliases.md), which may
+            # itself be suffixed `_cNN` when the offset recurs across segments.
+            keys = ["jt%d" % n]
+            if tgt:
+                keys.append("l%04x" % tgt[1])
+            if any(h == k or h.startswith(k + "_") for h in have for k in keys):
                 continue
             missing.append(n)
         if args.min_clines and clen < args.min_clines:

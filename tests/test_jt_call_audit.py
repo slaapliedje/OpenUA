@@ -126,3 +126,36 @@ def test_span_stops_at_the_next_function(tmp_path):
     leaked, a body dropping it would be reported twice over."""
     out = run(tmp_path, FAITHFUL)
     assert "0 with drops" in out
+
+
+# A callback is installed by ADDRESS, not called. Requiring a trailing '(' made
+# the tool report every callback installation in the engine as a dropped call.
+BY_POINTER = """
+/* L1000 (CODE 9 + 0x1000) — installs JT[124] as a callback. */
+static void l1000(void)
+{
+\tjt110(&handle, 0, 0, 1, "X");
+\tinstall(&handle, (long)(uintptr_t)&jt124);
+}
+"""
+
+# Doc comments name jtNNN constantly and PROBE() embeds the name in a string.
+# If those counted, every check would pass and the tool would find nothing.
+ONLY_IN_COMMENT = """
+/* L1000 (CODE 9 + 0x1000) — the palette commit via jt124 is deferred here. */
+static void l1000(void)
+{
+\tPROBE("jt124");
+\tjt110(&handle, 0, 0, 1, "X");   /* jt124 would go here */
+}
+"""
+
+
+def test_callback_installed_by_pointer_counts(tmp_path):
+    out = run(tmp_path, BY_POINTER)
+    assert "0 with drops" in out, out
+
+
+def test_name_in_comment_or_string_does_not_count(tmp_path):
+    out = run(tmp_path, ONLY_IN_COMMENT)
+    assert "JT[124]" in out.split("NOT in C")[1], out
