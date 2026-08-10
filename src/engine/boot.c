@@ -7045,12 +7045,18 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 	}
 }
 
+static void l4d88(void);   /* CODE 4+0x4d88 = JT[1124] — pending-text flush */
+
 /* L309c (CODE 5 + 0x309c) = JT[999] — the UI GLIB glyph blit entry.
  *
  * Faithful to L309c's prologue (0x30a0..0x30ea): remap the pen (a=top,
  * b=left) through jt1135, fetch glyph item `size` from `handle` via
- * l2856 (8-byte metric + the 1bpp bits), early-out when absent, then
- * back off the pen by the glyph bearings (ybear @2, xbear @4). A mode-9
+ * l2856 (8-byte metric + the 1bpp bits), early-out when absent, FLUSH ANY
+ * PENDING TEXT (0x30d6, JT[1124] = l4d88 — the Mac empties the deferred
+ * character buffer and InvalRects its rect before drawing over that area;
+ * dropping it left buffered glyphs to be painted over and the stale
+ * invalidation to be resolved later), then back off the pen by the glyph
+ * bearings (ybear @2, xbear @4). A mode-9
  * glyph is a multi-part composite (0x30f4: it walks 6-byte sub-part
  * descriptors via JT[406] and recurses) — deferred, the resident UI
  * glyphs are single-part. Everything else hands the decoded bitmap to
@@ -7068,6 +7074,7 @@ static void l309c(short a, short b, long handle, short size)
 	info = l2856(handle, size, metric);
 	if (info == 0)
 		return;
+	l4d88();                             /* 0x30d6 — flush pending text */
 	ybear = (short)(((unsigned short)metric[2] << 8) | metric[3]);
 	xbear = (short)(((unsigned short)metric[4] << 8) | metric[5]);
 	sy = (short)(sy - ybear);
