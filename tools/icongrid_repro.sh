@@ -14,7 +14,12 @@
 # many; a black one collapses to a handful of greys.
 set -u
 
-REPO=$(cd "$(dirname "$0")/.." && pwd)
+# Repo root. Derived from the script's own location by default, but OVERRIDABLE:
+# git bisect runs the probe from a copy outside the tree (the tracked copy
+# vanishes on checkouts of commits that predate it), and there "$0/.." resolves
+# to / — which has no Makefile, so every iteration reported a bogus "build
+# failed / skip". Losing a whole bisect to that is why this is a variable.
+REPO=${ICONGRID_REPO:-$(cd "$(dirname "$0")/.." && pwd)}
 GAME=${ICONGRID_GAME:-/tmp/claude-1000/-home-jfergus-dev-OpenUA/db2f8a2c-03a9-4fef-a53a-58cfb3f7933e/cardgame}
 SHOT=${ICONGRID_SHOT:-/tmp/icongrid_verdict.png}
 D="$REPO/.claude/skills/run-falcon-port/driver.sh"
