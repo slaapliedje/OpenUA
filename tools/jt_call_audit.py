@@ -153,8 +153,21 @@ def parse_c_functions():
         if pending is None:
             continue
         name = m.group(1)
-        # a forward declaration, not a definition
-        if line.rstrip().endswith(";"):
+        # Forward declaration, not a definition. Testing only THIS line for a
+        # trailing ';' misses the multi-line form, and then brace-matching runs
+        # on into the NEXT function and reports its calls under this name. That
+        # produced a confident false positive on l33ac (whose real body is 49k
+        # lines further down and is perfectly faithful), so decide it properly:
+        # whichever of ';' or '{' comes first wins.
+        decided = None
+        for j in range(i, min(i + 12, len(lines))):
+            for ch in lines[j]:
+                if ch in ";{":
+                    decided = ch
+                    break
+            if decided:
+                break
+        if decided != "{":
             continue
         body, depth, started = [], 0, False
         for j in range(i, len(lines)):
@@ -167,6 +180,43 @@ def parse_c_functions():
         funcs.append((name, pending[0], pending[1], i + 1, "\n".join(body)))
         pending = None
     return funcs
+
+
+def parse_all_bodies():
+    """name -> body for EVERY static definition, annotated or not.
+
+    The delegation unwrap needs this: a wrapper's callee is often an
+    un-annotated helper (jt110 forwards to l33ac, whose real definition carries
+    no `(CODE ...)` header), so a map built from annotated functions alone
+    silently fails to unwrap and the wrapper reports the whole body as dropped.
+    """
+    with open(BOOT, encoding="utf-8") as fh:
+        lines = fh.read().split("\n")
+    out = {}
+    for i, line in enumerate(lines):
+        m = CDEF_RE.match(line)
+        if not m:
+            continue
+        decided = None
+        for j in range(i, min(i + 12, len(lines))):
+            for ch in lines[j]:
+                if ch in ";{":
+                    decided = ch
+                    break
+            if decided:
+                break
+        if decided != "{":
+            continue
+        body, depth, started = [], 0, False
+        for j in range(i, len(lines)):
+            body.append(lines[j])
+            depth += lines[j].count("{") - lines[j].count("}")
+            if "{" in lines[j]:
+                started = True
+            if started and depth <= 0:
+                break
+        out.setdefault(m.group(1), "\n".join(body))
+    return out
 
 
 def c_called_names(body):
@@ -203,6 +253,9 @@ def main():
     if args.func:
         funcs = [f for f in funcs if f[0] == args.func]
 
+    # name -> body, for the one-level delegation unwrap below.
+    bodies_by_name = parse_all_bodies()
+
     segs = {}
     entries = {}            # code -> sorted known function entry offsets
     for _n, code, off, _ln, _b in funcs:
@@ -235,7 +288,21 @@ def main():
         want = asm_jt_calls(abody)
         if not want:
             continue
+        clen = body.count("\n") + 1
         have = c_called_names(body)
+        # Follow ONE level of delegation. The port often splits a single Mac
+        # function into a thin wrapper plus the real body (jt110 is an 8-line
+        # forwarder to l33ac, and both are CODE 6+0x33ac). Comparing the whole
+        # asm against just the wrapper reports every call the body makes as
+        # dropped. Only unwrap SMALL bodies with a single lifted callee, so a
+        # genuine short function that really does drop a call still reports.
+        # `have` includes the definition line, so it always contains the
+        # function's own name — exclude it when counting callees.
+        others = have - {name}
+        if len(others) == 1 and clen <= 15:
+            callee = next(iter(others))
+            if callee in bodies_by_name:
+                have = have | c_called_names(bodies_by_name[callee])
         missing = []
         for n in sorted(want):
             if ("jt%d" % n) in have:
@@ -245,7 +312,6 @@ def main():
             if tgt and ("l%04x" % tgt[1]) in have:
                 continue
             missing.append(n)
-        clen = body.count("\n") + 1
         if args.min_clines and clen < args.min_clines:
             continue
         if args.skip_todo and re.search(
