@@ -336,6 +336,14 @@ const dsp_backend_t *dsp_backend_nova(void)
 	short work_out[57];
 	short planes;
 
+	/* Belt and braces with dsp_detect()'s cache: nova_open_ws does appl_init +
+	 * v_opnvwk unconditionally and overwrites s_handle, so a second probe used
+	 * to leak the first workstation AND its AES slot. On success this function
+	 * returns with the workstation deliberately still open, so "already open"
+	 * is the normal steady state — reuse it rather than stacking another. */
+	if (s_handle != 0)
+		return &nova_backend;
+
 	s_handle = nova_open_ws(work_out);
 	if (s_handle == 0) { dbg_log("nova: no AES/VDI screen"); nova_close_ws(); return NULL; }
 

@@ -888,10 +888,33 @@ long dsp_vdo_cookie(void)
 
 const dsp_backend_t *dsp_detect(void)
 {
-	long vdo = dsp_vdo_cookie() >> 16;
+	/* CACHED, and that is load-bearing, not an optimisation.
+	 *
+	 * qd_set_palette() calls dsp_detect() on EVERY palette write. On the Nova
+	 * path that reached dsp_backend_nova(), which calls nova_open_ws() —
+	 * appl_init + v_opnvwk — and on success deliberately returns with the
+	 * workstation still OPEN for init()/shutdown(). Nothing closed the previous
+	 * one, so every palette write leaked one VDI virtual workstation and one
+	 * AES application slot. The field log (DBGNOVAT.LOG) shows 12 detects
+	 * during boot alone, the last landing exactly at "menu: modal up"; the
+	 * engine issues hundreds more in play. Once VDI runs out of handles
+	 * v_opnvwk fails, s_handle goes to 0, vs_color writes to nothing, and
+	 * dsp_detect starts handing back the ST/STe backend instead — which is why
+	 * the menu's hotkey letters painted correctly ONCE and went black on the
+	 * next redraw.
+	 *
+	 * The probe answers a hardware question that cannot change while we run,
+	 * so answering it once is also simply correct. */
+	static const dsp_backend_t *cached;
+	long vdo;
+
+	if (cached != NULL)
+		return cached;
+
+	vdo = dsp_vdo_cookie() >> 16;
 
 	if (vdo == 2)                           /* TT shifter        */
-		return dsp_backend_tt();
+		return cached = dsp_backend_tt();
 #ifdef FRUA_NOVA
 	/* A Nova/NVDI graphics card leaves _VDO reading ST/STE (the card is not
 	 * the ST shifter), so it must be probed before the bitplane fallback. The
@@ -899,7 +922,7 @@ const dsp_backend_t *dsp_detect(void)
 	 * back to the ST/STE backend — if the card isn't there or isn't paletted. */
 	if (vdo <= 1) {
 		const dsp_backend_t *nb = dsp_backend_nova();
-		if (nb) return nb;
+		if (nb) return cached = nb;
 	}
 #endif
 	if (vdo <= 1) {                         /* 0 = ST, 1 = STE   */
@@ -908,8 +931,8 @@ const dsp_backend_t *dsp_detect(void)
 		 * cheapest present of all. A colour monitor gets the banded
 		 * 16-colour ST-low backend. */
 		if (Getrez() == 2)
-			return dsp_backend_sthigh();
-		return dsp_backend_ste();
+			return cached = dsp_backend_sthigh();
+		return cached = dsp_backend_ste();
 	}
-	return &videl_backend;                  /* 3 = VIDEL/Falcon  */
+	return cached = &videl_backend;         /* 3 = VIDEL/Falcon  */
 }
