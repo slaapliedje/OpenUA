@@ -9730,6 +9730,21 @@ static void jt57(short x, short y, short kind, short rec_hi, short rec_lo)
 			dbg_file_num("icontrace: GROUP         = ",
 			             (long)*(short *)(uintptr_t)handle);
 			dbg_file_num("icontrace: idx (hi*38+lo)= ", (long)idx);
+			/* rec[189] is the composer's third arg — jt56("CBODYS",
+			 * rec[188], rec[189]) — and jt573 FORCES it to 8 while saving
+			 * the original to -7002. The working path lands sprite pixels
+			 * on 88/73/80 and the failing one on 87/72/79 (one lower, and
+			 * black in clut 129), which is what a different colour base
+			 * looks like. Log both the live value and the saved one. */
+			{
+				const unsigned char *r_ =
+				    (const unsigned char *)(uintptr_t)g_a5_long(-27932);
+				if (r_ != NULL) {
+					dbg_file_num("icontrace: rec[188] icon  = ", (long)r_[188]);
+					dbg_file_num("icontrace: rec[189] colour= ", (long)r_[189]);
+				}
+			}
+			dbg_file_num("icontrace: saved -7002    = ", (long)g_a5_word(-7002));
 			/* ROUND 2 (the art loads and every cell blits, yet the grid reads
 			 * BLACK on ST-Low AND Nova). Two possibilities left, and they need
 			 * different fixes: the blit laid BAD INDICES, or it laid good ones
