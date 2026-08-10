@@ -1,537 +1,112 @@
-# JT call-frequency audit
+# JT-call audit — lifted C bodies that drop a call the Mac makes
 
-A porting-priority tool (idea: lift the most-shared functions first, then the
-stand-ins fall away and the rest composes). Counts how often each `JT[N]` entry
-is *called* across the whole Macintosh decompilation, cross-referenced with the
-port's lift status.
+`tools/jt_call_audit.py` diffs every annotated function in `src/engine/boot.c`
+against its original body in `data/work/disasm/CODE_NN.s` and reports the
+`JT[n]` targets the asm calls and the C does not.
 
-## Port completion estimate (2026-06-11)
+It exists because of #137. The char-gen icon grid rendered black on all five
+backends for seven weeks, and the cause was 65 hand-written lines standing in
+for one `jsr JT[124]`. Nothing flagged it — the code compiled, ran, and carried
+a comment explaining why the JT call was skipped. The workaround was *correct
+when written* and silently wrong nine commits later, when the loader it assumed
+(`jt468`) changed underneath it. See the `l09dc` comment and commit `12917a32`.
 
-**≈ 81% call-weighted.** Methodology: classify every `JT[N]` entry that is
-*called* anywhere in the disasm (1205 distinct entries, 8612 static call sites),
-then weight each by its call count — a proxy for "how much of the running call
-graph is real C." The classifier lives in the repo history of this session
-(`/tmp/audit4.py`): it parses `boot.c` function bodies, marks a `jtN` as a real
-lift unless its body is PROBE-only (a constant/void return with no calls,
-assignments, control flow, or arithmetic), and resolves JT→`lXXXX` aliases via
-`jumptable.txt`.
+**A hand-rolled substitution encodes an assumption about the data or the
+loader, and nothing re-checks that assumption when either changes.** Lifted
+code follows them automatically. That is the whole argument for this check.
 
-| bucket | entries | calls | share |
-|--------|--------:|------:|------:|
-| lifted (real `jtN` body) | 324 | 6385 | 74.1% |
-| lifted (`lXXXX` alias, e.g. jt99=l4b84) | 105 | 420 | 4.9% |
-| faithful-as-stub (jt3/jt1 dispatchers, no-ops, HAL-deferred) | 13 | 179 | 2.1% |
-| **DONE** | **442** | **6984** | **81.1%** |
-| pending stub (genuine PROBE-only debt) | 59 | 188 | 2.2% |
-| missing (no symbol — low-freq leaf tail) | 704 | 1440 | 16.7% |
-| **REMAINING** | **763** | **1628** | **18.9%** |
-
-Inventory: 542 KB across 23 CODE segments; ~657 lifted functions in `boot.c`
-(308 `jtN` + 349 `lXXXX` helpers — alias resolution counts a few more).
-
-**Caveats (don't over-read the 81%):**
-- *Call-weighted, not byte- or runtime-weighted.* Static call sites proxy
-  "depended-on-ness," but a 1-call 800-instr giant (jt1044) weighs the same as
-  a 1-call 4-instr leaf.
-- *"Lifted" includes level-2 skeletons* (faithful CFG, inner dispatch deferred),
-  so the truly-faithful fraction is a bit under 81%.
-- *By raw entry count it's only ~37%* — the 704 "missing" are a long tail of
-  low-frequency leaves (avg ~2 calls each), genuinely low-leverage.
-
-**Where the remaining work concentrates (pending+missing by segment):**
-CODE 18 (222 calls, combat exec / saving throws) · CODE 16 (199, unmapped —
-worth a look) · CODE 6 (186, engine core / play frame) · CODE 5 (165, GLIB
-decode + jt1044/jt1050 giants) · CODE 8 (112, overland?) · CODE 4 (104, Sound
-Manager) · CODE 7 (101, view/render) · CODE 22 (88, menu/design picker) ·
-CODE 13-14 (162, combat effects + area map) · CODE 19 (73, record sheet).
-Low tails: CODE 17 char-gen (15), CODE 15 play loop (20), CODE 20 (7, the
-exec-tier remainder this session is chipping at).
-
-## Snapshot — 2026-06-11b (`tools/seg_audit.py all`)
-
-Reproducible per-segment audit (resolves both the `lXXXX` and `jtNNN` name for
-every entry, so nothing is double-counted or missed). **1893 function entries
-total: 517 lifted (27%), 147 stub, 1229 missing.** By raw count that is 35%
-lifted-or-stub; call-weighted it is much higher (~65–81% depending on method —
-see the estimate above) because the lifted functions cluster in the
-high-traffic segments while the 1229 missing are a long tail of low-call
-leaves.
-
-Per-segment lifted %: CODE 3 (59), 6 (58), 7 (53), 1 (50) — the engine
-core/Toolbox spine, well covered. Mid: CODE 15 (36), 5/20 (34/33), 22/4 (31),
-14 (26), 17/12 (24/22), 13/19 (18/14), 18 (15), 11 (14). **Untouched blocks:**
-CODE 16 (0%, 134 fns — combat spell-casting, sits on top of CODE 18's effect
-engine), CODE 10 (4% — BIGP/tile art loader), CODE 21 (4% — spell/magic
-gameplay + dungeon events: "already knows that spell", "A secret door!"),
-CODE 8 (5% — packer/runtime helpers), CODE 9 (5% — **design tools**, the
-button editor; deferred by ADR-0008 runtime-first), CODE 2 (2% — THINK C
-number/format helpers, tiny leaves).
-
-**Active front (task #115, combat):** CODE 18 effect engine at 29/190. The
-jt503 effect-result renderer thread is CLOSED (whole tree was already lifted —
-jt503 was the only gap). jt857 hook dispatcher lifted; its jt856 registration
-is deferred (its only caller is CODE 6+0x510c, unlifted, and most of its ~60
-handlers aren't lifted yet). jt38 combat info-panel + jt13 lifted — this
-**unblocks jt867** (damage-with-resistance, 7 calls, the top genuine CODE-18
-target) and jt711. Next: jt867 → jt879 (main effect applicator, ~1176B) →
-the jt7xx handler tail → CODE 16 spells on top. Note jt736/jt859 show as STUB
-but are faithful no-ops (effectively done).
-
-## Regenerate
+## Running it
 
 ```sh
-# call frequency across all CODE segments (from dis68k's (JT[N]) annotations)
-grep -rhoE "\(JT\[[0-9]+\]\)" data/work/disasm/CODE_*.s \
-  | grep -oE "[0-9]+" | sort -n | uniq -c | sort -rn > /tmp/jt_freq.txt
+python3 tools/jt_call_audit.py                                  # everything
+python3 tools/jt_call_audit.py --func l09dc                     # one function
+python3 tools/jt_call_audit.py --max-missing 2 --min-clines 40 --skip-todo
 ```
 
-Then cross-reference `/tmp/jt_freq.txt` against the `jtN` definitions in
-`src/engine/boot.c` (a one-line body that is only `PROBE(...)` + `(void)` casts
-+ `return 0` is a true stub). 1205 distinct JT entries are called; ~63 of the
-port's `jtN` are still one-line stubs.
-
-## The shared foundation (top-called — verify these stay FULLY lifted)
-
-These are the load-bearing primitives; most are already lifted, which is why
-recent UI/HUD work composed cleanly. If any regresses to a stub, everything
-above it breaks.
-
-| JT | calls | what |
-|----|-------|------|
-| jt3 | 307 | THINK C inline `switch` dispatch |
-| jt384 | 287 | string copy |
-| jt1200 | 187 | display-mode query (deep gate) |
-| jt488 / jt394 | 156 | sprintf-style format |
-| jt94 | 155 | text draw |
-| jt406 | 153 | BlockMove / memmove |
-| jt1161 | 147 | PaintRect (fill) |
-| jt1089 | 143 | formatted text draw |
-| jt399 | 126 | memset/fill |
-| jt1135 | 83 | 8000-space → screen coord scale |
-| jt452 | 81 | DLItem stream builder |
-| jt468 / jt1001 | 64/69 | GLIB group lookup / glyph blit |
-| jt117 / jt112 / jt108 | 56/43/30 | present / paint-mode / commit |
-
-## High-leverage TRUE stubs to lift (most-called, real work pending)
-
-**RE-AUDITED 2026-06-10 (twice) against current boot.c** (regenerate
-`/tmp/jt_freq.txt` per above, then classify each entry MISSING / PROBE-only STUB
-/ lifted, extracting full balanced bodies). Result after the JT[400] arc:
-
-- **Bands 1 + 2 (top 60) are COMPLETE.** Every entry is a real lift, a faithful
-  no-op/constant, or an inline-switch dispatcher. `jt1084` — the last genuine
-  hot stub — is now lifted (as `l036a`) and LIVE behind the error modal, its
-  text running the faithful JT[400] VM. See [[jt400-format-vm]].
-- The only top-60 STUB/MISSING classifier hits are FALSE POSITIVES: `jt3`/`jt1`
-  (inline-switch dispatchers — not functions to lift), `jt1061` (68030
-  addressing-mode toggle — genuinely empty), `jt1163` (returns 0), `jt1198`
-  (returns 1), and `jt1084` (named `l036a`).
-
-**Band 3 (61-120) is the frontier**: mostly lifted, with alias false-positives
-(jt181=l1806, jt1166=l04cc, jt124=l3eea), faithful no-ops (jt1170),
-HAL-deferred (jt1177), and a real tail of lower-frequency lift targets — jt38,
-jt63, jt523, jt857, jt869, jt595, jt1012, then the 120-150 batch (jt519, jt492,
-jt180, jt160, jt699, jt638, jt50/51, jt100/101, jt207, jt860, jt599, jt1128,
-jt1067). Isolated routines, not shared foundation — diminishing returns vs. the
-one coherent SUBSYSTEM still open (the GLIB picture/palette path).
-
-| JT | calls | status (2026-06-10) |
-|----|-------|---------------------|
-| jt1 | 95 | sparse-switch dispatcher (CODE 1+0x130). NOT a function to lift — like jt3, each call site reads its inline (off,key) table -> C `switch` (tools/jt1_extract.py). Fallback `jt1()`/`jt2()` stubs in place. |
-| ~~jt1084~~ | 34 | **DONE (this session).** Modal "Error: %r" alert (CODE 5+0x036a = `l036a`): box + format + key-wait + restore. Now routes its text through the faithful JT[400] VM (l0306 -> jt400 -> jt966/DrawChar); LIVE behind ~15 GLIB-loader error sites. See [[jt400-format-vm]]. |
-| ~~jt96 / jt23 / jt938 / jt358 / jt273~~ | | DONE (prior sessions). |
-| ~~jt1193~~ | 24 | DONE — resets the QuickDraw clip rect to full screen (boot.c:22050). Audit table was stale. |
-| ~~jt876~~ | 22 | DONE — linked-list node append / effect-entry builder (boot.c:19631). Audit table was stale. |
-| jt1177 | 22 | row-blit draw primitive — HAL-deferred; bus-errors on uninit NewGWorld page descriptors. Leave as stub. |
-
-Next genuine targets are SUBSYSTEMS, not single hot stubs:
-**(1) the JT[400] printf engine** (unlocks jt1084 + faithful error/text formatting),
-**(2) the GLIB picture/palette path** (jt1069/jt1066 + l3eea/L3f3c — unlocks the
-overland/area bigpic backdrop, see [[dungeon-hud-chrome-arch]]).
-
-## Genuine no-ops / constants — faithful AS stubs, do NOT "lift"
-
-Verified against the Mac body; leave them.
-
-| JT | calls | Mac body |
-|----|-------|----------|
-| jt1170 | 24 | empty (`linkw/unlk/rts`) |
-| jt1198 | 30 | returns 1 always (glyph row-step constant) |
-| jt1163 | 36 | returns 0 |
-| jt949 | 2 | empty (`rts`) |
-
-## Progress
-
-- **combat/encounter ENCOUNTER PROMPT lifted** (task #115, 2026-06-11): the
-  l709e combat arm (cases 10/21) is faithful from the picture to the player's
-  choice + outcome dispatch. Gateway (l673e outcome dispatch / l3bee 8-slot
-  -4938 queue / l43ac once-only-bitmap clear), l3b0e prompt (display + text +
-  l4fbe string lookup), and BOTH choice renderers — l026e_c20/l0098/jt484
-  (common '~'/'^' menu) and l03f6/l0380 (type-21 JT[169] scrolling list). All
-  encounter prompts now return real player choices end-to-end. REMAINING for
-  #115 = the **CODE 13-19 combat EXEC tier** (the queued -4938 encounter →
-  actual fight): L0730 combat-damage message (needs jt39 ~150B + jt99=jt175()),
-  jt907/jt906 (CODE 19). This is band-2 cluster #4 below. See
-  [[combat-encounter-gateway]].
-- **jt913 + jt938 lifted** (9a1b42b): the game clock / position panel. jt938
-  runs in jt948's faithful arms; making it VISIBLE in the jt240 arrow-walk is
-  a follow-up (same HUD integration the command bar got).
-- **jt96 subsystem lifted** (9fb7024): jt390 + l433a + l42a0 + jt96 (word-wrap
-  text-in-box). Slow-text (l435a) + pagination (l4c46) arms stubbed. Visible
-  wiring (jt18/jt20 record sheet, drop cg_view_sheet) is the follow-up.
-- **jt96 fully de-stubbed** (9ab51a0): l435a/l4c46 + the 13-fn pause/pacing
-  cluster lifted (all bottom out on already-lifted leaves).
-- **jt937 / jt32 / jt34 lifted** (6870674): jt937 (=L02dc roster grid) was
-  already faithful but called two stub column drawers — jt34 (THAC0/AC,
-  p[385]-60 signed) + jt32 (HP cur/max) lifted, plus helpers jt478/jt388/
-  l60b4. l02dc's loop restored to the faithful colour-band form (the jt94
-  "%d" stand-ins dropped). NOTE: jt937 does NOT call jt96 — the roster uses
-  jt94/jt103/jt25/jt32/jt34. jt96's live wiring is jt18/jt20, still pending.
-- **jt23 lifted** (603facc): the play-frame redraw dispatcher. Full CFG (gate
-  + 11-case mode switch) + the stand-up spine (L670c/L534a/L3804/L3880) full;
-  the backdrop-picture helpers (L541a/L5822/L579e/L3eea) are level-2 skeletons
-  pending the GLIB picture subsystem.
-
-## jt23 follow-up: the GLIB picture subsystem (== task #105 territory)
-
-jt23's backdrop arms (cases 2/6, the L5822 full-refresh, and the L3eea
-sprite/palette commit) call into a coherent unlifted subsystem worth a focused
-lift:
-
-- **L33ac** (CODE 6, ~204 instr) — the PIC resource decode + blit core.
-- **L541a** (CODE 6, ~235 instr) — PIC name builder (PIC%c1 / %s%s / bigpi%c%d
-  variants over the area id) feeding L33ac.
-- **L579e** (CODE 6) — bigpic loader (cached on g_a5_-24256/-17446).
-- **jt993** (CODE 5+0x20d0, TNPalette) + **jt1017** (CODE 5+0x38be, LBIndxType)
-  — the palette commit, pulling L2856 (library lookup) + jt1069 (palette set).
-- leaf helpers: L035e (group set, -> jt204/jt209/L5700/L5864), L338c, L31dc,
-  L3f3c (-> jt1066/jt1069).
-
-These are the screen-backdrop / palette path; lifting them lights up the
-play-screen picture window + the cases-2/6 area backdrops.
-
-### Dependency map (mapped 2026-06-08) + lift sequencing
-
-Already lifted (reuse): jt384, jt394, jt419, jt423, jt431, jt398, jt411,
-jt461, jt468, jt406, jt1200, jt1163, jt1134, l2856, jt204, jt209, l5700,
-l5864, jt1066? (no — stub).
-
-The load path bottoms out in TWO gatekeepers that are event-loop / dialog
-code (NOT verifiable by reading — need the real assets in Hatari):
-
-- **jt987** (CODE 5+0x1a0c, ~120 instr, 16 call targets) — the library-file
-  open + read loop with a progress/error dialog (jt1118/jt1133 event poll,
-  jt1152/jt1142/jt1121, jt415/jt408, l036a, + l157c/l0156/l00a8/l0f9c/l0088/
-  l0062 sub-functions).
-- **l036a** (CODE 5+0x36a, modal "Error: %r" dialog) — draws an alert box
-  (jt1161) + its own key-wait loop (jt1116/jt1205/jt1193/jt1153/jt1147/l024c/
-  l0264/l0306/jt1118/jt1133/l0062). jt1069 + jt1066 also route errors here.
-
-Mid-layer (closes ONLY once jt987/l036a land):
-- jt997 (CODE 5+0x27be, ~29) -> jt419 + L36a4.  L36a4 (CODE 5+0x36a4, ~43)
-  -> jt464 + jt987 + jt468 + jt406 + l036a (verifies the 'GLIB' magic).
-- L33ac (CODE 6+0x33ac, ~204) — the binder: finds a free -18468 group slot,
-  builds the .ctl/.tlb filename, opens (jt464/jt398/jt431/jt460/jt411), and
-  loads via jt987 (name path) or jt997 (id path); sets the -18402.. blit
-  descriptor + calls jt104/JT[987].
-
-Palette path (self-contained-ish, HAL-verifiable but long; routes errors to
-l036a):
-- jt1069 (CODE 5+0x71b0, ~329) — walk the -3258 palette table, set CLUT.
-  Deps: jt406, jt1134, l01ae, l036a + one CODE4 JT.
-- jt1066 (CODE 5+0x759a, ~200, currently a STUB) — palette save/restore over
-  the -3162/-3258/-3354 tables (jt406).
-- jt993 (TNPalette) + jt1017 (LBIndxType) — the L3eea commit, over jt1069.
-
-Still-missing small leaves: jt389 (DONE), l31dc (DONE), jt464, jt460, jt104,
-l01ae, l024c, l0264, l0306, l0062, l0088, l00a8, l0f9c, l0156, l157c.
-
-**Recommended sequencing** (each its own verified commit):
-1. leaves: jt389 + l31dc (DONE, 5dadbbb+).  Then jt464/jt460 (CODE3 file
-   tests over the resource archive — check against compat/resources.c).
-2. l036a error dialog (gatekeeper #1) — verify the alert renders in Hatari.
-3. jt987 loader loop (gatekeeper #2) — verify a .ctl/.tlb opens + reads.
-4. L33ac binder + jt997/L36a4 — de-skeleton L541a/L579e.
-5. jt1069 + jt1066 + jt993/jt1017 — de-skeleton L3eea (palette commit).
-The codec/loader interiors (2-5) should be lifted one at a time with a
-Hatari checkpoint each; blind transcription of all ~800 lines at once is not
-verifiable.
-
-### l036a error dialog — actual breakdown (mapped + partly lifted 2026-06-08)
-
-l036a(fmt, ...): jt1116 save-state; jt1205; jt1193; jt1153(1); jt1161 box;
-L024c(240)+L0264+L0306("Error: %r",va) text; jt1147; L00a8 drain; wait
-(L0088); on key 'q' (113) -> L0062 quit + jt415(1); L00a8; L024c(15)+jt1161
-erase; jt1167; jt1153(restore).
-
-- DONE (ac899c1): the event + pen primitives — jt437-441, L0088, L00a8,
-  L024c, L0264 (+ jt1108/jt1137). All faithful over the lifted event buffer.
-- jt1161/jt1118/jt1133/jt1125/jt1135/jt1153 already lifted.
-- **BLOCKER — L0306 text draw needs jt400 (CODE 3+0x3fb8, ~489 instr): a full
-  printf-with-output-callbacks engine** (%r/%s/%d/%lx/%03d…, sinks jt966-969,
-  ~33 instr each). DECISION NEEDED: transcribe verbatim, or map L0306 onto the
-  port's existing format path (jt394/jt488 sprintf) + the GLIB char draw —
-  per the Mac-Toolbox-shim architecture (ADR-0003) string formatting is a shim
-  concern, arguing for reuse not re-lift.
-- still missing (CODE 4 display-state, small — TBR): jt1116, jt1205, jt1147,
-  jt1167; jt1193 (stub), jt415 (stub, quit/abort).
-- L0062 quit path (only on 'q'): jt466/1156/1119/1114/1158 + L27bc/L35f8(done)/
-  L01ac/L0f14 — defer (rare abort branch).
-
-### l036a DONE (7d0088c)
-Lifted faithful-on-shim: jt1116/jt1205/jt1167/jt1147 (+ SysBeep shim), L0062
-skeleton, l036a itself. The jt400/%r text path mapped onto jt1089 (the
-established vsnprintf+DrawString equivalent). Event/pen prims were ac899c1.
-
-### jt987 (gatekeeper #2) — anatomy + next target
-jt987 (CODE 5+0x1a0c) is NOT the loader — it's a **load-with-retry-dialog
-wrapper**: it calls the real loader L17e2 and, on failure, shows the
-"please insert disk / Cancel / Quit" dialog (L157c) and retries. For the
-port (files on GEMDOS disk) L17e2 should just succeed, so the retry UI is
-cold. jt987 deps mostly lifted/skeletoned: L036a(done), L0062(skeleton),
-jt415(stub), event prims(done); still need jt1152/jt1142/jt1121 (cursor +
-event), jt408, L157c (the disk dialog), L0156.
-
-### L17e2 + jt987 — ASSEMBLED + HATARI-VERIFIED (0d9132a)
-
-Both lifted (faithful CFG; cold save/dialog arms skeletoned). Verified in
-Hatari against real game data (data/work/gamedata, --conout 2 trace) with a
-throwaway probe in ua_main Phase 3:
-  CHECKPOINT l17e2 ALWAYS.CTL  = 1   (open refnum 64 -> jt411 close -> 1)
-  CHECKPOINT jt987  ALWAYS.CTL = 1   (wrapper, first try, no retry dialog)
-  CHECKPOINT l17e2  MISSING.CTL = 0  (3 retries, refnum -1 -> 0)
-Trace confirmed the path: L17e2 -> jt420/jt408/jt389 classify -> L16c6 path
--> jt398 (l322c/l45d6/l328e) -> refnum -> jt411. The opener works.
-
-### jt104 read callback — decoded; reader FOUNDATION lifted
-
-jt104 (CODE 6+0x3214) finds the item by id (jt1013), loads it (jt1011), then
-stores it into the GLIB group slot. KEY SPLIT by mode (g_a5_-18398, set by
-L33ac):
-- **mode 0 (the picture .ctl case): JT[1016]** — read into the group slot.
-- mode 1/2 (TLB/title): jt462 release + jt1024 dir-create + jt1021 + jt1023.
-  COLD for pictures.
-
-The group table jt462/jt468 use is g_a5_-10074 (jt468 already resolves it —
-NO rewiring needed). The item handle table is g_a5_-10270.
-
-DONE (this session): the GLIB library readers jt412 (seek -> SetFPos/GetFPos),
-jt1011 (load item), jt1013 (find by id). The 'GLIB' header + index format.
-
-DONE (read-into-pool layer, this step): the FAR-pool model is one
-contiguous buffer; g_a5_10270[i] (longs) = START *pointer* of the i-th
-group, g_a5_10270[count] = used end, g_a5_9304 = capacity end, g_a5_9306
-= group count, g_a5_10074 = 48-byte freemap (id->seq, 0xFF free). NO
-decompression at load — raw bytes only; codecs run at blit time
-([[glib-art-codecs]]). The file I/O collapsed onto already-lifted shims:
-L3888 (seek) = jt412, L3d98 (read) = jt401/FSRead. Lifted:
-- jt459 (CODE 3+0xd44): size query — id>=0 group size, -2 capacity,
-  -1 free. FULL.
-- l3e0c (=JT[409]): find-byte helper. FULL.
-- L11ca (CODE 3+0x11ca): one compaction pass; jt1083 RNG picks orphan
-  scan order; releases via L103c. FULL.
-- L0a6e (CODE 3+0xa6e): ensure free tail, compacting until enough. FULL.
-- L0ab8 (CODE 3+0xab8): extend the in-progress group (slot[count]+=size),
-  track g_a5_9300 low-water. FULL.
-- jt460 (CODE 3+0xc0a): append `length` raw bytes (neg = read-to-EOF);
-  on jt412(seek)+jt401(read)+l0ab8. FULL.
-- jt462 (CODE 3+0xb16): unwind the in-progress group on failure. FULL.
-- jt1016 (CODE 5+0x3640): driver — jt460 read + jt459 size + L4010
-  commit; jt462 on fail. FULL CFG.
-
-DONE (commit/relocate step): L4010 (_LBConvert) FULL. Key finding: the
-converter registered for 'GLIB' is JT[973], and JT[973] == L4010 itself
-(CODE5+0x4010) — so the index relocation is RECURSIVE descent over
-GLIB-of-GLIBs, bottoming out at leaf art whose signature isn't in the
-registry. Lifted alongside:
-- l4010: validate magic, odd-pad, then walk the 16-byte-header index;
-  for each entry call the signature's converter (recurses), accumulate
-  the size delta, rewrite each index entry + the header in place.
-- glib_lb_register (L35fa) / glib_lb_init (L35e2): the converter
-  registry (-3654 sig / -3638 fn / -3656 count); init registers exactly
-  'GLIB' -> l4010. MUST be called once before the pool loads a library.
-- l3e50 (the hdr[10]!=0 typed-.tlb sub-convert arm): PROBE stub
-  (identity); plain UI .ctl GLIBs leave hdr[10]==0, so untaken.
-
-DONE (pool stand-up + extractor + binder + Hatari checkpoint):
-- jt463 (_LBOpen): stands up the FAR pool — group count 0, freemap 0xFF,
-  alloc the master buffer (fixed 768K), seed slot[0]/-9304/-9300, register
-  'GLIB'->l4010 via glib_lb_init.
-- jt104 (CODE6+0x3214): the per-file callback jt987 invokes after open;
-  finds the binder-context item (-18408 base id, +100*-18404 fallback),
-  sizes it, and for mode 0 (-18398==0, hot) commits via jt1016. Modes 1/2
-  (TLB cache) are a faithful skeleton over jt1021/1023/1024 stubs.
-- L33ac (JT[110], the binder): level-2 skeleton — claims a -18468 slot,
-  builds the filename, stamps the context (-18402/-18406/-18408/-18404/
-  -18398), and dispatches: plain names -> jt997, numbered -> jt987+jt104.
-  jt464/jt997/jt1014 cache leaves remain PROBE stubs.
-- VERIFIED under Hatari (glib_pool_selftest, GEMDOS_DIR=gamedata): jt463
-  pool capacity=786432; ALWAYS.CTL (5368B) read via jt1016 -> group0
-  size=5368, group0 magic=0x474C4942 ('GLIB'). The read+commit layer
-  parses real FRUA data end-to-end. All pool code is probe-only/unused,
-  so the production build + live buffered UI loader are untouched.
-
-REMAINING:
-- ~~jt464 (cache-index existence) + jt997/jt1014 plain-name loader tower~~ —
-  DONE (lifted; full bodies at boot.c ~25922/26007/26028, jt972 ~25994). Still
-  `__attribute__((unused))` — lifted but not WIRED (l33ac binder drives them but
-  is itself a level-2 skeleton, unused live; the live UI load is still the
-  l37aa/l2856 buffered path via port_frame_load).
-- Wire jt463/glib_lb_init into the real init path + replace the live
-  l37aa/l2856 buffered loader with the faithful pool (the flip).
-- palette (jt1069/1066/993/1017), de-skeleton L541a/L579e/L3eea.
-
-NOTE (2026-06-10): this whole loader/pool/palette tower is the BACKDROP-PICTURE
-path. It is NOT what task #114 (dungeon HUD frame chrome / button plates /
-content-window height) needs — those are the frame BLIT/composition
-(port_draw_play_frame blits all 29 FRAME.CTL pieces vs the faithful subset +
-positions), and FRAME.CTL is already loaded fine. The faithful dungeon-chrome
-composition was NOT found in jt214 (=backdrop index -> L579e) or jt44/L5822
-(=backdrop redraw L579e+L3880+L3eea); locate where the Mac blits the FRAME.CTL
-borders/dividers/viewport pieces (likely scattered jt1001 calls in the view
-setup, NOT a single function) before reworking port_draw_play_frame.
-
-### L17e2 (CODE 5+0x17e2) — decoded (historical notes)
-
-L17e2(kind, name, arg14_mode, callback) is a 3-attempt resource-file opener:
-build the path (L16c6), open by mode, run the caller's `callback(refnum,
-filespec)` to read it, close (jt411); on failure show the disk-retry dialog
-(L157c) and retry. KEY SPLIT:
-- **mode 3 = READ/LOAD (the picture case): uses jt398 (open, DONE).**
-- mode 1/4 = WRITE/SAVE: uses jt392 (create) -> L3386 + L341a (save dialog).
-
-Leaves now LIFTED: L16c6 path builder, jt408/jt420 classifiers (jt422
-already done), L00da (wait), L0156 (cursor flash), and the open helpers
-jt398/jt411/l322c/l31fc/l45d6/l328e were already lifted. jt1122/jt1134 lifted.
-
-REMAINING to close L17e2 + jt987 (next session):
-1. jt416 (CODE 3+0x35d6) -> L45d6 + jt1054 (CODE 5+0x5b74): the mode-3 load
-   finalize. Lift jt1054 (check size), then jt416.
-2. Cold-path skeletons (rare in the port — files are on GEMDOS disk):
-   L157c (disk-retry dialog ~111), jt1109 (post-load notify ~108).
-3. SAVE path: jt392 + L3386 (create ~53) + L341a (save dialog) — or skeleton
-   jt392 (not needed by the picture subsystem).
-4. Assemble L17e2's CFG (gate/mode-switch/retry loop), then jt987's thin
-   retry-dialog loop over it.
-Then: L33ac binder, palette path (jt1069/jt1066/jt993/jt1017), de-skeleton
-L541a/L579e/L3eea. The loader WANTS asset-based Hatari verification (does it
-open + parse a real .ctl/.tlb?) — verify mode-3 load before building on it.
-
-## jt96 is a SUBSYSTEM, not a one-shot lift (mapped 2026-06-08)
-
-jt96 (43 sites) is a **word-wrap text-in-box renderer** for record-sheet /
-roster cells (driven by jt18/jt20). It is NOT a single function — a faithful
-lift pulls in a cluster:
-
-- **jt96** (CODE 6+0x43c4, ~150 instr): bounds-check (page/row/width 0..39),
-  cell-cache (g_a5_-27912 page / -27911 row), jt103 box if s7!=0, strlen
-  (jt483), then a word-boundary scan that measures words against the cell
-  width (arg `width`) and wraps lines.
-- **L433a** (tiny): is-this-char-a-delimiter — JT[390] lookup in the set
-  `"()[]{}-.,?!\":;"`. Needs **jt390** (char-in-set, CODE 3+0x3e3c).
-- **L42a0** (~51 instr): draw one text run (the per-substring blit).
-- **L435a** (~28 instr) + **L4c46** (~7 instr): line-advance / cell helpers.
-- also JT[476] (CODE 3+0x46a), JT[176] (CODE 7+0x162e).
-
-~250 instr across 5–6 functions, HIGH blast radius (43 callsites span the
-record sheet + the play roster). Do it as a focused effort: leaf-first
-(jt390 → L433a → L42a0 → L435a/L4c46), then jt96, then drop the port's jt94-
-based l02dc roster stand-in for the faithful jt18/jt20 → jt96 path.
-
-## Caveat
-
-`(JT[N])` counts are *static call sites* in the disasm, not runtime hotness —
-but for "what's most depended-on across the code" they're the right proxy. The
-list above counts single-line stubs only; a few heavily-called multi-line
-functions (jt1134, jt878, jt1061, jt936, jt868, jt935…) are partial lifts worth
-spot-checking individually.
-
-## jt406 argument-order audit (2026-06)
-
-Ground truth: the memmove core L57f8 reads from the arg at `fp@(8)` and
-writes to `fp@(12)`, so the Mac `JT[406]` is **BlockMove(src, dst, count)**
-— src first. boot.c's `jt406` wrapper is declared `(dst, src, count)` (C
-memmove order), i.e. **the first two args are flipped vs the Mac asm**.
-
-That is safe *as long as every caller passes (dst, src)*. Audited all 16
-boot.c callsites — all honour the (dst, src) contract (several carry
-`/* dst, src, n */` comments; L4010's header read into a local `hdr` is
-Hatari-verified reading magic 'GLIB'). **No caller is reversed.** The
-risk is only for future transcriptions of a Mac callsite that copy its
-positional order verbatim — a banner comment on `jt406` now warns of it.
-`jt479` (= the same L366a core, used by L026e's save/restore) keeps the
-faithful Mac (src, dst) spelling.
-
-## Band 2 audit (2026-06-10)
-
-Band 1 was the load-bearing primitives + the top true stubs. Band 2 is the
-next frequency tier of GENUINELY unlifted entries, re-derived from a fresh
-`/tmp/jt_freq.txt` cross-referenced against boot.c (true stub = PROBE + a
-constant/void return, no calls, args ignored). 1205 distinct JT called; ~88
-true stubs remain.
-
-### Faithful no-ops at high frequency — VERIFIED, leave as stubs
-
-| JT | calls | why it's genuinely empty here |
-|----|-------|-------------------------------|
-| jt1061 | 38 | `_SwapMMUMode` — 68030 has one flat 32-bit mode; no 24/32 swap |
-| jt1163 | 36 | returns 0 |
-| jt1198 | 30 | returns 1 (glyph row-step constant) |
-| jt1170 | 24 | empty body |
-| jt1130 / jt920 / jt956 | 10/6/.. | per-segment init no-ops |
-| jt1148 | 6 | CODE 4 init no-op |
-
-### Band-1 leftovers still open (highest individual stubs)
-
-| JT | calls | what |
-|----|-------|------|
-| jt1193 | 24 | (CODE 7) view-prep tail |
-| jt876 | 22 | popup action handler (CODE 18+0x1666) |
-| jt1177 | 22 | row-blit draw primitive (HAL-deferred — see [[band1-tail-triage]]) |
-| jt1084 | 34 | error/alert dialog == l036a (DONE) — routes there, effectively closed |
-
-### Band-2 actionable CLUSTERS (lift these as groups, leaf-first)
-
-Like band 1's GLIB-glyph and jt96 word-wrap finds, the leverage is in clusters:
-
-1. **Paint-state commit chain — l3994 → jt1012(15) / jt1128(11) / jt1066(6) /
-   jt1153.** Widest blast radius in band 2: every JT[94]/JT[108]/JT[112]/JT[117]
-   text paint flows through l3994's deferred pen-state commit, which is PROBE
-   because the QuickDraw shim doesn't publish GrafPort snapshot state yet.
-   Wiring it makes deferred paint commit at the right time (the
-   JT[108]→l3994→JT[1153] chain). Needs compat/quickdraw.c to expose the
-   port/clip snapshot first.
-
-2. **GLIB picture / backdrop subsystem — jt124(16) free-handle + jt993 /
-   jt1017 (palette commit) + L33ac / L541a / L579e / L5822.** The jt23 cases
-   2/6 + L5822 full-refresh backdrops. Lights up the play-screen picture
-   window + area backdrops. Already mapped above (the "jt23 follow-up" section)
-   and is task #105 territory; the read/commit pool layer is DONE, the
-   picture-decode + palette commit are the remaining pieces.
-
-3. **View-Character / record-sheet popup — jt595(16) + the jt904 dispatch
-   arms (jt18/jt20 record sheet, already lifted).** jt595 is the popup-action
-   handler the "View" command routes to. Surfaces the real character sheet.
-
-4. **Combat exec tier (CODE 13-19) — the queued -4938 encounter → fight.**
-   The encounter GATEWAY + PROMPT are now DONE (task #115; see Progress + the
-   render tree jt875 / jt501 / jt521). REMAINING entry points: L0730
-   combat-damage message (jt39 ~150B record state-machine + jt99=jt175()),
-   jt907/jt906 (CODE 19 record-sheet/combat), jt503(13) effect-resolution.
-
-5. **View-setup + counter leaves — jt213(11) party-cell record, jt1067(11),
-   jt593(9), jt367(7) counter-format.** Small leaves the dungeon/area view
-   setup calls; low risk, incremental.
-
-6. **Timing shim — jt100(12) = TickCount.** Small: gates l23b4's animation /
-   timeout timers (blinking-cell, timed dialogs). Map to the TOS frame clock.
-
-### Recommendation
-
-Highest USER-VISIBLE leverage is **task #108 (the 320x200 vs 640x400 frame
-scale)** — it's not a JT stub but it blocks the whole play HUD (#113: the
-jank dungeon frame, roster jt936, clock jt938 all sit on a mis-scaled frame).
-Among pure JT-stub clusters, **cluster 1 (paint-state commit)** has the widest
-reach and **cluster 2 (GLIB backdrops)** the most visible payoff. Suggested
-order: #108 frame scale → cluster 2 (backdrops, finishes task #105) →
-cluster 1 (paint commit) → clusters 3–6 incrementally.
+The last form is the **#137 shape**: a substantial C body (so not a PROBE stub),
+dropping only one or two calls (so not an undone lift), with no admitted TODO.
+
+Calibration is part of the tool's history, not a claim about it: run it against
+`git show 12917a32^:src/engine/boot.c` and it reports `l09dc … NOT in C: JT[124]`;
+run it against HEAD and `l09dc` is clean. `tests/test_jt_call_audit.py` pins the
+behaviour on synthetic fixtures (the real disassembly is git-ignored).
+
+## THINK C runtime is excluded
+
+CODE 1's low jump-table entries are compiler runtime, not engine calls. A
+faithful lift never calls them, so counting them buried the real findings under
+100+ false hits on the first run:
+
+| entry | what it is | what the C writes |
+|---|---|---|
+| `JT[1]` | sparse switch on a word | `switch` |
+| `JT[2]` | sparse switch on a long | `switch` |
+| `JT[3]` | range switch (min/max/default table) | `switch` |
+| `JT[4]` | 32×32 → 32 multiply | `a * b` |
+| `JT[5]` / `JT[6]` | unsigned long divide / modulo | `a / b`, `a % b` |
+| `JT[7]` / `JT[8]` | signed long divide / modulo | `a / b`, `a % b` |
+
+Verified by disassembling CODE 1 `0x130..0x20c` and against boot.c's own lifts
+of `jt4`..`jt8`, which are literally `return a * b;` / `return a / b;`.
+
+## Current state (2026-08-09)
+
+1422 annotated functions compared: **120 drop at least one call**, **32 match
+the #137 shape**. Most of the 120 are honest level-1/2 lifts (CLAUDE.md) that
+declare their deferral; the tool cannot tell a declared deferral from a hidden
+one, which is why `--skip-todo` exists and why every hit needs reading.
+
+Most-frequently dropped targets across all 120: `JT[1200]` (8), `JT[399]` (7),
+`JT[394]` (7), `JT[118]` (6), `JT[431]` (5). A target dropped in many places is
+more likely a port-wide convention (e.g. `JT[1200]` is the display-mode query,
+which the HAL often answers differently) than a bug — but the convention should
+be *written down*, and currently it is not.
+
+### Verified
+
+- **`l309c` (CODE 5+0x309c) omits `JT[1124]`.** Checked by hand against the
+  asm. At `0x30c4` the asm calls `L2856` and our C does too; at `0x30d6` it
+  makes an *additional* zero-argument `JT[1124]` call (CODE 4+0x4d88, which
+  touches A5 globals -936/-935/-926/-2347) that our C does not make at all.
+  Note the trap this nearly caused: `L2856` sits right beside it and looks like
+  it could be the same routine, but `CODE 4+0x4d88` and `CODE 5+0x2856` are
+  different code — **`l2856` is not an alias for `JT[1124]`**. Functional impact
+  unknown; `l309c` is the bigpic/art-leaf blitter.
+
+### Unverified leads
+
+Everything else in the 32. They are hypotheses generated by an instrument, not
+findings — the same instrument that needed its runtime-exclusion list fixed
+before its output meant anything. Read the asm before believing any of them.
+Ones whose dropped target is a *data or resource* call (the #137 class) are
+worth more than ones dropping a UI call:
+
+| function | boot.c | drops |
+|---|---|---|
+| `jt953` | 2456 | `JT[978]`, `JT[1008]` |
+| `jt955` | 51073 | `JT[155]`, `JT[182]` |
+| `jt241` | 19379 | `JT[236]`, `JT[237]` |
+| `l040c` | 85528 | `JT[266]`, `JT[267]` |
+| `l01be` | 32974 | `JT[431]`, `JT[576]` |
+| `jt1161` | 9316 | `JT[397]`, `JT[413]` |
+| `jt463` | 79973 | `JT[1026]`, `JT[1028]` |
+| `l1bfe` | 66362 | `JT[138]`, `JT[139]` |
+| `l0980` | 76534 | `JT[661]`, `JT[670]` |
+| `l100c` | 81330 | `JT[323]` |
+| `jt94` | 8364 | `JT[394]` |
+| `jt169` | 32524 | `JT[144]` |
+
+`l24d2` and `jt452` both drop `JT[1084]` — that is `l036a`, the error alert, so
+those two omit an error path rather than a behaviour. Both are annotated
+`CODE 3+0x29a0`, i.e. the same address lifted twice under two names.
+
+## Known limits
+
+- Function spans in the asm end at the first `unlk`+`rts` (framed) or first
+  `rts` (leaf), with the next known entry as a backstop. A function with two
+  epilogues reads short, which **under**-reports. That is the deliberate
+  direction to be wrong in.
+- Call *counts* are not compared, only presence. Calling `jt117` once where the
+  Mac calls it three times is invisible here.
+- Only `src/engine/boot.c` is scanned, and only functions carrying a
+  `(CODE NN + 0xXXXX)` annotation — 1422 of them.
