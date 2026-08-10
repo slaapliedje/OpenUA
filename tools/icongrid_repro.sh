@@ -23,7 +23,20 @@ cd "$REPO" || exit 125
 pkill -9 -x hatari 2>/dev/null; sleep 1
 rm -f "$GAME/DBG.LOG"
 
-make CPU68K=68000 >/dev/null 2>&1 || exit 125          # build broken -> skip
+# Build, RETRYING ONCE. The first make after a commit transition also runs the
+# BUILDSTAMP purge (objects from the other commit are deleted and everything
+# rebuilds), and that one-shot transition is where this failed during bisect —
+# every manual re-run afterwards succeeded, which is exactly what made it look
+# like an unbuildable commit. A second attempt on an already-purged tree is a
+# genuine build test; only a repeat failure means "skip this commit".
+if ! make CPU68K=68000 >/tmp/icongrid_make.log 2>&1; then
+	echo "icongrid: first make failed (purge transition?), retrying" >&2
+	if ! make CPU68K=68000 >/tmp/icongrid_make.log 2>&1; then
+		echo "icongrid: BUILD FAILED twice -> skip commit" >&2
+		tail -5 /tmp/icongrid_make.log >&2
+		exit 125
+	fi
+fi
 cp frua.prg "$GAME/FRUA.PRG"                     || exit 125
 
 env -u DISPLAY HATARI_ARGS="--machine megaste --memsize 4" \
