@@ -34215,84 +34215,28 @@ static void l09dc(void)
 		jt120(NULL);
 		jt117();
 		jt113(50);
-		/* Bind DUNGCOM1 and install the icon-grid palette as a TWO-RANGE CLUT:
-		 * clut 0..31 stay the menu / FRAME.CTL UI colours (the stone frame, the
-		 * buttons, the text); clut 32.. get DUNGCOM's combat-sprite palette (the
-		 * silver cell ground, skin/armour tones).  That palette is set 1's item 0
-		 * — DUNGCOM.CTL is a GLIB-of-GLIBs, so navigate outer item 1 (the set)
-		 * -> its item 0 (the colour table, header start=32) and install it
-		 * literally at 32+, leaving 0..31 untouched.  (jt124/l3eea is NOT used
-		 * here: the port's FC group for "DUNGCOM1" is the OUTER DUNGCOM.CTL, so
-		 * jt124 mis-reads outer item 1 — a nested GLIB whose stub header says
-		 * start=0/count=256 — and splatters garbage across 0..255, wrecking the
-		 * frame.)  The grid blits from the -27866 'TILE' registry (l36e0) that
-		 * jt593 -> jt56 composes the CBODY body shapes into (l3b1e). */
+		/* Mac CODE 17 @0x0a4c-0x0a62: bind DUNGCOM1, commit its palette with a
+		 * SINGLE jt124, free the slot.  That is the whole original sequence.
+		 *
+		 * This site used to hand-roll a two-range CLUT install (navigate outer
+		 * item 1 -> its item 0, parse the header, port_clut_install at 32+),
+		 * because in June 2026 jt468("DUNGCOM1") handed back the OUTER
+		 * DUNGCOM.CTL and jt124 therefore read a nested GLIB's stub header as a
+		 * colour table and splattered 0..255.  The GLIB pool flip (2026-07-13)
+		 * removed that premise: jt468(group) IS the extracted sub-GLIB now, so
+		 * the hand-rolled extra l37aa(...,1) step walked one level too deep,
+		 * landed on a TILE, and l37aa(tile,0) returned 0 -> NO palette at all
+		 * -> the body icons resolved to CLUT entries that are RGB(0,0,0) and
+		 * rendered black on every backend.  jt124 reaches the right table on its
+		 * own: jt1017 gives index-type 0, so jt993 fetches sub-item 0, whose
+		 * header already declares start=32/count=224 — the 0..31 UI range is
+		 * preserved by the DATA, not by a clamp we invented.
+		 *
+		 * The grid blits from the -27866 'TILE' registry (l36e0) that jt593 ->
+		 * jt56 composes the CBODY body shapes into (l3b1e). */
 		handle = 0;
 		jt110(&handle, 0, 0, 1, "DUNGCOM1");
-		{
-			long set1 = handle
-			    ? l37aa(jt468(*(short *)(uintptr_t)handle), 1) : 0;
-			long pal0 = set1 ? l37aa(set1, 0) : 0;
-#ifdef FRUA_ICONTRACE
-			/* The 49 icons DO draw on the real path, yet no CLUTstart line
-			 * appears — so this palette install is bailing on one of its
-			 * inner guards. Name which one: the DUNGCOM1 bind, the outer
-			 * item-1 (set) navigation, its item-0 (colour table), or the
-			 * ph[7]&15==8 "is a colour table" test. */
-			dbg_file_num("icontrace: PAL bind handle = ", (long)handle);
-			dbg_file_num("icontrace: PAL set1        = ", set1);
-			dbg_file_num("icontrace: PAL pal0        = ", pal0);
-			if (pal0 != 0)
-				dbg_file_num("icontrace: PAL ph7&15      = ",
-				             (long)(((const unsigned char *)(uintptr_t)pal0)[7] & 15));
-#endif
-			if (pal0 != 0) {
-				const unsigned char *ph =
-				    (const unsigned char *)(uintptr_t)pal0;
-				if ((ph[7] & 15) == 8) {        /* a real colour table */
-					short start = (short)(((unsigned)ph[2] << 8) | ph[3]);
-					short count = (short)(((unsigned)ph[4] << 8) | ph[5]);
-					const unsigned char *rgb = ph + 8;
-					static RGBColor cpal[256];
-					short k;
-					/* Protecting the UI range means DROPPING the entries
-					 * below 32, not SLIDING the table up to meet 32. The
-					 * old `if (start < 32) start = 32;` left entry 0 at
-					 * index 32, entry 1 at 33 ... so a table declaring
-					 * start=31 installed every colour ONE INDEX ABOVE the
-					 * pixels using it, and the sprites resolved to the
-					 * entry below their own colour — black. Measured on
-					 * real hardware (HEIRS.DSN, FRUA_ICONTRACE): body-icon
-					 * pixels carried indices 87/72/79 whose CLUT entries
-					 * were RGB(0,0,0), while the working root-art case
-					 * carried 88/73/80 WITH colour — a clean off-by-one.
-					 * Advance the source pointer with the start so every
-					 * surviving entry lands on its own index. */
-					if (start < 32) {
-						short skip = (short)(32 - start);
-						if (count <= skip) {
-							count = 0;
-						} else {
-							rgb  += (long)skip * 3;
-							count = (short)(count - skip);
-							start = 32;
-						}
-					}
-					if (count > 256 - start) count = (short)(256 - start);
-#ifdef FRUA_ICONTRACE
-					dbg_file_num("icontrace: CLUTstart*1000+cnt= ",
-					             (long)start * 1000L + count);
-#endif
-					for (k = 0; k < count; k++) {
-						cpal[k].red   = (unsigned short)((rgb[k*3+0]<<8)|rgb[k*3+0]);
-						cpal[k].green = (unsigned short)((rgb[k*3+1]<<8)|rgb[k*3+1]);
-						cpal[k].blue  = (unsigned short)((rgb[k*3+2]<<8)|rgb[k*3+2]);
-					}
-					if (count > 0)
-						port_clut_install(cpal, start, count);
-				}
-			}
-		}
+		jt124(handle);                          /* 0x0a5e */
 		jt115(&handle);                         /* free the temp DUNGCOM slot */
 		g_a5_byte(-22307) = 0;
 		do {                            /* L0a76: 49 cells (0..48) */
