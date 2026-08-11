@@ -27147,10 +27147,20 @@ static short l2d3e(void)
 		for (i = 0; i < count; i++) {
 			short iy = *(short *)(hr + 16);
 			dlitem_method_t hm = *(dlitem_method_t *)hr;
-			/* Every item hit-tests through its own method (cmd 2), exactly
-			 * as the Mac does. CODE 3 L2d3e's loop (0x2d84..0x2dac) pushes
-			 * (item, 2, cy, cx) and `jsr (a0)` UNCONDITIONALLY — there is no
-			 * coordinate-space guard. The method itself scopes the test:
+			/* Only 8000-space items are hit-tested (the pre-2026-08-10
+			 * behaviour, restored). The Mac's L2d3e has no such gate — it
+			 * calls every item's method unconditionally — and 7898113a
+			 * removed it here to make the modify-char stat rows clickable.
+			 * But the REAL modify fix (c3332ed5) installs those rows as
+			 * shape-5 cells at 8000-space y (8036..8056), so they pass this
+			 * gate anyway; the removal was redundant AND was the suspect in
+			 * the post-create "Exit from Play" freeze (some absolute-coord
+			 * item's cmd-2 method misbehaves when hit-tested — not yet
+			 * isolated, because it repros only on hardware). Restoring the
+			 * gate is known-good; revisit the faithful no-gate form once the
+			 * offending item/method can be reproduced.
+			 *
+			 * (Historical note: the Mac's method itself scopes the test —
 			 * jt137 msg 2 handles BOTH spaces (jt1135 passes values <=6000
 			 * through unchanged), and disabled items (rec[28] bits 0/1)
 			 * reject themselves.
@@ -27163,7 +27173,8 @@ static short l2d3e(void)
 			 * coords. The `hm != NULL` check stays (a NULL method is a
 			 * PORT-SAFETY guard, not a Mac behaviour — the Mac would fault).
 			 * Evaluated ONCE: the diagnostic must not call the method twice. */
-			short hit = (hm != NULL) ? hm(hr, (short)2, cy, cx) : 0;
+			short hit = (iy >= 8000 && hm != NULL)
+			          ? hm(hr, (short)2, cy, cx) : 0;
 			(void)iy;
 #ifdef FRUA_CLICKDIAG
 			dbg_file_num("   item iy ", (long)iy);
