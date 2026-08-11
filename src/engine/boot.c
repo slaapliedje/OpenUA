@@ -27141,12 +27141,24 @@ static short l2d3e(void)
 		for (i = 0; i < count; i++) {
 			short iy = *(short *)(hr + 16);
 			dlitem_method_t hm = *(dlitem_method_t *)hr;
-			/* Positioned items hit-test through their own method
-			 * (jt137 msg 2: the Mac's scaled rect; disabled items —
-			 * rec[28] bits 0/1 — reject themselves). Evaluated ONCE:
-			 * the diagnostic must not call the method a second time. */
-			short hit = (iy >= 8000 && hm != NULL)
-			          ? hm(hr, (short)2, cy, cx) : 0;
+			/* Every item hit-tests through its own method (cmd 2), exactly
+			 * as the Mac does. CODE 3 L2d3e's loop (0x2d84..0x2dac) pushes
+			 * (item, 2, cy, cx) and `jsr (a0)` UNCONDITIONALLY — there is no
+			 * coordinate-space guard. The method itself scopes the test:
+			 * jt137 msg 2 handles BOTH spaces (jt1135 passes values <=6000
+			 * through unchanged), and disabled items (rec[28] bits 0/1)
+			 * reject themselves.
+			 *
+			 * An earlier `iy >= 8000` gate here silently dropped every
+			 * ABSOLUTE-coordinate item (rec16 < 8000) before its method ran —
+			 * so any screen laid out in absolute pixels was mouse-DEAD while
+			 * the 8000-space screens (the icon grid, the Hall) worked. That is
+			 * the modify-character mouse bug: those sub-screens use absolute
+			 * coords. The `hm != NULL` check stays (a NULL method is a
+			 * PORT-SAFETY guard, not a Mac behaviour — the Mac would fault).
+			 * Evaluated ONCE: the diagnostic must not call the method twice. */
+			short hit = (hm != NULL) ? hm(hr, (short)2, cy, cx) : 0;
+			(void)iy;
 #ifdef FRUA_CLICKDIAG
 			dbg_file_num("   item iy ", (long)iy);
 			dbg_file_num("      ix ", (long)*(short *)(hr + 18));
