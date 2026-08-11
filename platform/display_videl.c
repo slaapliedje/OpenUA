@@ -871,6 +871,55 @@ const dsp_backend_t *dsp_backend_ste(void);      /* display_ste.c    */
 const dsp_backend_t *dsp_backend_sthigh(void);   /* display_sthigh.c */
 #ifdef FRUA_NOVA
 const dsp_backend_t *dsp_backend_nova(void);     /* display_nova.c   */
+
+/* video.cfg "nova=force" — run the Nova probe even when _VDO says Falcon.
+ *
+ * The probe is normally gated on _VDO <= 1, because a real Nova/NVDI card
+ * leaves the cookie reading ST/STE. That gate also makes the backend
+ * untestable anywhere except the card: Hatari reports Falcon (and its VDI
+ * emulation tops out at 4 planes anyway), and ARAnyM emulates Videl, so
+ * dsp_detect returns VIDEL before the probe is ever reached.
+ *
+ * ARAnyM is not a Nova card, but it IS the same CLASS of target — a chunky
+ * 8bpp screen reached through AES graf_handle + vq_extnd — so with this key
+ * it exercises the real code path: the workstation open, the depth query,
+ * the palette writes. That is enough to regression-test things like the
+ * dsp_detect workstation leak without the hardware in the loop. What it
+ * CANNOT check is nova_hw_inverse, the VDI pen -> hardware-slot table
+ * measured on the ATW800/2; that still needs the card.
+ *
+ * A config key rather than a -D so ONE binary serves the card and the
+ * emulator. This session already lost time to a log that came from a build
+ * older than the fix it was supposed to be testing; fewer variants is fewer
+ * chances to compare the wrong two things.
+ *
+ * Read here rather than through videl_cfg_mode() because that runs inside
+ * videl_init, i.e. after a backend has already been chosen. */
+static int nova_forced(void)
+{
+	char  buf[128];
+	short fh;
+	long  n;
+	int   i;
+
+	fh = (short)Fopen("video.cfg", 0);
+	if (fh < 0)
+		return 0;                       /* not opted in — the normal case */
+	n = Fread(fh, (long)sizeof buf - 1, buf);
+	Fclose(fh);
+	if (n <= 0)
+		return 0;
+	buf[n] = '\0';
+	for (i = 0; buf[i] != '\0'; i++)
+		if (buf[i] >= 'A' && buf[i] <= 'Z')
+			buf[i] = (char)(buf[i] + 32);
+	for (i = 0; buf[i] != '\0'; i++)
+		if (buf[i] == 'n' && strncmp(buf + i, "nova=force", 10) == 0) {
+			dbg_log("dsp: video.cfg nova=force - probing Nova anyway");
+			return 1;
+		}
+	return 0;
+}
 #endif
 
 long dsp_vdo_cookie(void)
@@ -920,7 +969,7 @@ const dsp_backend_t *dsp_detect(void)
 	 * the ST shifter), so it must be probed before the bitplane fallback. The
 	 * backend's init() confirms an 8bpp screen and returns non-zero — handing
 	 * back to the ST/STE backend — if the card isn't there or isn't paletted. */
-	if (vdo <= 1) {
+	if (vdo <= 1 || nova_forced()) {
 		const dsp_backend_t *nb = dsp_backend_nova();
 		if (nb) return cached = nb;
 	}
