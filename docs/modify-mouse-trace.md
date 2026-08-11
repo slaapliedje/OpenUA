@@ -59,6 +59,46 @@ you click a stat.
 - **Not a dropped JT call.** `tools/jt_call_audit.py --func l618c` and `--func
   l1276` are clean (l1276's only drop is the benign name painter JT[25]).
 
+## DECISIVE (2026-08-10): the modify screen installs NO clickable stat region
+
+Following the maintainer's lead — "we have clickable text lists elsewhere
+(character selection, pick-treasure); look for a 'pick item' function" — the
+mechanism is now identified and the gap is measured.
+
+**The reusable clickable-list is `jt169` (List Manager).** The pick-treasure
+screen (`l39ac`) runs `jt169` over a rect and returns the chosen item;
+Select-a-Design, coin-trade and Load-Saved-Game use it the same way. Its
+clickable primitive is a **shape-5 DLItem** whose method is `jt378` and whose
+`rec[4]` is a row-pick proc (`jt156` roster / `jt223` list). A shape-5 cell is
+installed by `jt452((short)5, ...)` — that is what `jt158` does.
+
+**The modify screen installs no such cell.** Instrumenting `jt452` (FRUA_CLICKDIAG
+logs every allocation's shape) across the whole modify screen build yields:
+
+```
+6 x jt452 install shape 1   (the Next/Previous/Add/Sub/Keep/Exit command bar,
+                             method later overridden to jt137)
+1 x jt452 install shape 7   (the keyboard/list sentinel, iy 0, method jt376)
+```
+
+**Zero shape-5.** So there is provably no clickable region over the stat frame —
+exactly matching the report ("the stat frame is the only area I'd expect to
+click; the rest beeps", and it does nothing). A shape-5 cell over the ability
+block, with a `rec[4]` proc that maps the click row to a stat and highlights it
+via `l642c(1, stat)`, is what is missing.
+
+**Still unresolved: WHERE the Mac installs it.** `l618c` calls neither `jt452`
+nor `jt158` directly (its JT set is 101/1200/178/179/180/3/384/7/882/886/892 —
+identical in our lift, audit-clean), and neither the sheet painter `l1276`/`jt886`
+(CODE 19) nor the row painter `jt895` calls the shape-5 installer in EITHER fork.
+So the Mac's stat-frame cell is installed by a path this trace has not located —
+either a conditional `jt452(5,...)` inside a shared function whose branch our
+lift takes differently (`jt178`/`jt179`/`jt886`), or a mechanism outside the
+shape-5 family after all. The fastest way to settle it is a BasiliskII
+behavioural trace of the Mac 1.0 modify screen (which functions run on a stat
+click), or a branch-level read of the Mac `jt886`/`jt178` for a shape-5 install
+our lift skipped.
+
 ## The open question
 
 Every path checked leads to: **the port's modify screen has no clickable stat

@@ -21979,6 +21979,12 @@ static void jt452(long shape0, ...)
 			rec = g_dlitem_pool + (long)g_a5_9250 * DLITEM_BYTES;
 			memset(rec, 0, DLITEM_BYTES);
 			g_a5_9250++;
+#ifdef FRUA_CLICKDIAG
+			/* Which shapes each screen installs — a shape-5 (jt378 list
+			 * cell) over the stat frame is what the modify screen is
+			 * suspected to be MISSING. Log every allocation's shape. */
+			dbg_file_num("jt452 install shape ", (long)cmd);
+#endif
 
 			/* Method ptr: shape 8 = caller-supplied raw long;
 			 * shapes 1..7 = g_a5_-9282 handler table.  Shape 8
