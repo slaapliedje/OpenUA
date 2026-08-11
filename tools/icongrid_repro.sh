@@ -23,7 +23,17 @@ set -u
 REPO=${ICONGRID_REPO:-$(cd "$(dirname "$0")/.." && pwd)}
 GAME=${ICONGRID_GAME:-/tmp/claude-1000/-home-jfergus-dev-OpenUA/db2f8a2c-03a9-4fef-a53a-58cfb3f7933e/cardgame}
 SHOT=${ICONGRID_SHOT:-/tmp/icongrid_verdict.png}
-D="$REPO/.claude/skills/run-falcon-port/driver.sh"
+# PINNED HARNESS, from a shadow tree outside the repo (build it by copying
+# tools/hatari_ui.sh and the run-falcon-port driver into $HARNESS, mirroring
+# the repo layout). The harness itself CHANGED inside the bisect range —
+# 4017f651 (2026-07-26) taught it to FIND the Falcon TOS instead of requiring
+# FALCON_TOS — so a checked-out older harness invoked Hatari with options it
+# rejected and Hatari printed its usage text. That reads as "the engine will
+# not boot" when nothing is wrong with the engine. Test infrastructure has to
+# be constant across the range, for the same reason the probe lives outside
+# the tree. hatari_ui.sh boots $REPO/frua.prg, so the build is copied there too.
+HARNESS=${ICONGRID_HARNESS:-/tmp/icongrid_harness}
+D="$HARNESS/.claude/skills/run-falcon-port/driver.sh"
 
 # The 7x7 cell panel, in screenshot pixels (690x602 Falcon window).
 GRID=${ICONGRID_GRID:-340x345+35+90}
@@ -73,6 +83,20 @@ if [ "${1:-}" = "--classify" ]; then
 fi
 
 cd "$REPO" || exit 125
+
+# Remove STRAY SOURCES left by the checkout. The Makefile globs
+# $(wildcard src/engine/*.c), and `git checkout <old>` does NOT delete a file
+# that is untracked there but tracked on main — so a newer source sits in the
+# tree and is compiled at a commit predating its header:
+#   src/engine/a4_map.c:8: fatal error: a4_map.h: No such file or directory
+# Indistinguishable from a genuinely unbuildable commit, and it would have
+# turned the whole bisect into a run of skips.
+#
+# Scoped to the code directories and WITHOUT -x deliberately: `git clean -x` at
+# the repo root would delete data/ (copyrighted assets, git-ignored) and is
+# forbidden. Ignored build outputs survive; the BUILDSTAMP purge handles those.
+git clean -fdq src platform compat 2>/dev/null
+
 pkill -9 -x hatari 2>/dev/null; sleep 1
 rm -f "$GAME/DBG.LOG"
 
@@ -91,6 +115,7 @@ if ! make >/tmp/icongrid_make.log 2>&1; then
 	fi
 fi
 cp frua.prg "$GAME/FRUA.PRG" || exit 125
+cp frua.prg "$HARNESS/frua.prg" || exit 125    # hatari_ui boots $REPO/frua.prg
 
 env -u DISPLAY GEMDOS_DIR="$GAME" timeout 250 "$D" start >/dev/null 2>&1 \
 	|| { echo "icongrid: boot failed -> skip" >&2; pkill -9 -x hatari; exit 125; }

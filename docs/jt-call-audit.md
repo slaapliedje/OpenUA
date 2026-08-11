@@ -5,11 +5,24 @@ against its original body in `data/work/disasm/CODE_NN.s` and reports the
 `JT[n]` targets the asm calls and the C does not.
 
 It exists because of #137. The char-gen icon grid rendered black on all five
-backends for seven weeks, and the cause was 65 hand-written lines standing in
-for one `jsr JT[124]`. Nothing flagged it — the code compiled, ran, and carried
-a comment explaining why the JT call was skipped. The workaround was *correct
-when written* and silently wrong nine commits later, when the loader it assumed
-(`jt468`) changed underneath it. See the `l09dc` comment and commit `12917a32`.
+backends, and the cause was 65 hand-written lines standing in for one
+`jsr JT[124]`. Nothing flagged it — the code compiled, ran, and carried a
+comment explaining why the JT call was skipped. See the `l09dc` comment and
+commit `12917a32`.
+
+**Correction (2026-08-10):** the original write-up said the workaround was
+correct when written and broke later, when the GLIB pool flip (`43d813f5`,
+2026-07-13) changed `jt468` to return the extracted sub-GLIB. That dating was
+inferred from commit messages, never measured, and `tools/icongrid_repro.sh`
+has now disproved it: the grid is **already black at `43d813f5^`**, the commit
+immediately before the flip. The mechanism at HEAD is measured and stands
+(`l37aa(set1, 0)` returns 0, so no palette is installed); the causation does
+not. No commit the probe can judge has ever shown a coloured grid through the
+LIVE route — at `e05e625b`, the commit whose message claims the colours were
+fixed, the route cannot even reach char-gen (it stops on the Hall screen), so
+that claim was almost certainly verified through the `FRUA_BODY` harness, which
+calls `jt573` directly and passes where the live `jt574` path fails. The
+likeliest reading is that this was never a regression at all.
 
 **A hand-rolled substitution encodes an assumption about the data or the
 loader, and nothing re-checks that assumption when either changes.** Lifted

@@ -34238,15 +34238,28 @@ static void l09dc(void)
 		 * item 1 -> its item 0, parse the header, port_clut_install at 32+),
 		 * because in June 2026 jt468("DUNGCOM1") handed back the OUTER
 		 * DUNGCOM.CTL and jt124 therefore read a nested GLIB's stub header as a
-		 * colour table and splattered 0..255.  The GLIB pool flip (2026-07-13)
-		 * removed that premise: jt468(group) IS the extracted sub-GLIB now, so
-		 * the hand-rolled extra l37aa(...,1) step walked one level too deep,
-		 * landed on a TILE, and l37aa(tile,0) returned 0 -> NO palette at all
-		 * -> the body icons resolved to CLUT entries that are RGB(0,0,0) and
-		 * rendered black on every backend.  jt124 reaches the right table on its
-		 * own: jt1017 gives index-type 0, so jt993 fetches sub-item 0, whose
-		 * header already declares start=32/count=224 — the 0..31 UI range is
-		 * preserved by the DATA, not by a clamp we invented.
+		 * colour table and splattered 0..255.
+		 *
+		 * MEASURED at HEAD (FRUA_ICONTRACE): the hand-rolled navigation's inner
+		 * step returns nothing — l37aa(set1, 0) == 0, so NO palette is installed
+		 * at all and the body icons resolve to CLUT entries that are RGB(0,0,0).
+		 * Black on every backend, which is what proved it engine-level rather
+		 * than a display bug.  The GLIB pool flip (43d813f5, 2026-07-13) made
+		 * jt468(group) return the already-extracted sub-GLIB, which is a
+		 * sufficient explanation for why the extra l37aa(...,1) step now walks a
+		 * level too deep and lands on a TILE.
+		 *
+		 * It is NOT, however, the point of regression, and an earlier version of
+		 * this comment said it was.  tools/icongrid_repro.sh judged 43d813f5^ —
+		 * the commit immediately BEFORE the flip — and the grid was ALREADY
+		 * BLACK there.  No commit this probe can judge has ever shown a coloured
+		 * grid through the live route; see docs/jt-call-audit.md.  Treat the
+		 * dating as unknown and the mechanism as measured.
+		 *
+		 * jt124 reaches the right table on its own: jt1017 gives index-type 0,
+		 * so jt993 fetches sub-item 0, whose header already declares
+		 * start=32/count=224 — the 0..31 UI range is preserved by the DATA, not
+		 * by a clamp we invented.
 		 *
 		 * The grid blits from the -27866 'TILE' registry (l36e0) that jt593 ->
 		 * jt56 composes the CBODY body shapes into (l3b1e). */
