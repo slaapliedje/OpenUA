@@ -953,3 +953,24 @@ in the order they cost time:
    listings turns 60 reported "changes" into one appended entry.
 4. Implausible mnemonics mean the disassembler desynced on an inline dispatch
    table, not that the code changed.
+
+## Negative result: the Modify-Character stat screen is NOT a 1.0->1.2 change (2026-08-10)
+
+A hardware report said the modify-character screen's mouse stat-editing (click a
+stat/number, it highlights cyan; then adjust it) is missing in the port. The
+first guess was that DOS/1.2 added it and Mac 1.0 (our lift target) never had
+it. **Both halves of that guess are wrong, and this records it so nobody
+re-chases the version angle.**
+
+- The maintainer verified in **BasiliskII on Mac 1.0** that the feature IS
+  there: clicking STR/INT/WIS/DEX/CON/CHA or the number beside it highlights the
+  number in cyan. So it is in exactly what we lifted.
+- It is **byte-identical in 1.2**: CODE 17 (which holds `l618c`, the modify
+  editor at 0x618c, plus all six stat handlers and its command bar) has **zero
+  real hunks** in `mac12_diff.py --list`. The "Modify:" and "Next Previous Add
+  Sub Keep Exit" strings even sit at the same offset (0x630c/0x6312) in both
+  forks. `jt178` (the action bar, CODE 7 0x2866) and `jt452` (the DLItem
+  installer, CODE 3 0x29a0) are also unchanged across the forks.
+
+So it is not an oracle cherry-pick — it is a **port wiring gap** against a
+faithful lift. The trace of that gap lives in `docs/modify-mouse-trace.md`.
