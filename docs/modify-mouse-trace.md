@@ -1,4 +1,57 @@
-# Modify-Character stat click — trace (OPEN)
+# Modify-Character stat click — trace (SOLVED — wire located)
+
+## THE WIRE (2026-08-10)
+
+`jt178` (the modal action bar, CODE 7 0x2866) installs the clickable stat cells
+in a block **gated on `g_a5_-12911`** (0x288e: `tstb -12911; beqw L297a`). When
+the gate is set it streams **eight shape-5 DLItems** through `jt452`:
+
+```
+  y=8036,8040,8044,8048,8052,8056   the six ability rows (STR..CHA), 4 apart
+  y=8004                            (name / top field)
+  y=8012 x=8080                     (HP, right column; guarded by L38f8())
+```
+
+Each is `jt452(5, rec16=y, rec18=x=8000, rec22=4, rec24=80)` followed by token
+`20` (set `rec[28]` bit 4). Shape 5 -> method `jt378`, the list-cell hit-test —
+the SAME clickable-list primitive the pick-treasure / character-select screens
+use (maintainer's lead was exactly right).
+
+**Our `jt178` lift OMITS this entire block.** It runs `l206e; l2170; l2858;
+l23b4` and skips 0x288e..0x2976 — and the code even says so: *"the shape-5 jt452
+button bar (for mouse clicks) is a TODO."* That is why the stat frame has no
+clickable region (measured: 0 shape-5 installs on the modify screen).
+
+**The gate is already satisfied.** `g_a5_-12911` is set to 1 in our
+`jt452_init` (boot.c ~21517, "match real play so jt452 grids draw"). So the ONLY
+missing piece is the install block itself.
+
+### Implementation spec
+
+Port the Mac `jt178` block 0x288e..0x2976 verbatim into our `jt178`, between
+`l2170(n)` and `l2858(10)`, guarded by `if (g_a5_12911 != 0)`:
+
+1. The seven unconditional shape-5 cells (six stats + name), each `jt452(5, y,
+   8000, 4, 80)` then `jt452(20)` (or set `rec[28] |= 0x10` inline).
+2. The `L38f8()` conditional: if true, `jt452(17)` on the last cell (set
+   `rec[28]` bit 1). `L38f8` is CODE 7 0x38f8 — identify/lift it.
+3. The eighth cell at (8012, 8080).
+
+**The one thing to verify during the lift:** how a clicked cell maps to the
+stat cursor `-6926`. `l23b4`/`l2d3e` returns the hit item's index; confirm
+`jt178`'s return (L25b6 mapping) or `l618c`'s `l4d64(act)` turns the clicked
+cell index into the right stat. `-6926` is written ONLY by `l4d64`, so trace
+that the clicked-cell index reaches `l4d64` with the stat number. Do this on a
+LIVE modify screen (FRUA_MODIFY + FRUA_CLICKDIAG), not by assumption.
+
+**Caution:** `jt178` is shared by many screens; the block only fires when
+`-12911` is set, but verify it does not add spurious cells to other command-bar
+screens (roll a FRUA_CLICKDIAG shape census on a few before/after).
+
+---
+
+# (historical trace below — kept for the ruled-out list)
+
 
 **Symptom (hardware):** on the Modify-Character stat editor you cannot click a
 stat (STR/INT/WIS/DEX/CON/CHA or its number) to select/highlight it. Keyboard
