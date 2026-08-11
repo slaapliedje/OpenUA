@@ -23,6 +23,14 @@ and the emulator. This session lost time to a field log produced by a build
 older than the fix it was meant to be testing; fewer variants is fewer chances
 to compare the wrong two things.
 
+**Update (2026-08-11): the Nova backend is now compiled into EVERY Atari build**
+(`-DFRUA_NOVA` is default in the Makefile's falcon branch), so there is no
+`-DFRUA_NOVA` step and no separate `FRUANOVA.PRG` — the normal `make` binary
+carries it. `nova=force` is still needed under ARAnyM/Hatari, because those
+report `_VDO == 3` (Falcon) and `dsp_detect` returns VIDEL before the Nova probe;
+the force key overrides that gate. On real ST/STE-class hardware with a card the
+probe fires on its own (`_VDO <= 1`), no force needed.
+
 **What ARAnyM could validate:** the probe itself, the AES/VDI workstation open,
 the depth query, palette writes, and regressions like the detect leak (count
 `nova: card width` in `DBG.LOG` — it must appear exactly ONCE, not twelve
@@ -85,7 +93,7 @@ Same family as the Hatari note about never grabbing while a button is held.
    for a `DBG.LOG` marker), `shot`, `log`, `stop`, `key`, `click`. The waiting
    trick that works well here is polling for `DBG.LOG` in the mount — the engine
    writing it is proof it ran, and needs no screenshot at all.
-4. Then the actual payoff: boot the `-DFRUA_NOVA` build with `nova=force` and
+4. Then the actual payoff: boot the normal build with `nova=force` and
    confirm `nova: card width` appears **once**.
 
 ## Reproducing where this got to
@@ -93,7 +101,7 @@ Same family as the Hatari note about never grabbing while a button is held.
 ```sh
 M=/tmp/aranym-mount
 mkdir -p $M && cp <gamedata>/* $M/
-make EXTRA_CFLAGS=-DFRUA_NOVA && cp frua.prg $M/FRUA.PRG
+make && cp frua.prg $M/FRUA.PRG    # Nova is built in by default now
 printf 'nova=force\n' > $M/video.cfg
 export DISPLAY=:99 SDL_VIDEODRIVER=x11
 aranym -e -r 8 -N --option "HOSTFS:C:$M/" &

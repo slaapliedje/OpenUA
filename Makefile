@@ -48,6 +48,13 @@ PLATFORM_SRC := $(PLATFORM_SHARED) \
                 platform/dbglog.c \
                 platform/nova_probe.c \
                 platform/sys_falcon.c
+# Nova/NVDI graphics-card backend is now built into EVERY Atari binary, not a
+# separate FRUANOVA.PRG. Detection is entirely runtime (dsp_detect probes the
+# card and falls back to VIDEL / ST-Low when it is absent), so one binary serves
+# a plain machine and one with a card. Cost is ~14 KB of display_nova.o; without
+# this define it is a 158-byte empty stub. Atari-only — display_nova.c pulls in
+# mint/osbind.h, so it must never reach the Amiga branch (which has its own RTG).
+CFLAGS += -DFRUA_NOVA
 else
 $(error unknown MACHINE '$(MACHINE)' — use 'falcon' or 'amiga')
 endif
