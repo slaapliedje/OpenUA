@@ -96468,6 +96468,17 @@ static short jt137(void *rec_v, short msg, ...)
 		jt1135(*(short *)(void *)(rec + 16), (short)8000, &y, &x);
 		if (!(rec[28] & 0x20))
 			y--;
+#ifdef FRUA_CLICKDIAG
+		/* Paint-vs-hitbox, settled from INSIDE the engine: the theory that
+		 * the plate is painted lower than the msg-2 rect came from mapping
+		 * screenshot pixels to engine pixels through injected clicks, and
+		 * that mapping is provably noisy (offsets 48..59 from repeat runs,
+		 * cy clamped at 199). Log the paint-time y so the comparison is
+		 * log-line vs log-line in ONE coordinate space. */
+		dbg_file_num("jt137 PAINT rec16 ", (long)*(short *)(void *)(rec + 16));
+		dbg_file_num("      paint y ", (long)y);
+		dbg_file_num("      paint x ", (long)x);
+#endif
 #ifdef FRUA_BWMODE
 		/* #159 retry (seed-only suppression; writers proven spill-exact
 		 * by FRUA_SPILLTEST): seed the union of the caps' writer windows
@@ -96598,6 +96609,10 @@ static short jt137(void *rec_v, short msg, ...)
 		       (short)(*(short *)(void *)(rec + 18)
 		               + *(short *)(void *)(rec + 24) * 4 + 2),
 		       &y2, &x2);
+#ifdef FRUA_CLICKDIAG
+		dbg_file_num("jt137 HITRECT y ", (long)y * 1000L + y2);
+		dbg_file_num("      x ", (long)x * 1000L + x2);
+#endif
 		if (y <= arg_a && arg_a < y2 && x <= arg_b && arg_b < x2)
 			return 1;
 		return 0;
