@@ -916,6 +916,34 @@ endef
 strip-target:
 	$(STRIP) $(TARGET)
 
+# The two shipping Atari binaries, both with the Nova backend built in:
+#   FRUA.PRG      68000 codegen — runs on EVERY Atari (ST / STE / Mega STe /
+#                 TT / Falcon). The safe universal build.
+#   FRUA_020.PRG  -m68020-60 codegen — Falcon030 / TT030 only, faster (32-bit
+#                 muls/divs + bitfield ops). The original Mac was pure 68000 THINK
+#                 C, so this is codegen we ADDED; a 68000 machine cannot run it.
+# The CPU68K value is in the BUILDSTAMP, so each sub-make fully rebuilds on the
+# switch — these are two clean compiles, never a mix. The 68000 binary is
+# integrity-checked: 0 real-code 020 ops (the ~10 phantom bfextu/bfins hits are
+# monotonic lookup tables GCC parks in .text, per CLAUDE.md).
+.PHONY: atari-binaries
+atari-binaries:
+	$(MAKE) CPU68K=68000
+	$(MAKE) CPU68K=68000 strip-target
+	@hits=$$(for o in $$(find src compat platform third_party -name '*.o'); do \
+	    case "$$o" in */a4_map.o|*/data_pool.o) ;; \
+	    *) m68k-atari-mint-objdump -d --section=.text "$$o" 2>/dev/null \
+	         | grep -cE 'bfextu|bfins|muls\.l|divs\.l' ;; esac; \
+	  done | paste -sd+ | bc); \
+	  if [ "$${hits:-0}" -ne 0 ]; then \
+	    echo "FRUA.PRG (68000) FAILED integrity: $$hits real-code 020 ops"; exit 1; \
+	  fi
+	cp $(TARGET) FRUA.PRG
+	$(MAKE)
+	$(MAKE) strip-target
+	cp $(TARGET) FRUA_020.PRG
+	@echo "built FRUA.PRG (68000, universal) + FRUA_020.PRG (020, Falcon/TT) — Nova in both"
+
 # NOTE on ordering: `make test` MUST run BEFORE the release build, not after.
 # tests/test_build.py runs a bare `subprocess.run(["make"])` — a DEFAULT build
 # (68020, embedded data pool, unstripped). Run after the release build it
@@ -1008,4 +1036,4 @@ release-all:
 
 -include $(DEP)
 
-.PHONY: gamedata-dos installer installer-amiga all run run-ste run-mono run-amiga run-amiga-ecs run-game gamedata probe fc-audit cg-audit test test-slow clean distclean data-pool-regen release release-ste release-amiga release-amiga-ecs release-all strip-target
+.PHONY: gamedata-dos installer installer-amiga all run run-ste run-mono run-amiga run-amiga-ecs run-game gamedata probe fc-audit cg-audit test test-slow clean distclean data-pool-regen release release-ste release-amiga release-amiga-ecs release-all strip-target atari-binaries
