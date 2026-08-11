@@ -1,6 +1,24 @@
-# Modify-Character stat click — trace (SOLVED — wire located)
+# Modify-Character stat click — FIXED (wire located and lifted)
 
-## THE WIRE (2026-08-10)
+## FIXED (2026-08-10)
+
+Implemented and verified live. `jt178` now ports the gated shape-5 install block;
+clicking a stat row hits its cell, and the click selects that stat. Proof (two
+clicks, FRUA_MODIFY + FRUA_CLICKDIAG):
+
+```
+click DEX cell (iy 8048): l25b6 -> act 3, move-pending 1, cur stat 0  -> l4d64(3)
+click INT cell (iy 8040): l25b6 -> act 1, move-pending 1, cur stat 3  <- DEX stuck
+```
+
+The `cur stat 3` on the second click proves the first selection persisted.
+Blast radius is nil: `jt178` has exactly ONE caller in the port (`l618c`), so the
+change touches only the modify screen. Two earlier assumptions were WRONG and
+are corrected: `-6927` (move-pending) is NOT always 0 — the shape-5 commit path
+sets it; and the stat cells ARE hit-tested once installed (the pool went 7 -> 15
+items, 8 of them shape-5).
+
+## THE WIRE (as found)
 
 `jt178` (the modal action bar, CODE 7 0x2866) installs the clickable stat cells
 in a block **gated on `g_a5_-12911`** (0x288e: `tstb -12911; beqw L297a`). When

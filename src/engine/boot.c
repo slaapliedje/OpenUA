@@ -27194,8 +27194,13 @@ static short l2d3e(void)
 				 * commit bit. */
 				if (hm == (dlitem_method_t)jt378) {
 					hm(hr, (short)4, cy, cx);
-					if ((hr[28] & 0x10) != 0)
+					if ((hr[28] & 0x10) != 0) {
+#ifdef FRUA_CLICKDIAG
+						dbg_file_num("l2d3e jt378 commit -> item i ", (long)i);
+						dbg_file_num("   clicked cell iy ", (long)*(short *)(hr + 16));
+#endif
 						return i;     /* committed -> leave the modal */
+					}
 #ifdef FRUA_MONOPROF
 					g_qdp_src = 5;
 #endif
@@ -67541,6 +67546,31 @@ static short jt178(const char *prompt, const char *options, short w1, short w0)
 	PROBE("jt178");
 	n = l206e((long)(uintptr_t)options, buf, prompt, &w1_lo);
 	l2170(n);
+
+	/* CODE 7 0x288a..0x2976 — the beveled shape-5 hit cells, gated on
+	 * g_a5_-12911. This block was previously deferred ("the shape-5 jt452
+	 * button bar for mouse clicks is a TODO"), which is why the Modify screen's
+	 * stat rows had no clickable region (docs/modify-mouse-trace.md). Faithful
+	 * port of the Mac stream: seven shape-5 cells at 8000-space y = 8036/8040/
+	 * 8044/8048/8052/8056 (STR..CHA, 4 apart) and 8004 (name), each x=8000 with
+	 * rec[22]=4/rec[24]=80 and rec[28] bit 4 set (token 20 = "commit on click");
+	 * jt180() adds bit 1 to the last; then the HP cell at (8012, x=8080). Shape
+	 * 5 -> method jt378, the same list-cell hit-test the treasure/select screens
+	 * use, so l2d3e commits a click on a stat row and returns its item index. */
+	if (g_a5_12911 != 0) {
+		jt452(5L, 8036L, 8000L, 4L, 80L, 20L,
+		      5L, 8040L, 8000L, 4L, 80L, 20L,
+		      5L, 8044L, 8000L, 4L, 80L, 20L,
+		      5L, 8048L, 8000L, 4L, 80L, 20L,
+		      5L, 8052L, 8000L, 4L, 80L, 20L,
+		      5L, 8056L, 8000L, 4L, 80L, 20L,
+		      5L, 8004L, 8000L, 4L, 80L, 20L,
+		      0L);
+		if (jt180() != 0)
+			jt452(17L, 0L);                 /* 0x294c: bit 1 on the last */
+		jt452(5L, 8012L, 8080L, 4L, 80L, 20L, 0L);  /* 0x2958: the HP cell */
+	}
+
 	l2858(10);                              /* bar layout mode (L2858) */
 	tmp = l23b4(w0);                        /* run the modal (w0 = modal flag) */
 	return l25b6(tmp, buf, &g_a5_24139);    /* map the result to an index */
@@ -95413,6 +95443,11 @@ static void l618c(void)
 			jt179(5);
 			act = jt178("Modify:",
 			            "Next Previous Add Sub Keep Exit", 1, 0);
+#ifdef FRUA_CLICKDIAG
+			dbg_file_num("l618c: jt178 act ", (long)act);
+			dbg_file_num("   move-pending -6927 ", (long)l4dfe());
+			dbg_file_num("   cur stat -6926 ", (long)(unsigned char)g_a5_byte(-6926));
+#endif
 			if (l4dfe() != 0) {
 				l642c(0, (short)(unsigned char)g_a5_byte(-6926));
 				l4d64(act);
