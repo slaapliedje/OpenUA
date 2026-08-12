@@ -190,6 +190,7 @@ static void nova_paltest(void)
  * The screen is already open (dsp_backend_nova confirmed 8bpp and left the
  * workstation open). init() only allocates the render surface + binds VRAM. */
 static void nova_lut_bind(void);        /* hardware LUT (RGB565) — defined below */
+static void nova_lut_assert(void);      /* re-stamp our palette onto the card    */
 
 static int nova_init(short want_w, short want_h)
 {
@@ -275,7 +276,17 @@ static void nova_present_rect(short x, short y, short w, short h)
 	}
 }
 
-static void nova_present(void) { nova_present_rect(0, 0, NOVA_SURF_W, NOVA_CONTENT_H); }
+static void nova_present(void)
+{
+	/* Re-assert the palette once per full present. The engine writes the UI
+	 * colours once and expects them to stay; anything else on the machine that
+	 * re-emits the card's LUT (the VDI keeps its own CLUT shadow up to date and
+	 * we can no longer mirror slot 15 to it — pen 1 addresses slot 255, not 15)
+	 * would otherwise leave the hotkey letters wrong until the next palette
+	 * install. 256 word writes against a 512,000-byte present is free. */
+	nova_lut_assert();
+	nova_present_rect(0, 0, NOVA_SURF_W, NOVA_CONTENT_H);
+}
 
 /* VDI reserves the first 16 pens and does NOT map pen p to hardware CLUT slot p
  * for p < 16 — it uses the standard Atari VDI pen->register table, so a
@@ -365,6 +376,46 @@ static short s_white_pen = -1;          /* -1 = not yet read from video.cfg */
 #define NOVA_LUT_OFF_4MB  0x3FF000L
 
 static volatile unsigned short *s_lut;          /* card hardware LUT (256 x 565) */
+static unsigned short           s_lut_want[256];/* what each slot SHOULD hold     */
+static unsigned char            s_lut_set[256]; /* ...and which we have set       */
+
+/* Stamp every slot we own onto the card. Called after a palette batch's vs_color
+ * calls (which can make the VDI re-emit its table over ours) and once per full
+ * present, so our colours are the last word. 256 word writes is nothing next to
+ * the 512,000-byte present. */
+static void nova_lut_assert(void)
+{
+	short i;
+
+	if (s_lut == NULL)
+		return;
+
+	/* DIAGNOSTIC, bounded to 8 lines, kept in the shipping build because it
+	 * settles the open question at zero cost: the hotkey letters come up WHITE
+	 * and go black a moment later, and a repaint-with-a-different-index looks
+	 * exactly like a CLUT clobber on screen. The letter is drawn with a FIXED
+	 * index 15 (menu_button_press_draw: grey body / white accelerator), so if
+	 * slot 15 is found holding something other than the white we last wrote,
+	 * SOMETHING IS OVERWRITING THE HARDWARE LUT — almost certainly the VDI
+	 * re-emitting its own colour table (the manual: "CLUT shadow ... needs to be
+	 * kept up-to-date by the VDI"), whose slot 15 we can no longer keep in step
+	 * because pen 1 does not address it. If instead it reads back as our white
+	 * while the letter is still black, the palette is innocent and the repaint
+	 * is engine-side. */
+	if (s_lut_set[15] && s_lut[15] != s_lut_want[15]) {
+		static short n;
+		if (n < 8) {
+			n++;
+			dbg_file_num("lut: slot15 CLOBBERED, found = ",
+			             (long)s_lut[15]);
+			dbg_file_num("lut:   restoring to ", (long)s_lut_want[15]);
+		}
+	}
+
+	for (i = 0; i < 256; i++)
+		if (s_lut_set[i])
+			s_lut[i] = s_lut_want[i];
+}
 
 static unsigned short nova_rgb565(unsigned char r, unsigned char g,
                                   unsigned char b)
@@ -522,10 +573,12 @@ static void nova_set_palette(const dsp_color_t *c, short first, short count)
 		if (idx == 15)
 			pen = nova_white_pen();
 
-		/* The hardware LUT is authoritative when bound: index == slot, so every
-		 * colour lands where the framebuffer bytes actually point. */
-		if (s_lut != NULL)
-			s_lut[idx] = nova_rgb565(c[i].r, c[i].g, c[i].b);
+		/* Remember what this slot SHOULD be, then tell VDI. The LUT write comes
+		 * afterwards, in a second pass — see nova_lut_assert(). */
+		if (s_lut != NULL) {
+			s_lut_want[idx] = nova_rgb565(c[i].r, c[i].g, c[i].b);
+			s_lut_set[idx]  = 1;
+		}
 
 		/* Keep VDI's own colour table in step (its CLUT shadow is what a later
 		 * VDI/AES redraw would re-emit) — EXCEPT slot 15, whose pen 1 does not
@@ -535,6 +588,21 @@ static void nova_set_palette(const dsp_color_t *c, short first, short count)
 		if (idx != 15 || s_lut == NULL)
 			nova_vs_color(pen, c[i].r, c[i].g, c[i].b);
 	}
+
+	/* ...and only NOW stamp the hardware LUT.
+	 *
+	 * FIELD REPORT: with the LUT write done inline, the hotkey letters came up
+	 * WHITE and turned black a moment later. The cause is ordering inside this
+	 * very loop: we wrote LUT[15] at i=15, then kept calling vs_color for
+	 * indices 16..32, and each of those makes the VDI re-emit its own colour
+	 * table — in which slot 15 is black — reverting us microseconds later. The
+	 * manual's "CLUT shadow ... needs to be kept up-to-date by the VDI" is the
+	 * same mechanism seen from the driver's side.
+	 *
+	 * So the LUT is asserted LAST, after every vs_color in the batch, and it
+	 * re-asserts EVERY slot we have ever set — not just this range — so a VDI
+	 * re-emit triggered by an unrelated range cannot leave an older slot wrong. */
+	nova_lut_assert();
 }
 
 static const dsp_backend_t nova_backend = {
