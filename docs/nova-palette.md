@@ -88,8 +88,9 @@ So the palette is asserted:
 step for any AES/VDI redraw. Slot 15 no longer writes pen 1 at all, which also
 ended the slot-255 corruption.
 
-A bounded (8-line) `lut: slot15 CLOBBERED` check stays in the shipping build: it
-is what proved the mechanism, and it will prove a regression just as cheaply.
+The clobber is the EXPECTED steady state, not an error — the temporary
+`lut: slot15 CLOBBERED` log that proved this fired on every boot once the fix was
+in, so it was removed as noise. The unconditional re-stamp is the mechanism.
 
 ## video.cfg keys
 
@@ -97,5 +98,4 @@ is what proved the mechanism, and it will prove a regression just as cheaply.
 |---|---|
 | `novalut=off` | disable the direct LUT path (back to `vs_color` only) |
 | `novalut=4mb` | 4MB card — LUT at `base + 0x3FF000` |
-| `novawhite=<pen>` | override the slot-15 pen (only used when the LUT is unbound) |
 | `nova=force` | run the Nova probe even when `_VDO` says Falcon (emulators) |
