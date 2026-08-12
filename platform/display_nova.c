@@ -86,7 +86,13 @@ static short           s_phys;          /* AES physical handle = the LIVE screen
 static short nova_open_ws(short *work_out)
 {
 	short i, phys;
+#ifdef FRUA_FREEZELOG
+	dbg_file_num("freezelog: nova appl_init PRE ", 0);
+#endif
 	aes(10, 1);                     /* appl_init  */
+#ifdef FRUA_FREEZELOG
+	dbg_file_num("freezelog: nova appl_init POST intout0 ", aes_intout[0]);
+#endif
 	if (aes_intout[0] < 0) return 0;
 	s_aes_ok = 1;
 	aes(77, 5);                     /* graf_handle */
@@ -104,6 +110,9 @@ static short nova_open_ws(short *work_out)
 static void nova_close_ws(void)
 {
 	if (s_handle) { contrl[0]=101; contrl[1]=0; contrl[3]=0; contrl[6]=s_handle; vdi(); s_handle=0; }
+#ifdef FRUA_FREEZELOG
+	dbg_file_num("freezelog: nova appl_exit (aes 19) s_aes_ok ", s_aes_ok);
+#endif
 	if (s_aes_ok) { aes(19, 1); s_aes_ok = 0; }
 }
 

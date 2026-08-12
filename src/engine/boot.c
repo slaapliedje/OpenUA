@@ -2787,8 +2787,21 @@ int ua_main(short arg1, long arg2)
 	 * Hall comes up empty exactly as it would have. */
 	{
 		int skip_menu = port_autoload_armed();
+#ifdef FRUA_FREEZELOG
+		long fl_iter = 0;
+#endif
 
 		for (;;) {
+#ifdef FRUA_FREEZELOG
+			/* Exit-from-Play freeze harness (#) — bracket the menu<->play
+			 * boundary with file markers that survive a hang (emit_file
+			 * closes the file every line). The transition that freezes is
+			 * "Exit from Play -> main menu": l07dc() returns, this loop
+			 * iterates, jt315() repaints the menu. Whichever marker is the
+			 * LAST line in DBG.LOG localizes the hang. File-based on purpose:
+			 * dbg_log paints the screen, dbg_file_num does not. */
+			dbg_file_num("freezelog: menu-loop iter ", fl_iter++);
+#endif
 			if (skip_menu) {
 				skip_menu = 0;
 				/* jt315's own head: primes the automap cell stride
@@ -2804,13 +2817,33 @@ int ua_main(short arg1, long arg2)
 				 * frua_areatest_entry has the same call for the same
 				 * reason. */
 				load_menu_ui();
-			} else if (jt315() == 0) {
-				break;
+			} else {
+#ifdef FRUA_FREEZELOG
+				dbg_file_num("freezelog: pre jt315 (main menu) ", fl_iter);
+#endif
+				if (jt315() == 0) {
+#ifdef FRUA_FREEZELOG
+					dbg_file_num("freezelog: jt315 returned 0 (quit) ", fl_iter);
+#endif
+					break;
+				}
+#ifdef FRUA_FREEZELOG
+				dbg_file_num("freezelog: post jt315 (menu done) ", fl_iter);
+#endif
 			}
+#ifdef FRUA_FREEZELOG
+			dbg_file_num("freezelog: pre jt949/956/920 ", fl_iter);
+#endif
 			jt949();
 			jt956();
 			jt920();
+#ifdef FRUA_FREEZELOG
+			dbg_file_num("freezelog: pre l07dc (play session) ", fl_iter);
+#endif
 			l07dc();
+#ifdef FRUA_FREEZELOG
+			dbg_file_num("freezelog: post l07dc (EXIT FROM PLAY returned) ", fl_iter);
+#endif
 		}
 	}
 
