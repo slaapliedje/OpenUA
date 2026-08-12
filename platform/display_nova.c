@@ -27,6 +27,8 @@
 #ifdef FRUA_NOVA
 
 #include <stddef.h>             /* NULL */
+#include <stdint.h>             /* uintptr_t (LUT probe address arithmetic) */
+#include <string.h>             /* strncmp (video.cfg key parse) */
 #include <mint/osbind.h>        /* Getrez, Logbase, Physbase */
 #include "display.h"
 #include "dbglog.h"
@@ -281,6 +283,124 @@ static void nova_present(void) { nova_present_rect(0, 0, NOVA_SURF_W, NOVA_CONTE
 static const unsigned char nova_hw_inverse[16] =
 	{ 0, 2, 3, 6, 4, 7, 5, 8, 9, 10, 11, 14, 12, 15, 13, 1 };
 
+/* --- the slot-15 (UI white) problem, and the video.cfg knob that settles it ---
+ *
+ * MEASURED ON THE CARD: framebuffer slot 15 is written 14x per session, always
+ * white (0xFFFFFF), always through vs_color PEN 1 — and it never takes: the menu
+ * hotkey letters on UNPRESSED buttons stay black. Slot 11 (pen 14) works, which
+ * is why PRESSED buttons show their cyan accelerator correctly. So the values
+ * and the ordering are right (verified engine-side on the ST backend); only this
+ * one pen fails.
+ *
+ * Why: nova_hw_inverse is the standard 16-COLOUR Atari VDI pen->register table,
+ * in which hardware register 15 is reached by pen 1. But pen 1 is VDI's BLACK,
+ * and on a 256-COLOUR device the convention is pen 1 -> index 255 (ncolors-1),
+ * not 15. Our white therefore lands on slot 255, which nothing draws with, and
+ * slot 15 keeps whatever the art palette left there. PALTEST validated pens
+ * 2/3/6 (-> slots 1/2/3) and never pen 1, so the gap survived.
+ *
+ * Slot 15 may simply be unreachable from pens 0..15 on this device. Rather than
+ * guess a replacement (a wrong pen silently corrupts ANOTHER UI colour — pen 15
+ * drives slot 13), make it a config knob so the card can answer in one sitting:
+ *
+ *     video.cfg:  novawhite=15      (try pen 15, 0, 240, 255, ...)
+ *
+ * Default 255 = "unset": keep the faithful table (pen 1). Log what is used. */
+static short s_white_pen = -1;          /* -1 = not yet read from video.cfg */
+
+/* --- read back the card's HARDWARE LUT (ATW800/2 Programmer's Manual) --------
+ *
+ * The manual documents the FPGA LUT as memory-mapped and READ/WRITE:
+ *     lut = screen_adr + A_LUT     (A_LUT = 0xFF000, span 0xFF000..0xFF1FF)
+ *     lut += 1MB (2MB card) | 3MB (4MB card)
+ * 0x200 bytes / 256 entries = 2 bytes per entry ("the 16bit (?) LUT"). The
+ * documented absolute addresses (Mega ST 0xDFF000, Mega STE 0xBFF000, TT
+ * 0xFEDFF000) are exactly base + 0xFF000 + 1MB, so they are the 2MB case.
+ *
+ * Reading it turns two open questions into measurements instead of guesses:
+ *   1. WHERE our white actually landed. We write slot 15 via VDI pen 1 and it
+ *      never shows; if LUT[255] holds the white and LUT[15] does not, then pen 1
+ *      is the 256-colour BLACK pen (index ncolors-1) and slot 15 is simply
+ *      unreachable through vs_color — which is the whole bug.
+ *   2. The ENTRY FORMAT. Slot 11 (cyan 0x67FFFF) demonstrably works, so its
+ *      entry is a known-RGB sample: comparing it against the raw word decodes
+ *      the encoding (the manual only documents the 15bpp PIXEL layout, and
+ *      assuming the LUT matches it would be a guess).
+ *
+ * Both answers are needed for the real fix — writing the LUT directly, the way
+ * the TT/AGA backends own their hardware palette (hw_palette), which also drops
+ * the VDI pen table and its unreachable slots entirely. Read-only for now.
+ * Done under Supexec: the card lives in VME space. */
+static long  s_lut_probe_addr;
+static long  nova_lut_read_super(void)
+{
+	return (long)*(volatile unsigned short *)(uintptr_t)s_lut_probe_addr;
+}
+static long nova_lut_entry(long lut_base, short slot)
+{
+	s_lut_probe_addr = lut_base + (long)slot * 2;
+	return Supexec(nova_lut_read_super);
+}
+static void nova_lut_dump(const char *when)
+{
+	static const short slots[] = { 0, 1, 7, 11, 13, 15, 254, 255 };
+	long base = (long)(uintptr_t)s_vram;   /* card video base (Logbase) */
+	long cand[2];
+	int  c, i;
+
+	if (s_vram == NULL)
+		return;
+	cand[0] = base + 0xFF000L + 0x100000L;  /* 2MB card (the documented map) */
+	cand[1] = base + 0xFF000L + 0x300000L;  /* 4MB card                      */
+	dbg_file_str("lut: dump ", when);
+	dbg_file_num("lut:   video base = ", base);
+	for (c = 0; c < 2; c++) {
+		dbg_file_num("lut:   --- candidate base = ", cand[c]);
+		for (i = 0; i < (int)(sizeof slots / sizeof slots[0]); i++)
+			dbg_file_num("lut:     slot<<16|word = ",
+			             ((long)slots[i] << 16)
+			             | (nova_lut_entry(cand[c], slots[i]) & 0xFFFFL));
+	}
+}
+
+static short nova_white_pen(void)
+{
+	char  buf[128];
+	short fh;
+	long  n;
+	int   i;
+
+	if (s_white_pen >= 0)
+		return s_white_pen;
+	s_white_pen = nova_hw_inverse[15];      /* faithful default: pen 1 */
+	fh = (short)Fopen("video.cfg", 0);
+	if (fh >= 0) {
+		n = Fread(fh, (long)sizeof buf - 1, buf);
+		Fclose(fh);
+		if (n > 0) {
+			buf[n] = '\0';
+			for (i = 0; buf[i] != '\0'; i++)
+				if (buf[i] >= 'A' && buf[i] <= 'Z')
+					buf[i] = (char)(buf[i] + 32);
+			for (i = 0; buf[i] != '\0'; i++)
+				if (buf[i] == 'n'
+				    && strncmp(buf + i, "novawhite=", 10) == 0) {
+					short v = 0; int d = 0;
+					i += 10;
+					while (buf[i] >= '0' && buf[i] <= '9') {
+						v = (short)(v * 10 + (buf[i] - '0'));
+						i++; d = 1;
+					}
+					if (d && v >= 0 && v <= 255)
+						s_white_pen = v;
+					break;
+				}
+		}
+	}
+	dbg_log_num("nova: UI-white (slot 15) via vs_color pen ", (long)s_white_pen);
+	return s_white_pen;
+}
+
 static void nova_set_palette(const dsp_color_t *c, short first, short count)
 {
 	short i;
@@ -337,7 +457,27 @@ static void nova_set_palette(const dsp_color_t *c, short first, short count)
 		short idx = (short)(first + i);
 		short pen = (idx >= 0 && idx < 16)
 		          ? (short)nova_hw_inverse[idx] : idx;
+		/* Slot 15 (the UI's white — the hotkey letter on an unpressed button)
+		 * is overridable from video.cfg because pen 1 does not drive it on a
+		 * 256-colour card. See nova_white_pen(). */
+		if (idx == 15)
+			pen = nova_white_pen();
 		nova_vs_color(pen, c[i].r, c[i].g, c[i].b);
+#ifdef FRUA_NOVA_PALTRACE
+		/* Right after a slot-15 write, read the hardware LUT back: this is the
+		 * measurement that says whether the white landed on 15, on 255, or
+		 * nowhere. Twice only (the first UI install and one later, once the
+		 * char-gen page has done its big install and the colour has "unlocked"
+		 * on screen) — enough for a before/after without flooding DBG.LOG. */
+		if (idx == 15) {
+			static short lut_n;
+			if (lut_n < 2) {
+				lut_n++;
+				nova_lut_dump(lut_n == 1 ? "after 1st slot-15 write"
+				                         : "after a later slot-15 write");
+			}
+		}
+#endif
 	}
 }
 
