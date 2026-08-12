@@ -88,13 +88,7 @@ static short           s_phys;          /* AES physical handle = the LIVE screen
 static short nova_open_ws(short *work_out)
 {
 	short i, phys;
-#ifdef FRUA_FREEZELOG
-	dbg_file_num("freezelog: nova appl_init PRE ", 0);
-#endif
 	aes(10, 1);                     /* appl_init  */
-#ifdef FRUA_FREEZELOG
-	dbg_file_num("freezelog: nova appl_init POST intout0 ", aes_intout[0]);
-#endif
 	if (aes_intout[0] < 0) return 0;
 	s_aes_ok = 1;
 	aes(77, 5);                     /* graf_handle */
@@ -112,9 +106,6 @@ static short nova_open_ws(short *work_out)
 static void nova_close_ws(void)
 {
 	if (s_handle) { contrl[0]=101; contrl[1]=0; contrl[3]=0; contrl[6]=s_handle; vdi(); s_handle=0; }
-#ifdef FRUA_FREEZELOG
-	dbg_file_num("freezelog: nova appl_exit (aes 19) s_aes_ok ", s_aes_ok);
-#endif
 	if (s_aes_ok) { aes(19, 1); s_aes_ok = 0; }
 }
 
@@ -303,28 +294,19 @@ static const unsigned char nova_hw_inverse[16] =
 
 /* --- the slot-15 (UI white) problem, and the video.cfg knob that settles it ---
  *
- * MEASURED ON THE CARD: framebuffer slot 15 is written 14x per session, always
- * white (0xFFFFFF), always through vs_color PEN 1 — and it never takes: the menu
- * hotkey letters on UNPRESSED buttons stay black. Slot 11 (pen 14) works, which
- * is why PRESSED buttons show their cyan accelerator correctly. So the values
- * and the ordering are right (verified engine-side on the ST backend); only this
- * one pen fails.
+ * MEASURED ON THE CARD: framebuffer slot 15 (the UI white — the hotkey letter on
+ * an UNPRESSED button) is unreachable through vs_color. nova_hw_inverse is the
+ * standard 16-COLOUR VDI pen->register table, in which register 15 is reached by
+ * PEN 1; but pen 1 is VDI's BLACK, and on a 256-COLOUR device black is index
+ * ncolors-1 = 255. Every white we wrote landed on slot 255 — leaving the letter
+ * wrong AND clobbering a live art colour. Slot 11 (pen 14) works, which is why
+ * PRESSED buttons showed their cyan correctly. PALTEST had validated pens 2/3/6
+ * (-> slots 1/2/3) and never pen 1, so the gap survived.
  *
- * Why: nova_hw_inverse is the standard 16-COLOUR Atari VDI pen->register table,
- * in which hardware register 15 is reached by pen 1. But pen 1 is VDI's BLACK,
- * and on a 256-COLOUR device the convention is pen 1 -> index 255 (ncolors-1),
- * not 15. Our white therefore lands on slot 255, which nothing draws with, and
- * slot 15 keeps whatever the art palette left there. PALTEST validated pens
- * 2/3/6 (-> slots 1/2/3) and never pen 1, so the gap survived.
- *
- * Slot 15 may simply be unreachable from pens 0..15 on this device. Rather than
- * guess a replacement (a wrong pen silently corrupts ANOTHER UI colour — pen 15
- * drives slot 13), make it a config knob so the card can answer in one sitting:
- *
- *     video.cfg:  novawhite=15      (try pen 15, 0, 240, 255, ...)
- *
- * Default 255 = "unset": keep the faithful table (pen 1). Log what is used. */
-static short s_white_pen = -1;          /* -1 = not yet read from video.cfg */
+ * The fix is to stop using pens for this at all — see the hardware LUT below.
+ * Slot 15 is simply never sent to vs_color now, which also ends the slot-255
+ * corruption. docs/nova-palette.md has the full account.
+ */
 
 /* --- read back the card's HARDWARE LUT (ATW800/2 Programmer's Manual) --------
  *
@@ -390,28 +372,11 @@ static void nova_lut_assert(void)
 	if (s_lut == NULL)
 		return;
 
-	/* DIAGNOSTIC, bounded to 8 lines, kept in the shipping build because it
-	 * settles the open question at zero cost: the hotkey letters come up WHITE
-	 * and go black a moment later, and a repaint-with-a-different-index looks
-	 * exactly like a CLUT clobber on screen. The letter is drawn with a FIXED
-	 * index 15 (menu_button_press_draw: grey body / white accelerator), so if
-	 * slot 15 is found holding something other than the white we last wrote,
-	 * SOMETHING IS OVERWRITING THE HARDWARE LUT — almost certainly the VDI
-	 * re-emitting its own colour table (the manual: "CLUT shadow ... needs to be
-	 * kept up-to-date by the VDI"), whose slot 15 we can no longer keep in step
-	 * because pen 1 does not address it. If instead it reads back as our white
-	 * while the letter is still black, the palette is innocent and the repaint
-	 * is engine-side. */
-	if (s_lut_set[15] && s_lut[15] != s_lut_want[15]) {
-		static short n;
-		if (n < 8) {
-			n++;
-			dbg_file_num("lut: slot15 CLOBBERED, found = ",
-			             (long)s_lut[15]);
-			dbg_file_num("lut:   restoring to ", (long)s_lut_want[15]);
-		}
-	}
-
+	/* Unconditional re-stamp. The VDI DOES overwrite this table in normal
+	 * operation — measured on the card, slot 15 was found holding near-whites,
+	 * a grey, the VDI magenta default and finally 0x0000 black — so a clobber is
+	 * the expected steady state, not an error worth logging. Restoring is the
+	 * whole mechanism, and it is cheaper than testing first. */
 	for (i = 0; i < 256; i++)
 		if (s_lut_set[i])
 			s_lut[i] = s_lut_want[i];
@@ -473,44 +438,6 @@ static void nova_lut_bind(void)
 	dbg_log_num("nova: hardware LUT bound (RGB565) at ", (long)(uintptr_t)lut);
 }
 
-static short nova_white_pen(void)
-{
-	char  buf[128];
-	short fh;
-	long  n;
-	int   i;
-
-	if (s_white_pen >= 0)
-		return s_white_pen;
-	s_white_pen = nova_hw_inverse[15];      /* faithful default: pen 1 */
-	fh = (short)Fopen("video.cfg", 0);
-	if (fh >= 0) {
-		n = Fread(fh, (long)sizeof buf - 1, buf);
-		Fclose(fh);
-		if (n > 0) {
-			buf[n] = '\0';
-			for (i = 0; buf[i] != '\0'; i++)
-				if (buf[i] >= 'A' && buf[i] <= 'Z')
-					buf[i] = (char)(buf[i] + 32);
-			for (i = 0; buf[i] != '\0'; i++)
-				if (buf[i] == 'n'
-				    && strncmp(buf + i, "novawhite=", 10) == 0) {
-					short v = 0; int d = 0;
-					i += 10;
-					while (buf[i] >= '0' && buf[i] <= '9') {
-						v = (short)(v * 10 + (buf[i] - '0'));
-						i++; d = 1;
-					}
-					if (d && v >= 0 && v <= 255)
-						s_white_pen = v;
-					break;
-				}
-		}
-	}
-	dbg_log_num("nova: UI-white (slot 15) via vs_color pen ", (long)s_white_pen);
-	return s_white_pen;
-}
-
 static void nova_set_palette(const dsp_color_t *c, short first, short count)
 {
 	short i;
@@ -567,12 +494,6 @@ static void nova_set_palette(const dsp_color_t *c, short first, short count)
 		short idx = (short)(first + i);
 		short pen = (idx >= 0 && idx < 16)
 		          ? (short)nova_hw_inverse[idx] : idx;
-		/* Slot 15 (the UI's white — the hotkey letter on an unpressed button)
-		 * is overridable from video.cfg because pen 1 does not drive it on a
-		 * 256-colour card. See nova_white_pen(). */
-		if (idx == 15)
-			pen = nova_white_pen();
-
 		/* Remember what this slot SHOULD be, then tell VDI. The LUT write comes
 		 * afterwards, in a second pass — see nova_lut_assert(). */
 		if (s_lut != NULL) {
@@ -581,11 +502,12 @@ static void nova_set_palette(const dsp_color_t *c, short first, short count)
 		}
 
 		/* Keep VDI's own colour table in step (its CLUT shadow is what a later
-		 * VDI/AES redraw would re-emit) — EXCEPT slot 15, whose pen 1 does not
-		 * drive slot 15 on a 256-colour device and would overwrite slot 255, a
-		 * live art colour, with the UI white. When the LUT is not bound this is
-		 * still the only path, so the old behaviour is preserved exactly. */
-		if (idx != 15 || s_lut == NULL)
+		 * VDI/AES redraw would re-emit) — EXCEPT slot 15. Its pen 1 does not
+		 * address slot 15 on a 256-colour device; it addresses slot 255, so the
+		 * write both misses AND overwrites a live art colour with the UI white.
+		 * Skipped unconditionally: harmful when the LUT is bound, and merely
+		 * useless when it is not. */
+		if (idx != 15)
 			nova_vs_color(pen, c[i].r, c[i].g, c[i].b);
 	}
 

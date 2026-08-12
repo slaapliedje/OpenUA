@@ -2039,6 +2039,17 @@ static short jt325(short a8, long *rec, void *ctrl, short type,
  *   geo[10] word  sub-state       geo[12] word packed value
  * `result` (long*) receives packed display flags. Returns the new
  * geo sub-state. */
+/* Fallback text for the main-menu Quit confirm (jt315 case 9). Used ONLY if the
+ * Mac's own prompt pointer (A5 -14292) arrives empty; the faithful string wins
+ * when it is there. Named per host OS because the question is literally "do you
+ * want to go back to the OS" — the DOS release asks "Quit to DOS?", which would
+ * be a lie on a machine that has no DOS. */
+#ifdef FRUA_AMIGA
+#define PORT_QUIT_PROMPT  "Quit to Workbench?"
+#else
+#define PORT_QUIT_PROMPT  "Quit to TOS?"
+#endif
+
 /* Forward decls for jt263's NPC/monster-editor block (all defined below). */
 static void jt591(unsigned char *rec);          /* CODE 15 */
 static int  jt159(const char *prompt, short b); /* CODE 7  yes/no dialog */
@@ -2787,21 +2798,8 @@ int ua_main(short arg1, long arg2)
 	 * Hall comes up empty exactly as it would have. */
 	{
 		int skip_menu = port_autoload_armed();
-#ifdef FRUA_FREEZELOG
-		long fl_iter = 0;
-#endif
 
 		for (;;) {
-#ifdef FRUA_FREEZELOG
-			/* Exit-from-Play freeze harness (#) — bracket the menu<->play
-			 * boundary with file markers that survive a hang (emit_file
-			 * closes the file every line). The transition that freezes is
-			 * "Exit from Play -> main menu": l07dc() returns, this loop
-			 * iterates, jt315() repaints the menu. Whichever marker is the
-			 * LAST line in DBG.LOG localizes the hang. File-based on purpose:
-			 * dbg_log paints the screen, dbg_file_num does not. */
-			dbg_file_num("freezelog: menu-loop iter ", fl_iter++);
-#endif
 			if (skip_menu) {
 				skip_menu = 0;
 				/* jt315's own head: primes the automap cell stride
@@ -2818,32 +2816,14 @@ int ua_main(short arg1, long arg2)
 				 * reason. */
 				load_menu_ui();
 			} else {
-#ifdef FRUA_FREEZELOG
-				dbg_file_num("freezelog: pre jt315 (main menu) ", fl_iter);
-#endif
 				if (jt315() == 0) {
-#ifdef FRUA_FREEZELOG
-					dbg_file_num("freezelog: jt315 returned 0 (quit) ", fl_iter);
-#endif
 					break;
 				}
-#ifdef FRUA_FREEZELOG
-				dbg_file_num("freezelog: post jt315 (menu done) ", fl_iter);
-#endif
 			}
-#ifdef FRUA_FREEZELOG
-			dbg_file_num("freezelog: pre jt949/956/920 ", fl_iter);
-#endif
 			jt949();
 			jt956();
 			jt920();
-#ifdef FRUA_FREEZELOG
-			dbg_file_num("freezelog: pre l07dc (play session) ", fl_iter);
-#endif
 			l07dc();
-#ifdef FRUA_FREEZELOG
-			dbg_file_num("freezelog: post l07dc (EXIT FROM PLAY returned) ", fl_iter);
-#endif
 		}
 	}
 
@@ -5415,13 +5395,7 @@ static void l07dc(void)
 	 * the Mac has no boot auto-load, and this is deliberately off by default. */
 	autoload = port_autoload_savegame();
 
-#ifdef FRUA_FREEZELOG
-	{ long fl_it = 0;
-#endif
 	for (;;) {
-#ifdef FRUA_FREEZELOG
-		dbg_file_num("freezelog:   l07dc iter ", fl_it++);
-#endif
 		jt942(0);
 		jt52(255);                      /* stop all voices */
 
@@ -5444,54 +5418,30 @@ static void l07dc(void)
 				g_a5_27990 = 4;
 			jt941();
 		} else {
-#ifdef FRUA_FREEZELOG
-			dbg_file_num("freezelog:   pre jt918 (Hall dispatch) ", fl_it);
-#endif
 			if (jt918(1) == 0)
 				goto cleanup;
-#ifdef FRUA_FREEZELOG
-			dbg_file_num("freezelog:   post jt918 ", fl_it);
-#endif
 		}
 
 		{
 			int special = g_a5_27990 == 3
 			           && g_a5_28006 != NULL
 			           && ((const unsigned char *)g_a5_28006)[36] == 1;
-#ifdef FRUA_FREEZELOG
-			dbg_file_num("freezelog:   pre state-machine special ", special);
-#endif
 			if (special) {
 				l68f8();
 			} else {
 				l67ca();
-#ifdef FRUA_FREEZELOG
-				dbg_file_num("freezelog:   post l67ca, pre jt937 ", fl_it);
-#endif
 				jt937(g_a5_27932);
 				jt938();
 			}
 		}
 
-#ifdef FRUA_FREEZELOG
-		dbg_file_num("freezelog:   pre jt217 ", fl_it);
-#endif
 		jt217((short)g_a5_12294, (short)g_a5_12293,
 		      (short)g_a5_12292, (short)g_a5_12291);
-#ifdef FRUA_FREEZELOG
-		dbg_file_num("freezelog:   pre jt948 ", fl_it);
-#endif
 		jt948();
 		g_a5_27990 = g_a5_27989;
-#ifdef FRUA_FREEZELOG
-		dbg_file_num("freezelog:   pre jt943 (more work?) ", fl_it);
-#endif
 		if (jt943() == 0)
 			break;
 	}
-#ifdef FRUA_FREEZELOG
-	}
-#endif
 
 cleanup:
 	/* Drain the party: jt19 unlinks the current selection -27932 and advances
@@ -5504,9 +5454,6 @@ cleanup:
 	 * Observed on hardware as P->C->D->E(sheet Exit)->E(Exit From Play). */
 	while (g_a5_27932 != 0) {
 		long before = g_a5_long(-27932);
-#ifdef FRUA_FREEZELOG
-		dbg_file_num("freezelog:   cleanup: jt19 unlink -27932=", before);
-#endif
 		jt19(0, 1);
 		if (g_a5_long(-27932) == before) {
 			g_a5_long(-27932) = 0;
@@ -5514,9 +5461,6 @@ cleanup:
 		}
 	}
 	jt52(255);                              /* stop all voices */
-#ifdef FRUA_FREEZELOG
-	dbg_file_num("freezelog:   l07dc cleanup done (returning) ", 0);
-#endif
 }
 
 /* =========================================================================
@@ -28165,28 +28109,6 @@ static void load_menu_ui(void)
 		}
 	}
 	if (g_menu_state == 1) {             /* install the UI palette */
-#ifdef FRUA_NOVA_PALTRACE
-		/* The hotkey letters paint with FIXED clut indices (15 white / 11 cyan,
-		 * see the l6c2a button label draw), so "black hotkeys" means slots 11/15
-		 * held black when the menu painted. clut 129 (the 256-entry art palette,
-		 * installed twice during boot) is documented to overwrite exactly those
-		 * UI text slots — port_hud_text_clut exists to undo it in the dungeon.
-		 * Log every UI-palette install so the ORDER of
-		 *   "clut 129 installed" vs "paltrace: UI palette install"
-		 * is visible, and paltrace's per-index dump shows what RGB actually
-		 * lands on 11/15. If a clut-129 install is the LAST writer before the
-		 * menu paints, that is the bug (and the char-gen page re-installing the
-		 * UI palette is what "unlocks" the cyan). */
-		dbg_file_num("paltrace: UI palette install entries = ", (long)g_menu_pe);
-		dbg_file_num("paltrace:   menu_pal[11] cyan  rgb = ",
-		             ((long)(g_menu_pal[11].red   >> 8) << 16)
-		             | ((long)(g_menu_pal[11].green >> 8) << 8)
-		             |  (long)(g_menu_pal[11].blue  >> 8));
-		dbg_file_num("paltrace:   menu_pal[15] white rgb = ",
-		             ((long)(g_menu_pal[15].red   >> 8) << 16)
-		             | ((long)(g_menu_pal[15].green >> 8) << 8)
-		             |  (long)(g_menu_pal[15].blue  >> 8));
-#endif
 		port_clut_install(g_menu_pal, (short)0, g_menu_pe);
 		/* The roster/window box (jt103, fill=8) maps logical colour 8 through
 		 * the -4188 colour-range table (jt1006). The faithful menu colour-range
@@ -29223,8 +29145,40 @@ static int   jt315(void)
 		case 6: (void)l0004_22((short)7); break;  /* Edit Modules   */
 		case 7: (void)l0004_22((short)8); break;  /* Art Gallery    */
 		case 8: (void)l0004_22((short)9); break;  /* Monster Editor */
-		case 9:                          /* Quit From Game */
-			return 0;
+		case 9: {                        /* Quit From Game */
+			/* FAITHFUL (CODE 22 + 0x5292, the arm the port had dropped):
+			 *
+			 *   jsr JT[76]                   ; jt76()
+			 *   movel %a5@(-14292),%sp@-     ; the prompt string POINTER
+			 *   jsr JT[159]                  ; jt159(prompt, 0)
+			 *   tstb %d0 / beqs L52aa        ; NO  -> back to the menu loop
+			 *   moveq #0,%d0                 ; YES -> return 0 = quit
+			 *
+			 * Quitting had no confirmation at all here, so a mis-click or a
+			 * stray 'Q' dropped the player straight to the desktop. -14292 is
+			 * read by exactly one instruction in the whole game and written by
+			 * none, i.e. it is a DATA-seeded pointer that data_pool_replay
+			 * brings in (the sibling -14284 that l120c uses measured non-zero
+			 * on hardware, so these slots do arrive seeded).
+			 *
+			 * The port supplies its own wording only if that slot is empty:
+			 * the Mac asks about its own host OS, and "Quit to DOS?" would be
+			 * a lie on a machine that has none. PORT_QUIT_PROMPT is per-target
+			 * (TOS / Workbench). */
+			const char *prompt =
+			    (const char *)(uintptr_t)g_a5_long(-14292);
+
+			jt76();
+			if (prompt == NULL || (uintptr_t)prompt <= 0x1000
+			    || *prompt == '\0')
+				prompt = PORT_QUIT_PROMPT;
+#ifdef FRUA_QUITDIAG
+			dbg_file_str("quit: prompt = ", prompt);
+#endif
+			if (jt159(prompt, 0) == 0)
+				break;           /* NO -> stay in the main menu */
+			return 0;                /* YES -> leave ua_main's loop */
+		}
 		default:
 			break;
 		}
@@ -66937,27 +66891,7 @@ static short l23b4(short arg)
 	 * ((char **)NULL)[-2] = $fffffff8 -> bus error, killing the app. The
 	 * Mac never returns -1 from this loop; neither do we. */
 	item = -1;
-#ifdef FRUA_FREEZELOG
-	/* The Exit-From-Play freeze pins here: this loop spins until l2d3e()
-	 * returns a selection. Log the modal's install state once, then a sparse
-	 * heartbeat so a spin (l2d3e never >= 0) is visible in DBG.LOG without
-	 * flooding it. g_a5_9250 = DLItem count (were YES/NO installed?),
-	 * g_a5_13018 = dialog mode, and the present-gate booleans say whether the
-	 * dialog is ever pushed to the card inside the loop. */
-	dbg_file_num("freezelog:       l23b4 ENTRY DLItem-count(9250) ", (long)(short)g_a5_9250);
-	dbg_file_num("freezelog:       l23b4 dialog-mode(13018) ", (long)(short)g_a5_13018);
-	dbg_file_num("freezelog:       l23b4 present-gate jt1163 ", (long)jt1163());
-	dbg_file_num("freezelog:       l23b4 present-gate jt1200 ", (long)jt1200());
-	dbg_file_num("freezelog:       l23b4 present-gate 27990 ", (long)(short)g_a5_27990);
-	{ long fl_spin = 0;
-#endif
 	for (;;) {
-#ifdef FRUA_FREEZELOG
-		/* first 4 iters + every 30000th: prove spin, show l2d3e's answer */
-		if (fl_spin < 4 || (fl_spin % 30000) == 0)
-			dbg_file_num("freezelog:       l23b4 spin # ", fl_spin);
-		fl_spin++;
-#endif
 		/* Mac gate (0x243a-0x2448): jt1163()==0 && jt1200()!=0. The port
 		 * runs the play screen native (g_a5_2347=1 -> jt1200()==0, see the
 		 * l63c0 loop-top), which would keep the fire/torch cycle frozen
@@ -66970,10 +66904,6 @@ static short l23b4(short arg)
 		}
 		rc   = jt1085();
 		item = (short)l2d3e();
-#ifdef FRUA_FREEZELOG
-		if (fl_spin <= 4)
-			dbg_file_num("freezelog:       l23b4   l2d3e returned ", (long)item);
-#endif
 
 		/* jt1085 (rc) != 0 only SKIPS the per-iteration timer/animation
 		 * block (asm L23b4 0x245e: bne L259a) — it is NOT a loop exit. The
@@ -67033,10 +66963,6 @@ static short l23b4(short arg)
 		if (item >= 0)
 			break;
 	}
-#ifdef FRUA_FREEZELOG
-	dbg_file_num("freezelog:       l23b4 EXIT item ", (long)item);
-	}
-#endif
 
 	if (l15bc())
 		item = 0;
@@ -96191,12 +96117,6 @@ static int l120c(short a)
 {
 	(void)a;
 	PROBE("jt918/case11 L120c");
-#ifdef FRUA_FREEZELOG
-	dbg_file_num("freezelog:     l120c EXIT-FROM-PLAY entry, 14429=", (long)g_a5_14429);
-	dbg_file_num("freezelog:     l120c 27928(party)=", (long)g_a5_27928);
-	dbg_file_num("freezelog:     l120c 27946(saved)=", (long)g_a5_27946);
-	dbg_file_num("freezelog:     l120c 14284(prompt)=", (long)g_a5_14284);
-#endif
 	g_a5_18472 = 1;
 	if (g_a5_14429 == 0)
 		return 0;
@@ -96209,26 +96129,11 @@ static int l120c(short a)
 	 * the port doesn't seed yet, so skip the modal when it's null (treat as
 	 * confirmed) and offer the save rather than aborting. */
 	if (g_a5_14284 != 0) {
-#ifdef FRUA_FREEZELOG
-		dbg_file_num("freezelog:     l120c pre jt159 (QUIT-ANYWAY modal) ", 0);
-#endif
 		if (jt159((const char *)(uintptr_t)g_a5_14284, (short)0) != 0) {
-#ifdef FRUA_FREEZELOG
-			dbg_file_num("freezelog:     l120c post jt159 -> abort exit ", 0);
-#endif
 			return -1;
 		}
-#ifdef FRUA_FREEZELOG
-		dbg_file_num("freezelog:     l120c post jt159 -> proceed to save ", 0);
-#endif
 	}
-#ifdef FRUA_FREEZELOG
-	dbg_file_num("freezelog:     l120c pre jt585 (save) ", 0);
-#endif
 	jt585();                       /* faithful: save before leaving play */
-#ifdef FRUA_FREEZELOG
-	dbg_file_num("freezelog:     l120c post jt585 (returning 0) ", 0);
-#endif
 	return 0;
 }
 
