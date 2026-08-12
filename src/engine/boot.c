@@ -28165,6 +28165,28 @@ static void load_menu_ui(void)
 		}
 	}
 	if (g_menu_state == 1) {             /* install the UI palette */
+#ifdef FRUA_NOVA_PALTRACE
+		/* The hotkey letters paint with FIXED clut indices (15 white / 11 cyan,
+		 * see the l6c2a button label draw), so "black hotkeys" means slots 11/15
+		 * held black when the menu painted. clut 129 (the 256-entry art palette,
+		 * installed twice during boot) is documented to overwrite exactly those
+		 * UI text slots — port_hud_text_clut exists to undo it in the dungeon.
+		 * Log every UI-palette install so the ORDER of
+		 *   "clut 129 installed" vs "paltrace: UI palette install"
+		 * is visible, and paltrace's per-index dump shows what RGB actually
+		 * lands on 11/15. If a clut-129 install is the LAST writer before the
+		 * menu paints, that is the bug (and the char-gen page re-installing the
+		 * UI palette is what "unlocks" the cyan). */
+		dbg_file_num("paltrace: UI palette install entries = ", (long)g_menu_pe);
+		dbg_file_num("paltrace:   menu_pal[11] cyan  rgb = ",
+		             ((long)(g_menu_pal[11].red   >> 8) << 16)
+		             | ((long)(g_menu_pal[11].green >> 8) << 8)
+		             |  (long)(g_menu_pal[11].blue  >> 8));
+		dbg_file_num("paltrace:   menu_pal[15] white rgb = ",
+		             ((long)(g_menu_pal[15].red   >> 8) << 16)
+		             | ((long)(g_menu_pal[15].green >> 8) << 8)
+		             |  (long)(g_menu_pal[15].blue  >> 8));
+#endif
 		port_clut_install(g_menu_pal, (short)0, g_menu_pe);
 		/* The roster/window box (jt103, fill=8) maps logical colour 8 through
 		 * the -4188 colour-range table (jt1006). The faithful menu colour-range

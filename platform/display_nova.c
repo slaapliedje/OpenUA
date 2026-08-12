@@ -295,7 +295,7 @@ static void nova_set_palette(const dsp_color_t *c, short first, short count)
 	 * the UI colours. Bounded so it cannot flood the card's log. */
 	{
 		static short pt_n;
-		if (pt_n < 80) {
+		if (pt_n < 400) {
 			pt_n++;
 			dbg_file_num("paltrace: first*1000+count = ",
 			             (long)first * 1000L + count);
@@ -304,13 +304,31 @@ static void nova_set_palette(const dsp_color_t *c, short first, short count)
 			 * old idx*1e6 + r*1e4 + g*1e2 + b spilled r>=100 into the
 			 * index field and produced impossible indices. Shift instead —
 			 * idx<16 so the whole value stays well inside a signed long. */
+			/* Only the two UI TEXT slots the black-hotkey report is about
+			 * (11 = cyan accelerator, 15 = white accelerator). Logging all
+			 * idx<16 burned the line budget during boot and never reached the
+			 * char-gen page — the very install that "unlocks" the colour. Now
+			 * every writer to 11/15 is visible for the whole session, so the
+			 * LAST one before the menu paints is identifiable. */
 			for (i = 0; i < count; i++) {
 				short idx = (short)(first + i);
-				if (idx < 16)
+				if (idx == 11 || idx == 15) {
 					dbg_file_num("paltrace:   idx<<24|rgb  = ",
 					             ((long)idx << 24)
 					             | ((long)c[i].r << 16)
 					             | ((long)c[i].g << 8) | c[i].b);
+					/* ...and the PEN it is routed to. The engine writes the
+					 * correct cyan/white to 11/15 at the right time (proven on
+					 * the ST backend), so if the card still shows black the
+					 * suspect is this pen mapping — nova_hw_inverse, the one
+					 * thing here that can only be validated on the card. If a
+					 * LATER write of the SAME rgb to the SAME pen does show up
+					 * (the char-gen page), the values are fine and the mapping
+					 * / write-timing is the bug. */
+					dbg_file_num("paltrace:     -> vs_color pen ",
+					             (long)((idx >= 0 && idx < 16)
+					                    ? nova_hw_inverse[idx] : idx));
+				}
 			}
 		}
 	}
