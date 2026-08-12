@@ -5494,19 +5494,25 @@ static void l07dc(void)
 #endif
 
 cleanup:
+	/* Drain the party: jt19 unlinks the current selection -27932 and advances
+	 * it, reaching 0 when the party empties. A selection that is NOT a party
+	 * member (a dangling -27932) makes jt19 a no-op — it early-returns on an
+	 * empty/mismatched -27928 without clearing -27932 — which spins forever and
+	 * hard-freezes the machine. The root cause is a caller that left -27932
+	 * dangling (jt574's create-cancel paths did; fixed there), but guard the
+	 * loop too: if a pass makes no progress, drop the stale selection and stop.
+	 * Observed on hardware as P->C->D->E(sheet Exit)->E(Exit From Play). */
+	while (g_a5_27932 != 0) {
+		long before = g_a5_long(-27932);
 #ifdef FRUA_FREEZELOG
-	dbg_file_num("freezelog:   cleanup: pre jt19 unlink loop ", (long)(uintptr_t)g_a5_27932);
-	{ long fl_ul = 0;
-	  while (g_a5_27932 != 0) {
-		dbg_file_num("freezelog:   cleanup: jt19 unlink # ", fl_ul++);
-		jt19(0, 1);
-	  }
-	}
-	dbg_file_num("freezelog:   cleanup: unlink loop done ", 0);
-#else
-	while (g_a5_27932 != 0)
-		jt19(0, 1);
+		dbg_file_num("freezelog:   cleanup: jt19 unlink -27932=", before);
 #endif
+		jt19(0, 1);
+		if (g_a5_long(-27932) == before) {
+			g_a5_long(-27932) = 0;
+			break;
+		}
+	}
 	jt52(255);                              /* stop all voices */
 #ifdef FRUA_FREEZELOG
 	dbg_file_num("freezelog:   l07dc cleanup done (returning) ", 0);
@@ -31310,7 +31316,7 @@ static int  jt574(long ctx)
 			 * name box opens AFTER the sheet, not before it. Exit at the
 			 * sheet (return 0) cancels the whole create -> back to the Hall. */
 			if (ctx == 0 && cg_char_sheet(cg_rec) == 0)
-				return 0;    /* sheet Exit -> cancel */
+				goto cg_done;    /* sheet Exit -> cancel (restore -27932) */
 #ifdef FRUA_CGTRACE
 			dbg_log("jt574: sheet done");
 #endif
@@ -31332,7 +31338,7 @@ static int  jt574(long ctx)
 			 * finalize stamps the starting money (rec[76]/78/80) into the
 			 * record; a cancel (return 0) aborts the whole create. */
 			if (jt573(0) == 0)
-				return 0;    /* body-icon review cancelled -> back to the Hall */
+				goto cg_done;    /* body-icon review cancelled (restore -27932) */
 #ifdef FRUA_CGTRACE
 			dbg_log("jt574: review done");
 #endif
@@ -31357,7 +31363,7 @@ static int  jt574(long ctx)
 				sprintf(prompt, "Save %s?",
 				        (const char *)&cg_rec[96]);
 				if (jt159(prompt, 0) == 0)
-					return 0;    /* declined -> abandon the create */
+					goto cg_done;    /* declined -> abandon (restore -27932) */
 			}
 
 			l3cd4_c17(cg_rec);   /* L3cd4 — proficiency bitfield rec[339..354] */
@@ -31381,8 +31387,21 @@ static int  jt574(long ctx)
 				 * brings it in with Add Character. Selection stays on the party
 				 * head. (#141) */
 				save_roster();
-				g_a5_long(-27932) = g_a5_long(-27928);
 			}
+		cg_done:
+			/* l3666's Done set -27932 to the temporary cg_rec. A created
+			 * character is BENCHED (never linked into the party list -27928),
+			 * and a cancel discards it, so on EVERY exit the active selection
+			 * must return to the party head. Leaving -27932 = cg_rec dangles a
+			 * pointer to a non-party record that the Exit-From-Play cleanup
+			 * (`while (-27932) jt19()` in l07dc) can NEVER unlink — jt19
+			 * early-returns on an empty -27928 without clearing -27932 — so the
+			 * loop spins forever and the game freezes (observed on hardware:
+			 * P->C->D->E(sheet Exit)->E(Exit From Play)). The Mac's jt574 tail
+			 * restores -27932 the same way; the port only did it on the
+			 * full-commit pool-add path, so every sheet/review/Save cancel (and
+			 * a full 16-char pool) left it dangling. */
+			g_a5_long(-27932) = g_a5_long(-27928);
 		}
 	}
 	return 0;                            /* back to the Training Hall */
