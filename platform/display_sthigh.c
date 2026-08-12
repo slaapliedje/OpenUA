@@ -61,6 +61,7 @@ static unsigned char *s_shadow;         /* chunky at last convert   */
 static dsp_surface_t  s_surface;
 static short          s_save_rez = -1;
 static void          *s_save_phys, *s_save_log;
+static short          s_save_pal[16];   /* the desktop's colour registers */
 static short          s_force_full;
 
 /* Per-palette-index 2-bit dither patterns, top and bottom row of the 2x2
@@ -136,6 +137,15 @@ static int sthigh_init(short want_w, short want_h)
 	s_save_rez  = Getrez();
 	s_save_phys = Physbase();
 	s_save_log  = Logbase();
+	/* Save the desktop's colour registers too — see display_ste.c: restoring the
+	 * mode alone hands the desktop back wearing our palette (black icons). Mono
+	 * only uses 0 and 15, but save all 16: this backend also runs on a colour
+	 * monitor booted into ST High, and the cost is nothing. */
+	{
+		short i;
+		for (i = 0; i < 16; i++)
+			s_save_pal[i] = Setcolor(i, COL_INQUIRE);
+	}
 	/* Keep the mono rez the machine booted in; move only the base (the
 	 * LOGICAL base stays on the old screen so console prints don't
 	 * scribble the display, as in the other Atari backends). */
@@ -167,6 +177,7 @@ static void sthigh_shutdown(void)
 {
 	if (s_save_rez >= 0) {
 		Setscreen(s_save_log, s_save_phys, (short)s_save_rez);
+		Setpalette(s_save_pal);          /* after the mode: the VDI reinit first */
 		s_save_rez = -1;
 	}
 	if (s_screen_raw) { Mfree(s_screen_raw); s_screen_raw = NULL; s_screen = NULL; }

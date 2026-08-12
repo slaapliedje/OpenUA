@@ -75,6 +75,7 @@ static short          s_force_full;     /* pages still owing a full convert */
 static dsp_surface_t  s_surface;
 static short          s_save_rez = -1;
 static void          *s_save_phys, *s_save_log;
+static short          s_save_pal[16];   /* the desktop's colour registers */
 static short          s_ints_on;
 
 /* Quantizer state. st_band_stpal / st_band_ptr cross the interrupt boundary
@@ -2024,6 +2025,18 @@ static int st_init(short want_w, short want_h)
 	s_save_rez  = Getrez();
 	s_save_phys = Physbase();
 	s_save_log  = Logbase();
+	/* ...AND THE DESKTOP'S 16 COLOUR REGISTERS. Restoring the resolution and the
+	 * screen base alone put the desktop back with OUR palette still loaded —
+	 * reported from real hardware as black icons and black window contents after
+	 * quitting. This backend owns 0xFF8240 outright (the per-band raster split
+	 * rewrites all 16 registers several times per frame), so whatever the desktop
+	 * had is long gone by exit unless it is saved here. Same idiom the Falcon
+	 * backend already uses (Setcolor inquire -> Setpalette). */
+	{
+		short i;
+		for (i = 0; i < 16; i++)
+			s_save_pal[i] = Setcolor(i, COL_INQUIRE);
+	}
 	Setscreen(s_save_log, s_page[0], 0);     /* ST Low; show page 0; console keeps log */
 	dbg_log_screen_owned();   /* see the videl backend: keep Cconws off the picture */
 #ifdef FRUA_BOOTTRACE
@@ -2130,6 +2143,13 @@ static void st_shutdown(void)
 	}
 	if (s_save_rez >= 0) {
 		Setscreen(s_save_log, s_save_phys, (short)s_save_rez);
+		/* Palette AFTER the mode change, matching the Falcon backend's default
+		 * exit order: Setscreen can reinitialise the VDI (and with it its colour
+		 * table), so putting the registers back last gives them the final word.
+		 * Without this the desktop returned wearing the game's palette — black
+		 * icons and black window contents on real hardware. Interrupts are
+		 * already down above, so nothing repaints over it. */
+		Setpalette(s_save_pal);
 		s_save_rez = -1;
 	}
 	if (s_screen_raw) { Mfree(s_screen_raw); s_screen_raw = NULL; s_screen = NULL; }

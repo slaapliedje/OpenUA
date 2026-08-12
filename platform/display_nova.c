@@ -85,6 +85,14 @@ static long            s_pitch;         /* card bytes/row                       
 static short           s_aes_ok;
 static short           s_phys;          /* AES physical handle = the LIVE screen */
 
+/* Hardware LUT state — declared here (not down with nova_lut_bind) because
+ * nova_shutdown, further up the file, restores the desktop palette from it. */
+static volatile unsigned short *s_lut;          /* card hardware LUT (256 x 565) */
+static unsigned short           s_lut_want[256];/* what each slot SHOULD hold     */
+static unsigned char            s_lut_set[256]; /* ...and which we have set       */
+static unsigned short           s_lut_save[256];/* the DESKTOP's palette, for exit */
+static short                    s_lut_saved;
+
 static short nova_open_ws(short *work_out)
 {
 	short i, phys;
@@ -236,6 +244,16 @@ static int nova_init(short want_w, short want_h)
 static void nova_shutdown(void)
 {
 	nova_close_ws();
+
+	/* Hand the desktop its colours back. AFTER closing the workstation, so a
+	 * re-emit on the way out cannot land on top of the restore — and the restore
+	 * is the last word either way. Without this the card keeps the game palette
+	 * and TOS comes back with black icons / black window contents. */
+	if (s_lut != NULL && s_lut_saved) {
+		short i;
+		for (i = 0; i < 256; i++)
+			s_lut[i] = s_lut_save[i];
+	}
 }
 
 static dsp_surface_t *nova_surface(void) { return &s_surf; }
@@ -357,9 +375,6 @@ static const unsigned char nova_hw_inverse[16] =
 #define NOVA_LUT_OFF_2MB  0x1FF000L
 #define NOVA_LUT_OFF_4MB  0x3FF000L
 
-static volatile unsigned short *s_lut;          /* card hardware LUT (256 x 565) */
-static unsigned short           s_lut_want[256];/* what each slot SHOULD hold     */
-static unsigned char            s_lut_set[256]; /* ...and which we have set       */
 
 /* Stamp every slot we own onto the card. Called after a palette batch's vs_color
  * calls (which can make the VDI re-emit its table over ours) and once per full
@@ -435,6 +450,19 @@ static void nova_lut_bind(void)
 		return;
 	}
 	s_lut = lut;
+
+	/* Snapshot the DESKTOP's palette before we touch a single entry, so exiting
+	 * can put it back. We now own this table outright and re-stamp it every
+	 * present, so by exit the card holds the GAME's colours; closing the VDI
+	 * workstation does not undo that, and the desktop returns with black icons
+	 * and black window contents (reported on hardware, same symptom the ST/STE
+	 * backend had for the same reason — see nova_shutdown). */
+	{
+		short i;
+		for (i = 0; i < 256; i++)
+			s_lut_save[i] = lut[i];
+		s_lut_saved = 1;
+	}
 	dbg_log_num("nova: hardware LUT bound (RGB565) at ", (long)(uintptr_t)lut);
 }
 
