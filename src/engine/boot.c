@@ -66896,7 +66896,27 @@ static short l23b4(short arg)
 	 * ((char **)NULL)[-2] = $fffffff8 -> bus error, killing the app. The
 	 * Mac never returns -1 from this loop; neither do we. */
 	item = -1;
+#ifdef FRUA_FREEZELOG
+	/* The Exit-From-Play freeze pins here: this loop spins until l2d3e()
+	 * returns a selection. Log the modal's install state once, then a sparse
+	 * heartbeat so a spin (l2d3e never >= 0) is visible in DBG.LOG without
+	 * flooding it. g_a5_9250 = DLItem count (were YES/NO installed?),
+	 * g_a5_13018 = dialog mode, and the present-gate booleans say whether the
+	 * dialog is ever pushed to the card inside the loop. */
+	dbg_file_num("freezelog:       l23b4 ENTRY DLItem-count(9250) ", (long)(short)g_a5_9250);
+	dbg_file_num("freezelog:       l23b4 dialog-mode(13018) ", (long)(short)g_a5_13018);
+	dbg_file_num("freezelog:       l23b4 present-gate jt1163 ", (long)jt1163());
+	dbg_file_num("freezelog:       l23b4 present-gate jt1200 ", (long)jt1200());
+	dbg_file_num("freezelog:       l23b4 present-gate 27990 ", (long)(short)g_a5_27990);
+	{ long fl_spin = 0;
+#endif
 	for (;;) {
+#ifdef FRUA_FREEZELOG
+		/* first 4 iters + every 30000th: prove spin, show l2d3e's answer */
+		if (fl_spin < 4 || (fl_spin % 30000) == 0)
+			dbg_file_num("freezelog:       l23b4 spin # ", fl_spin);
+		fl_spin++;
+#endif
 		/* Mac gate (0x243a-0x2448): jt1163()==0 && jt1200()!=0. The port
 		 * runs the play screen native (g_a5_2347=1 -> jt1200()==0, see the
 		 * l63c0 loop-top), which would keep the fire/torch cycle frozen
@@ -66909,6 +66929,10 @@ static short l23b4(short arg)
 		}
 		rc   = jt1085();
 		item = (short)l2d3e();
+#ifdef FRUA_FREEZELOG
+		if (fl_spin <= 4)
+			dbg_file_num("freezelog:       l23b4   l2d3e returned ", (long)item);
+#endif
 
 		/* jt1085 (rc) != 0 only SKIPS the per-iteration timer/animation
 		 * block (asm L23b4 0x245e: bne L259a) — it is NOT a loop exit. The
@@ -66968,6 +66992,10 @@ static short l23b4(short arg)
 		if (item >= 0)
 			break;
 	}
+#ifdef FRUA_FREEZELOG
+	dbg_file_num("freezelog:       l23b4 EXIT item ", (long)item);
+	}
+#endif
 
 	if (l15bc())
 		item = 0;
