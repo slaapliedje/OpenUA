@@ -189,6 +189,8 @@ static void nova_paltest(void)
 /* ------------------------------------------------------------------- backend ops
  * The screen is already open (dsp_backend_nova confirmed 8bpp and left the
  * workstation open). init() only allocates the render surface + binds VRAM. */
+static void nova_lut_bind(void);        /* hardware LUT (RGB565) — defined below */
+
 static int nova_init(short want_w, short want_h)
 {
 	long i, n;
@@ -205,6 +207,11 @@ static int nova_init(short want_w, short want_h)
 	 * we now own) — route it to DBG.LOG so the debug trail stops overwriting the
 	 * game. This is what let the play loop stay legible on the card. */
 	dbg_log_screen_owned();
+
+	/* Bind the card's hardware LUT (index == slot, RGB565) now that s_vram is
+	 * known — the palette path prefers it over VDI pens, which cannot reach
+	 * slot 15 on a 256-colour device. Verified by read-back; falls back silently. */
+	nova_lut_bind();
 
 #ifdef FRUA_NOVA_PALTEST
 	nova_paltest();                 /* draws the diagnostic + halts */
@@ -331,36 +338,88 @@ static short s_white_pen = -1;          /* -1 = not yet read from video.cfg */
  * the TT/AGA backends own their hardware palette (hw_palette), which also drops
  * the VDI pen table and its unreachable slots entirely. Read-only for now.
  * Done under Supexec: the card lives in VME space. */
-static long  s_lut_probe_addr;
-static long  nova_lut_read_super(void)
+/* MEASURED ON THE CARD (2MB ATW800/2, ADDR jumper at 0x(FE)A00000):
+ *
+ *   Logbase()            = 0xFEA00000      (card video base)
+ *   LUT                  = base + 0x1FF000 = 0xFEBFF000   <- reads fine
+ *   base + 0x3FF000      = 0xFEDFF000                     <- BUS ERROR (2 bombs)
+ *
+ * The manual's absolute addresses (TT 0xFEDFF000) assume VidMem at 0x(FE)C00000;
+ * with the ADDR jumper at 0x(FE)A00000 the LUT moves with it, so ALWAYS derive it
+ * from Logbase() and never probe a second candidate blindly — the 4MB offset is
+ * unmapped on a 2MB card and bombs. A 4MB card is opt-in via video.cfg.
+ *
+ * ENTRY FORMAT = RGB565, big-endian word, decoded from the read-back against
+ * known colours (all canonical 565 values):
+ *   slot 7  = 0xAD55 -> (172,170,172)  the alternating-bit grey
+ *   slot 254= 0xFFE0 -> (255,255,0)    yellow
+ *   slot 15 = 0xF81F -> (255,0,255)    magenta
+ *   slot 255= 0xFFFF -> (255,255,255)  WHITE  <- where our UI white actually went
+ *
+ * That last row is the bug: writing framebuffer slot 15 through vs_color PEN 1
+ * put the white on slot 255 (the 256-colour VDI black pen is index ncolors-1),
+ * so the hotkey letter stayed magenta/dark AND a real art colour (255) got
+ * clobbered. Writing this LUT directly makes every slot 0..255 reachable and
+ * ends the pen-table indirection for good. */
+#define NOVA_LUT_OFF_2MB  0x1FF000L
+#define NOVA_LUT_OFF_4MB  0x3FF000L
+
+static volatile unsigned short *s_lut;          /* card hardware LUT (256 x 565) */
+
+static unsigned short nova_rgb565(unsigned char r, unsigned char g,
+                                  unsigned char b)
 {
-	return (long)*(volatile unsigned short *)(uintptr_t)s_lut_probe_addr;
+	return (unsigned short)(((unsigned)(r >> 3) << 11)
+	                      | ((unsigned)(g >> 2) << 5)
+	                      |  (unsigned)(b >> 3));
 }
-static long nova_lut_entry(long lut_base, short slot)
+
+/* Bind + VERIFY (write / read back / restore). No speculative access: the offset
+ * comes from Logbase(), which the present already writes every frame from user
+ * mode, so the window is known-good. `novalut=off` disables the direct path (back
+ * to vs_color only); `novalut=4mb` selects the 4MB offset. */
+static void nova_lut_bind(void)
 {
-	s_lut_probe_addr = lut_base + (long)slot * 2;
-	return Supexec(nova_lut_read_super);
-}
-static void nova_lut_dump(const char *when)
-{
-	static const short slots[] = { 0, 1, 7, 11, 13, 15, 254, 255 };
-	long base = (long)(uintptr_t)s_vram;   /* card video base (Logbase) */
-	long cand[2];
-	int  c, i;
+	volatile unsigned short *lut;
+	unsigned short           save, got;
+	long                     off = NOVA_LUT_OFF_2MB;
+	char                     buf[128];
+	short                    fh;
+	long                     n;
+	int                      i;
 
 	if (s_vram == NULL)
 		return;
-	cand[0] = base + 0xFF000L + 0x100000L;  /* 2MB card (the documented map) */
-	cand[1] = base + 0xFF000L + 0x300000L;  /* 4MB card                      */
-	dbg_file_str("lut: dump ", when);
-	dbg_file_num("lut:   video base = ", base);
-	for (c = 0; c < 2; c++) {
-		dbg_file_num("lut:   --- candidate base = ", cand[c]);
-		for (i = 0; i < (int)(sizeof slots / sizeof slots[0]); i++)
-			dbg_file_num("lut:     slot<<16|word = ",
-			             ((long)slots[i] << 16)
-			             | (nova_lut_entry(cand[c], slots[i]) & 0xFFFFL));
+	fh = (short)Fopen("video.cfg", 0);
+	if (fh >= 0) {
+		n = Fread(fh, (long)sizeof buf - 1, buf);
+		Fclose(fh);
+		if (n > 0) {
+			buf[n] = '\0';
+			for (i = 0; buf[i] != '\0'; i++)
+				if (buf[i] >= 'A' && buf[i] <= 'Z')
+					buf[i] = (char)(buf[i] + 32);
+			if (strstr(buf, "novalut=off") != NULL) {
+				dbg_log("nova: direct LUT disabled (video.cfg)");
+				return;
+			}
+			if (strstr(buf, "novalut=4mb") != NULL)
+				off = NOVA_LUT_OFF_4MB;
+		}
 	}
+
+	lut  = (volatile unsigned short *)(void *)
+	       ((char *)s_vram + off);
+	save = lut[255];
+	lut[255] = 0x1234;
+	got      = lut[255];
+	lut[255] = save;
+	if (got != 0x1234) {
+		dbg_log("nova: LUT read-back failed - staying on vs_color");
+		return;
+	}
+	s_lut = lut;
+	dbg_log_num("nova: hardware LUT bound (RGB565) at ", (long)(uintptr_t)lut);
 }
 
 static short nova_white_pen(void)
@@ -462,22 +521,19 @@ static void nova_set_palette(const dsp_color_t *c, short first, short count)
 		 * 256-colour card. See nova_white_pen(). */
 		if (idx == 15)
 			pen = nova_white_pen();
-		nova_vs_color(pen, c[i].r, c[i].g, c[i].b);
-#ifdef FRUA_NOVA_PALTRACE
-		/* Right after a slot-15 write, read the hardware LUT back: this is the
-		 * measurement that says whether the white landed on 15, on 255, or
-		 * nowhere. Twice only (the first UI install and one later, once the
-		 * char-gen page has done its big install and the colour has "unlocked"
-		 * on screen) — enough for a before/after without flooding DBG.LOG. */
-		if (idx == 15) {
-			static short lut_n;
-			if (lut_n < 2) {
-				lut_n++;
-				nova_lut_dump(lut_n == 1 ? "after 1st slot-15 write"
-				                         : "after a later slot-15 write");
-			}
-		}
-#endif
+
+		/* The hardware LUT is authoritative when bound: index == slot, so every
+		 * colour lands where the framebuffer bytes actually point. */
+		if (s_lut != NULL)
+			s_lut[idx] = nova_rgb565(c[i].r, c[i].g, c[i].b);
+
+		/* Keep VDI's own colour table in step (its CLUT shadow is what a later
+		 * VDI/AES redraw would re-emit) — EXCEPT slot 15, whose pen 1 does not
+		 * drive slot 15 on a 256-colour device and would overwrite slot 255, a
+		 * live art colour, with the UI white. When the LUT is not bound this is
+		 * still the only path, so the old behaviour is preserved exactly. */
+		if (idx != 15 || s_lut == NULL)
+			nova_vs_color(pen, c[i].r, c[i].g, c[i].b);
 	}
 }
 
