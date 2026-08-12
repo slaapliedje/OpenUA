@@ -5415,7 +5415,13 @@ static void l07dc(void)
 	 * the Mac has no boot auto-load, and this is deliberately off by default. */
 	autoload = port_autoload_savegame();
 
+#ifdef FRUA_FREEZELOG
+	{ long fl_it = 0;
+#endif
 	for (;;) {
+#ifdef FRUA_FREEZELOG
+		dbg_file_num("freezelog:   l07dc iter ", fl_it++);
+#endif
 		jt942(0);
 		jt52(255);                      /* stop all voices */
 
@@ -5438,35 +5444,73 @@ static void l07dc(void)
 				g_a5_27990 = 4;
 			jt941();
 		} else {
+#ifdef FRUA_FREEZELOG
+			dbg_file_num("freezelog:   pre jt918 (Hall dispatch) ", fl_it);
+#endif
 			if (jt918(1) == 0)
 				goto cleanup;
+#ifdef FRUA_FREEZELOG
+			dbg_file_num("freezelog:   post jt918 ", fl_it);
+#endif
 		}
 
 		{
 			int special = g_a5_27990 == 3
 			           && g_a5_28006 != NULL
 			           && ((const unsigned char *)g_a5_28006)[36] == 1;
+#ifdef FRUA_FREEZELOG
+			dbg_file_num("freezelog:   pre state-machine special ", special);
+#endif
 			if (special) {
 				l68f8();
 			} else {
 				l67ca();
+#ifdef FRUA_FREEZELOG
+				dbg_file_num("freezelog:   post l67ca, pre jt937 ", fl_it);
+#endif
 				jt937(g_a5_27932);
 				jt938();
 			}
 		}
 
+#ifdef FRUA_FREEZELOG
+		dbg_file_num("freezelog:   pre jt217 ", fl_it);
+#endif
 		jt217((short)g_a5_12294, (short)g_a5_12293,
 		      (short)g_a5_12292, (short)g_a5_12291);
+#ifdef FRUA_FREEZELOG
+		dbg_file_num("freezelog:   pre jt948 ", fl_it);
+#endif
 		jt948();
 		g_a5_27990 = g_a5_27989;
+#ifdef FRUA_FREEZELOG
+		dbg_file_num("freezelog:   pre jt943 (more work?) ", fl_it);
+#endif
 		if (jt943() == 0)
 			break;
 	}
+#ifdef FRUA_FREEZELOG
+	}
+#endif
 
 cleanup:
+#ifdef FRUA_FREEZELOG
+	dbg_file_num("freezelog:   cleanup: pre jt19 unlink loop ", (long)(uintptr_t)g_a5_27932);
+	{ long fl_ul = 0;
+	  while (g_a5_27932 != 0) {
+		dbg_file_num("freezelog:   cleanup: jt19 unlink # ", fl_ul++);
+		jt19(0, 1);
+	  }
+	}
+	dbg_file_num("freezelog:   cleanup: unlink loop done ", 0);
+#else
 	while (g_a5_27932 != 0)
 		jt19(0, 1);
+#endif
 	jt52(255);                              /* stop all voices */
+#ifdef FRUA_FREEZELOG
+	dbg_file_num("freezelog:   l07dc cleanup done (returning) ", 0);
+#endif
 }
 
 /* =========================================================================
@@ -96078,6 +96122,12 @@ static int l120c(short a)
 {
 	(void)a;
 	PROBE("jt918/case11 L120c");
+#ifdef FRUA_FREEZELOG
+	dbg_file_num("freezelog:     l120c EXIT-FROM-PLAY entry, 14429=", (long)g_a5_14429);
+	dbg_file_num("freezelog:     l120c 27928(party)=", (long)g_a5_27928);
+	dbg_file_num("freezelog:     l120c 27946(saved)=", (long)g_a5_27946);
+	dbg_file_num("freezelog:     l120c 14284(prompt)=", (long)g_a5_14284);
+#endif
 	g_a5_18472 = 1;
 	if (g_a5_14429 == 0)
 		return 0;
@@ -96089,10 +96139,27 @@ static int l120c(short a)
 	 * exit (L123a) when it returns non-zero. -14284 is a design-state prompt
 	 * the port doesn't seed yet, so skip the modal when it's null (treat as
 	 * confirmed) and offer the save rather than aborting. */
-	if (g_a5_14284 != 0
-	    && jt159((const char *)(uintptr_t)g_a5_14284, (short)0) != 0)
-		return -1;
+	if (g_a5_14284 != 0) {
+#ifdef FRUA_FREEZELOG
+		dbg_file_num("freezelog:     l120c pre jt159 (QUIT-ANYWAY modal) ", 0);
+#endif
+		if (jt159((const char *)(uintptr_t)g_a5_14284, (short)0) != 0) {
+#ifdef FRUA_FREEZELOG
+			dbg_file_num("freezelog:     l120c post jt159 -> abort exit ", 0);
+#endif
+			return -1;
+		}
+#ifdef FRUA_FREEZELOG
+		dbg_file_num("freezelog:     l120c post jt159 -> proceed to save ", 0);
+#endif
+	}
+#ifdef FRUA_FREEZELOG
+	dbg_file_num("freezelog:     l120c pre jt585 (save) ", 0);
+#endif
 	jt585();                       /* faithful: save before leaving play */
+#ifdef FRUA_FREEZELOG
+	dbg_file_num("freezelog:     l120c post jt585 (returning 0) ", 0);
+#endif
 	return 0;
 }
 
