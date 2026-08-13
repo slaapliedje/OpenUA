@@ -22652,6 +22652,10 @@ static short  jt1125(short kind, long p1, long p2)
 		 * still sees the key and the cmd=5 shortcut walk fires. */
 		g_a5_word(-818) = ascii;
 		g_a5_byte(-820) = 1;
+#ifdef FRUA_KEYDIAG
+		{ static short kd_s; if (kd_s < 60) { kd_s++;
+			dbg_file_num("keydiag:   jt1125 STAMP ascii = ", (long)ascii); } }
+#endif
 #ifdef FRUA_ACCTRACE
 		if (g_walk_input)
 			dbg_file_num("acc: jt1125 stamp ascii ", (long)ascii);
@@ -25590,6 +25594,10 @@ static void l6dd0(EventRecord *ev)
 
 	/* Non-Cmd path. */
 	g_a5_byte(-820) = 1;
+#ifdef FRUA_KEYDIAG
+	{ static short kd_l; if (kd_l < 60) { kd_l++;
+		dbg_file_num("keydiag:   l6dd0 STAMP lo    = ", (long)lo); } }
+#endif
 
 	/* Primary JT[2] dispatch on the full low word (scan-code in
 	 * high byte | char in low byte). 25 mappings decoded from the
@@ -26028,6 +26036,11 @@ static short jt1133(void)
 	while (jt1118() == 0)
 		;
 	g_a5_byte(-820) = 0;
+#ifdef FRUA_KEYDIAG
+	{ static short kd_r; if (kd_r < 60) { kd_r++;
+		dbg_file_num("keydiag:     jt1133 READ  key   = ",
+		             (long)(short)g_a5_word(-818)); } }
+#endif
 	return g_a5_word(-818);
 }
 

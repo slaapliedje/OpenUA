@@ -18,8 +18,8 @@
  */
 
 #include <stddef.h>             /* NULL */
-#ifdef FRUA_PUMPTRACE
-#include "dbglog.h"          /* pump-trace heartbeats (#74) */
+#if defined(FRUA_PUMPTRACE) || defined(FRUA_KEYDIAG)
+#include "dbglog.h"          /* pump-trace heartbeats (#74); #132 key trace */
 #endif
 
 #include "events.h"
@@ -183,6 +183,10 @@ static Boolean kb_to_event(EventRecord *out)
 	}
 	out->message = ((long)scan << 8) | (long)ascii;
 	fill_common(out);
+#ifdef FRUA_KEYDIAG
+	{ static short kd_e; if (kd_e < 60) { kd_e++;
+		dbg_file_num("keydiag:  kb_to_event -> keyDown msg = ", out->message); } }
+#endif
 	return 1;
 }
 

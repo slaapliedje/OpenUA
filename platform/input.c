@@ -13,6 +13,9 @@
 #include <mint/osbind.h>
 
 #include "input.h"
+#ifdef FRUA_KEYDIAG
+#include "dbglog.h"          /* #132 keystroke-doubling trace */
+#endif
 
 /*
  * Keyboard vector table — the layout that Kbdvbase() points at. Mintlib
@@ -144,6 +147,25 @@ int plat_kb_poll(unsigned char *out_scan, unsigned char *out_ascii)
 		*out_scan = (unsigned char)((c >> 16) & 0xFF);
 	if (out_ascii)
 		*out_ascii = (unsigned char)(c & 0xFF);
+#ifdef FRUA_KEYDIAG
+	/* #132 — the occasional doubled keystroke. This is the LOWEST point a key
+	 * enters the port: one physical press should produce exactly one line here.
+	 * Comparing this count against the engine-side stamp/read log says which
+	 * layer duplicates:
+	 *   two lines here for one press  -> below us (IKBD/TOS key repeat, or the
+	 *                                    test injector) and NOT an engine bug;
+	 *   one line here, two engine reads -> ours.
+	 * That distinction matters because the repo currently blames the harness
+	 * injector, and the maintainer sees it on real hardware. */
+	{
+		static short kd_n;
+		if (kd_n < 60) {
+			kd_n++;
+			dbg_file_num("keydiag: plat_kb_poll scan<<8|ascii = ",
+			             (long)(((c >> 16) & 0xFF) << 8) | (c & 0xFF));
+		}
+	}
+#endif
 	return 1;
 }
 
@@ -294,6 +316,27 @@ static long uninstall_supervisor(void)
 	return 0;
 }
 
+/* #132 — the occasional DOUBLED keystroke.
+ *
+ * TOS auto-repeats a held key: Kbrate(delay, rate), both in 50Hz ticks, with a
+ * stock delay around 25 (half a second). That is tuned for a desktop, not for a
+ * game whose frame can take most of a second on an 8MHz machine — a key held a
+ * beat too long across a slow repaint emits a SECOND character, which is exactly
+ * the reported symptom: rare, unpredictable, and hardware-only. It cannot happen
+ * under the test harness, where injected keys are pressed and released in ~0.1s,
+ * which is why the doubling has historically been blamed on the injector.
+ *
+ * The repeat is stretched rather than switched off (conterm bit 1 would kill it
+ * outright): a deliberate hold still repeats, an ordinary keystroke no longer
+ * can. Kbrate returns the OLD setting — delay in the high byte, rate in the low
+ * — and it is put back at shutdown, like the palette and the mouse vector.
+ *
+ * KB_INQUIRE (-1) leaves a value unchanged (Compendium p.259-260). */
+#define FRUA_KB_DELAY   90      /* ~1.8s before a key starts repeating */
+#define KB_INQUIRE      (-1)
+
+static short g_old_kbrate = -1;
+
 void plat_input_init(short screen_w, short screen_h)
 {
 	if (screen_w <= 0) screen_w = 320;
@@ -304,10 +347,21 @@ void plat_input_init(short screen_w, short screen_h)
 	g_mouse_y     = (short)(screen_h / 2);
 	g_mouse_btn   = 0;
 	Supexec(install_supervisor);
+
+	g_old_kbrate = (short)Kbrate(FRUA_KB_DELAY, KB_INQUIRE);
+#ifdef FRUA_KEYDIAG
+	dbg_file_num("keydiag: old Kbrate (delay<<8|rate) = ", (long)g_old_kbrate);
+#endif
 }
 
 void plat_input_shutdown(void)
 {
+	if (g_old_kbrate >= 0) {
+		/* high byte = old delay, low byte = old rate */
+		(void)Kbrate((short)((g_old_kbrate >> 8) & 0xFF),
+		             (short)(g_old_kbrate & 0xFF));
+		g_old_kbrate = -1;
+	}
 	if (g_old_mousevec != NULL)
 		Supexec(uninstall_supervisor);
 }
