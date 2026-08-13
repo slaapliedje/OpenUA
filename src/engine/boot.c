@@ -72997,7 +72997,21 @@ static unsigned char jt1078(long prompt, void *buf_v, short maxlen, short xoff)
 				l0156();
 			}
 			break;
-		case 8: case 262:                       /* Backspace / Del */
+		/* Backspace (8), the Atari DELETE key (127), and 262.
+		 *
+		 * 127 is the port's addition and it is a real gap: on the Mac the key
+		 * labelled "Del" IS backspace and arrives as 8, so one case covered both
+		 * keyboards. An Atari has TWO distinct keys — Backspace sends 8, Delete
+		 * sends 0x7F — and 127 fell through to the printable arm below, where
+		 * `key > 126` just beeps. Measured in Hatari: Delete left the field
+		 * byte-identical. Both keys now erase, which is what either keyboard's
+		 * user expects.
+		 *
+		 * 262 is NOT a delete code here: this port maps it to the LEFT ARROW
+		 * (jt1125 scancode 0x4b). Kept because it is in the lifted arm and this
+		 * editor has no cursor movement for Left to do instead, but it is a port
+		 * artifact rather than the Mac's meaning. */
+		case 8: case 127: case 262:
 			if (hasinit) {
 				short n = (short)(jt423((char *)buf) + 1);
 				l0334(origy, (short)(curx - spacing), attr, "%* ", n);
