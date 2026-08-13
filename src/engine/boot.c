@@ -73020,11 +73020,32 @@ static unsigned char jt1078(long prompt, void *buf_v, short maxlen, short xoff)
 				hasinit = 0;
 			}
 			if (count > 0) {
-				l0334(origy, (short)(count * spacing + curx),
-				      attr, " ");
 				count--;
 				wp--;
 				*wp = 0;
+				/* ERASE THE VACATED CELL WITH A FILLED RECT, not by
+				 * drawing a space.
+				 *
+				 * The lift erased by printing " " over the cell and
+				 * relied on the repaint below ("%s " — the string plus
+				 * ONE trailing space) to cover the tail. That only works
+				 * if a space glyph paints its BACKGROUND opaquely. Where
+				 * it does not, the deleted letter stays on screen, the
+				 * next keystroke lands on top of it, and the field reads
+				 * as garbled — exactly the report from hardware: "it's
+				 * only doing a move left, not move left and delete".
+				 *
+				 * jt1161 is a filled rectangle in `bg`, the same
+				 * primitive this loop's cursor block already uses, so it
+				 * cannot depend on glyph rendering. Two cells wide: the
+				 * character just removed plus the old cursor cell after
+				 * it. Deletion no longer rests on an assumption about how
+				 * a space is drawn. */
+				{
+					short x1 = (short)(count * spacing + curx);
+					short x2 = (short)(x1 + spacing + spacing);
+					jt1161(origy, x1, tb, x2, bg);
+				}
 			}
 			break;
 		default:                                /* printable insert */
