@@ -126,6 +126,53 @@ static long band_test(int *bad)
 	return gmse;
 }
 
+/* --- absent-colour fallback must keep HUE, not just brightness ------------
+ *
+ * The live bug this pins: FRUA's party-roster CYAN (0,200,200) and mid-grey
+ * dungeon stone (150,150,150) have the SAME luminance under the engine's 2:5:1
+ * weights (both 150). While quant_banded bucketed the fallback by luma alone,
+ * a stone shade that missed the presence histogram — which samples every OTHER
+ * row, so this depends on where the pixels landed — fell back to whichever
+ * entry was nearest in brightness. When that was the roster cyan, stone walls
+ * rendered CYAN, intermittently.
+ *
+ * Setup: the band's image contains cyan, grey120, grey180 and black, so those
+ * four are the reduced palette. Grey150 is in the CLUT but ABSENT from the
+ * image, so it takes the fallback path. Its luma distance to cyan is ZERO and
+ * to either grey is 30 — a luma bucket MUST choose cyan here. A hue-aware
+ * bucket must choose a grey. */
+static int hue_fallback_test(void)
+{
+	unsigned char clut[768], chunky[BW * BH];
+	unsigned char bpal[8 * 3], brem[256];
+	short i, x, y;
+	unsigned char *got;
+
+	for (i = 0; i < 768; i++) clut[i] = 0;
+	/* 0 cyan, 1 grey120, 2 grey180, 3 black, 4 = the ABSENT grey150 */
+	clut[0*3+0]=0;   clut[0*3+1]=200; clut[0*3+2]=200;
+	clut[1*3+0]=120; clut[1*3+1]=120; clut[1*3+2]=120;
+	clut[2*3+0]=180; clut[2*3+1]=180; clut[2*3+2]=180;
+	clut[3*3+0]=0;   clut[3*3+1]=0;   clut[3*3+2]=0;
+	clut[4*3+0]=150; clut[4*3+1]=150; clut[4*3+2]=150;
+
+	for (y = 0; y < BH; y++)
+		for (x = 0; x < BW; x++)
+			chunky[y*BW+x] = (unsigned char)(x & 3);   /* 0..3 only */
+
+	quant_banded(chunky, BW, BH, clut, 1, 8, 4, bpal, brem);
+
+	got = bpal + brem[4]*3;
+	/* a grey rep has r == g == b on the snapped grid; cyan does not */
+	if (got[0] != got[1] || got[1] != got[2]) {
+		printf("HUE FALLBACK: absent grey150 fell back to %d,%d,%d "
+		       "(luma-only bucketing picks the cyan)\n",
+		       got[0], got[1], got[2]);
+		return 1;
+	}
+	return 0;
+}
+
 int main(void)
 {
 	int bad = 0;
@@ -145,6 +192,7 @@ int main(void)
 	}
 	s_rng = 4242u; gmse = band_test(&bad);
 	if (bad) return 1;
+	if (hue_fallback_test()) return 1;
 	printf("OK  mse(8)=%ld mse(16)=%ld mse(32)=%ld  band-global-mse=%ld\n",
 	       e8, e16, e32, gmse);
 	return 0;

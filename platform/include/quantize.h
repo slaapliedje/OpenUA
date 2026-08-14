@@ -194,9 +194,12 @@ quant_reduce(const unsigned char *clut, short n, short bits,
  *   band_pal[nbands*ncol*3] — per-band snapped palettes
  *   band_remap[nbands*256]  — per-band remap LUTs. Colours ABSENT from a band
  *                             at build time still get a mapping — the reduced
- *                             entry nearest in LUMINANCE — because content
+ *                             entry nearest in weighted RGB — because content
  *                             drawn after the reduce (the composited cursor, a
- *                             changed 3D view) must not fall to black.
+ *                             changed 3D view) must not fall to black. This
+ *                             fallback used to bucket by LUMINANCE, which cost
+ *                             it hue and turned stone walls cyan; see the
+ *                             comment at the bucket table below.
  * nbands==1 reproduces the global reduce (over just the used colours).
  */
 static void quant_banded(const unsigned char *chunky, short w, short h,
@@ -257,27 +260,47 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 		}
 		n = quant_reduce_n(cclut, m, ncol, bits, bpal, cremap);
 
-		/* Absent-colour fallback via a 32-BUCKET luma table (a per-colour
-		 * linear search over the reduced palette cost ~1.3M cycles per
-		 * re-band at 8MHz — a visible scene-change hitch). Bucket the luma
-		 * range, fill each bucket with the nearest reduced entry (n*32
-		 * scalar compares), then every colour is one table hit. */
+		/* Absent-colour fallback via a 4x8x4 RGB BUCKET table.
+		 *
+		 * ★ THIS USED TO BUCKET BY LUMINANCE ALONE, AND THAT IS A COLOUR
+		 * BUG, not just an approximation. Luma throws away hue, so any two
+		 * colours of equal brightness are interchangeable to it — and FRUA
+		 * has a textbook collision: the party roster's cyan (0,200,200) and
+		 * mid-grey dungeon stone (150,150,150) BOTH have luma 150. A wall
+		 * shade that misses the presence histogram therefore falls back to
+		 * whichever entry is nearest in brightness, and when the roster cyan
+		 * is the nearest, stone walls render CYAN. It only happens sometimes
+		 * because the histogram below samples every OTHER row, so whether a
+		 * given wall index is "present" depends on which rows it landed on.
+		 *
+		 * Bucketing in 3-D instead keeps hue. Cost stays bounded the same
+		 * way: n*128 scalar distance evaluations per band (vs n*32 before,
+		 * and vs the n*256 per-colour linear search whose ~1.3M cycles per
+		 * re-band at 8MHz was the original objection). Green gets twice the
+		 * resolution of red/blue — it carries most of the luminance. */
 		{
-			unsigned char btab[32];
+			unsigned char btab[4 * 8 * 4];
 			short bk, j;
 
-			for (i = 0; i < n; i++)
-				plum[i] = (short)((2 * bpal[i * 3 + 0]
-				                 + 5 * bpal[i * 3 + 1]
-				                 + bpal[i * 3 + 2]) >> 3);
-			for (bk = 0; bk < 32; bk++) {
-				short lum = (short)(bk * 8 + 4);
-				short bestd = 32767, bestj = 0, d;
+			(void)plum;
+			for (bk = 0; bk < 4 * 8 * 4; bk++) {
+				/* bucket centre: r = bk>>5, g = (bk>>2)&7, b = bk&3 */
+				short cr = (short)(((bk >> 5) & 3) * 64 + 32);
+				short cg = (short)(((bk >> 2) & 7) * 32 + 16);
+				short cb = (short)((bk & 3) * 64 + 32);
+				long  bestd = 0x7FFFFFFFL;
+				short bestj = 0;
 
 				for (j = 0; j < n; j++) {
-					d = (short)(plum[j] - lum);
-					if (d < 0)
-						d = (short)-d;
+					short dr = (short)(bpal[j * 3 + 0] - cr);
+					short dg = (short)(bpal[j * 3 + 1] - cg);
+					short db = (short)(bpal[j * 3 + 2] - cb);
+					/* 2:5:1 weights — the same perceptual
+					 * weighting the luma version used, now
+					 * applied per channel instead of collapsed */
+					long  d  = 2L * dr * dr + 5L * dg * dg
+					         + 1L * db * db;
+
 					if (d < bestd) {
 						bestd = d;
 						bestj = j;
@@ -286,9 +309,9 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 				btab[bk] = (unsigned char)bestj;
 			}
 			for (i = 0; i < 256; i++)
-				brem[i] = btab[((2 * clut[i * 3 + 0]
-				               + 5 * clut[i * 3 + 1]
-				               + clut[i * 3 + 2]) >> 3) >> 3];
+				brem[i] = btab[(((clut[i * 3 + 0] >> 6) & 3) << 5)
+				             | (((clut[i * 3 + 1] >> 5) & 7) << 2)
+				             |  ((clut[i * 3 + 2] >> 6) & 3)];
 		}
 		for (i = 0; i < m; i++)             /* exact wins over fallback */
 			brem[idxlist[i]] = cremap[i];
