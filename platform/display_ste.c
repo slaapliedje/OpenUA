@@ -109,31 +109,6 @@ static short                   s_banded_valid;
  * NOT set by st_patch_new_ink's force-full: that one's scan stopped early at
  * the gate, so unpatched unseen indices may genuinely remain in the frame. */
 static short         s_ink_fresh;
-/* ADR-0016 B3.2 (stable-slot alignment). A re-band re-runs the median-cut, which
- * normally renumbers the 16 slots arbitrarily. We instead PERMUTE the new slots to
- * best-match the previous palette's positions, so a colour that persists across the
- * re-band keeps its slot number. Purely a slot renumbering — the 16 colours and the
- * final remap are identical, so the displayed frame is unchanged (planes encode a
- * slot, the palette supplies the colour). It is also the groundwork B4's page-flip
- * needs: two pages drawn under differently-numbered slots cannot both be valid.
- *
- * The "smart-skip" this used to feed is GONE (removed 2026-07-26, during #61).
- * It let a re-band pass re-c2p only the rows holding a value whose slot moved,
- * via s_remap_old / s_remap_dirty[] / s_remap_changed. B4 superseded it: a
- * re-band must force-full BOTH pages (see st_reband's comment — the single dirty
- * map is computed against ONE page's previous remap and is simply wrong for the
- * other, which was the "brown chrome"), so s_remap_changed was thereafter only
- * ever assigned 0. The skip branches could not execute and the dirty map was
- * computed every re-band and never read. Dead conservative code is not free
- * here: it advertises a fast path that does not run, which is actively
- * misleading when reading this file to chase a redraw artefact. */
-static unsigned char           s_band_pal_prev[ST_NCOL * 3];
-/* #63: the index->slot map AS IT STANDS the moment before a re-quant, so the
- * stable-slot alignment can maximise the number of indices that keep their
- * slot. Snapshotted at the top of st_reband rather than maintained at the
- * bottom, so it also captures whatever st_patch_new_ink has since changed. */
-static unsigned char           s_remap_prev[256];
-static short                   s_have_prev_pal;
 /* ADR-0016 B4 Phase-0 (scene-stable remap): a representative CLUT index per
  * slot, captured at each re-quant (the used index whose colour is nearest the
  * slot's median-cut centroid). When a palette change arrives with the surface
@@ -145,7 +120,7 @@ static short                   s_have_prev_pal;
  * needs (a within-scene palette change never invalidates planes) and, in the
  * current chunky model, also skips the ~2.2s force-full those rebands used to
  * pay. A genuine scene change (content differs) still re-quants (st_reband). */
-static unsigned char           s_slot_rep[ST_NCOL];
+static unsigned char           s_slot_rep[ST_NBANDS][ST_NCOL];
 short  st_band_stpal[ST_NBANDS + 1][ST_NCOL];   /* ST-format, +sentinel  */
 short *st_band_ptr;                             /* next band for Timer B */
 static short                   s_dirty;
@@ -655,9 +630,6 @@ static void st_build_hw_palette(void)
 {
 	short b, i;
 
-	for (b = 1; b < ST_NBANDS; b++)
-		memcpy(s_band_pal + (long)b * ST_NCOL * 3, s_band_pal,
-		       (size_t)(ST_NCOL * 3));
 	for (b = 0; b < ST_NBANDS; b++) {
 		const unsigned char *bp = s_band_pal + (long)b * ST_NCOL * 3;
 
@@ -687,6 +659,40 @@ static void st_build_hw_palette(void)
 				}
 		s_tb_uniform = uniform;
 	}
+#ifdef FRUA_BANDDIAG
+	{
+		static short bd_n;
+		short bb, ii;
+		long  bestn = -1; short bidx = 0;
+
+		bd_n++;
+		/* the pixel at engine (200,70): inside the menu's info PANEL, the
+		 * flat area whose colour was seen changing at rows 60/100/160/180 */
+		bidx = s_chunky[70L * ST_W + 200];
+		{
+			long n;
+			bestn = 0;
+			for (n = 0; n < (long)ST_W * ST_H; n++)
+				if (s_chunky[n] == bidx) bestn++;
+		}
+		dbg_log_num("banddiag: reband #      = ", (long)bd_n);
+		dbg_log_num("banddiag:   tb uniform  = ", (long)s_tb_uniform);
+		dbg_log_num("banddiag:   top index   = ", (long)bidx);
+		dbg_log_num("banddiag:   its pixels  = ", bestn);
+		/* If exact-preservation is doing its job this colour is IDENTICAL in
+		 * every band; a difference here is a seam at the source. */
+		for (bb = 0; bb < ST_NBANDS; bb++) {
+			short slot = s_band_remap[(long)bb * 256 + bidx];
+			const unsigned char *bp = s_band_pal
+			    + ((long)bb * ST_NCOL + slot) * 3;
+
+			dbg_log_num("banddiag:   band*1000+slot = ",
+			            (long)bb * 1000 + slot);
+			dbg_log_num("banddiag:     rgb          = ",
+			            (long)bp[0] * 65536L + (long)bp[1] * 256L + bp[2]);
+		}
+	}
+#endif
 	memcpy(s_clut_banded, s_clut, sizeof s_clut);   /* B1: snapshot the CLUT */
 	s_banded_valid = 1;
 	s_dirty = 0;
@@ -701,20 +707,26 @@ static void st_build_hw_palette(void)
  * over a luma-fallback one far from it). */
 static void st_compute_slot_reps(void)
 {
-	short s, i;
+	short b, s, i;
 
-	for (s = 0; s < ST_NCOL; s++) {
-		long  bestd = 0x7fffffffL;
-		short bi = 0;
+	for (b = 0; b < ST_NBANDS; b++) {
+		const unsigned char *brem = s_band_remap + (long)b * 256;
+		const unsigned char *bpal = s_band_pal + (long)b * ST_NCOL * 3;
 
-		for (i = 0; i < 256; i++) {
-			long d;
-			if (s_band_remap[i] != s)
-				continue;
-			d = st_coldist(s_clut + (long)i * 3, s_band_pal + (long)s * 3);
-			if (d < bestd) { bestd = d; bi = i; }
+		for (s = 0; s < ST_NCOL; s++) {
+			long  bestd = 0x7fffffffL;
+			short bi = 0;
+
+			for (i = 0; i < 256; i++) {
+				long d;
+				if (brem[i] != s)
+					continue;
+				d = st_coldist(s_clut + (long)i * 3,
+				               bpal + (long)s * 3);
+				if (d < bestd) { bestd = d; bi = i; }
+			}
+			s_slot_rep[b][s] = (unsigned char)bi;
 		}
-		s_slot_rep[s] = (unsigned char)bi;
 	}
 }
 
@@ -785,21 +797,25 @@ static unsigned char s_used_idx[256];
 static int st_remap_split(void)
 {
 	short anchor[ST_NCOL];
-	short i, s;
+	short b, i, s;
 
-	for (s = 0; s < ST_NCOL; s++)
-		anchor[s] = -1;
-	for (i = 0; i < 256; i++) {
-		if (!s_used_idx[i])
-			continue;
-		s = s_band_remap[i];             /* band 0 = representative (B1) */
-		if (anchor[s] < 0) {
-			anchor[s] = i;
-			continue;
+	for (b = 0; b < ST_NBANDS; b++) {
+		const unsigned char *brem = s_band_remap + (long)b * 256;
+
+		for (s = 0; s < ST_NCOL; s++)
+			anchor[s] = -1;
+		for (i = 0; i < 256; i++) {
+			if (!s_used_idx[i])
+				continue;
+			s = brem[i];
+			if (anchor[s] < 0) {
+				anchor[s] = i;
+				continue;
+			}
+			if (st_coldist(s_clut + (long)i * 3,
+			               s_clut + (long)anchor[s] * 3) > 512)
+				return 1;
 		}
-		if (st_coldist(s_clut + (long)i * 3,
-		               s_clut + (long)anchor[s] * 3) > 512)
-			return 1;
 	}
 	return 0;
 }
@@ -811,14 +827,22 @@ static void st_repalette(void)
 #ifdef FRUA_PLANAR
 	st_dt_epoch_reset();                     /* slots renumber: draw-time epoch */
 #endif
-	for (s = 0; s < ST_NCOL; s++) {
-		unsigned char idx = s_slot_rep[s];
+	{
+		short b;
 
-		s_band_pal[(long)s * 3 + 0] = quant_snap(s_clut[idx * 3 + 0], ST_BITS);
-		s_band_pal[(long)s * 3 + 1] = quant_snap(s_clut[idx * 3 + 1], ST_BITS);
-		s_band_pal[(long)s * 3 + 2] = quant_snap(s_clut[idx * 3 + 2], ST_BITS);
+		for (b = 0; b < ST_NBANDS; b++) {
+			unsigned char *bpal = s_band_pal
+			                    + (long)b * ST_NCOL * 3;
+
+			for (s = 0; s < ST_NCOL; s++) {
+				unsigned char idx = s_slot_rep[b][s];
+
+				bpal[s * 3 + 0] = quant_snap(s_clut[idx * 3 + 0], ST_BITS);
+				bpal[s * 3 + 1] = quant_snap(s_clut[idx * 3 + 1], ST_BITS);
+				bpal[s * 3 + 2] = quant_snap(s_clut[idx * 3 + 2], ST_BITS);
+			}
+		}
 	}
-	memcpy(s_band_pal_prev, s_band_pal, sizeof s_band_pal_prev);
 	st_build_hw_palette();
 	s_force_full   = 0;      /* planes unchanged: nothing to re-convert */
 }
@@ -828,9 +852,7 @@ static void st_repalette(void)
  * row (see st_band_stpal) is a copy of the last band. */
 static void st_reband(void)
 {
-	short b;
 	const unsigned char *qsrc = s_chunky;
-	short first = !s_have_prev_pal;
 
 #ifdef FRUA_PLANAR
 	st_dt_epoch_reset();                     /* slots renumber: draw-time epoch */
@@ -846,11 +868,7 @@ static void st_reband(void)
 	 * from the walls too and their indices get exact slots. The temp lives in
 	 * s_shadow, which the forced-full blit right after this rebuilds anyway.
 	 *
-	 * #63: snapshot the LIVE index->slot map first — the stable-slot alignment
-	 * below needs it, and taking it here also captures anything st_patch_new_ink
-	 * changed since the last re-quant. */
-	if (!first)
-		memcpy(s_remap_prev, s_band_remap, 256);
+	 */
 
 #ifdef FRUA_STPROF
 	{ long tv = Supexec(st_prof_hz200);
@@ -887,7 +905,7 @@ static void st_reband(void)
 	{ long tq = Supexec(st_prof_hz200);
 #endif
 	quant_banded(qsrc, ST_W, ST_H, s_clut,
-	             1, ST_NCOL, ST_BITS, s_band_pal, s_band_remap);
+	             ST_NBANDS, ST_NCOL, ST_BITS, s_band_pal, s_band_remap);
 #ifdef FRUA_STPROF
 	sp_rb_quant += Supexec(st_prof_hz200) - tq;
 	}
@@ -911,130 +929,118 @@ static void st_reband(void)
 	}
 #endif
 
-	/* B3.2 STABLE-SLOT ALIGNMENT: renumber band 0's fresh 16 slots so that as many
-	 * CLUT indices as possible keep the slot number they already had. Purely a
-	 * renumber — the palette and the final remap are permuted together, so index
-	 * v keeps its exact colour and THE FRAME IS BIT-IDENTICAL either way. It buys
-	 * nothing visually; what it buys is remap entries that do not move, which is
-	 * what lets a row skip re-conversion after a re-band.
-	 *
-	 * ★ REWRITTEN (#63). The original matched on COLOUR DISTANCE, walking old
-	 * positions 0..15 in order and letting each claim its nearest unclaimed new
-	 * slot. Two things wrong with that:
-	 *
-	 *   1. WRONG OBJECTIVE. Minimising palette-position colour distance is a
-	 *      proxy; what actually matters is how many USED INDICES keep their slot.
-	 *      Where two old positions hold near-identical colours, distance cannot
-	 *      tell them apart, but the indices sitting on them can.
-	 *   2. ORDER-DEPENDENT GREEDY. Position 0 got first pick of all sixteen and
-	 *      position 15 took the leftovers, so one arbitrary early choice could
-	 *      displace a later exact correspondence and cascade.
-	 *
-	 * Now: build the 16x16 table of how many used indices move from old slot p to
-	 * new slot n, and match the STRONGEST correspondences first. That optimises
-	 * the quantity being measured directly. Slots with no correspondence at all
-	 * (genuinely new colours) still fall back to nearest-colour, which keeps them
-	 * somewhere sensible. Greedy rather than a full Hungarian matching: 16x16, and
-	 * the table is dominated by a few large cells, so max-first lands on or very
-	 * near the optimum for a few thousand cycles. */
 #ifdef FRUA_STPROF
 	{ long ta = Supexec(st_prof_hz200);
 #endif
-	if (!first) {
-		unsigned char tkn[ST_NCOL], tkp[ST_NCOL];
-		unsigned char pos[ST_NCOL];             /* pos[newslot] = its position   */
-		unsigned char newpal[ST_NCOL * 3];
-		short tab[ST_NCOL][ST_NCOL];            /* tab[new][old] = index count   */
-		short p, n, v, k;
+	/* ★ ALIGN THE BANDS' SLOT NUMBERING, THEN PUT THE DARKEST AT SLOT 0.
+	 *
+	 * Both are pure PERMUTATIONS — each band's palette and its remap move
+	 * together, so every pixel keeps its exact colour and the frame is
+	 * bit-identical either way. What they buy is robustness:
+	 *
+	 * 1) The bands agree on what each slot MEANS. Exact-preservation already
+	 *    guarantees a flat colour is the same RGB in every band, but the
+	 *    median cut numbers the slots per band, so the same panel colour was
+	 *    landing on slot 1 in one band and slot 10 in the next (measured, the
+	 *    main menu: slots 1,10,1,2,1,10,10,2,1,10 for one index). That is
+	 *    fine only if the raster split is cycle-perfect — and it is NOT
+	 *    always: a frame starved of interrupts (#48's BLiTTER force-full can
+	 *    hold off the MFP for ~24 ms) renders its lower bands with the
+	 *    previous band's palette still loaded. With per-band numbering that
+	 *    recolours the whole band; with the numbering aligned it is nearly
+	 *    invisible, because slot k means near enough the same colour
+	 *    everywhere. Greedy strongest-correspondence-first against band 0,
+	 *    which is 16x16 and dominated by a few near-exact matches.
+	 *
+	 * 2) Slot 0 is what the ST shows in the BORDER, where no pixel index is
+	 *    involved at all. Each band's slot 0 lights the border on its own
+	 *    scanlines, so bands that disagree stripe the border. Darkest-first
+	 *    keeps it black without needing any history.
+	 *
+	 * This replaces the B3.2 correspondence alignment, which matched band 0
+	 * against the PREVIOUS FRAME's band 0. That existed to let rows skip
+	 * re-conversion after a re-band, but the smart-skip it fed was removed
+	 * 2026-07-26 and every re-band force-fulls both pages since; its own
+	 * comment recorded that the frame is bit-identical either way. Aligning
+	 * across BANDS is the same idea pointed at the axis that now matters. */
+	{
+		short b, n, p, v;
 
-		for (n = 0; n < ST_NCOL; n++) {
-			tkn[n] = tkp[n] = 0;
-			pos[n] = (unsigned char)n;
-			for (p = 0; p < ST_NCOL; p++)
-				tab[n][p] = 0;
-		}
-		for (v = 0; v < 256; v++)
-			if (s_used_idx[v])
-				tab[s_band_remap[v]][s_remap_prev[v]]++;
-
-		/* ★ 0) SLOT 0 IS THE BORDER, AND IT IS CLAIMED BY COLOUR FIRST.
-		 * The renumber is invariant for every PIXEL — palette and remap are
-		 * permuted together, so index v keeps its colour — but the ST shows
-		 * colour register 0 in the border, where no pixel index is involved
-		 * at all. Let the correspondence greedy have position 0 and the
-		 * border changes from black to whatever won it: measured, 174976
-		 * pixels of the menu grab, entirely outside the 320x200 image.
-		 *
-		 * The ORIGINAL code walked old positions 0..15 in order, so position
-		 * 0 always got first pick by colour — its order dependence was, for
-		 * this one slot, load-bearing. Keep exactly that and let the
-		 * correspondence matching have the other fifteen. */
-		{
+		/* 1) darkest slot of band 0 -> position 0 */
+		for (b = 0; b < ST_NBANDS; b++) {
+			unsigned char *bpal = s_band_pal + (long)b * ST_NCOL * 3;
+			unsigned char *brem = s_band_remap + (long)b * 256;
+			unsigned char t[3];
+			long  bestd = 0x7fffffffL;
 			short best = 0;
-			long  bestd = 0x7fffffffL;
 
-			for (n = 0; n < ST_NCOL; n++) {
-				long d = st_coldist(s_band_pal + (long)n * 3,
-				                    s_band_pal_prev);
-				if (d < bestd) { bestd = d; best = n; }
-			}
-			tkn[best] = 1; tkp[0] = 1;
-			pos[best] = 0;
-		}
+			if (b == 0) {
+				for (n = 0; n < ST_NCOL; n++) {
+					long r = bpal[n * 3 + 0], g = bpal[n * 3 + 1];
+					long bl = bpal[n * 3 + 2];
+					long d = 2L * r * r + 5L * g * g + bl * bl;
 
-		/* 1) strongest index correspondence first */
-		for (k = 0; k < ST_NCOL; k++) {
-			short bn = -1, bp = -1, bv = 0;
-
-			for (n = 0; n < ST_NCOL; n++) {
-				if (tkn[n]) continue;
-				for (p = 0; p < ST_NCOL; p++) {
-					if (tkp[p]) continue;
-					if (tab[n][p] > bv)
-						{ bv = tab[n][p]; bn = n; bp = p; }
+					if (d < bestd) { bestd = d; best = n; }
 				}
-			}
-			if (bn < 0)
-				break;                  /* nothing left to correspond */
-			tkn[bn] = 1; tkp[bp] = 1;
-			pos[bn] = (unsigned char)bp;
-		}
-		/* 2) the rest: nearest colour, as before */
-		for (n = 0; n < ST_NCOL; n++) {
-			short best = -1;
-			long  bestd = 0x7fffffffL;
+			} else {
+				/* 2) every other band: greedy nearest match to band 0 */
+				unsigned char tkn[ST_NCOL], tkp[ST_NCOL];
+				unsigned char pos[ST_NCOL];
+				unsigned char newpal[ST_NCOL * 3];
+				short k;
 
-			if (tkn[n]) continue;
-			for (p = 0; p < ST_NCOL; p++) {
-				long d;
-				if (tkp[p]) continue;
-				d = st_coldist(s_band_pal + (long)n * 3,
-				               s_band_pal_prev + (long)p * 3);
-				if (d < bestd) { bestd = d; best = p; }
+				for (n = 0; n < ST_NCOL; n++) {
+					tkn[n] = tkp[n] = 0;
+					pos[n] = (unsigned char)n;
+				}
+				for (k = 0; k < ST_NCOL; k++) {
+					long  bd = 0x7fffffffL;
+					short bn = -1, bp = -1;
+
+					for (n = 0; n < ST_NCOL; n++) {
+						if (tkn[n]) continue;
+						for (p = 0; p < ST_NCOL; p++) {
+							long d;
+							if (tkp[p]) continue;
+							d = st_coldist(bpal + (long)n * 3,
+							               s_band_pal + (long)p * 3);
+							if (d < bd) { bd = d; bn = n; bp = p; }
+						}
+					}
+					if (bn < 0)
+						break;
+					tkn[bn] = 1; tkp[bp] = 1;
+					pos[bn] = (unsigned char)bp;
+				}
+				for (n = 0; n < ST_NCOL; n++)
+					memcpy(newpal + (long)pos[n] * 3,
+					       bpal + (long)n * 3, 3);
+				memcpy(bpal, newpal, sizeof newpal);
+				for (v = 0; v < 256; v++)
+					brem[v] = pos[brem[v]];
+				continue;               /* slot 0 follows band 0's */
 			}
-			if (best < 0)
-				continue;               /* cannot happen: counts match */
-			tkn[n] = 1; tkp[best] = 1;
-			pos[n] = (unsigned char)best;
+			if (best == 0)
+				continue;
+			t[0] = bpal[0]; t[1] = bpal[1]; t[2] = bpal[2];
+			bpal[0] = bpal[best * 3 + 0];
+			bpal[1] = bpal[best * 3 + 1];
+			bpal[2] = bpal[best * 3 + 2];
+			bpal[best * 3 + 0] = t[0];
+			bpal[best * 3 + 1] = t[1];
+			bpal[best * 3 + 2] = t[2];
+			for (v = 0; v < 256; v++) {
+				if (brem[v] == 0)
+					brem[v] = (unsigned char)best;
+				else if (brem[v] == best)
+					brem[v] = 0;
+			}
 		}
-		for (n = 0; n < ST_NCOL; n++)
-			memcpy(newpal + (long)pos[n] * 3, s_band_pal + (long)n * 3, 3);
-		memcpy(s_band_pal, newpal, sizeof newpal);
-		for (v = 0; v < 256; v++)
-			s_band_remap[v] = pos[s_band_remap[v]];
 	}
 #ifdef FRUA_STPROF
 	sp_rb_align += Supexec(st_prof_hz200) - ta;
 	}
 #endif
-
-	memcpy(s_band_pal_prev, s_band_pal, sizeof s_band_pal_prev);
-	s_have_prev_pal = 1;
-
-	/* Replicate the fixed remap to every band (the pal replicate + hardware
-	 * encode happen in st_build_hw_palette). */
-	for (b = 1; b < ST_NBANDS; b++)
-		memcpy(s_band_remap + (long)b * 256, s_band_remap, 256);
 
 	st_compute_slot_reps();          /* B4 Phase-0: reps for palette-only rebands */
 	st_build_hw_palette();
@@ -1053,7 +1059,6 @@ static void st_reband(void)
 	 * c2p's on a re-band only; re-bands are rare and the flat-fill already tamed
 	 * the c2p. The smart-skip's machinery was removed 2026-07-26 — it had been
 	 * unreachable ever since this decision. */
-	(void)first;
 	s_force_full   = 1;
 	/* #63(1): s_used_idx above was captured from THIS frame, so the
 	 * force-full's per-row new-ink scan cannot find anything. Skip it. */
