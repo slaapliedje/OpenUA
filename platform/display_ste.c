@@ -783,6 +783,13 @@ static void st_dt_epoch_reset(void)
  * a merged slot: absent indices ride the luma fallback and must not veto the
  * repalette fast path (Phase-0's whole win). */
 static unsigned char s_used_idx[256];
+/* Per-band presence from the last quant: 1 where that band actually contained
+ * the index. The global s_used_idx cannot answer the question a PER-BAND
+ * quantiser has to ask — its palettes depend on the content's LAYOUT, so a
+ * screen built from indices the last quant already knew, merely arranged into
+ * different bands, still leaves every band's palette stale. That is exactly
+ * how the main menu used to inherit the credits screen's bands. */
+static unsigned char s_band_used[ST_NBANDS * 256];
 
 /* A content-unchanged palette load may still SPLIT two indices the last quant
  * MERGED into one slot: their RGBs matched then (e.g. the transient
@@ -905,7 +912,8 @@ static void st_reband(void)
 	{ long tq = Supexec(st_prof_hz200);
 #endif
 	quant_banded(qsrc, ST_W, ST_H, s_clut,
-	             ST_NBANDS, ST_NCOL, ST_BITS, s_band_pal, s_band_remap);
+	             ST_NBANDS, ST_NCOL, ST_BITS, s_band_pal, s_band_remap,
+	             s_band_used);
 #ifdef FRUA_STPROF
 	sp_rb_quant += Supexec(st_prof_hz200) - tq;
 	}
@@ -1265,7 +1273,8 @@ static int st_dt_ready_row(short y)
 	if (!s_ink_fresh && s_dt_new_ink < 4) {
 		const unsigned char *p   = crow;
 		const unsigned char *end = crow + ST_W;
-		const unsigned char *tab = s_used_idx;
+		const unsigned char *tab = s_band_used
+		    + ((long)y * ST_NBANDS / ST_H) * 256;
 		long                 ink = s_dt_new_ink;
 
 		while (p < end) {
@@ -2811,6 +2820,38 @@ static void st_prof_hot_dump(void)
 
 static void st_present(void)
 {
+#ifdef FRUA_RBDIAG
+	/* Settle whether the re-band sees the screen it is quantising FOR.
+	 * Logs the present ordinal, whether this present will re-band, and what
+	 * the menu panel pixel (engine 200,70) actually holds RIGHT NOW. */
+	{
+		static short rb_present;
+		rb_present++;
+		if (rb_present <= 24) {
+			long top = 0; short ti = 0, k;
+			static long hist[256];
+			long nn;
+			for (k = 0; k < 256; k++) hist[k] = 0;
+			for (nn = 0; nn < (long)ST_W * ST_H; nn++) hist[s_chunky[nn]]++;
+			for (k = 0; k < 256; k++)
+				if (hist[k] > top) { top = hist[k]; ti = k; }
+			dbg_log_num("rbdiag: present        = ", (long)rb_present);
+			dbg_log_num("rbdiag:   will reband  = ", (long)s_dirty);
+			dbg_log_num("rbdiag:   px(200,70)   = ",
+			            (long)s_chunky[70L * ST_W + 200]);
+			dbg_log_num("rbdiag:   top idx      = ", (long)ti);
+			dbg_log_num("rbdiag:   top count    = ", top);
+		}
+	}
+#ifdef FRUA_RBFORCE
+	/* PROOF PROBE: re-band on EVERY present. Ruinously slow, but if the menu
+	 * then renders correctly it confirms that the only thing wrong is the
+	 * re-band TRIGGER — per-band palettes depend on content, and the trigger
+	 * is a palette change. */
+	s_dirty = 1;
+	s_banded_valid = 0;
+#endif
+#endif
 #ifdef FRUA_STPROF
 	long t0 = TickCount();
 
@@ -2898,6 +2939,13 @@ static void st_present(void)
 				 * partial reset is dead on arrival. */
 				unsigned char sp_before[256];
 				memcpy(sp_before, s_band_remap, 256);
+#endif
+#ifdef FRUA_RBDIAG
+				{
+					static short rb_n;
+					dbg_log_num("rbdiag:   -> REBAND #  = ",
+					            (long)++rb_n);
+				}
 #endif
 				st_reband();
 #ifdef FRUA_STPROF

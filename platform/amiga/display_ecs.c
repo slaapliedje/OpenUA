@@ -523,7 +523,7 @@ static void ecs_reband(void)
 	short b, i;
 
 	quant_banded(s_chunky, ECS_W, ECS_H, s_clut,
-	             ECS_NBANDS, ECS_NCOL, ECS_BITS, s_band_pal, s_band_remap);
+	             ECS_NBANDS, ECS_NCOL, ECS_BITS, s_band_pal, s_band_remap, (unsigned char *)0);
 	/* Capture what this quant saw: the global used set (the new-ink
 	 * detector's domain) and the per-band sets (the split-guard's). */
 	{

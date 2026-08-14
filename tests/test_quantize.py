@@ -106,8 +106,8 @@ static long band_test(int *bad)
 		for (x = 0; x < BW; x++)
 			chunky[y*BW+x] = (y < BH/2) ? (x & 15) : (16 + (x & 15));
 
-	quant_banded(chunky, BW, BH, clut, 1, 16, 4, gpal, grem);   /* global   */
-	quant_banded(chunky, BW, BH, clut, 2, 16, 4, bpal, brem);   /* 2 bands  */
+	quant_banded(chunky, BW, BH, clut, 1, 16, 4, gpal, grem, (unsigned char *)0);   /* global   */
+	quant_banded(chunky, BW, BH, clut, 2, 16, 4, bpal, brem, (unsigned char *)0);   /* 2 bands  */
 	for (y = 0; y < BH; y++) {
 		short bb = (short)((long)y * 2 / BH);       /* banded: 2 bands */
 		for (x = 0; x < BW; x++) {
@@ -160,7 +160,7 @@ static int hue_fallback_test(void)
 		for (x = 0; x < BW; x++)
 			chunky[y*BW+x] = (unsigned char)(x & 3);   /* 0..3 only */
 
-	quant_banded(chunky, BW, BH, clut, 1, 8, 4, bpal, brem);
+	quant_banded(chunky, BW, BH, clut, 1, 8, 4, bpal, brem, (unsigned char *)0);
 
 	got = bpal + brem[4]*3;
 	/* a grey rep has r == g == b on the snapped grid; cyan does not */
@@ -218,7 +218,7 @@ static int flat_area_test(void)
 			                 : (lo + ((x/2 + y*32) % 40)));
 		}
 
-	quant_banded(chunky, BW, BH, clut, 2, 4, 4, bpal, brem);
+	quant_banded(chunky, BW, BH, clut, 2, 4, 4, bpal, brem, (unsigned char *)0);
 
 	g0 = bpal + (0*4 + brem[0*256 + 0])*3;
 	g1 = bpal + (1*4 + brem[1*256 + 0])*3;

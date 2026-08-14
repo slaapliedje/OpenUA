@@ -220,6 +220,11 @@ quant_reduce(const unsigned char *clut, short n, short bits,
  *     it costs 685 seam pixels with a plain per-band cut and 100 with this.
  *
  *   band_pal[nbands*ncol*3] — per-band snapped palettes
+ *   band_used[nbands*256]   — OPTIONAL (NULL to skip): 1 where that band
+ *                             actually contained the index. A per-band
+ *                             quantiser's palettes depend on CONTENT as well
+ *                             as the CLUT, so a caller needs this to know when
+ *                             the LAYOUT has moved and the bands are stale.
  *   band_remap[nbands*256]  — per-band remap LUTs. Colours ABSENT from a band
  *                             at build time still get a mapping — the reduced
  *                             entry nearest in weighted RGB — because content
@@ -233,7 +238,8 @@ quant_reduce(const unsigned char *clut, short n, short bits,
 static void quant_banded(const unsigned char *chunky, short w, short h,
                          const unsigned char *clut,
                          short nbands, short ncol, short bits,
-                         unsigned char *band_pal, unsigned char *band_remap)
+                         unsigned char *band_pal, unsigned char *band_remap,
+                         unsigned char *band_used)
 {
 	static unsigned char present[QUANT_MAX_BANDS][32];  /* per-band, 1 bit/idx */
 	unsigned short cnt[256];         /* this band's population histogram   */
@@ -520,6 +526,15 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 				band_remap[(long)b * 256 + i] = (unsigned char)canon;
 			}
 		}
+		/* Hand the caller the per-band presence as a byte table. The ST's
+		 * new-ink re-quant trigger scans it per row, so a bit test would
+		 * cost more than the 256 bytes a band it saves. */
+		if (band_used)
+			for (b = 0; b < nbands; b++)
+				for (i = 0; i < 256; i++)
+					band_used[(long)b * 256 + i] =
+					    (unsigned char)((present[b][i >> 3]
+					                     >> (i & 7)) & 1u);
 	}
 }
 
