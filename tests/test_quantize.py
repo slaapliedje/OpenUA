@@ -173,6 +173,71 @@ static int hue_fallback_test(void)
 	return 0;
 }
 
+/* --- a flat AREA colour must survive exactly, and identically in every band --
+ *
+ * This is the seam guarantee. A flat panel spanning a band boundary rendered as
+ * two different shades (#40) is what made per-band palettes unusable and drove
+ * ADR-0016 B1 to one global palette. The median cut is PRESENCE-weighted — a
+ * colour counts once however many pixels it covers — so a panel filling half a
+ * band got averaged into a box with its neighbours and came back a different
+ * colour, independently in each band.
+ *
+ * Setup: index 0 covers ~62% of every row; indices 1..40 are scattered spread
+ * colours that give the cut plenty to chew on. quant_banded must reserve index
+ * 0 an exact slot in BOTH bands, so it round-trips to its snapped CLUT value
+ * and is byte-identical either side of the boundary. */
+static int flat_area_test(void)
+{
+	unsigned char clut[768], chunky[BW * BH];
+	unsigned char bpal[2 * 4 * 3], brem[2 * 256];
+	unsigned char *g0, *g1, want[3];
+	short i, x, y, step = 16;
+
+	for (i = 0; i < 768; i++) clut[i] = 0;
+	clut[0] = 200; clut[1] = 100; clut[2] = 50;          /* the panel colour */
+	/* Band 0's neighbours spread far ABOVE the panel colour, band 1's far
+	 * BELOW, and only FOUR slots are available. A cut with no reservation
+	 * must put the panel in a box with several of them, and the box average
+	 * lands well outside the panel's grid cell — averaged UP in one band and
+	 * DOWN in the other. That is the #40 seam, reproduced. */
+	for (i = 1; i <= 40; i++) {
+		clut[i*3+0] = (unsigned char)(200 + i);
+		clut[i*3+1] = (unsigned char)(100 + i * 3);
+		clut[i*3+2] = (unsigned char)( 50 + i * 4);
+	}
+	for (i = 41; i <= 80; i++) {
+		short d = (short)(i - 40);
+		clut[i*3+0] = (unsigned char)(200 - d * 4);
+		clut[i*3+1] = (unsigned char)(100 - d * 2);
+		clut[i*3+2] = (unsigned char)( 50 - d);
+	}
+	for (y = 0; y < BH; y++)
+		for (x = 0; x < BW; x++) {
+			short lo = (y < BH/2) ? 1 : 41;
+			chunky[y*BW+x] = (unsigned char)((x & 1) ? 0
+			                 : (lo + ((x/2 + y*32) % 40)));
+		}
+
+	quant_banded(chunky, BW, BH, clut, 2, 4, 4, bpal, brem);
+
+	g0 = bpal + (0*4 + brem[0*256 + 0])*3;
+	g1 = bpal + (1*4 + brem[1*256 + 0])*3;
+	want[0] = (unsigned char)((200/step)*step + step/2);
+	want[1] = (unsigned char)((100/step)*step + step/2);
+	want[2] = (unsigned char)(( 50/step)*step + step/2);
+	if (g0[0]!=g1[0] || g0[1]!=g1[1] || g0[2]!=g1[2]) {
+		printf("SEAM: the flat panel is %d,%d,%d in band 0 but %d,%d,%d in "
+		       "band 1\n", g0[0],g0[1],g0[2], g1[0],g1[1],g1[2]);
+		return 1;
+	}
+	if (g0[0]!=want[0] || g0[1]!=want[1] || g0[2]!=want[2]) {
+		printf("FLAT AREA: panel renders as %d,%d,%d, want exact %d,%d,%d\n",
+		       g0[0],g0[1],g0[2], want[0],want[1],want[2]);
+		return 1;
+	}
+	return 0;
+}
+
 int main(void)
 {
 	int bad = 0;
@@ -193,6 +258,7 @@ int main(void)
 	s_rng = 4242u; gmse = band_test(&bad);
 	if (bad) return 1;
 	if (hue_fallback_test()) return 1;
+	if (flat_area_test()) return 1;
 	printf("OK  mse(8)=%ld mse(16)=%ld mse(32)=%ld  band-global-mse=%ld\n",
 	       e8, e16, e32, gmse);
 	return 0;

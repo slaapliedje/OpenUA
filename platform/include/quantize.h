@@ -184,13 +184,41 @@ quant_reduce(const unsigned char *clut, short n, short bits,
 
 #define QUANT_MAX_BANDS 40
 
+/* How many of a band's most POPULOUS colours are reproduced EXACTLY, before
+ * the median cut divides what is left. See quant_banded. Bounded by ncol/2 so
+ * the cut always keeps at least half the budget. */
+#define QUANT_KEEP      6
+/* A colour must cover at least this percent of the band to earn an exact slot
+ * — that is what makes the reservation track flat AREAS (panels, chrome,
+ * backdrops) rather than merely frequent ones. */
+#define QUANT_KEEP_PCT  3
+
 /*
  * Per-horizontal-band quantiser. Split the WxH chunky frame into `nbands`
  * equal horizontal strips; for each strip reduce the CLUT colours that
  * ACTUALLY appear in it to `ncol` (snapped `bits`/gun) and build that band's
  * 256->ncol remap. Each region gets a palette suited to its own content — the
  * win a single global reduce can't give (the granite chrome stops starving the
- * viewport). One full-frame presence histogram + `nbands` small median-cuts.
+ * viewport).
+ *
+ * EXACT-PRESERVATION. Before cutting, each band reserves up to QUANT_KEEP
+ * slots for the colours covering the most of it (>= QUANT_KEEP_PCT each) and
+ * reproduces them EXACTLY. Two things fall out, and they are why this is not
+ * merely an optimisation:
+ *
+ *   - Fidelity. The median cut is PRESENCE-weighted (each used colour counts
+ *     once, however many pixels it covers — the population isn't known at
+ *     set_palette time), so a flat panel filling half the band was averaged
+ *     into a box with its neighbours and came back a different colour.
+ *     Measured on captured HEIRS frames at the ST's 16-colour budget, mean
+ *     squared RGB error: walk view 446 -> 207, BigPic 828 -> 429, the title
+ *     screen 1713 -> 466.
+ *   - SEAMS. A flat colour spanning several bands is now reproduced exactly in
+ *     every one of them, so it cannot come back as a different shade either
+ *     side of a band boundary. That striping (#40) is why per-band was turned
+ *     off in ADR-0016 B1 in favour of one global palette; on the same frames
+ *     it costs 685 seam pixels with a plain per-band cut and 100 with this.
+ *
  *   band_pal[nbands*ncol*3] — per-band snapped palettes
  *   band_remap[nbands*256]  — per-band remap LUTs. Colours ABSENT from a band
  *                             at build time still get a mapping — the reduced
@@ -207,7 +235,8 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
                          short nbands, short ncol, short bits,
                          unsigned char *band_pal, unsigned char *band_remap)
 {
-	static unsigned char used[QUANT_MAX_BANDS][256];
+	unsigned short cnt[256];         /* this band's population histogram   */
+	unsigned char  kept[256];        /* 0 = no, else exact slot + 1        */
 	unsigned char cclut[256 * 3];
 	unsigned char cremap[256];
 	short idxlist[256];
@@ -218,32 +247,78 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 	if (nbands > QUANT_MAX_BANDS)
 		nbands = QUANT_MAX_BANDS;
 
-	for (b = 0; b < nbands; b++)
-		for (i = 0; i < 256; i++)
-			used[b][i] = 0;
-
-	/* One pass: mark which CLUT indices appear in each band. EVERY OTHER row
-	 * — bands are many rows tall, so alternate rows see the band's content,
-	 * and a colour that only lives on skipped rows degrades gracefully to
-	 * the luma fallback below. Halves the biggest fixed cost of a re-band
-	 * (the 64000-pixel scan) on the 8MHz targets. */
-	for (y = 0; y < h; y += 2) {
-		short bb = (short)((long)y * nbands / h);
-		const unsigned char *row = chunky + (long)y * w;
-
-		for (x = 0; x < w; x++)
-			used[bb][row[x]] = 1;
-	}
-
 	for (b = 0; b < nbands; b++) {
 		unsigned char *bpal = band_pal + (long)b * ncol * 3;
 		unsigned char *brem = band_remap + (long)b * 256;
-		short plum[QUANT_MAX_N];
-		short n;
+		short y0 = (short)((long)b * h / nbands);
+		short y1 = (short)((long)(b + 1) * h / nbands);
+		short nkeep = 0, keepmax, n, ntot;
+		long  total = 0;
 
+		/* Population histogram for this band, EVERY OTHER row — bands are
+		 * many rows tall, so alternate rows see the band's content, and a
+		 * colour living only on skipped rows degrades to the RGB fallback
+		 * below. Halves the biggest fixed cost of a re-band (the
+		 * 64000-pixel scan) on the 8MHz targets. */
+		for (i = 0; i < 256; i++) {
+			cnt[i] = 0;
+			kept[i] = 0;
+		}
+		for (y = y0; y < y1; y += 2) {
+			const unsigned char *row = chunky + (long)y * w;
+
+			for (x = 0; x < w; x++)
+				cnt[row[x]]++;
+			total += w;
+		}
+
+		/* Reserve exact slots for the most populous colours. Repeated
+		 * max-scans (at most QUANT_KEEP passes over 256) rather than a
+		 * sort — the budget is tiny and this stays 68000-cheap.
+		 *
+		 * Two CLUT indices can SNAP to the same hardware colour; the
+		 * second must share the first's slot instead of burning one. */
+		keepmax = (short)(ncol / 2);
+		if (keepmax > QUANT_KEEP)
+			keepmax = QUANT_KEEP;
+		while (nkeep < keepmax) {
+			short bi = -1;
+			unsigned short bc = 0;
+			unsigned char sr, sg, sb;
+			short j, dup = -1;
+
+			for (i = 0; i < 256; i++)
+				if (!kept[i] && cnt[i] > bc) {
+					bc = cnt[i];
+					bi = i;
+				}
+			if (bi < 0 || (long)bc * 100 < total * QUANT_KEEP_PCT)
+				break;
+			sr = quant_snap(clut[bi * 3 + 0], bits);
+			sg = quant_snap(clut[bi * 3 + 1], bits);
+			sb = quant_snap(clut[bi * 3 + 2], bits);
+			for (j = 0; j < nkeep; j++)
+				if (bpal[j * 3 + 0] == sr && bpal[j * 3 + 1] == sg
+				 && bpal[j * 3 + 2] == sb) {
+					dup = j;
+					break;
+				}
+			if (dup >= 0) {
+				kept[bi] = (unsigned char)(dup + 1);
+				continue;         /* shares a slot, costs none */
+			}
+			bpal[nkeep * 3 + 0] = sr;
+			bpal[nkeep * 3 + 1] = sg;
+			bpal[nkeep * 3 + 2] = sb;
+			kept[bi] = (unsigned char)(nkeep + 1);
+			nkeep++;
+		}
+
+		/* Everything else present goes to the median cut, which divides
+		 * the slots the reservation left. */
 		m = 0;
 		for (i = 0; i < 256; i++) {
-			if (used[b][i]) {
+			if (cnt[i] && !kept[i]) {
 				idxlist[m] = i;
 				cclut[m * 3 + 0] = clut[i * 3 + 0];
 				cclut[m * 3 + 1] = clut[i * 3 + 1];
@@ -251,14 +326,20 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 				m++;
 			}
 		}
-		if (m == 0) {                       /* empty band -> all black */
+		if (m == 0 && nkeep == 0) {         /* empty band -> all black */
 			for (i = 0; i < ncol * 3; i++)
 				bpal[i] = 0;
 			for (i = 0; i < 256; i++)
 				brem[i] = 0;
 			continue;
 		}
-		n = quant_reduce_n(cclut, m, ncol, bits, bpal, cremap);
+		n = 0;
+		if (m > 0 && ncol - nkeep > 0)
+			n = quant_reduce_n(cclut, m, (short)(ncol - nkeep), bits,
+			                   bpal + nkeep * 3, cremap);
+		ntot = (short)(nkeep + n);          /* live entries in this band */
+		for (i = ntot * 3; i < ncol * 3; i++)
+			bpal[i] = 0;
 
 		/* Absent-colour fallback via a 4x8x4 RGB BUCKET table.
 		 *
@@ -282,7 +363,6 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 			unsigned char btab[4 * 8 * 4];
 			short bk, j;
 
-			(void)plum;
 			for (bk = 0; bk < 4 * 8 * 4; bk++) {
 				/* bucket centre: r = bk>>5, g = (bk>>2)&7, b = bk&3 */
 				short cr = (short)(((bk >> 5) & 3) * 64 + 32);
@@ -291,7 +371,7 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 				long  bestd = 0x7FFFFFFFL;
 				short bestj = 0;
 
-				for (j = 0; j < n; j++) {
+				for (j = 0; j < ntot; j++) {
 					short dr = (short)(bpal[j * 3 + 0] - cr);
 					short dg = (short)(bpal[j * 3 + 1] - cg);
 					short db = (short)(bpal[j * 3 + 2] - cb);
@@ -313,8 +393,14 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 				             | (((clut[i * 3 + 1] >> 5) & 7) << 2)
 				             |  ((clut[i * 3 + 2] >> 6) & 3)];
 		}
-		for (i = 0; i < m; i++)             /* exact wins over fallback */
-			brem[idxlist[i]] = cremap[i];
+		/* Present colours override the fallback: the reserved ones map to
+		 * their exact slot, the rest to their cut slot (offset past the
+		 * reservation). */
+		for (i = 0; i < 256; i++)
+			if (kept[i])
+				brem[i] = (unsigned char)(kept[i] - 1);
+		for (i = 0; i < m; i++)
+			brem[idxlist[i]] = (unsigned char)(nkeep + cremap[i]);
 	}
 }
 
