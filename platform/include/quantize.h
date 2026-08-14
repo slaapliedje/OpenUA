@@ -235,12 +235,14 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
                          short nbands, short ncol, short bits,
                          unsigned char *band_pal, unsigned char *band_remap)
 {
+	static unsigned char present[QUANT_MAX_BANDS][32];  /* per-band, 1 bit/idx */
 	unsigned short cnt[256];         /* this band's population histogram   */
 	unsigned char  kept[256];        /* 0 = no, else exact slot + 1        */
 	unsigned char cclut[256 * 3];
 	unsigned char cremap[256];
 	short idxlist[256];
-	short b, i, x, y, m;
+	short live[QUANT_MAX_BANDS];     /* live palette entries per band      */
+	short b, i, x, y, m, ref;
 
 	if (nbands < 1)
 		nbands = 1;
@@ -252,7 +254,7 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 		unsigned char *brem = band_remap + (long)b * 256;
 		short y0 = (short)((long)b * h / nbands);
 		short y1 = (short)((long)(b + 1) * h / nbands);
-		short nkeep = 0, keepmax, n, ntot;
+		short nkeep = 0, keepmax, n;
 		long  total = 0;
 
 		/* Population histogram for this band, EVERY OTHER row — bands are
@@ -263,6 +265,10 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 		for (i = 0; i < 256; i++) {
 			cnt[i] = 0;
 			kept[i] = 0;
+			/* pass 2 permutes brem[] through pos[]; absent entries are
+			 * not written until pass 3, so seed them in range first —
+			 * a stale byte here would index pos[] out of bounds. */
+			brem[i] = 0;
 		}
 		for (y = y0; y < y1; y += 2) {
 			const unsigned char *row = chunky + (long)y * w;
@@ -326,81 +332,194 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 				m++;
 			}
 		}
-		if (m == 0 && nkeep == 0) {         /* empty band -> all black */
-			for (i = 0; i < ncol * 3; i++)
-				bpal[i] = 0;
-			for (i = 0; i < 256; i++)
-				brem[i] = 0;
-			continue;
-		}
 		n = 0;
 		if (m > 0 && ncol - nkeep > 0)
 			n = quant_reduce_n(cclut, m, (short)(ncol - nkeep), bits,
 			                   bpal + nkeep * 3, cremap);
-		ntot = (short)(nkeep + n);          /* live entries in this band */
-		for (i = ntot * 3; i < ncol * 3; i++)
+		live[b] = (short)(nkeep + n);       /* live entries in this band */
+		for (i = live[b] * 3; i < ncol * 3; i++)
 			bpal[i] = 0;
 
-		/* Absent-colour fallback via a 4x8x4 RGB BUCKET table.
-		 *
-		 * ★ THIS USED TO BUCKET BY LUMINANCE ALONE, AND THAT IS A COLOUR
-		 * BUG, not just an approximation. Luma throws away hue, so any two
-		 * colours of equal brightness are interchangeable to it — and FRUA
-		 * has a textbook collision: the party roster's cyan (0,200,200) and
-		 * mid-grey dungeon stone (150,150,150) BOTH have luma 150. A wall
-		 * shade that misses the presence histogram therefore falls back to
-		 * whichever entry is nearest in brightness, and when the roster cyan
-		 * is the nearest, stone walls render CYAN. It only happens sometimes
-		 * because the histogram below samples every OTHER row, so whether a
-		 * given wall index is "present" depends on which rows it landed on.
-		 *
-		 * Bucketing in 3-D instead keeps hue. Cost stays bounded the same
-		 * way: n*128 scalar distance evaluations per band (vs n*32 before,
-		 * and vs the n*256 per-colour linear search whose ~1.3M cycles per
-		 * re-band at 8MHz was the original objection). Green gets twice the
-		 * resolution of red/blue — it carries most of the luminance. */
-		{
-			unsigned char btab[4 * 8 * 4];
-			short bk, j;
-
-			for (bk = 0; bk < 4 * 8 * 4; bk++) {
-				/* bucket centre: r = bk>>5, g = (bk>>2)&7, b = bk&3 */
-				short cr = (short)(((bk >> 5) & 3) * 64 + 32);
-				short cg = (short)(((bk >> 2) & 7) * 32 + 16);
-				short cb = (short)((bk & 3) * 64 + 32);
-				long  bestd = 0x7FFFFFFFL;
-				short bestj = 0;
-
-				for (j = 0; j < ntot; j++) {
-					short dr = (short)(bpal[j * 3 + 0] - cr);
-					short dg = (short)(bpal[j * 3 + 1] - cg);
-					short db = (short)(bpal[j * 3 + 2] - cb);
-					/* 2:5:1 weights — the same perceptual
-					 * weighting the luma version used, now
-					 * applied per channel instead of collapsed */
-					long  d  = 2L * dr * dr + 5L * dg * dg
-					         + 1L * db * db;
-
-					if (d < bestd) {
-						bestd = d;
-						bestj = j;
-					}
-				}
-				btab[bk] = (unsigned char)bestj;
-			}
-			for (i = 0; i < 256; i++)
-				brem[i] = btab[(((clut[i * 3 + 0] >> 6) & 3) << 5)
-				             | (((clut[i * 3 + 1] >> 5) & 7) << 2)
-				             |  ((clut[i * 3 + 2] >> 6) & 3)];
+		/* Record which indices this band actually SAW, and give them their
+		 * slot. Absent ones are left to the canonical fallback below — they
+		 * are the ones that used to seam. */
+		for (i = 0; i < 32; i++)
+			present[b][i] = 0;
+		for (i = 0; i < 256; i++) {
+			if (!cnt[i])
+				continue;
+			present[b][i >> 3] |= (unsigned char)(1u << (i & 7));
 		}
-		/* Present colours override the fallback: the reserved ones map to
-		 * their exact slot, the rest to their cut slot (offset past the
-		 * reservation). */
 		for (i = 0; i < 256; i++)
 			if (kept[i])
 				brem[i] = (unsigned char)(kept[i] - 1);
 		for (i = 0; i < m; i++)
 			brem[idxlist[i]] = (unsigned char)(nkeep + cremap[i]);
+	}
+
+	/* ===================================================================
+	 * PASS 2 — MAKE EVERY BAND AGREE ON WHAT A SLOT MEANS.
+	 *
+	 * The cut numbers each band's slots independently, so the same colour
+	 * lands on slot 1 in one band and slot 10 in the next. Two things go
+	 * wrong with that, and the second is the seam:
+	 *
+	 *  - A raster split that misses a reload (a frame starved of interrupts
+	 *    renders its lower bands with the previous band's palette still
+	 *    loaded) recolours a whole band instead of being invisible.
+	 *  - Absent colours cannot share one fallback, because a slot number
+	 *    means something different in every band.
+	 *
+	 * Align every band to the RICHEST one — most live entries, so it has the
+	 * most to match against, and it is never the empty band that a re-band
+	 * taken before the screen is drawn leaves behind. Greedy nearest-colour,
+	 * strongest correspondence first; palette and remap are permuted
+	 * together, so every pixel keeps its exact colour.
+	 * =================================================================== */
+	ref = 0;
+	for (b = 1; b < nbands; b++)
+		if (live[b] > live[ref])
+			ref = b;
+
+	for (b = 0; b < nbands; b++) {
+		unsigned char *bpal = band_pal + (long)b * ncol * 3;
+		unsigned char *brem = band_remap + (long)b * 256;
+		const unsigned char *rpal = band_pal + (long)ref * ncol * 3;
+		unsigned char pos[QUANT_MAX_N], tkn[QUANT_MAX_N], tkp[QUANT_MAX_N];
+		unsigned char newpal[QUANT_MAX_N * 3];
+		short k, nn, pp;
+
+		if (b == ref)
+			continue;
+		for (i = 0; i < ncol; i++) {
+			tkn[i] = tkp[i] = 0;
+			pos[i] = (unsigned char)i;
+		}
+		/* only LIVE entries compete for positions; dead ones are filled
+		 * from the reference below */
+		for (i = live[b]; i < ncol; i++)
+			tkn[i] = 1;
+		for (k = 0; k < live[b]; k++) {
+			long  bestd = 0x7FFFFFFFL;
+			short bn = -1, bp = -1;
+
+			for (nn = 0; nn < live[b]; nn++) {
+				if (tkn[nn])
+					continue;
+				for (pp = 0; pp < ncol; pp++) {
+					long dr, dg, db, d;
+
+					if (tkp[pp])
+						continue;
+					dr = (long)bpal[nn * 3 + 0] - rpal[pp * 3 + 0];
+					dg = (long)bpal[nn * 3 + 1] - rpal[pp * 3 + 1];
+					db = (long)bpal[nn * 3 + 2] - rpal[pp * 3 + 2];
+					d  = 2L * dr * dr + 5L * dg * dg + db * db;
+					if (d < bestd) { bestd = d; bn = nn; bp = pp; }
+				}
+			}
+			if (bn < 0)
+				break;
+			tkn[bn] = 1; tkp[bp] = 1;
+			pos[bn] = (unsigned char)bp;
+		}
+		/* permute this band's live entries into their matched positions,
+		 * and fill every position no live entry claimed with the
+		 * REFERENCE colour — so a band that was empty (or sparse) at
+		 * quant time still renders content drawn into it afterwards in
+		 * sensible colours instead of black. */
+		for (i = 0; i < ncol; i++) {
+			newpal[i * 3 + 0] = rpal[i * 3 + 0];
+			newpal[i * 3 + 1] = rpal[i * 3 + 1];
+			newpal[i * 3 + 2] = rpal[i * 3 + 2];
+		}
+		for (nn = 0; nn < live[b]; nn++) {
+			newpal[pos[nn] * 3 + 0] = bpal[nn * 3 + 0];
+			newpal[pos[nn] * 3 + 1] = bpal[nn * 3 + 1];
+			newpal[pos[nn] * 3 + 2] = bpal[nn * 3 + 2];
+		}
+		for (i = 0; i < ncol * 3; i++)
+			bpal[i] = newpal[i];
+		for (i = 0; i < 256; i++)
+			brem[i] = pos[brem[i]];
+	}
+	/* the reference's dead slots are black; leave them, nothing maps there */
+
+	/* ===================================================================
+	 * PASS 3 — ONE fallback for colours ABSENT from a band.
+	 *
+	 * ★ THIS IS THE #40 SEAM, AND IT IS NOT WHAT IT LOOKED LIKE. The band
+	 * palettes are built at set_palette time, from a chunky surface that does
+	 * NOT yet hold the screen about to be drawn — so every colour the new
+	 * screen introduces is absent from EVERY band's histogram. While each
+	 * band resolved its own fallback against its own palette, the same colour
+	 * resolved differently per band and a flat panel came out striped at
+	 * exact band boundaries. Reserving exact slots cannot fix that: the
+	 * colour is not there to preserve. It is also why one global palette was
+	 * the pragmatic fix — one palette means one fallback, so there is nothing
+	 * to disagree with.
+	 *
+	 * Now that pass 2 has made slot k mean the same colour in every band, ONE
+	 * table resolved against the reference band serves them all.
+	 *
+	 * Bucket in 3-D, not by luma. Luma throws away hue, and FRUA has a
+	 * textbook collision: the party roster's cyan (0,200,200) and mid-grey
+	 * dungeon stone (150,150,150) BOTH have luma 150 under the engine's 2:5:1
+	 * weights, so stone walls used to render CYAN. Green gets twice the
+	 * resolution of red/blue — it carries most of the luminance. n*128 scalar
+	 * distance evaluations, ONCE, versus the n*256 per-colour linear search
+	 * whose ~1.3M cycles per re-band at 8MHz was the original objection.
+	 * =================================================================== */
+	{
+		const unsigned char *rpal = band_pal + (long)ref * ncol * 3;
+		unsigned char btab[4 * 8 * 4];
+		short bk, j;
+
+		for (bk = 0; bk < 4 * 8 * 4; bk++) {
+			short cr = (short)(((bk >> 5) & 3) * 64 + 32);
+			short cg = (short)(((bk >> 2) & 7) * 32 + 16);
+			short cb = (short)((bk & 3) * 64 + 32);
+			long  bestd = 0x7FFFFFFFL;
+			short bestj = 0;
+
+			for (j = 0; j < live[ref]; j++) {
+				short dr = (short)(rpal[j * 3 + 0] - cr);
+				short dg = (short)(rpal[j * 3 + 1] - cg);
+				short db = (short)(rpal[j * 3 + 2] - cb);
+				long  d  = 2L * dr * dr + 5L * dg * dg + 1L * db * db;
+
+				if (d < bestd) { bestd = d; bestj = j; }
+			}
+			btab[bk] = (unsigned char)bestj;
+		}
+		/* One canonical slot per index, used by EVERY band that did not
+		 * see it. A bucket answer alone is not enough: an index present in
+		 * some bands and absent in others would get its own cut slot in
+		 * one and the bucket's in another, which is two different colours
+		 * at a band boundary — the seam again, just narrower. So prefer
+		 * the slot a band that DID see it chose (the reference first), and
+		 * fall back to the bucket only for indices no band saw at all. */
+		for (i = 0; i < 256; i++) {
+			short canon = -1;
+
+			if (present[ref][i >> 3] & (1u << (i & 7)))
+				canon = band_remap[(long)ref * 256 + i];
+			else
+				for (b = 0; b < nbands; b++)
+					if (present[b][i >> 3] & (1u << (i & 7))) {
+						canon = band_remap[(long)b * 256 + i];
+						break;
+					}
+			if (canon < 0)
+				canon = btab[(((clut[i * 3 + 0] >> 6) & 3) << 5)
+				           | (((clut[i * 3 + 1] >> 5) & 7) << 2)
+				           |  ((clut[i * 3 + 2] >> 6) & 3)];
+			for (b = 0; b < nbands; b++) {
+				if (present[b][i >> 3] & (1u << (i & 7)))
+					continue;   /* the band saw it: keep its slot */
+				band_remap[(long)b * 256 + i] = (unsigned char)canon;
+			}
+		}
 	}
 }
 

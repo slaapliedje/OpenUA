@@ -932,108 +932,61 @@ static void st_reband(void)
 #ifdef FRUA_STPROF
 	{ long ta = Supexec(st_prof_hz200);
 #endif
-	/* ★ ALIGN THE BANDS' SLOT NUMBERING, THEN PUT THE DARKEST AT SLOT 0.
+	/* ★ SLOT 0 IS THE ST BORDER — PUT SOMETHING DARK THERE, IN EVERY BAND.
 	 *
-	 * Both are pure PERMUTATIONS — each band's palette and its remap move
-	 * together, so every pixel keeps its exact colour and the frame is
-	 * bit-identical either way. What they buy is robustness:
+	 * quant_banded has already aligned the bands' slot numbering (its pass 2)
+	 * so that slot k means the same colour everywhere, and resolved absent
+	 * colours against one canonical palette. That alignment is what the
+	 * border rule must NOT disturb: permuting each band independently would
+	 * put slot k back to meaning different things and re-open the seam.
 	 *
-	 * 1) The bands agree on what each slot MEANS. Exact-preservation already
-	 *    guarantees a flat colour is the same RGB in every band, but the
-	 *    median cut numbers the slots per band, so the same panel colour was
-	 *    landing on slot 1 in one band and slot 10 in the next (measured, the
-	 *    main menu: slots 1,10,1,2,1,10,10,2,1,10 for one index). That is
-	 *    fine only if the raster split is cycle-perfect — and it is NOT
-	 *    always: a frame starved of interrupts (#48's BLiTTER force-full can
-	 *    hold off the MFP for ~24 ms) renders its lower bands with the
-	 *    previous band's palette still loaded. With per-band numbering that
-	 *    recolours the whole band; with the numbering aligned it is nearly
-	 *    invisible, because slot k means near enough the same colour
-	 *    everywhere. Greedy strongest-correspondence-first against band 0,
-	 *    which is 16x16 and dominated by a few near-exact matches.
+	 * So choose the darkest slot ONCE, from band 0, and apply the SAME swap
+	 * to every band. A permutation applied identically to all bands preserves
+	 * the alignment exactly, and palette and remap move together so every
+	 * pixel keeps its colour.
 	 *
-	 * 2) Slot 0 is what the ST shows in the BORDER, where no pixel index is
-	 *    involved at all. Each band's slot 0 lights the border on its own
-	 *    scanlines, so bands that disagree stripe the border. Darkest-first
-	 *    keeps it black without needing any history.
+	 * Why it matters: the ST shows colour register 0 in the border, where no
+	 * pixel index is involved at all. Each band's slot 0 lights the border on
+	 * its own scanlines, so bands that disagree stripe the border — and with
+	 * one replicated palette this used to be measured at 174976 pixels of a
+	 * menu grab, entirely outside the 320x200 image.
 	 *
 	 * This replaces the B3.2 correspondence alignment, which matched band 0
 	 * against the PREVIOUS FRAME's band 0. That existed to let rows skip
 	 * re-conversion after a re-band, but the smart-skip it fed was removed
-	 * 2026-07-26 and every re-band force-fulls both pages since; its own
-	 * comment recorded that the frame is bit-identical either way. Aligning
-	 * across BANDS is the same idea pointed at the axis that now matters. */
+	 * 2026-07-26, every re-band force-fulls both pages since, and its own
+	 * comment recorded that the frame is bit-identical either way. */
 	{
-		short b, n, p, v;
+		short b, n, v, best = 0;
+		long  bestd = 0x7fffffffL;
 
-		/* 1) darkest slot of band 0 -> position 0 */
-		for (b = 0; b < ST_NBANDS; b++) {
-			unsigned char *bpal = s_band_pal + (long)b * ST_NCOL * 3;
-			unsigned char *brem = s_band_remap + (long)b * 256;
-			unsigned char t[3];
-			long  bestd = 0x7fffffffL;
-			short best = 0;
+		for (n = 0; n < ST_NCOL; n++) {
+			long r = s_band_pal[n * 3 + 0], g = s_band_pal[n * 3 + 1];
+			long bl = s_band_pal[n * 3 + 2];
+			long d = 2L * r * r + 5L * g * g + bl * bl;
 
-			if (b == 0) {
-				for (n = 0; n < ST_NCOL; n++) {
-					long r = bpal[n * 3 + 0], g = bpal[n * 3 + 1];
-					long bl = bpal[n * 3 + 2];
-					long d = 2L * r * r + 5L * g * g + bl * bl;
+			if (d < bestd) { bestd = d; best = n; }
+		}
+		if (best != 0) {
+			for (b = 0; b < ST_NBANDS; b++) {
+				unsigned char *bpal = s_band_pal
+				                    + (long)b * ST_NCOL * 3;
+				unsigned char *brem = s_band_remap + (long)b * 256;
+				unsigned char t[3];
 
-					if (d < bestd) { bestd = d; best = n; }
+				t[0] = bpal[0]; t[1] = bpal[1]; t[2] = bpal[2];
+				bpal[0] = bpal[best * 3 + 0];
+				bpal[1] = bpal[best * 3 + 1];
+				bpal[2] = bpal[best * 3 + 2];
+				bpal[best * 3 + 0] = t[0];
+				bpal[best * 3 + 1] = t[1];
+				bpal[best * 3 + 2] = t[2];
+				for (v = 0; v < 256; v++) {
+					if (brem[v] == 0)
+						brem[v] = (unsigned char)best;
+					else if (brem[v] == best)
+						brem[v] = 0;
 				}
-			} else {
-				/* 2) every other band: greedy nearest match to band 0 */
-				unsigned char tkn[ST_NCOL], tkp[ST_NCOL];
-				unsigned char pos[ST_NCOL];
-				unsigned char newpal[ST_NCOL * 3];
-				short k;
-
-				for (n = 0; n < ST_NCOL; n++) {
-					tkn[n] = tkp[n] = 0;
-					pos[n] = (unsigned char)n;
-				}
-				for (k = 0; k < ST_NCOL; k++) {
-					long  bd = 0x7fffffffL;
-					short bn = -1, bp = -1;
-
-					for (n = 0; n < ST_NCOL; n++) {
-						if (tkn[n]) continue;
-						for (p = 0; p < ST_NCOL; p++) {
-							long d;
-							if (tkp[p]) continue;
-							d = st_coldist(bpal + (long)n * 3,
-							               s_band_pal + (long)p * 3);
-							if (d < bd) { bd = d; bn = n; bp = p; }
-						}
-					}
-					if (bn < 0)
-						break;
-					tkn[bn] = 1; tkp[bp] = 1;
-					pos[bn] = (unsigned char)bp;
-				}
-				for (n = 0; n < ST_NCOL; n++)
-					memcpy(newpal + (long)pos[n] * 3,
-					       bpal + (long)n * 3, 3);
-				memcpy(bpal, newpal, sizeof newpal);
-				for (v = 0; v < 256; v++)
-					brem[v] = pos[brem[v]];
-				continue;               /* slot 0 follows band 0's */
-			}
-			if (best == 0)
-				continue;
-			t[0] = bpal[0]; t[1] = bpal[1]; t[2] = bpal[2];
-			bpal[0] = bpal[best * 3 + 0];
-			bpal[1] = bpal[best * 3 + 1];
-			bpal[2] = bpal[best * 3 + 2];
-			bpal[best * 3 + 0] = t[0];
-			bpal[best * 3 + 1] = t[1];
-			bpal[best * 3 + 2] = t[2];
-			for (v = 0; v < 256; v++) {
-				if (brem[v] == 0)
-					brem[v] = (unsigned char)best;
-				else if (brem[v] == best)
-					brem[v] = 0;
 			}
 		}
 	}
