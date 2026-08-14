@@ -536,16 +536,32 @@ static int frua_main_body(void)
 			strs_size = GetHandleSize(h_strs);
 		}
 		if (strs_base != NULL) {
-			/* The Mac table's slots 2/3 hold the integrity markers
-			 * the phase-5 boot check compares: "Heart" against the
-			 * literal, "Boots" against the -22253 DATA string that
-			 * l31cc copies from STRS (via the -13448 reloc). With
-			 * slot 3 empty the check mismatches and the faithful
-			 * copy-protection challenge (jt931) fires at boot. */
-			static const char *marker[4] = { 0, 0, "Heart", "Boots" };
+			/* Slot 3 holds the marker the phase-5 boot check
+			 * compares against the -22253 DATA string that l31cc
+			 * copies from STRS (via the -13448 reloc), i.e.
+			 * "Boots". With slot 3 empty the check mismatches and
+			 * the faithful copy-protection challenge (jt931) fires
+			 * at boot.
+			 *
+			 * SLOT 2 IS DELIBERATELY LEFT EMPTY. It looks like the
+			 * same kind of marker, and this code used to seed it
+			 * with "Heart" — but "Heart" in slot 2 is SSI's own
+			 * DEVELOPER BYPASS, not an integrity marker: ua_main
+			 * runs the jt919 title roll only when slot 2 does NOT
+			 * equal it (boot.c), and dumps the FC statistics at
+			 * exit when it does. Seeding it cost us the entire
+			 * title sequence — the SSI / AD&D / Forgotten Realms /
+			 * Unlimited Adventures / credits screens AND their
+			 * music (jt919 -> jt52(32)) — which the port then
+			 * re-implemented by hand in port_show_intro(). The real
+			 * Mac runs jt919 (verified 2026-08-14 under Mini vMac:
+			 * ~57 s of song 0 across those screens), so slot 2 does
+			 * not hold "Heart" there either. Empty compares
+			 * unequal, which is the behaviour we want. */
+			static const char *marker[4] = { 0, 0, 0, "Boots" };
 			short m;
 
-			for (m = 2; m <= 3; m++) {
+			for (m = 3; m <= 3; m++) {
 				long        off;
 				const char *want = marker[m];
 				short       len = 0;

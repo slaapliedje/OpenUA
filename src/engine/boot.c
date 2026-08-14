@@ -2484,7 +2484,9 @@ static void  l618c(void);                /* Modify stat editor (= JT[560], defin
  * arg1 / arg2 are the two values the THINK C runtime passes; they flow
  * through to the screen and secondary init.
  */
-static void port_show_intro(void);          /* title / credits sequence */
+static void port_show_intro(void) __attribute__((unused));  /* A/B stand-in;
+                                             * the engine's jt919 is the
+                                             * real title sequence */
 int ua_main(short arg1, long arg2)
 {
 	short status;
@@ -2527,15 +2529,42 @@ int ua_main(short arg1, long arg2)
 		master_init(-5, arg2, 160, 400);
 	}
 
-	/* Title / credits intro — the SSI / AD&D / Forgotten Realms / Unlimited
-	 * Adventures / credits screens (TITLE.CTL art) shown before the menu.
-	 * No-ops when the design data isn't mounted (e.g. a plain `make run`).
-	 * Skipped in the char-gen harness so it lands straight on the pick
-	 * screen (the intro blocks on click-through otherwise). */
+	/* PORT: seed the engine clip rect full-screen, once, now that the
+	 * screen exists and the A5 pool has been replayed.
+	 *
+	 * The Mac's display init leaves -3054/-3050/-3056/-3052 (top/bottom/
+	 * left/right) describing the whole screen before anything paints; the
+	 * port's does not, and the A5 pool replays them as zero — so every
+	 * l2d4e/l309c blit before the first screen sets its own clip is
+	 * REJECTED. jt81 (the menu chrome) already carried a local copy of this
+	 * seed for exactly that reason; jt919's title roll paints earlier still,
+	 * and without this it plays its music over a black screen. Seeding here
+	 * covers both — jt81's guarded copy then finds it already non-zero.
+	 *
+	 * Guarded on bottom == 0 so a real clip, once set, is never clobbered. */
+	{
+		short pitch, sw, sh;
+
+		/* dimensions only: NULL pixels skips the shim's dirty mark (#63) */
+		if (g_a5_3050 == 0 && qd_screen_pixels(NULL, &pitch, &sw, &sh)) {
+			g_a5_3054 = 0;  g_a5_3056 = 0;
+			g_a5_3050 = sh; g_a5_3052 = sw;
+		}
+	}
+
+	/* The title / credits intro is NOT here any more. It is the engine's
+	 * own jt919 (phase 5, below), which is where the Mac runs it — and
+	 * which is also what starts the title music. port_show_intro() was a
+	 * port-authored stand-in for it; see FRUA_PORT_INTRO below. */
+#ifdef FRUA_PORT_INTRO
+	/* A/B fallback: the hand-rolled intro, in its original position (before
+	 * phase 4). Kept only to compare against the faithful path — it has no
+	 * music and no frame rect on the Unlimited Adventures screen. */
 #if !defined(FRUA_CHARGEN) && !defined(FRUA_SHEET) \
     && !defined(FRUA_BODY) && !defined(FRUA_MODIFY) \
     && !defined(FRUA_HALL)
 	port_show_intro();
+#endif
 #endif
 
 	/* Phase 4 — secondary init and the first UI handler. arg1 / arg2
@@ -28333,6 +28362,8 @@ extern void load_frua_palette(void);
  * 208..223 -> slots 240..255 — which is why loading at slot 0 turned the
  * globe magenta and the art washed-out.) */
 static short intro_load_palette(long base, short set, RGBColor *dst)
+	__attribute__((unused));
+static short intro_load_palette(long base, short set, RGBColor *dst)
 {
 	long  handle = l37aa(base, set);
 	long  p0, p1;
@@ -28376,6 +28407,9 @@ struct intro_cycle {
 
 /* Read set `set`'s palette-piece cycle records (metric byte 6 holds
  * the count; the records follow the RGB block).  Returns how many. */
+static short intro_load_cycles(long base, short set,
+                               struct intro_cycle *out, short max)
+	__attribute__((unused));
 static short intro_load_cycles(long base, short set,
                                struct intro_cycle *out, short max)
 {
