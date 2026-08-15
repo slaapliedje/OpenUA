@@ -491,9 +491,16 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 		 * from the reference below */
 		for (i = live[b]; i < ncol; i++)
 			tkn[i] = 1;
-		/* Entry 0 is the reserved border colour, the same in every band.
-		 * PIN it to position 0 — letting the greedy match carry it
-		 * somewhere merely near would give the reservation away again. */
+		/* Entry 0 is the reserved border colour, the same in every band —
+		 * pin it to position 0 rather than letting it compete.
+		 *
+		 * DEFENSIVE, not load-bearing, and the mutation test says so:
+		 * deleting this line leaves border_slot_test green. It is
+		 * redundant because the reference's position 0 holds that same
+		 * colour, so the pair sits at distance ZERO and the greedy match
+		 * takes it first anyway. Kept because that is a property of the
+		 * matcher, not of the reservation, and the reservation should not
+		 * depend on it. */
 		tkn[0] = 1; tkp[0] = 1; pos[0] = 0;
 		for (k = 0; k < live[b]; k++) {
 			long  bestd = 0x7FFFFFFFL;
