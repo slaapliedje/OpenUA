@@ -1540,7 +1540,7 @@ static int st_patch_new_ink(void)
 /* Are any of this present's redrawn bands quantised for content they no longer
  * hold? (See quant_band_dominant_moved.) `chg` is the frame's changed-row
  * count, `mask` the bands those rows fell in. */
-static int st_dom_stale(short chg, unsigned short mask)
+static int st_dom_stale(short chg, unsigned long mask)
 {
 	short b;
 
@@ -1548,7 +1548,7 @@ static int st_dom_stale(short chg, unsigned short mask)
 	{
 		static short dn;
 
-		if (++dn <= 40) {
+		if (++dn <= 200) {
 			dbg_log_num("domdiag: present     = ", (long)dn);
 			dbg_log_num("domdiag:   chg rows  = ", (long)chg);
 			dbg_log_num("domdiag:   band mask = ", (long)mask);
@@ -1575,7 +1575,7 @@ static int st_dom_stale(short chg, unsigned short mask)
 	for (b = 0; b < ST_NBANDS; b++) {
 		short y0, y1;
 
-		if (!(mask & (unsigned short)(1u << b)))
+		if (!(mask & (1UL << b)))
 			continue;
 		/* A band under the viewport was quantised from the composited
 		 * SCRATCH (see st_reband's wall pin), not from s_chunky, so its
@@ -1604,7 +1604,7 @@ static void st_dt_present_full(void)
 {
 	short y, pg, run0 = -1;
 	short          dom_chg  = 0;     /* changed rows this present            */
-	unsigned short dom_mask = 0;     /* bands they fell in (ST_NBANDS <= 16) */
+	unsigned long  dom_mask = 0;     /* bands they fell in (ECS runs 25)     */
 	short          dom_done = 0;     /* one dominance re-band per present    */
 #ifdef FRUA_STPROF
 	long rows_conv = 0, rows_skip = 0;
@@ -1613,6 +1613,9 @@ static void st_dt_present_full(void)
 restart:
 	run0 = -1;
 	if (s_force_full > 0) {
+#ifdef FRUA_DOMDIAG
+		dbg_log_num("domdiag: FORCEFULL, inkfresh = ", (long)s_ink_fresh);
+#endif
 		/* PROBE HERE TOO. A force-full converts every row, so it is a full
 		 * redraw by definition — and it is the branch the screen-change
 		 * presents actually take, because the load that changed the screen
@@ -1630,7 +1633,7 @@ restart:
 		 * so the guard takes the boot's probe count from 20 to 9, with the
 		 * same 3 stale verdicts and a byte-identical menu. */
 		if (!dom_done && !s_ink_fresh
-		 && st_dom_stale(ST_H, (unsigned short)((1u << ST_NBANDS) - 1))) {
+		 && st_dom_stale(ST_H, (1UL << ST_NBANDS) - 1)) {
 			dom_done = 1;
 #ifdef FRUA_STPROF
 			sp_rb_dom++;
@@ -1729,8 +1732,7 @@ restart:
 			st_dt_ready_row(y);
 #endif
 			dom_chg++;
-			dom_mask |= (unsigned short)
-			    (1u << ((long)y * ST_NBANDS / ST_H));
+			dom_mask |= 1UL << ((long)y * ST_NBANDS / ST_H);
 			if (run0 < 0)
 				run0 = y;
 		}
@@ -2978,7 +2980,11 @@ static void st_present(void)
 			 * costs ~53 — the same substitution that halved pass 1,
 			 * never applied here. Identical answer, and it runs on
 			 * EVERY dirty present, not just the ones that reband. */
-			int content_same = s_banded_valid && !s_vp_active &&
+			int content_same =
+#ifdef FRUA_NOREPAL
+			    0 &&      /* A/B: price the palette-only shortcut */
+#endif
+			    s_banded_valid && !s_vp_active &&
 			    !st_buf_differs(s_chunky, s_shadow, (long)ST_W * ST_H) &&
 			    !st_remap_split();  /* a CLUT load that SPLITS a merged
 			                         * slot invalidates the remap even

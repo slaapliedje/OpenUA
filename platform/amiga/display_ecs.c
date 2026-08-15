@@ -320,6 +320,12 @@ static long          e_new_ink;
 static unsigned char e_clut_quant[256 * 3];        /* CLUT the bands were built from */
 static short         e_quant_valid;
 static unsigned char e_used_band[ECS_NBANDS][256]; /* per-band used capture   */
+/* Per-band DOMINANCE, straight from quant_banded (0 absent / 1 present / 2
+ * covers >= QUANT_KEEP_PCT). Separate from e_used_band above, which this
+ * backend builds itself over EVERY row where quant_banded samples every other
+ * one — the split guard wants the stricter presence test, the staleness probe
+ * wants the one that matches what the quantiser actually saw. */
+static unsigned char e_dom_band[ECS_NBANDS][256];
 static unsigned char e_slot_rep[ECS_NBANDS][ECS_NCOL]; /* rep CLUT idx / slot;
                                                         * 0xFF = empty slot   */
 
@@ -529,7 +535,8 @@ static void ecs_reband(void)
 	short b, i;
 
 	quant_banded(s_chunky, ECS_W, ECS_H, s_clut,
-	             ECS_NBANDS, ECS_NCOL, ECS_BITS, s_band_pal, s_band_remap, (unsigned char *)0);
+	             ECS_NBANDS, ECS_NCOL, ECS_BITS, s_band_pal, s_band_remap,
+	             (unsigned char *)e_dom_band);
 	/* Capture what this quant saw: the global used set (the new-ink
 	 * detector's domain) and the per-band sets (the split-guard's). */
 	{
@@ -595,6 +602,39 @@ static void ecs_reband(void)
 	s_dirty = 0;
 	s_have_pal = 1;
 	s_force_full = 1;               /* every LUT moved: row diffing is void */
+}
+
+/* How much of the frame must be redrawn before the dominance probe runs — a
+ * band's dominant set cannot move without a great many of its pixels moving
+ * first, so quiet presents never pay for it. */
+#define ECS_DOM_ROWS (ECS_H / 2)
+
+/* Are any of this present's redrawn bands quantised for content they no longer
+ * hold? The ST's st_dom_stale, ported; see quant_band_dominant_moved.
+ *
+ * WHY THE ECS NEEDS THIS. Per-band palettes depend on where the content SITS,
+ * so a screen drawn over another under an unchanged CLUT inherits palettes
+ * built for the screen it replaced — and the CLUT guard above cannot see it.
+ * The new-ink test cannot either: it asks whether an index is PRESENT, and the
+ * indices are usually all present already, a few pixels each. What moves is
+ * their POPULATION. Caught live on the UNLIMITED ADVENTURES title screen,
+ * which rendered its wizard art through the previous screen's red palette. */
+static int ecs_dom_stale(short chg, unsigned long mask)
+{
+	short b;
+
+	if (!s_have_pal || !e_quant_valid || chg < ECS_DOM_ROWS)
+		return 0;
+	for (b = 0; b < ECS_NBANDS; b++) {
+		if (!(mask & (1UL << b)))
+			continue;
+		if (quant_band_dominant_moved(s_chunky, ECS_W, ECS_H,
+		                              ECS_NBANDS, b, e_dom_band[b])) {
+			dbg_log_num("ecs: bands stale, re-quant at band = ", (long)b);
+			return 1;
+		}
+	}
+	return 0;
 }
 
 /* Full render: (re-band if dirty), remap the whole surface, convert to the
@@ -724,6 +764,8 @@ static void ecs_present(void)
 	unsigned char *front;
 	unsigned char *planes[ECS_DEPTH];
 	short p, y;
+	short         dom_chg  = 0;      /* changed rows this present            */
+	unsigned long dom_mask = 0;      /* bands they fell in (ECS_NBANDS = 25) */
 #ifdef FRUA_AMIGAPROF
 	long ap_t0 = amiga_prof_rl();
 #endif
@@ -749,6 +791,10 @@ static void ecs_present(void)
 	{ long ap_c0 = amiga_prof_rl();
 #endif
 	if (s_force_full || s_dirty) {
+#ifdef FRUA_DOMDIAG
+		dbg_log_num("ecsdom: RENDER path, dirty*10+ff = ",
+		            (long)s_dirty * 10 + s_force_full);
+#endif
 		ecs_render();
 		/* The flipped-in page was rebuilt whole and the shadow re-synced:
 		 * nothing is owed. (Matches the ST force-full's pend reset.) */
@@ -788,6 +834,8 @@ static void ecs_present(void)
 #endif
 			if (!changed)
 				continue;
+			dom_chg++;
+			dom_mask |= 1UL << ((long)y * ECS_NBANDS / ECS_H);
 #ifdef FRUA_AMIGAPROF
 			ap_conv_rows++;
 #endif
@@ -812,6 +860,35 @@ static void ecs_present(void)
 #ifdef FRUA_AMIGAPROF
 	ap_conv_t += amiga_prof_rl() - ap_c0; }
 #endif
+	/* THE PER-BAND PALETTES' OTHER TRIGGER — and unlike the new-ink one
+	 * below, this one is honoured NOW rather than scheduled.
+	 *
+	 * Scheduling is what made the ST version of this bug survivable-looking
+	 * and then fatal: a settled screen presents once and waits for input, so
+	 * "the next full present re-bands" never happens and the wrong palette
+	 * is the one left on display. The UNLIMITED ADVENTURES title screen sat
+	 * there rendering its wizard art through the previous screen's red
+	 * palette for exactly that reason. ecs_render re-bands and rebuilds the
+	 * whole back set before the flip, so nothing wrong is ever shown. */
+#ifdef FRUA_DOMDIAG
+	{
+		static short dn;
+		if (++dn <= 60) {
+			dbg_log_num("ecsdom: present   = ", (long)dn);
+			dbg_log_num("ecsdom:   chg rows= ", (long)dom_chg);
+			dbg_log_num("ecsdom:   valid   = ", (long)e_quant_valid * 10
+			            + s_have_pal);
+		}
+	}
+#endif
+	if (ecs_dom_stale(dom_chg, dom_mask)) {
+		s_dirty       = 1;
+		e_quant_valid = 0;      /* bypass the CLUT-guard: content changed */
+		ecs_render();
+		memset(e_pend, 0, sizeof e_pend);
+		e_pend_init = 1;
+		e_new_ink   = 0;        /* the re-quant's own capture covers it */
+	}
 	/* NEW-INK re-quant trigger: SCHEDULE only — the next full present
 	 * re-bands against the complete frame (the standing mid-draw policy). */
 	if (s_have_pal && e_new_ink >= 4) {
@@ -827,6 +904,13 @@ static void ecs_present(void)
 
 static void ecs_present_rect(short x, short y, short w, short h)
 {
+#ifdef FRUA_DOMDIAG
+	{
+		static short rn;
+		if (++rn <= 60)
+			dbg_log_num("ecsdom: RECT present h = ", (long)h);
+	}
+#endif
 	unsigned char *front = s_planes[s_front];
 	unsigned char *planes[ECS_DEPTH];
 	short p, x1;
