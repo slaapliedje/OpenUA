@@ -270,6 +270,7 @@ static long sp_p1_cmpwords, sp_p1_inkbytes, sp_p1_built;
 static long sp_rb_vpcopy, sp_rb_quant, sp_rb_used, sp_rb_align, sp_rb_ffull;
 static long sp_rb_ffrows, sp_rb_ffcopy;   /* force-full: builds vs the 192 KB */
 static long sp_rb_n;
+static long sp_rb_dom;          /* re-bands the dominance probe caused */
 static long sp_cal_cmp, sp_cal_ink, sp_cal_bld, sp_cal_loop;  /* bench t200   */
 static short sp_ph1cal_done;
 #endif
@@ -1577,14 +1578,116 @@ static int st_patch_new_ink(void)
 	return 1;
 }
 
+/* How much of the frame must be redrawn before the dominance probe runs.
+ *
+ * A band's dominant set cannot move without a great many of its pixels moving
+ * first, so gating on the redraw is free accuracy AND the thing that keeps the
+ * probe out of the play loop: the 3D viewport composites from its own planar
+ * scratch and the HUD rewrites a few text rows, nowhere near half the frame,
+ * whereas the screen-to-screen transitions this exists for redraw all of it. */
+#define ST_DOM_ROWS (ST_H / 2)
+
+/* Are any of this present's redrawn bands quantised for content they no longer
+ * hold? (See quant_band_dominant_moved.) `chg` is the frame's changed-row
+ * count, `mask` the bands those rows fell in. */
+static int st_dom_stale(short chg, unsigned short mask)
+{
+	short b;
+
+#ifdef FRUA_DOMDIAG
+	{
+		static short dn;
+
+		if (++dn <= 40) {
+			dbg_log_num("domdiag: present     = ", (long)dn);
+			dbg_log_num("domdiag:   chg rows  = ", (long)chg);
+			dbg_log_num("domdiag:   band mask = ", (long)mask);
+			dbg_log_num("domdiag:   pal/valid = ",
+			            (long)s_have_pal * 10 + s_banded_valid);
+			dbg_log_num("domdiag:   vp_have/y/h= ",
+			            (long)s_vp_have * 1000000L
+			            + (long)s_vp_y * 1000L + s_vp_h);
+		}
+	}
+#endif
+#ifdef FRUA_NODOM
+	(void)chg; (void)mask;             /* A/B ablation: price the probe */
+	return 0;
+#endif
+	if (!s_have_pal || !s_banded_valid)
+		return 0;
+#ifdef FRUA_DOMALWAYS
+	return chg > 0;   /* CONTROL: is the mid-present re-band path itself sound,
+	                   * and is a pass-1 present even where the answer lives? */
+#endif
+	if (chg < ST_DOM_ROWS)
+		return 0;
+	for (b = 0; b < ST_NBANDS; b++) {
+		short y0, y1;
+
+		if (!(mask & (unsigned short)(1u << b)))
+			continue;
+		/* A band under the viewport was quantised from the composited
+		 * SCRATCH (see st_reband's wall pin), not from s_chunky, so its
+		 * recorded set describes pixels s_chunky never held and would
+		 * report "moved" on every present. Those bands are the viewport's
+		 * to manage; the scene changes this probe is for move the rest. */
+		y0 = (short)((long)b * ST_H / ST_NBANDS);
+		y1 = (short)((long)(b + 1) * ST_H / ST_NBANDS);
+		if (s_vp_have && y1 > s_vp_y && y0 < (short)(s_vp_y + s_vp_h))
+			continue;
+		if (quant_band_dominant_moved(s_chunky, ST_W, ST_H, ST_NBANDS, b,
+		                              s_band_used + (long)b * 256)) {
+#if defined(FRUA_PLANAR_DIAG) || defined(FRUA_DOMDIAG)
+			dbg_log_num("b4dom: stale band = ", (long)b);
+#endif
+			return 1;
+		}
+#ifdef FRUA_DOMDIAG
+		dbg_log_num("domdiag:   band ok    = ", (long)b);
+#endif
+	}
+	return 0;
+}
+
 static void st_dt_present_full(void)
 {
 	short y, pg, run0 = -1;
+	short          dom_chg  = 0;     /* changed rows this present            */
+	unsigned short dom_mask = 0;     /* bands they fell in (ST_NBANDS <= 16) */
+	short          dom_done = 0;     /* one dominance re-band per present    */
 #ifdef FRUA_STPROF
 	long rows_conv = 0, rows_skip = 0;
 #endif
 
+restart:
+	run0 = -1;
 	if (s_force_full > 0) {
+		/* PROBE HERE TOO. A force-full converts every row, so it is a full
+		 * redraw by definition — and it is the branch the screen-change
+		 * presents actually take, because the load that changed the screen
+		 * usually re-banded first and left this flag behind. Skipping it
+		 * was why the dominance trigger fired twice at boot and still left
+		 * the menu on stale bands: the present that drew the menu never ran
+		 * pass 1, so it never asked. Probing a frame the last re-band just
+		 * quantised is cheap and answers "not stale" — the test compares
+		 * the surface against a set derived from that same surface.
+		 *
+		 * Which is also why s_ink_fresh gates it, exactly as it gates the
+		 * new-ink scan two functions down and for the same reason: when a
+		 * re-band set this force-full, s_band_used came from THIS frame and
+		 * the probe cannot find anything. Most force-fulls are that case,
+		 * so the guard takes the boot's probe count from 20 to 9, with the
+		 * same 3 stale verdicts and a byte-identical menu. */
+		if (!dom_done && !s_ink_fresh
+		 && st_dom_stale(ST_H, (unsigned short)((1u << ST_NBANDS) - 1))) {
+			dom_done = 1;
+#ifdef FRUA_STPROF
+			sp_rb_dom++;
+#endif
+			st_reband();
+			goto restart;
+		}
 #ifdef FRUA_STPROF
 		/* #63: the force-full branch `goto log`s past the pass-1 timer, so
 		 * every reband's whole-frame rebuild landed in the UNATTRIBUTED
@@ -1675,6 +1778,9 @@ static void st_dt_present_full(void)
 #else
 			st_dt_ready_row(y);
 #endif
+			dom_chg++;
+			dom_mask |= (unsigned short)
+			    (1u << ((long)y * ST_NBANDS / ST_H));
 			if (run0 < 0)
 				run0 = y;
 		}
@@ -1697,6 +1803,37 @@ static void st_dt_present_full(void)
 	sp_ph_chg_rows  += rows_conv + rows_skip;
 	}
 #endif
+	/* THE PER-BAND PALETTES' OTHER TRIGGER.
+	 *
+	 * The CLUT guard above catches a re-band's usual cause, a palette load.
+	 * Per-band palettes have a second one it structurally cannot see: they
+	 * depend on where the content SITS, so a screen that replaces another
+	 * under an unchanged CLUT inherits palettes built for the screen it
+	 * replaced. That is what put the main menu on the credits screen's
+	 * bands — its backdrop index was already present in every band (a few
+	 * pixels), so the new-ink test found nothing new, while its POPULATION
+	 * went to 43,921. Presence cannot see that; dominance can.
+	 *
+	 * Correct it in THIS present, not by scheduling one. A settled screen
+	 * presents once and then waits for input, so a deferred re-band would
+	 * simply never run and the wrong palette would be the one on display.
+	 * The rows built just above are discarded — st_reband renumbers the
+	 * slots, which is exactly what the force-full path re-converts. */
+	if (!dom_done && st_dom_stale(dom_chg, dom_mask)) {
+#ifdef FRUA_STPROF
+		long td = Supexec(st_prof_hz200);
+
+		sp_rb_dom++;
+#endif
+		dom_done = 1;
+		st_reband();                     /* sets s_force_full */
+		dom_chg  = 0;
+		dom_mask = 0;
+#ifdef FRUA_STPROF
+		sp_ph_band += Supexec(st_prof_hz200) - td;
+#endif
+		goto restart;
+	}
 	if (s_nruns == 0)
 		goto log;
 
@@ -3097,6 +3234,7 @@ static void st_present(void)
 		 * vpcopy/quant/used/align sum to st_reband; ffull is the whole-frame
 		 * rebuild each reband forces afterwards. */
 		dbg_log_num("b63rb: rebands run     = ", sp_rb_n);
+		dbg_log_num("b63rb:   of them dominance= ", sp_rb_dom);
 		dbg_log_num("b63rb:   vp overlay    = ", sp_rb_vpcopy);
 		dbg_log_num("b63rb:   quant_banded  = ", sp_rb_quant);
 		dbg_log_num("b63rb:   used_idx scan = ", sp_rb_used);

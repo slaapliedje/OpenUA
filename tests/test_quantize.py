@@ -238,6 +238,104 @@ static int flat_area_test(void)
 	return 0;
 }
 
+/* --- the dominance trigger: a band goes stale when POPULATION moves ---------
+ *
+ * Presence is not enough, and this pins the case that proved it. On the credits
+ * -> main-menu transition the menu's backdrop index was ALREADY present in
+ * every band (a handful of pixels), so a presence test saw no new ink and never
+ * re-banded; the menu rendered on the credits screen's palettes. What changed
+ * was the index's POPULATION.
+ *
+ * Frames here are 200x20, one band, sampled every other row => 2000 counted
+ * pixels, so 3% (enter) is 60 and 2% (leave) is 40 — fine enough to sit a
+ * colour deliberately between the two bars and check the hysteresis.
+ */
+#define DW 200
+#define DH 20
+
+static void dom_frame(unsigned char *f, unsigned char bg, unsigned char fg,
+                      short npx)
+{
+	short i;
+
+	for (i = 0; i < DW * DH; i++) f[i] = bg;
+	for (i = 0; i < npx; i++) f[i] = fg;      /* row 0: a SAMPLED row */
+}
+
+static int dominance_test(void)
+{
+	unsigned char clut[768], f[DW * DH];
+	unsigned char pal[16 * 3], rem[256], used[256];
+	short i;
+
+	for (i = 0; i < 256; i++) {
+		clut[i*3+0] = (unsigned char)(i);
+		clut[i*3+1] = (unsigned char)(255 - i);
+		clut[i*3+2] = (unsigned char)((i * 7) & 0xff);
+	}
+
+	/* A: index 5 is the backdrop; index 9 is PRESENT on 50 of 2000 sampled
+	 * pixels — 2.5%, under the 3% bar, exactly the shape that fooled the
+	 * presence test. */
+	dom_frame(f, 5, 9, 50);
+	quant_banded(f, DW, DH, clut, 1, 16, 4, pal, rem, used);
+	if (used[5] != 2 || used[9] != 1) {
+		printf("DOM: classes wrong, used[5]=%d used[9]=%d (want 2,1)\n",
+		       used[5], used[9]);
+		return 1;
+	}
+	if (quant_band_dominant_moved(f, DW, DH, 1, 0, used)) {
+		printf("DOM: a frame is stale against its OWN quant\n");
+		return 1;
+	}
+
+	/* B: THE BUG. The two swap roles. Every index is still present in both
+	 * frames — only the populations moved — so this is precisely what a
+	 * presence test cannot see. */
+	dom_frame(f, 9, 5, 50);
+	if (!quant_band_dominant_moved(f, DW, DH, 1, 0, used)) {
+		printf("DOM: a swapped backdrop did not read as stale\n");
+		return 1;
+	}
+
+	/* C: index 9 at 58/2000 = 2.9%, just under the entry bar. A minor
+	 * colour drifting below 3% must not buy a re-band. */
+	dom_frame(f, 5, 9, 58);
+	if (quant_band_dominant_moved(f, DW, DH, 1, 0, used)) {
+		printf("DOM: 2.9%% tripped the 3%% entry bar\n");
+		return 1;
+	}
+	/* ...and at 60/2000 = 3.0% it does. */
+	dom_frame(f, 5, 9, 60);
+	if (!quant_band_dominant_moved(f, DW, DH, 1, 0, used)) {
+		printf("DOM: 3.0%% did not reach the entry bar\n");
+		return 1;
+	}
+
+	/* HYSTERESIS. Re-quant with index 9 dominant, then shrink it to 2.25% —
+	 * below the 3% it entered at but above the 2% it leaves at. Without the
+	 * gap a colour parked between the bars re-bands on every frame that
+	 * nudges it, and every one of those re-bands is invisible. */
+	dom_frame(f, 5, 9, 60);
+	quant_banded(f, DW, DH, clut, 1, 16, 4, pal, rem, used);
+	if (used[9] != 2) {
+		printf("DOM: 3.0%% did not earn class 2 (got %d)\n", used[9]);
+		return 1;
+	}
+	dom_frame(f, 5, 9, 45);
+	if (quant_band_dominant_moved(f, DW, DH, 1, 0, used)) {
+		printf("DOM: 2.25%% fell out of the set — no hysteresis\n");
+		return 1;
+	}
+	/* Below the lower bar it really is gone. */
+	dom_frame(f, 5, 9, 30);
+	if (!quant_band_dominant_moved(f, DW, DH, 1, 0, used)) {
+		printf("DOM: 1.5%% stayed in the set — the exit bar never fires\n");
+		return 1;
+	}
+	return 0;
+}
+
 int main(void)
 {
 	int bad = 0;
@@ -259,6 +357,7 @@ int main(void)
 	if (bad) return 1;
 	if (hue_fallback_test()) return 1;
 	if (flat_area_test()) return 1;
+	if (dominance_test()) return 1;
 	printf("OK  mse(8)=%ld mse(16)=%ld mse(32)=%ld  band-global-mse=%ld\n",
 	       e8, e16, e32, gmse);
 	return 0;

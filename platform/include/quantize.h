@@ -193,6 +193,28 @@ quant_reduce(const unsigned char *clut, short n, short bits,
  * backdrops) rather than merely frequent ones. */
 #define QUANT_KEEP_PCT  3
 
+/* Does a colour covering `c` of a band's `t` sampled pixels clear that bar?
+ * The DOMINANT set of a band is every index that does. Shared by quant_banded
+ * (which records the set) and quant_band_dominant (which recomputes it later
+ * to ask whether it MOVED); the two must apply exactly the same rule or the
+ * comparison is noise, hence the macro rather than two copies of the test. */
+#define QUANT_IS_DOM(c, t) ((long)(c) * 100 >= (long)(t) * QUANT_KEEP_PCT)
+
+/* HYSTERESIS. A colour ENTERS the dominant set at QUANT_KEEP_PCT and only
+ * LEAVES it below this lower bar. Without the gap, a colour hovering at the
+ * threshold — a panel a few pixels of text keeps nudging either side of 3% —
+ * would flip the set on alternate frames and bill a full re-band for each
+ * flip, all of them invisible. The gap costs nothing where it matters: the
+ * transition this trigger exists for moves a colour from a handful of pixels
+ * to two thirds of the screen. */
+#define QUANT_DOM_LO_PCT 2
+#define QUANT_LEFT_DOM(c, t) ((long)(c) * 100 < (long)(t) * QUANT_DOM_LO_PCT)
+
+/* How a band's rows are SAMPLED for the population histogram — every other
+ * row (see the comment on the histogram loop in quant_banded). Also shared,
+ * for the same reason. */
+#define QUANT_ROW_STEP  2
+
 /*
  * Per-horizontal-band quantiser. Split the WxH chunky frame into `nbands`
  * equal horizontal strips; for each strip reduce the CLUT colours that
@@ -220,11 +242,24 @@ quant_reduce(const unsigned char *clut, short n, short bits,
  *     it costs 685 seam pixels with a plain per-band cut and 100 with this.
  *
  *   band_pal[nbands*ncol*3] — per-band snapped palettes
- *   band_used[nbands*256]   — OPTIONAL (NULL to skip): 1 where that band
- *                             actually contained the index. A per-band
- *                             quantiser's palettes depend on CONTENT as well
- *                             as the CLUT, so a caller needs this to know when
- *                             the LAYOUT has moved and the bands are stale.
+ *   band_used[nbands*256]   — OPTIONAL (NULL to skip). Per band and index:
+ *                             0 absent, 1 present, 2 DOMINANT (>= KEEP_PCT of
+ *                             the band — the flat-area colours the reservation
+ *                             above is built around). A per-band quantiser's
+ *                             palettes depend on CONTENT as well as the CLUT,
+ *                             so a caller needs this to know when the LAYOUT
+ *                             has moved and the bands are stale.
+ *
+ *                             PRESENCE ALONE IS NOT ENOUGH, and finding that
+ *                             out cost a debugging round: on the credits ->
+ *                             main-menu transition the menu's backdrop index
+ *                             was ALREADY present in every band (a handful of
+ *                             pixels), so a presence test saw no new ink and
+ *                             never re-banded — the menu rendered on the
+ *                             credits screen's palettes. What changed was its
+ *                             POPULATION, a few pixels to 43,921. Hence the
+ *                             third level, and quant_band_dominant below to
+ *                             re-ask the question cheaply.
  *   band_remap[nbands*256]  — per-band remap LUTs. Colours ABSENT from a band
  *                             at build time still get a mapping — the reduced
  *                             entry nearest in weighted RGB — because content
@@ -242,6 +277,7 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
                          unsigned char *band_used)
 {
 	static unsigned char present[QUANT_MAX_BANDS][32];  /* per-band, 1 bit/idx */
+	static unsigned char domin[QUANT_MAX_BANDS][32];    /* ditto, >= KEEP_PCT  */
 	unsigned short cnt[256];         /* this band's population histogram   */
 	unsigned char  kept[256];        /* 0 = no, else exact slot + 1        */
 	unsigned char cclut[256 * 3];
@@ -276,13 +312,21 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 			 * a stale byte here would index pos[] out of bounds. */
 			brem[i] = 0;
 		}
-		for (y = y0; y < y1; y += 2) {
+		for (y = y0; y < y1; y += QUANT_ROW_STEP) {
 			const unsigned char *row = chunky + (long)y * w;
 
 			for (x = 0; x < w; x++)
 				cnt[row[x]]++;
 			total += w;
 		}
+
+		/* Record the DOMINANT set while the histogram is still live — the
+		 * caller's staleness test compares against it (see band_used). */
+		for (i = 0; i < 32; i++)
+			domin[b][i] = 0;
+		for (i = 0; i < 256; i++)
+			if (cnt[i] && QUANT_IS_DOM(cnt[i], total))
+				domin[b][i >> 3] |= (unsigned char)(1u << (i & 7));
 
 		/* Reserve exact slots for the most populous colours. Repeated
 		 * max-scans (at most QUANT_KEEP passes over 256) rather than a
@@ -526,16 +570,75 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 				band_remap[(long)b * 256 + i] = (unsigned char)canon;
 			}
 		}
-		/* Hand the caller the per-band presence as a byte table. The ST's
-		 * new-ink re-quant trigger scans it per row, so a bit test would
-		 * cost more than the 256 bytes a band it saves. */
+		/* Hand the caller the per-band presence/dominance as a byte table.
+		 * The ST's new-ink re-quant trigger scans it per row, so a bit test
+		 * would cost more than the 256 bytes a band it saves. */
 		if (band_used)
 			for (b = 0; b < nbands; b++)
 				for (i = 0; i < 256; i++)
-					band_used[(long)b * 256 + i] =
-					    (unsigned char)((present[b][i >> 3]
-					                     >> (i & 7)) & 1u);
+					band_used[(long)b * 256 + i] = (unsigned char)
+					    (((present[b][i >> 3] >> (i & 7)) & 1u)
+					     + ((domin[b][i >> 3] >> (i & 7)) & 1u));
 	}
+}
+
+/*
+ * HAS ONE BAND'S DOMINANT SET MOVED SINCE THE QUANT THAT PRODUCED band_used?
+ *
+ * Re-runs only the population histogram for `band` over the CURRENT surface
+ * and compares which indices clear QUANT_KEEP_PCT against the class-2 entries
+ * of `band_used_row` (that band's 256 bytes from quant_banded). Returns 1 if
+ * they differ — the band's reservations no longer describe its content, so its
+ * palette is stale and the caller should re-band. The comparison is hysteretic
+ * (QUANT_DOM_LO_PCT): in at 3%, out below 2%.
+ *
+ * WHY A RE-HISTOGRAM RATHER THAN A PROXY. The caller wants an exact answer to
+ * "would the reservation change?", and the only thing that answers it exactly
+ * is the histogram the reservation is built from. It is also far cheaper than
+ * it looks next to what it is deciding: one band is h/nbands rows sampled every
+ * other row, whereas the re-band it gates costs a full re-quant of every band
+ * PLUS the whole-frame re-conversion of both pages. The proxies considered
+ * first — count converted rows, or count pixels of non-reserved colours — are
+ * cheaper still but answer a different question, and both fire on ordinary
+ * text redraw, where a re-band is pure loss.
+ *
+ * The caller is expected to gate this on a large redraw (see ST_DOM_ROWS in
+ * display_ste.c): the set cannot move without the pixels moving first, and
+ * skipping the probe on quiet presents is free.
+ */
+static __attribute__((unused)) int
+quant_band_dominant_moved(const unsigned char *chunky, short w, short h,
+                          short nbands, short band,
+                          const unsigned char *band_used_row)
+{
+	unsigned short cnt[256];
+	short y0, y1, i, x, y;
+	long  total = 0;
+
+	if (nbands < 1)
+		nbands = 1;
+	y0 = (short)((long)band * h / nbands);
+	y1 = (short)((long)(band + 1) * h / nbands);
+	for (i = 0; i < 256; i++)
+		cnt[i] = 0;
+	for (y = y0; y < y1; y += QUANT_ROW_STEP) {
+		const unsigned char *row = chunky + (long)y * w;
+
+		for (x = 0; x < w; x++)
+			cnt[row[x]]++;
+		total += w;
+	}
+	if (total == 0)
+		return 0;
+	for (i = 0; i < 256; i++) {
+		if (band_used_row[i] == 2) {
+			if (QUANT_LEFT_DOM(cnt[i], total))
+				return 1;               /* fell out of the set */
+		} else if (cnt[i] && QUANT_IS_DOM(cnt[i], total)) {
+			return 1;                       /* rose into it */
+		}
+	}
+	return 0;
 }
 
 #endif /* PLATFORM_QUANTIZE_H */
