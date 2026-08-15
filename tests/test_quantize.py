@@ -87,24 +87,30 @@ static long reduce_mse(short n, short bits, int *bad)
 #define BH 8
 static long band_test(int *bad)
 {
-	/* CLUT: 32 distinct grid colours. Image: top 4 rows use colours 0..15,
-	 * bottom 4 use 16..31 — 32 colours total, but only 16 per band. A global
-	 * reduce to 16 must merge; a 2-band reduce to 16 fits each band exactly. */
+	/* CLUT: 30 distinct grid colours. Image: top 4 rows use colours 0..14,
+	 * bottom 4 use 15..29 — 30 colours total, but only 15 per band. A global
+	 * reduce to 16 must merge; a 2-band reduce to 16 fits each band exactly.
+	 *
+	 * FIFTEEN per band, not sixteen, and that is the point: slot 0 is
+	 * reserved for the hardware border in every band (see quant_banded), so
+	 * ncol slots reproduce ncol-1 content colours exactly. None of these
+	 * random grid colours is the border colour, so each band pays for it. */
 	unsigned char clut[768], chunky[BW * BH];
 	unsigned char gpal[16 * 3], grem[256];
 	unsigned char bpal[2 * 16 * 3], brem[2 * 256];
 	short i, x, y;
 	long gmse = 0, bmse = 0;
 
-	for (i = 0; i < 32; i++) {
+	for (i = 0; i < 30; i++) {
 		clut[i*3+0] = (rnd() / 16) * 16 + 8;
 		clut[i*3+1] = (rnd() / 16) * 16 + 8;
 		clut[i*3+2] = (rnd() / 16) * 16 + 8;
 	}
-	for (i = 96; i < 768; i++) clut[i] = 0;
+	for (i = 90; i < 768; i++) clut[i] = 0;
 	for (y = 0; y < BH; y++)
 		for (x = 0; x < BW; x++)
-			chunky[y*BW+x] = (y < BH/2) ? (x & 15) : (16 + (x & 15));
+			chunky[y*BW+x] = (unsigned char)((y < BH/2) ? (x % 15)
+			                                           : (15 + (x % 15)));
 
 	quant_banded(chunky, BW, BH, clut, 1, 16, 4, gpal, grem, (unsigned char *)0);   /* global   */
 	quant_banded(chunky, BW, BH, clut, 2, 16, 4, bpal, brem, (unsigned char *)0);   /* 2 bands  */
@@ -238,6 +244,70 @@ static int flat_area_test(void)
 	return 0;
 }
 
+/* --- slot 0 is the hardware BORDER and must be identical in every band -----
+ *
+ * The ST shows colour register 0 in the border, and no pixel index is involved
+ * there — so nothing in a band's content constrains it, and bands that
+ * disagree stripe the border across the full width of the display, well
+ * outside the 320-pixel image. Measured on the HEIRS entry-event screen as a
+ * brown bar over engine rows 40-59 and a dark-green one over 60-79.
+ *
+ * The setup is what makes this bite: the two bands share NO colours, and
+ * neither contains black. The old fix picked the darkest slot out of band 0
+ * and applied that one swap to every band, which is only sound if slot k means
+ * the same colour everywhere — and pass 2 aligns by NEAREST colour, not
+ * identity. With disjoint palettes there is nothing near, so band 1's slot
+ * `best` held a content colour and went straight to the border. */
+static int border_slot_test(void)
+{
+	unsigned char clut[768], chunky[BW * BH];
+	unsigned char bpal[2 * 8 * 3], brem[2 * 256];
+	unsigned char *p0, *p1;
+	short i, x, y;
+
+	for (i = 0; i < 768; i++) clut[i] = 0;
+	/* band 0: warm browns. band 1: cool greens. No black, no overlap. */
+	for (i = 0; i < 8; i++) {
+		clut[i*3+0] = (unsigned char)(120 + i * 8);
+		clut[i*3+1] = (unsigned char)( 70 + i * 4);
+		clut[i*3+2] = (unsigned char)( 40 + i * 2);
+	}
+	for (i = 8; i < 16; i++) {
+		clut[i*3+0] = (unsigned char)( 40 + (i-8) * 2);
+		clut[i*3+1] = (unsigned char)(110 + (i-8) * 8);
+		clut[i*3+2] = (unsigned char)( 60 + (i-8) * 4);
+	}
+	for (y = 0; y < BH; y++)
+		for (x = 0; x < BW; x++)
+			chunky[y*BW+x] = (unsigned char)((y < BH/2) ? (x & 7)
+			                                           : (8 + (x & 7)));
+
+	quant_banded(chunky, BW, BH, clut, 2, 8, 4, bpal, brem, (unsigned char *)0);
+
+	p0 = bpal + 0 * 8 * 3;
+	p1 = bpal + 1 * 8 * 3;
+	if (p0[0] != p1[0] || p0[1] != p1[1] || p0[2] != p1[2]) {
+		printf("BORDER: slot 0 is %d,%d,%d in band 0 but %d,%d,%d in band 1"
+		       " — the border stripes\n",
+		       p0[0],p0[1],p0[2], p1[0],p1[1],p1[2]);
+		return 1;
+	}
+	if (p0[0] != quant_snap(0, 4) || p0[1] != quant_snap(0, 4)
+	 || p0[2] != quant_snap(0, 4)) {
+		printf("BORDER: slot 0 is %d,%d,%d, want the snapped black %d\n",
+		       p0[0],p0[1],p0[2], quant_snap(0, 4));
+		return 1;
+	}
+	/* And nothing may be MAPPED there — the content is disjoint from black,
+	 * so a remap landing on slot 0 would render a content colour as border. */
+	for (i = 0; i < 16; i++)
+		if (brem[(i < 8 ? 0 : 256) + i] == 0) {
+			printf("BORDER: content index %d maps to the border slot\n", i);
+			return 1;
+		}
+	return 0;
+}
+
 /* --- the dominance trigger: a band goes stale when POPULATION moves ---------
  *
  * Presence is not enough, and this pins the case that proved it. On the credits
@@ -357,6 +427,7 @@ int main(void)
 	if (bad) return 1;
 	if (hue_fallback_test()) return 1;
 	if (flat_area_test()) return 1;
+	if (border_slot_test()) return 1;
 	if (dominance_test()) return 1;
 	printf("OK  mse(8)=%ld mse(16)=%ld mse(32)=%ld  band-global-mse=%ld\n",
 	       e8, e16, e32, gmse);

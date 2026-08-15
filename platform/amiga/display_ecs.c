@@ -371,6 +371,12 @@ static void ecs_repalette(void)
 		for (i = 0; i < ECS_NCOL; i++) {
 			unsigned char rep = e_slot_rep[b][i];
 
+			/* Slot 0 is quant_banded's reserved colour, identical in
+			 * every band. Leave it alone: a rebuild must not be able to
+			 * un-reserve it (the ST hit exactly that — see the reserve
+			 * comment in quantize.h). */
+			if (i == 0)
+				continue;
 			if (rep == 0xFF)
 				continue;
 			*s_cop_pal[b][i] = (UWORD)(((s_clut[rep * 3 + 0] >> 4) << 8)

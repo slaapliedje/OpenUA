@@ -267,7 +267,7 @@ static long sp_p1_cmpwords, sp_p1_inkbytes, sp_p1_built;
  * around it: quant_banded's own histogram, the separate 64000-iteration
  * s_used_idx capture right after it, and the viewport overlay memcpy. Time
  * them apart before touching any of them. */
-static long sp_rb_vpcopy, sp_rb_quant, sp_rb_used, sp_rb_align, sp_rb_ffull;
+static long sp_rb_vpcopy, sp_rb_quant, sp_rb_used, sp_rb_ffull;
 static long sp_rb_ffrows, sp_rb_ffcopy;   /* force-full: builds vs the 192 KB */
 static long sp_rb_n;
 static long sp_rb_dom;          /* re-bands the dominance probe caused */
@@ -842,7 +842,13 @@ static void st_repalette(void)
 			unsigned char *bpal = s_band_pal
 			                    + (long)b * ST_NCOL * 3;
 
-			for (s = 0; s < ST_NCOL; s++) {
+			/* Slot 0 is the reserved border colour (see quant_banded),
+			 * and this loop would hand it back to whatever index
+			 * st_compute_slot_reps picked for it — index 0 by default,
+			 * in a band where nothing maps there at all. Rebuilding a
+			 * palette must not be able to un-reserve it. */
+			bpal[0] = bpal[1] = bpal[2] = quant_snap(0, ST_BITS);
+			for (s = 1; s < ST_NCOL; s++) {
 				unsigned char idx = s_slot_rep[b][s];
 
 				bpal[s * 3 + 0] = quant_snap(s_clut[idx * 3 + 0], ST_BITS);
@@ -938,72 +944,16 @@ static void st_reband(void)
 	}
 #endif
 
-#ifdef FRUA_STPROF
-	{ long ta = Supexec(st_prof_hz200);
-#endif
-	/* ★ SLOT 0 IS THE ST BORDER — PUT SOMETHING DARK THERE, IN EVERY BAND.
-	 *
-	 * quant_banded has already aligned the bands' slot numbering (its pass 2)
-	 * so that slot k means the same colour everywhere, and resolved absent
-	 * colours against one canonical palette. That alignment is what the
-	 * border rule must NOT disturb: permuting each band independently would
-	 * put slot k back to meaning different things and re-open the seam.
-	 *
-	 * So choose the darkest slot ONCE, from band 0, and apply the SAME swap
-	 * to every band. A permutation applied identically to all bands preserves
-	 * the alignment exactly, and palette and remap move together so every
-	 * pixel keeps its colour.
-	 *
-	 * Why it matters: the ST shows colour register 0 in the border, where no
-	 * pixel index is involved at all. Each band's slot 0 lights the border on
-	 * its own scanlines, so bands that disagree stripe the border — and with
-	 * one replicated palette this used to be measured at 174976 pixels of a
-	 * menu grab, entirely outside the 320x200 image.
-	 *
-	 * This replaces the B3.2 correspondence alignment, which matched band 0
-	 * against the PREVIOUS FRAME's band 0. That existed to let rows skip
-	 * re-conversion after a re-band, but the smart-skip it fed was removed
-	 * 2026-07-26, every re-band force-fulls both pages since, and its own
-	 * comment recorded that the frame is bit-identical either way. */
-	{
-		short b, n, v, best = 0;
-		long  bestd = 0x7fffffffL;
-
-		for (n = 0; n < ST_NCOL; n++) {
-			long r = s_band_pal[n * 3 + 0], g = s_band_pal[n * 3 + 1];
-			long bl = s_band_pal[n * 3 + 2];
-			long d = 2L * r * r + 5L * g * g + bl * bl;
-
-			if (d < bestd) { bestd = d; best = n; }
-		}
-		if (best != 0) {
-			for (b = 0; b < ST_NBANDS; b++) {
-				unsigned char *bpal = s_band_pal
-				                    + (long)b * ST_NCOL * 3;
-				unsigned char *brem = s_band_remap + (long)b * 256;
-				unsigned char t[3];
-
-				t[0] = bpal[0]; t[1] = bpal[1]; t[2] = bpal[2];
-				bpal[0] = bpal[best * 3 + 0];
-				bpal[1] = bpal[best * 3 + 1];
-				bpal[2] = bpal[best * 3 + 2];
-				bpal[best * 3 + 0] = t[0];
-				bpal[best * 3 + 1] = t[1];
-				bpal[best * 3 + 2] = t[2];
-				for (v = 0; v < 256; v++) {
-					if (brem[v] == 0)
-						brem[v] = (unsigned char)best;
-					else if (brem[v] == best)
-						brem[v] = 0;
-				}
-			}
-		}
-	}
-#ifdef FRUA_STPROF
-	sp_rb_align += Supexec(st_prof_hz200) - ta;
-	}
-#endif
-
+	/* SLOT 0 — THE HARDWARE BORDER — is now reserved by quant_banded, which
+	 * gives every band the same colour there by construction. This used to be
+	 * a post-pass here: pick the darkest slot out of BAND 0's palette and
+	 * apply that one swap to every band, on the reasoning that a permutation
+	 * applied identically preserves pass 2's alignment. The premise was the
+	 * problem — pass 2 aligns by NEAREST colour, not identity, so in a band
+	 * holding colours the reference lacks, slot `best` was not black at all
+	 * and the swap installed a picture colour in the border. See the reserve
+	 * comment in quantize.h for the measurement that caught it.
+	 */
 	st_compute_slot_reps();          /* B4 Phase-0: reps for palette-only rebands */
 	st_build_hw_palette();
 
@@ -3238,7 +3188,6 @@ static void st_present(void)
 		dbg_log_num("b63rb:   vp overlay    = ", sp_rb_vpcopy);
 		dbg_log_num("b63rb:   quant_banded  = ", sp_rb_quant);
 		dbg_log_num("b63rb:   used_idx scan = ", sp_rb_used);
-		dbg_log_num("b63rb:   slot align    = ", sp_rb_align);
 		dbg_log_num("b63rb:   FORCE-FULL    = ", sp_rb_ffull);
 			dbg_log_num("b63rb:     ff rowbuilds= ", sp_rb_ffrows);
 			dbg_log_num("b63rb:     ff copies   = ", sp_rb_ffcopy);

@@ -328,6 +328,47 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 			if (cnt[i] && QUANT_IS_DOM(cnt[i], total))
 				domin[b][i >> 3] |= (unsigned char)(1u << (i & 7));
 
+		/* ★ SLOT 0 IS THE HARDWARE BORDER, SO IT IS RESERVED FIRST AND
+		 * IDENTICALLY IN EVERY BAND.
+		 *
+		 * The ST shows colour register 0 in the border, and the Amiga
+		 * colour 0 behind everything — screen area where no pixel index is
+		 * involved at all, so nothing in the band's content constrains it.
+		 * With a per-band palette each band lights the border on its OWN
+		 * scanlines, and bands that disagree STRIPE it: measured on the
+		 * HEIRS entry-event screen as a brown bar over engine rows 40-59
+		 * and a dark-green one over 60-79, both running the full width of
+		 * the display, well outside the 320-pixel image.
+		 *
+		 * It has to be reserved HERE rather than swapped into place after
+		 * the cut, which is what used to happen (see st_reband). That swap
+		 * assumed pass 2 had made slot k mean the same colour everywhere,
+		 * and pass 2 does not: it matches each band's live entries to the
+		 * reference's positions by NEAREST colour, so a band holding a
+		 * colour the reference lacks lands somewhere merely close. Picking
+		 * "the darkest slot" from band 0 and applying that swap to every
+		 * band therefore moved a picture colour into position 0 in exactly
+		 * the colour-rich bands that had no black of their own to offer.
+		 *
+		 * Costs one of ncol per band. Near-free where the band contains
+		 * black — the dup check below hands that index this very slot — and
+		 * on a band that contains none it buys a border that matches its
+		 * neighbours', which is the whole point. */
+		bpal[0] = bpal[1] = bpal[2] = quant_snap(0, bits);
+		nkeep = 1;
+		/* A band that HOLDS black pays nothing for this: hand every index
+		 * that snaps to the border colour slot 0 up front, so it neither
+		 * earns a reservation of its own nor buys a second black out of
+		 * the cut's budget. Only a band with no black in it — the
+		 * colour-rich picture bands, the ones that striped — spends a
+		 * slot it would not otherwise have spent. */
+		for (i = 0; i < 256; i++)
+			if (cnt[i]
+			 && quant_snap(clut[i * 3 + 0], bits) == bpal[0]
+			 && quant_snap(clut[i * 3 + 1], bits) == bpal[1]
+			 && quant_snap(clut[i * 3 + 2], bits) == bpal[2])
+				kept[i] = 1;              /* slot 0 + 1 */
+
 		/* Reserve exact slots for the most populous colours. Repeated
 		 * max-scans (at most QUANT_KEEP passes over 256) rather than a
 		 * sort — the budget is tiny and this stays 68000-cheap.
@@ -337,6 +378,7 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 		keepmax = (short)(ncol / 2);
 		if (keepmax > QUANT_KEEP)
 			keepmax = QUANT_KEEP;
+		keepmax++;               /* the border slot is not a reservation */
 		while (nkeep < keepmax) {
 			short bi = -1;
 			unsigned short bc = 0;
@@ -449,6 +491,10 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 		 * from the reference below */
 		for (i = live[b]; i < ncol; i++)
 			tkn[i] = 1;
+		/* Entry 0 is the reserved border colour, the same in every band.
+		 * PIN it to position 0 — letting the greedy match carry it
+		 * somewhere merely near would give the reservation away again. */
+		tkn[0] = 1; tkp[0] = 1; pos[0] = 0;
 		for (k = 0; k < live[b]; k++) {
 			long  bestd = 0x7FFFFFFFL;
 			short bn = -1, bp = -1;
