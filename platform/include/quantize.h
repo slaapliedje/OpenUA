@@ -184,6 +184,11 @@ quant_reduce(const unsigned char *clut, short n, short bits,
 
 #define QUANT_MAX_BANDS 40
 
+/* Largest ncol pass 2's precomputed distance matrix covers. No backend
+ * asks for more than 32 (ECS); a larger request still works, it just
+ * recomputes distances in place as it used to. */
+#define QUANT_ALIGN_N   32
+
 /* How many of a band's most POPULOUS colours are reproduced EXACTLY, before
  * the median cut divides what is left. See quant_banded. Bounded by ncol/2 so
  * the cut always keeps at least half the budget. */
@@ -277,6 +282,7 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
                          unsigned char *band_used)
 {
 	static unsigned char present[QUANT_MAX_BANDS][32];  /* per-band, 1 bit/idx */
+	static long dmat[QUANT_ALIGN_N][QUANT_ALIGN_N];     /* pass-2 pair distances */
 	static unsigned char domin[QUANT_MAX_BANDS][32];    /* ditto, >= KEEP_PCT  */
 	unsigned short cnt[256];         /* this band's population histogram   */
 	unsigned char  kept[256];        /* 0 = no, else exact slot + 1        */
@@ -502,6 +508,29 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 		 * matcher, not of the reservation, and the reservation should not
 		 * depend on it. */
 		tkn[0] = 1; tkp[0] = 1; pos[0] = 0;
+		/* THE PAIR DISTANCES DO NOT CHANGE BETWEEN ROUNDS — compute them
+		 * ONCE. The greedy below runs live[b] rounds and each round used
+		 * to re-derive every surviving (entry, position) distance, so a
+		 * 16-slot band evaluated ~4096 weighted distances where 256
+		 * describe the whole problem. Rounds only ever REMOVE a row and a
+		 * column; the numbers are fixed. Same picks, same output, 16x
+		 * fewer multiplies — and multiplies are what this loop is, three
+		 * per distance on a CPU with no 32-bit multiply.
+		 *
+		 * The matrix is static, not a local: quant_banded's frame is
+		 * already ~2 KB and both 68000 targets run it on a modest stack
+		 * (see plat_sys.h / sys_amiga.c). QUANT_MAX_N is 64, but no
+		 * backend asks for more than 32 colours, so the table is sized
+		 * for 32 and anything larger falls back to computing in place. */
+		for (nn = 0; nn < live[b] && ncol <= QUANT_ALIGN_N; nn++) {
+			for (pp = 0; pp < ncol; pp++) {
+				long dr = (long)bpal[nn * 3 + 0] - rpal[pp * 3 + 0];
+				long dg = (long)bpal[nn * 3 + 1] - rpal[pp * 3 + 1];
+				long db = (long)bpal[nn * 3 + 2] - rpal[pp * 3 + 2];
+
+				dmat[nn][pp] = 2L * dr * dr + 5L * dg * dg + db * db;
+			}
+		}
 		for (k = 0; k < live[b]; k++) {
 			long  bestd = 0x7FFFFFFFL;
 			short bn = -1, bp = -1;
@@ -510,14 +539,22 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 				if (tkn[nn])
 					continue;
 				for (pp = 0; pp < ncol; pp++) {
-					long dr, dg, db, d;
+					long d;
 
 					if (tkp[pp])
 						continue;
-					dr = (long)bpal[nn * 3 + 0] - rpal[pp * 3 + 0];
-					dg = (long)bpal[nn * 3 + 1] - rpal[pp * 3 + 1];
-					db = (long)bpal[nn * 3 + 2] - rpal[pp * 3 + 2];
-					d  = 2L * dr * dr + 5L * dg * dg + db * db;
+					if (ncol <= QUANT_ALIGN_N) {
+						d = dmat[nn][pp];
+					} else {
+						long dr = (long)bpal[nn * 3 + 0]
+						        - rpal[pp * 3 + 0];
+						long dg = (long)bpal[nn * 3 + 1]
+						        - rpal[pp * 3 + 1];
+						long db = (long)bpal[nn * 3 + 2]
+						        - rpal[pp * 3 + 2];
+						d = 2L * dr * dr + 5L * dg * dg
+						  + db * db;
+					}
 					if (d < bestd) { bestd = d; bn = nn; bp = pp; }
 				}
 			}
