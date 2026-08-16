@@ -77,6 +77,15 @@ static unsigned char  s_band_pal[ECS_NBANDS * ECS_NCOL * 3];
 static unsigned char  s_band_remap[ECS_NBANDS * 256];
 static short          s_dirty;
 static short          s_have_pal;
+/* ACCUMULATED across presents, not per-present, and reset only by a re-band.
+ * A title picture does not arrive in one go: measured here it lands in chunks
+ * of 31, 74 and 77 rows, so a per-present gate of ECS_H/2 never trips and the
+ * screen keeps the palette its predecessor was quantised for. What matters is
+ * how much has changed SINCE the bands were built, which is a running total.
+ *
+ * Cleared whenever the probe actually runs — verdict either way — so this
+ * doubles as the rate limit: at most one probe per ECS_DOM_ROWS of change. */
+static short         e_dom_rows[ECS_NBANDS];
 
 #ifdef FRUA_PLANAR
 /* Draw-time plane path buffers (bodies further down, past ecs_repalette). */
@@ -369,7 +378,10 @@ static int ecs_remap_split(void)
 /* Content-same palette change: reload the copper COLOR words from the NEW
  * CLUT via each band-slot's representative index. Same 4-bit encoding as
  * ecs_reband. Empty slots (rep 0xFF) keep their words. */
-static void ecs_repalette(void)
+/* Copper COLOR words only — no CLUT snapshot. ecs_repalette adds that; the
+ * set_palette path must NOT, because the snapshot is what tells ecs_present
+ * the bands are current and cancels the re-quant this only stands in for. */
+static void ecs_copper_palette_only(void)
 {
 	short b, i;
 
@@ -389,6 +401,11 @@ static void ecs_repalette(void)
 			                          | ((s_clut[rep * 3 + 1] >> 4) << 4)
 			                          | (s_clut[rep * 3 + 2] >> 4));
 		}
+}
+
+static void ecs_repalette(void)
+{
+	ecs_copper_palette_only();
 	memcpy(e_clut_quant, s_clut, sizeof e_clut_quant);
 }
 
@@ -602,12 +619,14 @@ static void ecs_reband(void)
 	s_dirty = 0;
 	s_have_pal = 1;
 	s_force_full = 1;               /* every LUT moved: row diffing is void */
+	memset(e_dom_rows, 0, sizeof e_dom_rows); /* bands describe THIS surface */
 }
 
 /* How much of the frame must be redrawn before the dominance probe runs — a
  * band's dominant set cannot move without a great many of its pixels moving
  * first, so quiet presents never pay for it. */
-#define ECS_DOM_ROWS (ECS_H / 2)
+#define ECS_DOM_ROWS (ECS_RPB / 2)
+
 
 /* Are any of this present's redrawn bands quantised for content they no longer
  * hold? The ST's st_dom_stale, ported; see quant_band_dominant_moved.
@@ -619,15 +638,16 @@ static void ecs_reband(void)
  * indices are usually all present already, a few pixels each. What moves is
  * their POPULATION. Caught live on the UNLIMITED ADVENTURES title screen,
  * which rendered its wizard art through the previous screen's red palette. */
-static int ecs_dom_stale(short chg, unsigned long mask)
+static int ecs_dom_stale(void)
 {
 	short b;
 
-	if (!s_have_pal || !e_quant_valid || chg < ECS_DOM_ROWS)
+	if (!s_have_pal || !e_quant_valid)
 		return 0;
 	for (b = 0; b < ECS_NBANDS; b++) {
-		if (!(mask & (1UL << b)))
+		if (e_dom_rows[b] < ECS_DOM_ROWS)
 			continue;
+		e_dom_rows[b] = 0;
 		if (quant_band_dominant_moved(s_chunky, ECS_W, ECS_H,
 		                              ECS_NBANDS, b, e_dom_band[b])) {
 			dbg_log_num("ecs: bands stale, re-quant at band = ", (long)b);
@@ -764,8 +784,6 @@ static void ecs_present(void)
 	unsigned char *front;
 	unsigned char *planes[ECS_DEPTH];
 	short p, y;
-	short         dom_chg  = 0;      /* changed rows this present            */
-	unsigned long dom_mask = 0;      /* bands they fell in (ECS_NBANDS = 25) */
 #ifdef FRUA_AMIGAPROF
 	long ap_t0 = amiga_prof_rl();
 #endif
@@ -834,8 +852,7 @@ static void ecs_present(void)
 #endif
 			if (!changed)
 				continue;
-			dom_chg++;
-			dom_mask |= 1UL << ((long)y * ECS_NBANDS / ECS_H);
+			e_dom_rows[(long)y * ECS_NBANDS / ECS_H]++;
 #ifdef FRUA_AMIGAPROF
 			ap_conv_rows++;
 #endif
@@ -875,13 +892,12 @@ static void ecs_present(void)
 		static short dn;
 		if (++dn <= 60) {
 			dbg_log_num("ecsdom: present   = ", (long)dn);
-			dbg_log_num("ecsdom:   chg rows= ", (long)dom_chg);
 			dbg_log_num("ecsdom:   valid   = ", (long)e_quant_valid * 10
 			            + s_have_pal);
 		}
 	}
 #endif
-	if (ecs_dom_stale(dom_chg, dom_mask)) {
+	if (ecs_dom_stale()) {
 		s_dirty       = 1;
 		e_quant_valid = 0;      /* bypass the CLUT-guard: content changed */
 		ecs_render();
@@ -968,25 +984,56 @@ static void ecs_present_rect(short x, short y, short w, short h)
 
 static void ecs_set_palette(const dsp_color_t *colors, short first, short count)
 {
-	short i;
+	short i, moved = 0;
 
 	if (s_cop == NULL)
 		return;
+	/* Did anything actually MOVE? The engine re-installs a palette
+	 * defensively, and the CLUT guard in ecs_present already makes that a
+	 * no-op — but the copper rewrite below would still run for it. */
 	for (i = 0; i < count; i++) {
 		short idx = (short)(first + i);
+		unsigned char *e;
 
 		if (idx < 0 || idx > 255)
 			continue;
-		s_clut[idx * 3 + 0] = colors[i].r;
-		s_clut[idx * 3 + 1] = colors[i].g;
-		s_clut[idx * 3 + 2] = colors[i].b;
+		e = s_clut + (long)idx * 3;
+		if (e[0] != colors[i].r || e[1] != colors[i].g
+		 || e[2] != colors[i].b)
+			moved = 1;
+		e[0] = colors[i].r;
+		e[1] = colors[i].g;
+		e[2] = colors[i].b;
 	}
 	/* Only a SUBSTANTIAL load (a scene change) marks the bands dirty; small
 	 * writes are palette cycling, whose re-band + full re-render churn is
 	 * what froze the ST live test (same policy there). Deferred to the next
 	 * full present, when the surface is completely drawn. */
-	if (count >= 32 || !s_have_pal)
+	if (count >= 32 || !s_have_pal) {
 		s_dirty = 1;
+		/* ...but the COLOURS land now, the way the hardware this port came
+		 * from would do it: there the CLUT is hardware and the bitplanes
+		 * hold indices, so a palette write recolours the screen instantly.
+		 * Here the planes hold quantised slots, so an install only reaches
+		 * the glass when a present re-bands — and if no present follows
+		 * (the title sequence waits for a key), it never does. That is
+		 * #140. ecs_repalette rewrites only the copper's COLOR words from
+		 * the slot representatives; the remap is untouched, so every pixel
+		 * keeps its slot and just the slot's colour moves. The full
+		 * re-quant still happens at the next present and refines it. */
+#ifdef FRUA_DOMDIAG
+		{
+			static short pn;
+
+			if (++pn <= 60)
+				dbg_log_num("ecspal: moved*100+pal*10+valid = ",
+				            (long)moved * 100 + (long)s_have_pal * 10
+				            + e_quant_valid);
+		}
+#endif
+		if (moved && s_have_pal && e_quant_valid)
+			ecs_copper_palette_only();
+	}
 }
 
 static const dsp_backend_t ecs_backend = {

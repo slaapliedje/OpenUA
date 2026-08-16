@@ -72,6 +72,14 @@ static void          *s_flip_target;    /* video base to latch at the next VBL *
  * one. These are now COUNTS of pages still owing the treatment (set to NPAGES on
  * init/re-band, decremented as each present consumes one). */
 static short          s_force_full;     /* pages still owing a full convert */
+/* ACCUMULATED across presents, not per-present, and reset only by a re-band.
+ * A title picture does not arrive in one go — measured on the ECS it lands in
+ * chunks of 31, 74 and 77 rows — so a per-present gate of H/2 never trips and
+ * the screen keeps the palette its predecessor was quantised for. What matters
+ * is how much has changed SINCE the bands were built, which is a running
+ * total. Cleared whenever the probe actually runs, verdict either way, so this
+ * doubles as the rate limit: at most one probe per ST_DOM_ROWS of change. */
+static short         s_dom_rows[ST_NBANDS];
 static dsp_surface_t  s_surface;
 static short          s_save_rez = -1;
 static void          *s_save_phys, *s_save_log;
@@ -641,7 +649,13 @@ static int st_buf_differs(const unsigned char *a, const unsigned char *b,
  * guard compares against. The remap is NOT touched here — only st_reband rebuilds
  * it; a palette-only refresh (st_repalette) reuses the fixed remap and just
  * re-encodes the RGB. Shared by st_reband and st_repalette. */
-static void st_build_hw_palette(void)
+/* Encode s_band_pal into the ST-format words Timer B loads, and re-derive
+ * whether the split has anything to do. NO state changes beyond that —
+ * st_pal_registers_only needs the encode WITHOUT the snapshot below,
+ * because that snapshot is what tells st_present a re-band is no longer
+ * owed. Hoisting it here rather than saving/restoring around the call
+ * keeps the two callers honest about which half they want. */
+static void st_encode_hw_palette(void)
 {
 	short b, i;
 
@@ -708,6 +722,13 @@ static void st_build_hw_palette(void)
 		}
 	}
 #endif
+}
+
+/* The encode PLUS "this CLUT is now the one the bands were built from" — the
+ * re-band bookkeeping. Everything that actually re-quants calls this. */
+static void st_build_hw_palette(void)
+{
+	st_encode_hw_palette();
 	memcpy(s_clut_banded, s_clut, sizeof s_clut);   /* B1: snapshot the CLUT */
 	s_banded_valid = 1;
 	s_dirty = 0;
@@ -840,6 +861,46 @@ static int st_remap_split(void)
 		}
 	}
 	return 0;
+}
+
+/* SLOT COLOURS ONLY — no epoch reset, no present, no re-conversion.
+ *
+ * On the machines this port came from, installing a palette recolours the
+ * screen THE INSTANT it is written: the CLUT is hardware and the framebuffer
+ * holds indices. Here the planes hold quantised SLOTS, so a palette install
+ * only reaches the glass when a present re-bands — and if no present follows,
+ * or the one that does is swallowed by an atomic-recompose hold (#147), the
+ * install is lost entirely. That is #140: the UNLIMITED ADVENTURES title
+ * screen sat there wearing the FORGOTTEN REALMS palette, because its own
+ * palette arrived after the last present of its content and the next thing to
+ * present was the next screen.
+ *
+ * This is the hardware behaviour, restored cheaply. The remap is untouched, so
+ * every pixel keeps its slot and only the slot's RGB moves — which is exactly
+ * what a CLUT write does. st_band_stpal is what the VBL and Timer B load every
+ * frame, so writing it here is enough; nothing has to present. The full
+ * re-quant still happens at the next present (s_dirty is set alongside), and
+ * refines this into the properly banded result. */
+static void st_pal_registers_only(void)
+{
+	short b, s;
+
+	for (b = 0; b < ST_NBANDS; b++) {
+		unsigned char *bpal = s_band_pal + (long)b * ST_NCOL * 3;
+
+		bpal[0] = bpal[1] = bpal[2] = quant_snap(0, ST_BITS);
+		for (s = 1; s < ST_NCOL; s++) {
+			unsigned char idx = s_slot_rep[b][s];
+
+			bpal[s * 3 + 0] = quant_snap(s_clut[idx * 3 + 0], ST_BITS);
+			bpal[s * 3 + 1] = quant_snap(s_clut[idx * 3 + 1], ST_BITS);
+			bpal[s * 3 + 2] = quant_snap(s_clut[idx * 3 + 2], ST_BITS);
+		}
+	}
+	/* ENCODE ONLY. st_build_hw_palette would also snapshot the CLUT and
+	 * clear s_dirty, i.e. tell st_present the bands are current — cancelling
+	 * the proper re-quant this is only ever a stand-in for. */
+	st_encode_hw_palette();
 }
 
 static void st_repalette(void)
@@ -986,6 +1047,7 @@ static void st_reband(void)
 	 * the c2p. The smart-skip's machinery was removed 2026-07-26 — it had been
 	 * unreachable ever since this decision. */
 	s_force_full   = 1;
+	memset(s_dom_rows, 0, sizeof s_dom_rows); /* bands describe THIS surface */
 	/* #63(1): s_used_idx above was captured from THIS frame, so the
 	 * force-full's per-row new-ink scan cannot find anything. Skip it. */
 	s_ink_fresh    = 1;
@@ -1549,12 +1611,13 @@ static int st_patch_new_ink(void)
  * probe out of the play loop: the 3D viewport composites from its own planar
  * scratch and the HUD rewrites a few text rows, nowhere near half the frame,
  * whereas the screen-to-screen transitions this exists for redraw all of it. */
-#define ST_DOM_ROWS (ST_H / 2)
+#define ST_DOM_ROWS (ST_RPB / 2)
+
 
 /* Are any of this present's redrawn bands quantised for content they no longer
- * hold? (See quant_band_dominant_moved.) `chg` is the frame's changed-row
- * count, `mask` the bands those rows fell in. */
-static int st_dom_stale(short chg, unsigned long mask)
+ * hold? (See quant_band_dominant_moved.) Reads s_dom_rows, the per-band count
+ * of rows changed since the bands were built. */
+static int st_dom_stale(void)
 {
 	short b;
 
@@ -1564,8 +1627,17 @@ static int st_dom_stale(short chg, unsigned long mask)
 
 		if (++dn <= 200) {
 			dbg_log_num("domdiag: present     = ", (long)dn);
-			dbg_log_num("domdiag:   chg rows  = ", (long)chg);
-			dbg_log_num("domdiag:   band mask = ", (long)mask);
+			{
+				short bb;
+				long  tot = 0, hot = 0;
+
+				for (bb = 0; bb < ST_NBANDS; bb++) {
+					tot += s_dom_rows[bb];
+					if (s_dom_rows[bb] >= ST_DOM_ROWS) hot++;
+				}
+				dbg_log_num("domdiag:   rows acc  = ", tot);
+				dbg_log_num("domdiag:   hot bands = ", hot);
+			}
 			dbg_log_num("domdiag:   pal/valid = ",
 			            (long)s_have_pal * 10 + s_banded_valid);
 			dbg_log_num("domdiag:   vp_have/y/h= ",
@@ -1575,22 +1647,28 @@ static int st_dom_stale(short chg, unsigned long mask)
 	}
 #endif
 #ifdef FRUA_NODOM
-	(void)chg; (void)mask;             /* A/B ablation: price the probe */
-	return 0;
+	return 0;                          /* A/B ablation: price the probe */
 #endif
 	if (!s_have_pal || !s_banded_valid)
 		return 0;
 #ifdef FRUA_DOMALWAYS
-	return chg > 0;   /* CONTROL: is the mid-present re-band path itself sound,
-	                   * and is a pass-1 present even where the answer lives? */
-#endif
-	if (chg < ST_DOM_ROWS)
+	{	/* CONTROL: re-band whenever ANY row changed — is the mid-present
+		 * re-band path itself sound, and is pass 1 even where the answer
+		 * lives? (It is not; see the force-full probe.) */
+		short bb;
+
+		for (bb = 0; bb < ST_NBANDS; bb++)
+			if (s_dom_rows[bb]) { s_dom_rows[bb] = 0; return 1; }
 		return 0;
+	}
+#endif
+
 	for (b = 0; b < ST_NBANDS; b++) {
 		short y0, y1;
 
-		if (!(mask & (1UL << b)))
+		if (s_dom_rows[b] < ST_DOM_ROWS)
 			continue;
+		s_dom_rows[b] = 0;
 		/* A band under the viewport was quantised from the composited
 		 * SCRATCH (see st_reband's wall pin), not from s_chunky, so its
 		 * recorded set describes pixels s_chunky never held and would
@@ -1617,8 +1695,6 @@ static int st_dom_stale(short chg, unsigned long mask)
 static void st_dt_present_full(void)
 {
 	short y, pg, run0 = -1;
-	short          dom_chg  = 0;     /* changed rows this present            */
-	unsigned long  dom_mask = 0;     /* bands they fell in (ECS runs 25)     */
 	short          dom_done = 0;     /* one dominance re-band per present    */
 #ifdef FRUA_STPROF
 	long rows_conv = 0, rows_skip = 0;
@@ -1646,8 +1722,22 @@ restart:
 		 * the probe cannot find anything. Most force-fulls are that case,
 		 * so the guard takes the boot's probe count from 20 to 9, with the
 		 * same 3 stale verdicts and a byte-identical menu. */
+		if (!dom_done && !s_ink_fresh) {
+			short bb;
+
+			/* A force-full skips pass 1 entirely, so nothing has
+			 * counted rows for it — and this is the branch the
+			 * screen-change presents actually take (the load that
+			 * changed the screen usually re-banded first and left
+			 * the flag behind). Treat the frame as wholly new, which
+			 * for a full re-convert it effectively is. Guarded by
+			 * s_ink_fresh, so a force-full that a re-band just
+			 * caused — where the bands ARE current — is skipped. */
+			for (bb = 0; bb < ST_NBANDS; bb++)
+				s_dom_rows[bb] = ST_RPB;
+		}
 		if (!dom_done && !s_ink_fresh
-		 && st_dom_stale(ST_H, (1UL << ST_NBANDS) - 1)) {
+		 && st_dom_stale()) {
 			dom_done = 1;
 #ifdef FRUA_STPROF
 			sp_rb_dom++;
@@ -1745,8 +1835,7 @@ restart:
 #else
 			st_dt_ready_row(y);
 #endif
-			dom_chg++;
-			dom_mask |= 1UL << ((long)y * ST_NBANDS / ST_H);
+			s_dom_rows[(long)y * ST_NBANDS / ST_H]++;
 			if (run0 < 0)
 				run0 = y;
 		}
@@ -1785,7 +1874,7 @@ restart:
 	 * simply never run and the wrong palette would be the one on display.
 	 * The rows built just above are discarded — st_reband renumbers the
 	 * slots, which is exactly what the force-full path re-converts. */
-	if (!dom_done && st_dom_stale(dom_chg, dom_mask)) {
+	if (!dom_done && st_dom_stale()) {
 #ifdef FRUA_STPROF
 		long td = Supexec(st_prof_hz200);
 
@@ -1793,8 +1882,6 @@ restart:
 #endif
 		dom_done = 1;
 		st_reband();                     /* sets s_force_full */
-		dom_chg  = 0;
-		dom_mask = 0;
 #ifdef FRUA_STPROF
 		sp_ph_band += Supexec(st_prof_hz200) - td;
 #endif
@@ -3412,16 +3499,24 @@ static void st_present_rect(short x, short y, short w, short h)
 
 static void st_set_palette(const dsp_color_t *colors, short first, short count)
 {
-	short i;
+	short i, moved = 0;
 
 	if (first < 0 || count <= 0 || first >= 256)
 		return;
 	if (first + count > 256)
 		count = (short)(256 - first);
+	/* Did anything actually MOVE? The engine re-installs a palette
+	 * defensively, and st_present's CLUT guard already makes that a cheap
+	 * no-op — but the register rebuild below would still run for it. */
 	for (i = 0; i < count; i++) {
-		s_clut[(first + i) * 3 + 0] = colors[i].r;
-		s_clut[(first + i) * 3 + 1] = colors[i].g;
-		s_clut[(first + i) * 3 + 2] = colors[i].b;
+		unsigned char *e = s_clut + (long)(first + i) * 3;
+
+		if (e[0] != colors[i].r || e[1] != colors[i].g
+		 || e[2] != colors[i].b)
+			moved = 1;
+		e[0] = colors[i].r;
+		e[1] = colors[i].g;
+		e[2] = colors[i].b;
 	}
 	/* Only a SUBSTANTIAL load (a scene/palette change) marks the bands
 	 * dirty. Small-range writes are palette CYCLING (the intro's twinkling
@@ -3431,8 +3526,15 @@ static void st_set_palette(const dsp_color_t *colors, short first, short count)
 	 * test's freeze). The shadow CLUT still updates; the cycle just doesn't
 	 * animate on this target (matching the pre-banding behaviour — reserved
 	 * cycle slots are the future fix, see the plan doc). */
-	if (count >= 32 || !s_have_pal)
+	if (count >= 32 || !s_have_pal) {
 		s_dirty = 1;                     /* re-band at next full present */
+		/* ...and show it NOW, the way the hardware would. A present may
+		 * never come (a key wait), or may be held past the point where
+		 * the content it belonged to still exists — see #140 and the
+		 * comment on st_pal_registers_only. */
+		if (moved && s_have_pal && s_banded_valid)
+			st_pal_registers_only();
+	}
 }
 
 static const dsp_backend_t ste_backend = {
