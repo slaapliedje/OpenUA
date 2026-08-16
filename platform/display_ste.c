@@ -200,6 +200,11 @@ static void           st_vp_composite(void);
 #ifdef FRUA_STPROF
 volatile long g_tb_fires;       /* #61: band fires in the CURRENT frame (asm) */
 static long sp_frames, sp_starved, sp_fires_lost, sp_fires_min = 99;
+/* #140: STARVED vs IDLE. The split is deliberately NOT armed while every band
+ * palette is identical (s_tb_uniform), and such a frame fires zero times — so
+ * counting "fires < ST_NBANDS" as starvation charges every idle frame a full
+ * ST_NBANDS of losses. Separate them before believing either number. */
+static long sp_frames_idle, sp_frames_armed;
 static long sp_tb_total;        /* #63: band fires since boot (bench deltas) */
 
 /* #63 PLAY-LOOP profile. Everything measured on this target so far has been
@@ -339,6 +344,10 @@ void st_vbl_handler(void)
 	short i;
 	short arm = !s_tb_uniform;      /* #63: nothing to switch -> do not arm */
 
+#ifdef FRUA_TBOFF
+	arm = 0;         /* #140 A/B: every band renders with band 0's palette */
+#endif
+
 #ifdef FRUA_STPROF
 	if (s_tb_force >= 0)
 		arm = s_tb_force;
@@ -371,10 +380,15 @@ void st_vbl_handler(void)
 		g_tb_fires = 0;
 		sp_tb_total += f;               /* #63: cumulative, for the A/B bench */
 		if (sp_frames > 0) {            /* frame 0 is partial by construction */
-			if (f < ST_NBANDS) {
-				sp_starved++;
-				sp_fires_lost += (ST_NBANDS - f);
-				if (f < sp_fires_min) sp_fires_min = f;
+			if (!arm) {
+				sp_frames_idle++;   /* split off on purpose, not starved */
+			} else {
+				sp_frames_armed++;
+				if (f < ST_NBANDS) {
+					sp_starved++;
+					sp_fires_lost += (ST_NBANDS - f);
+					if (f < sp_fires_min) sp_fires_min = f;
+				}
 			}
 		}
 		sp_frames++;
@@ -2895,6 +2909,8 @@ static void st_prof_hot_dump(void)
 	}
 	dbg_log_num("b4hot rows touched = ", touched);
 	dbg_log_num("b61 frames              = ", sp_frames);
+	dbg_log_num("b61   split IDLE frames = ", sp_frames_idle);
+	dbg_log_num("b61   split ARMED frames= ", sp_frames_armed);
 	dbg_log_num("b61 starved frames      = ", sp_starved);
 	dbg_log_num("b61 band fires lost     = ", sp_fires_lost);
 	dbg_log_num("b61 worst fires in frame= ", sp_fires_min);
