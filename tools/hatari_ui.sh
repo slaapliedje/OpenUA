@@ -267,6 +267,19 @@ start)
 	# unset or unreachable. This script does NOT bootstrap an Xvfb; that is
 	# driver.sh's job, so calling this one directly under `env -u DISPLAY` gets
 	# exactly that message. Fail with the actual cause instead.
+	# ★★ AND A WEDGED Xvfb DOES NOT LOOK LIKE A DISPLAY PROBLEM AT ALL. When the
+	# server keeps its pid and its socket but stops answering (seen 2026-07-12 and
+	# again 2026-08-17, on two display numbers in one session), SDL connects and
+	# then waits: Hatari sits in poll() at 0% CPU having accumulated ZERO cpu
+	# time, with one banner line in the log and no engine output ever. That reads
+	# exactly like the ENGINE hanging at startup, and it sent a whole session
+	# chasing --cmd-fifo and --parse. Two checks separate them in seconds:
+	#   ps -o time= -C hatari    -> 00:00:00 means it never ran a single frame
+	#   timeout 5 xdpyinfo       -> hangs means the SERVER is the problem
+	# The fix is a fresh display, started detached so no orphaned process group
+	# can take it with it:
+	#   setsid Xvfb :97 -screen 0 1280x1024x24 </dev/null >/dev/null 2>&1 &
+	# Judge a display by whether it ANSWERS, never by `pgrep -x Xvfb`.
 	[[ -n "${DISPLAY:-}" ]] || die "DISPLAY is unset — this script needs one (use .claude/skills/run-falcon-port/driver.sh, which starts an Xvfb)"
 	timeout 5 xdpyinfo >/dev/null 2>&1 || die "DISPLAY=$DISPLAY is not reachable (use driver.sh, which starts and health-checks an Xvfb)"
 	SDL_VIDEODRIVER=x11 "$HATARI_BIN" \

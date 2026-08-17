@@ -80,5 +80,19 @@ def main():
     for k, v in sorted(agg.items(), key=lambda x: -x[1])[:20]:
         print('%-34s %14d %6.1f%%' % (k, v, 100.0 * v / total))
 
+    # ★ SAY WHICH SCREEN THIS IS, because the ranking looks equally plausible
+    # either way. st_profile.sh once booted straight to the main menu and pressed
+    # arrow keys at it; the resulting profile was published as "the play loop".
+    # The 3D walk renderer is the discriminator: in the dungeon it and the
+    # viewport blitters carry real cycles, at the menu they are absent.
+    walk = sum(v for k, v in agg.items()
+               if k.startswith(('render_3d', 'qd_planar_bridge', 'dc_plane_bridge')))
+    share = 100.0 * walk / total
+    print('\n3D/viewport work: %.1f%% of program cycles' % share)
+    if share < 1.0:
+        print('*** WARNING: this profile has essentially NO 3D work in it. It is')
+        print('*** almost certainly a MENU profile, not the play loop. Do not')
+        print('*** quote it as play-loop shares.')
+
 
 main()
