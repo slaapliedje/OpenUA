@@ -260,10 +260,20 @@ quant_reduce(const unsigned char *clut, short n, short bits,
 #define QUANT_DOM_LO_PCT 2
 #define QUANT_LEFT_DOM(c, t) ((long)(c) * 100 < (long)(t) * QUANT_DOM_LO_PCT)
 
-/* How a band's rows are SAMPLED for the population histogram — every other
- * row (see the comment on the histogram loop in quant_banded). Also shared,
- * for the same reason. */
-#define QUANT_ROW_STEP  2
+/* How a band's rows are SAMPLED for the population histogram. Shared with
+ * quant_band_dominant_moved, which must apply the same rule or its comparison
+ * is noise.
+ *
+ * EVERY ROW, not every other. Halving it was a fair trade when the histogram's
+ * only customer was the reduction — the biggest fixed cost of a re-band, and a
+ * colour living only on odd rows merely fell back. It is not a fair trade now
+ * that band_used is the PRESENCE set the backends rely on: the ST used to
+ * rebuild that set in a second full-frame pass precisely because it could not
+ * trust a half-sampled one, so the "saving" bought a 64000-pixel scan
+ * elsewhere. Sampling everything makes the presence set exact, lets that scan
+ * go, and closes the recorded latent bug where a thin feature present only on
+ * skipped rows took the absent-colour fallback. */
+#define QUANT_ROW_STEP  1
 
 /*
  * Per-horizontal-band quantiser. Split the WxH chunky frame into `nbands`
@@ -354,11 +364,8 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 		short nkeep = 0, keepmax, n;
 		long  total = 0;
 
-		/* Population histogram for this band, EVERY OTHER row — bands are
-		 * many rows tall, so alternate rows see the band's content, and a
-		 * colour living only on skipped rows degrades to the RGB fallback
-		 * below. Halves the biggest fixed cost of a re-band (the
-		 * 64000-pixel scan) on the 8MHz targets. */
+		/* Population histogram for this band — see QUANT_ROW_STEP for why
+		 * it reads every row rather than every other one. */
 		for (i = 0; i < 256; i++) {
 			cnt[i] = 0;
 			kept[i] = 0;

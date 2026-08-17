@@ -554,23 +554,27 @@ static void ecs_reband(void)
 	quant_banded(s_chunky, ECS_W, ECS_H, s_clut,
 	             ECS_NBANDS, ECS_NCOL, ECS_BITS, s_band_pal, s_band_remap,
 	             (unsigned char *)e_dom_band);
-	/* Capture what this quant saw: the global used set (the new-ink
-	 * detector's domain) and the per-band sets (the split-guard's). */
+	/* What did this quant see? DERIVED from e_dom_band, which is
+	 * quant_banded's own per-band presence — no second pass over the 64000
+	 * pixels it just histogrammed. The per-band set (the split guard's) IS
+	 * that table, and the global set (the new-ink detector's) is its OR.
+	 *
+	 * Only sound because QUANT_ROW_STEP is 1: this backend scanned every row
+	 * itself precisely because the quantiser used to sample every other one,
+	 * and a presence set with holes is worse than useless to a split guard.
+	 * 6400 byte reads for 128000 stores. */
 	{
-		long n;
-		short y;
+		short b, i;
 
 		memset(e_used_idx, 0, sizeof e_used_idx);
-		memset(e_used_band, 0, sizeof e_used_band);
-		for (y = 0; y < ECS_H; y++) {
-			short bb = (short)((long)y * ECS_NBANDS / ECS_H);
-			const unsigned char *row = s_chunky + (long)y * ECS_W;
-
-			for (n = 0; n < ECS_W; n++) {
-				e_used_idx[row[n]]      = 1;
-				e_used_band[bb][row[n]] = 1;
-			}
-		}
+		for (b = 0; b < ECS_NBANDS; b++)
+			for (i = 0; i < 256; i++)
+				if (e_dom_band[b][i]) {
+					e_used_band[b][i] = 1;
+					e_used_idx[i]     = 1;
+				} else {
+					e_used_band[b][i] = 0;
+				}
 	}
 	/* Per-band slot representatives (the repalette's map): for each used
 	 * index, keep the one whose CLUT colour sits nearest its slot's reduced

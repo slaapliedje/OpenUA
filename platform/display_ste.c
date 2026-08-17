@@ -1045,18 +1045,28 @@ static void st_reband(void)
 	}
 #endif
 
-	/* Capture which indices this quant actually saw (st_remap_split's domain).
-	 * #63: this is a SECOND full-frame pass over the same 64000 pixels
-	 * quant_banded just histogrammed — measured apart from the cut itself so
-	 * the duplication can be priced before it is removed. */
+	/* Which indices did this quant actually see? (st_remap_split's domain.)
+	 * DERIVED from the per-band presence quant_banded just produced — the OR
+	 * of its bands IS the global used set — instead of a SECOND full-frame
+	 * pass over the same 64000 pixels. 2560 byte reads for 64000; the
+	 * duplication was measured at 1181 t200 a boot and its own comment asked
+	 * for exactly this once the price was known. Only sound because
+	 * QUANT_ROW_STEP is 1: a half-sampled presence set is what made the
+	 * separate scan necessary in the first place. */
 #ifdef FRUA_STPROF
 	{ long tu = Supexec(st_prof_hz200);
 #endif
 	{
-		long n;
+		short b, i;
+
 		memset(s_used_idx, 0, sizeof s_used_idx);
-		for (n = 0; n < (long)ST_W * ST_H; n++)
-			s_used_idx[qsrc[n]] = 1;
+		for (b = 0; b < ST_NBANDS; b++) {
+			const unsigned char *bu = s_band_used + (long)b * 256;
+
+			for (i = 0; i < 256; i++)
+				if (bu[i])
+					s_used_idx[i] = 1;
+		}
 	}
 #ifdef FRUA_STPROF
 	sp_rb_used += Supexec(st_prof_hz200) - tu;
