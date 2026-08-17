@@ -85,8 +85,9 @@ def main():
     # arrow keys at it; the resulting profile was published as "the play loop".
     # The 3D walk renderer is the discriminator: in the dungeon it and the
     # viewport blitters carry real cycles, at the menu they are absent.
-    walk = sum(v for k, v in agg.items()
-               if k.startswith(('render_3d', 'qd_planar_bridge', 'dc_plane_bridge')))
+    # nm prefixes these with '_'; match on the bare names too.
+    names = ('render_3d', 'qd_planar_bridge', 'dc_plane_bridge', 'st_vp_composite')
+    walk = sum(v for k, v in agg.items() if k.lstrip('_').startswith(names))
     share = 100.0 * walk / total
     print('\n3D/viewport work: %.1f%% of program cycles' % share)
     if share < 1.0:

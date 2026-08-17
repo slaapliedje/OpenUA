@@ -69,13 +69,26 @@ send() { DISPLAY="$XD" xdotool key --window "$1" "$2" 2>/dev/null; }
 # verified headless route to the dungeon first (hatari_ui.sh `beginplay`:
 # p -> a -> Return -> Escape -> b), and assert afterwards that the profile
 # really contains 3D work.
-echo "waiting for the menu ..."
+# ★ THE READY MARKER IS NOT ON THE CONSOLE. dbg_log writes to the console only
+# until a display backend owns the framebuffer, then switches to the GEMDOS-mounted
+# DBG.LOG (Cconws paints into what is by then one of the engine's own pages — see
+# platform/dbglog.c). 'menu: modal up' falls on the FILE side, so a console-only
+# wait NEVER sees it: the boot reaches the main menu, the wait times out anyway,
+# and the keystrokes then go somewhere unintended. That cost a whole session, in
+# which a perfectly healthy boot was diagnosed as a hang. hatari_ui.sh's wait_for
+# searches both sinks; so must this.
+# ★ AND TRUNCATE DBG.LOG FIRST. It persists across runs, so last run's marker
+# satisfies this wait instantly and the profile opens on the wrong screen.
+DBG="$REPO/data/work/gamedata/DBG.LOG"
+: > "$DBG" 2>/dev/null || true
+ready() { grep -q 'menu: modal up' "$OUT/run.log" 2>/dev/null \
+       || grep -q 'menu: modal up' "$DBG" 2>/dev/null; }
+echo "waiting for the menu (console AND DBG.LOG) ..."
 for _ in $(seq 1 60); do
-	grep -q 'menu: modal up' "$OUT/run.log" 2>/dev/null && break
+	ready && break
 	sleep 5
 done
-grep -q 'menu: modal up' "$OUT/run.log" 2>/dev/null \
-  || echo "WARNING: never saw 'menu: modal up' — the boot may have stalled"
+ready || echo "WARNING: never saw 'menu: modal up' on EITHER sink — boot may have stalled"
 
 WID=$(find_wid)
 [ -n "$WID" ] || { echo "no Hatari window on $XD"; exit 1; }
@@ -85,6 +98,32 @@ for step in p a Return Escape b; do
 	send "$WID" "$step"
 	# the final Begin loads the dungeon art — give it double the settle
 	[ "$step" = b ] && sleep $((D * 2)) || sleep "$D"
+done
+sleep "$D"
+
+# ★ BEING "IN PLAY" IS NOT BEING IN THE WALK. HEIRS.DSN opens on a modal entry
+# EVENT chain — the Skull Crag caravan, several messages each waiting on "PRESS
+# RETURN TO CONTINUE" — and every movement key sent into that modal is simply
+# eaten. Profiling there measures event text and portrait painting while looking
+# exactly like a healthy play-loop profile.
+#
+# This sequence is NOT guesswork: it mirrors platform/autoplay_script.h's
+# FRUA_AUTOWALK + FRUA_AUTOWALK_TREASURE blocks, verified live on STE 2026-07-27
+# to reach the walk bar at 10,8 12:00 AM. Six Returns for the chain, then the two
+# NON-RETURN keys the treasure screen needs — it ignores Return completely, and
+# sixteen of them once left a drive parked on it with the key count still reading
+# 34 of 34 — then ten more for the farewell messages behind it.
+#
+# 'e' is ENCAMP on the walk command bar, so on a module whose entry chain hands
+# out no treasure this opens the camp screen instead. That is what the 3D guard in
+# st_aggregate.py is for; for an event-free design (WALKTEST.DSN) drop to the six.
+for step in Return Return Return Return Return Return; do
+	send "$WID" "$step"; sleep "$D"
+done
+send "$WID" e; sleep "$D"        # EXIT the treasure screen
+send "$WID" n; sleep "$D"        # NO, do not go back and claim the rest
+for step in Return Return Return Return Return Return Return Return Return Return; do
+	send "$WID" "$step"; sleep 1
 done
 sleep "$D"
 
@@ -101,12 +140,24 @@ fi
 echo "in the dungeon — waiting for the window to open (VBL > $OPEN) ..."
 until grep -q "VBL=$((OPEN+1))" "$OUT/run.log" 2>/dev/null; do sleep 5; done
 echo "window OPEN — driving the walk"
-for k in Up Left Up Right Up Down Up Left Up Right Up Left Up Right Up Down; do
-	send "$WID" "$k"
+# ★ DRIVE FOR THE WHOLE WINDOW, NOT A FIXED NUMBER OF KEYS. A 35,000-VBL window is
+# ~700 s of emulated time; sixteen keys at 0.7 s span a few tens of seconds of it.
+# The first run built this way DID walk — the party moved 10,8 -> 13,6 and the clock
+# advanced 12:00 -> 12:05 AM — and still aggregated to "3D/viewport work: 0.0%",
+# because the walk finished early and the remaining ~90% of the window was the game
+# IDLING at an event prompt. The ranking that comes out of that is a portrait of the
+# idle event loop (udivsi3/plat_ticks/GetNextEvent), not of the play loop, and it
+# looks entirely plausible. So: keep stepping until the close breakpoint dumps.
+# Returns are interleaved because walking trips event pop-ups, and a movement key
+# sent into one of those modals is eaten.
+KEYS=(Up Left Up Right Up Down Up Left Return Up Right Up Left Up Right Return)
+i=0
+until grep -q "CPU addresses listed" "$OUT/run.log" 2>/dev/null; do
+	send "$WID" "${KEYS[$((i % ${#KEYS[@]}))]}"
+	i=$((i + 1))
 	sleep 0.7
 done
-echo "walked — waiting for the window to close (VBL > $CLOSE) ..."
-until grep -q "CPU addresses listed" "$OUT/run.log" 2>/dev/null; do sleep 5; done
+echo "walked $i keys — window closed"
 pkill -9 -x hatari 2>/dev/null
 echo "done: $OUT/run.log"
 echo

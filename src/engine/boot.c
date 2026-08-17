@@ -2487,9 +2487,29 @@ static void  l618c(void);                /* Modify stat editor (= JT[560], defin
 static void port_show_intro(void) __attribute__((unused));  /* A/B stand-in;
                                              * the engine's jt919 is the
                                              * real title sequence */
+/* Boot breadcrumbs for ua_main's phases, extending main.c's FRUA_BOOTTRACE trail
+ * past the display bring-up: the LAST marker present names the step that did not
+ * return. The NR_MARKs further down cannot serve this purpose — they only exist
+ * under FRUA_NO_REPLAY, which zeroes the A5 world, so a NORMAL boot has no phase
+ * markers at all without these.
+ *
+ * dbg_file_str, not dbg_log, and that choice is the whole point: dbg_log goes to
+ * the console only until a backend owns the framebuffer and to DBG.LOG after, so
+ * markers placed here — all of which run AFTER takeover — would silently vanish
+ * from a console-only reader. Note also that main() prints the backend banner
+ * BEFORE ua_main, so "the last console line is the backend banner" does not mean
+ * the display init hung; it means everything after it went to the file. */
+#ifdef FRUA_BOOTTRACE
+#define ST_MARK(s) dbg_file_str("bt:", s)
+#else
+#define ST_MARK(s) ((void)0)
+#endif
+
 int ua_main(short arg1, long arg2)
 {
 	short status;
+
+	ST_MARK("ua_main entered");
 
 	/*
 	 * Phase 1 — module-init roll-call. The Mac build calls L5348 and
@@ -2498,7 +2518,9 @@ int ua_main(short arg1, long arg2)
 	 */
 
 	/* Phase 2 — core initialisation. */
+	ST_MARK("core_init");
 	core_init();
+	ST_MARK("jt398 (ALWAYS.CTL probe)");
 
 	/*
 	 * Phase 3 — screen mode. JT[398] probes the ":DISK4:ALWAYS.CTL"
@@ -2517,11 +2539,17 @@ int ua_main(short arg1, long arg2)
 	 * the HEIRS dungeon->event->dungeon cycle disposes + reloads with no "Out
 	 * of FAR memory". The cap was raised to 768KB before stage 4 landed; now
 	 * restored. docs/far-pool-stage4-wall.md, #124/#129. */
+	ST_MARK("jt398 returned");
 	if (status >= 0) {
+		ST_MARK("jt411");
 		jt411(status);
+		ST_MARK("jt1129");
 		jt1129(1);
+		ST_MARK("color_mode_init");
 		color_mode_init();      /* CODE 4 @0x47b4: derive jt1200 gates */
+		ST_MARK("master_init");
 		master_init(arg1, arg2, 214, 450);   /* CODE 6+0x5fc: #450, #214 */
+		ST_MARK("master_init returned");
 	} else {
 		/* CODE 6+0x616 pushes #400, #160 — NOT 450. The port had 450 here, a
 		 * transcription slip on the no-design fallback arm (the arm taken when
@@ -2570,7 +2598,9 @@ int ua_main(short arg1, long arg2)
 	/* Phase 4 — secondary init and the first UI handler. arg1 / arg2
 	 * carry the THINK C runtime's (string-table count, pointer); jt480
 	 * stows them in the A5-world globals ua_get_string reads from. */
+	ST_MARK("jt480 enter");
 	jt480(arg1, (void *)arg2);
+	ST_MARK("jt989 enter");
 	jt989((void (*)(void))jt10, 1, "Pod", 83);
 	/* Sound-subsystem init.  On the Mac this rides in JT[1079]'s toolbox
 	 * bring-up (L0eda: JT[1111] arms the -806 sound-active flag, clears the
@@ -2588,15 +2618,20 @@ int ua_main(short arg1, long arg2)
 #define NR_MARK(s) ((void)0)
 #endif
 	NR_MARK("l4cc0 enter");
+	ST_MARK("l4cc0 enter");
 	l4cc0();        /* design buffers — the Mac's jt12 runs L4cc0 before
 	                 * L4d98 (ITEMS.DAT/item.dat read into its allocs) */
 	NR_MARK("l4d98 enter");
+	ST_MARK("l4d98 enter");
 	l4d98();
 	NR_MARK("l0444 enter");
+	ST_MARK("l0444 enter");
 	l0444();
 	NR_MARK("jt361 enter");
+	ST_MARK("jt361 enter");
 	jt361(1);
 	NR_MARK("jt361 done");
+	ST_MARK("jt361 done");
 #undef NR_MARK
 #ifdef FRUA_CHARGEN
 	/* Char-gen harness entry. Runs AFTER the full design-load + session init
@@ -2776,8 +2811,11 @@ int ua_main(short arg1, long arg2)
 		dbg_log("sndtest: done");
 	}
 #endif
+	ST_MARK("jt920 enter");
 	jt920();
+	ST_MARK("jt1009 enter");
 	jt1009(8096, 0);
+	ST_MARK("phase 5 enter");
 
 	/* Phase 5 — string-table checks and the second UI handler. */
 #ifdef FRUA_NO_REPLAY
@@ -2785,6 +2823,14 @@ int ua_main(short arg1, long arg2)
 	        ? "nr: slot2 MISMATCH -> jt919 (credits roll, waits for keys)"
 	        : "nr: slot2 ok -> skip jt919");
 #endif
+	/* Slot 2 is EXPECTED to be empty here, so this branch is EXPECTED to be
+	 * taken: "Heart" in slot 2 is SSI's developer bypass, not an integrity
+	 * marker, and main() leaves the slot empty deliberately so the jt919 title
+	 * roll runs (see the long comment on the strtab build in src/main.c).
+	 * Verified 2026-08-17: slot2 = <EMPTY>, strtab count 256 — and the boot
+	 * proceeds through the roll to the main menu normally. Do not "fix" the
+	 * mismatch by seeding the slot; that deletes the whole title sequence. */
+	ST_MARK("jt919 title roll");
 	if (ua_strcmp(ua_get_string(2), "Heart") != 0)
 		jt919();
 #ifdef FRUA_NO_REPLAY

@@ -108,18 +108,41 @@ static void l35f8(void)             { PROBE("l35f8"); }
  * kb_min / kb_max bound the file-cache buffer; arg1 / arg2 pass through to
  * the Toolbox startup and the page setup.
  */
+/* Phase-3 breadcrumbs. A boot that dies inside master_init leaves the display
+ * banner as its last CONSOLE line and nothing after it, which reads as "hung
+ * right after display init" while naming none of these eleven calls. dbg_file_str
+ * so the trail lands in DBG.LOG, which is where dbg_log has already switched to
+ * by this point (platform/dbglog.c). */
+#ifdef FRUA_BOOTTRACE
+#include "dbglog.h"             /* dbg_file_str (harmless if PROBE also pulled it) */
+#define MI_MARK(s) dbg_file_str("bt: master_init ", s)
+#else
+#define MI_MARK(s) ((void)0)
+#endif
+
 void master_init(short arg1, long arg2, short kb_min, short kb_max)
 {
+	MI_MARK("toolbox_init");
 	toolbox_init();                /* Mac Toolbox startup  — JT[1144] */
+	MI_MARK("l0eda");
 	l0eda(arg1, arg2);
+	MI_MARK("jt1157");
 	jt1157(arg1, arg2);
+	MI_MARK("jt1155");
 	jt1155();
+	MI_MARK("jt1138");
 	jt1138();
+	MI_MARK("l01a2");
 	l01a2();
+	MI_MARK("l024c");
 	l024c(15);
+	MI_MARK("glib_pool_open");
 	glib_pool_open(kb_min, kb_max);   /* FAR pool — JT[463]/_LBOpen */
+	MI_MARK("l35e2");
 	l35e2();
+	MI_MARK("l27a4");
 	l27a4();
+	MI_MARK("done");
 }
 
 /*
