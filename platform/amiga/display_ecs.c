@@ -193,6 +193,9 @@ static void cop_point_planes(unsigned char *set)
 /* --- backend entry points ------------------------------------------------ */
 
 static void ecs_shutdown_partial(void);
+#ifdef FRUA_ECSCHAIN
+static void ecs_chain(const char *where);
+#endif
 
 static int ecs_init(short want_w, short want_h)
 {
@@ -384,6 +387,9 @@ static int ecs_remap_split(void)
 static void ecs_copper_palette_only(void)
 {
 	short b, i;
+#ifdef FRUA_ECSCHAIN
+	long wrote = 0, skip0 = 0, skiprep = 0;
+#endif
 
 	for (b = 0; b < ECS_NBANDS; b++)
 		for (i = 0; i < ECS_NCOL; i++) {
@@ -393,14 +399,38 @@ static void ecs_copper_palette_only(void)
 			 * every band. Leave it alone: a rebuild must not be able to
 			 * un-reserve it (the ST hit exactly that — see the reserve
 			 * comment in quantize.h). */
-			if (i == 0)
+			if (i == 0) {
+#ifdef FRUA_ECSCHAIN
+				skip0++;
+#endif
 				continue;
-			if (rep == 0xFF)
+			}
+			if (rep == 0xFF) {
+#ifdef FRUA_ECSCHAIN
+				skiprep++;
+#endif
 				continue;
+			}
+#ifdef FRUA_ECSCHAIN
+			wrote++;
+#endif
 			*s_cop_pal[b][i] = (UWORD)(((s_clut[rep * 3 + 0] >> 4) << 8)
 			                          | ((s_clut[rep * 3 + 1] >> 4) << 4)
 			                          | (s_clut[rep * 3 + 2] >> 4));
 		}
+#ifdef FRUA_ECSCHAIN
+	{	/* #141: does the install-time write cover the WHOLE screen, or only
+		 * the bands whose slots happen to have a representative? A partial
+		 * rewrite would leave most of the picture on the old palette, which
+		 * looks exactly like the palette never arriving. */
+		static short wn;
+
+		if (++wn <= 40) {
+			dbg_log_num("ecswrite: wrote/skip0/skiprep = ",
+			            wrote * 1000000L + skip0 * 1000L + skiprep);
+		}
+	}
+#endif
 }
 
 static void ecs_repalette(void)
@@ -623,6 +653,9 @@ static void ecs_reband(void)
 	s_dirty = 0;
 	s_have_pal = 1;
 	s_force_full = 1;               /* every LUT moved: row diffing is void */
+#ifdef FRUA_ECSCHAIN
+	ecs_chain("ecschain: AFTER REBAND");
+#endif
 	memset(e_dom_rows, 0, sizeof e_dom_rows); /* bands describe THIS surface */
 }
 
@@ -660,6 +693,47 @@ static int ecs_dom_stale(void)
 	}
 	return 0;
 }
+
+#ifdef FRUA_ECSCHAIN
+/* #141: follow ONE pixel all the way to the COPPER — index, CLUT colour, the
+ * band's slot, the copper word actually written, and the slot's representative
+ * — logged at every palette install and every re-band. Hardcoded to engine
+ * (20,100) = band 12, the title screens' backdrop; retarget it for a different
+ * question.
+ *
+ * ★ WHAT IT SETTLED, and the answer was "nothing is broken". The UNLIMITED
+ * ADVENTURES title screen looked like it was stuck on the FORGOTTEN REALMS
+ * palette on this backend. The probe shows the copper word for that slot going
+ * 2048 -> 0 while the content is still index 36: the install-time write fires,
+ * covers every mapped slot (~540 of 800; the rest have no index on them), and
+ * lands the right colour. The screen really is correct — for the LAST 21
+ * seconds of its display, having been wrong for the first ~15 while the picture
+ * draws and before the engine installs the final palette. Sampling at 4s and 9s
+ * intervals kept landing in the wrong half.
+ *
+ * That shape is FAITHFUL, not a port bug: the Falcon does the same thing, three
+ * presents on the bright palette and one on the dark (videl_present's own probe
+ * showed LUT 32864 -> 2048). These machines merely stretch the transient. */
+static void ecs_chain(const char *where)
+{
+	static short cn;
+	unsigned char ix;
+	short slot;
+
+	if (s_chunky == NULL || ++cn > 80)
+		return;
+	ix   = s_chunky[100L * ECS_W + 20];
+	slot = s_band_remap[12L * 256 + ix];
+	dbg_log(where);
+	dbg_log_num("  chain idx        = ", (long)ix);
+	dbg_log_num("  chain clut rgb   = ",
+	            (long)s_clut[ix*3+0] * 1000000L
+	            + (long)s_clut[ix*3+1] * 1000L + s_clut[ix*3+2]);
+	dbg_log_num("  chain slot       = ", (long)slot);
+	dbg_log_num("  chain copper word= ", (long)*s_cop_pal[12][slot]);
+	dbg_log_num("  chain slot rep   = ", (long)e_slot_rep[12][slot]);
+}
+#endif
 
 /* Full render: (re-band if dirty), remap the whole surface, convert to the
  * back plane set, flip. */
@@ -1037,6 +1111,11 @@ static void ecs_set_palette(const dsp_color_t *colors, short first, short count)
 #endif
 		if (moved && s_have_pal && e_quant_valid)
 			ecs_copper_palette_only();
+#ifdef FRUA_ECSCHAIN
+		ecs_chain(moved && s_have_pal && e_quant_valid
+		          ? "ecschain: AFTER INSTALL (copper written)"
+		          : "ecschain: AFTER INSTALL (skipped)");
+#endif
 	}
 }
 
