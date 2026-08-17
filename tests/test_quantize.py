@@ -410,6 +410,86 @@ static int dominance_test(void)
 	return 0;
 }
 
+/* --- the cut must follow AREA, not the colour list -------------------------
+ *
+ * The reduction used to count each used colour ONCE however much of the band it
+ * covered, because the pixel population was not known at set_palette time. It
+ * is known — quant_banded histograms the band for exact-preservation — and
+ * ignoring it made the palette describe the colour LIST rather than the picture.
+ *
+ * Getting a test to SHOW that took three attempts, and the two failures are
+ * worth recording because both looked convincing:
+ *
+ *   1. Two big colours, four slots. Measured nothing: both were above the
+ *      exact-preservation bar, so they were RESERVED and the cut never saw
+ *      them. The test was exercising the reservation.
+ *   2. Total error over a frame of mostly-rare colours. Measured nothing
+ *      either (2761 vs 2667): with far more colours than slots the error is
+ *      dominated by the rarities, which stay bad however the slots are spent.
+ *
+ * So: keep every colour BELOW the reservation bar, so the cut is the only
+ * mechanism in play, and measure the error over the pixels that COVER AREA —
+ * which is precisely the property claimed. The rare colours are wide-spread
+ * and exist only to bait the unweighted cut into spending slots on them.
+ */
+#define WW 200
+#define WH 20
+static int weighted_cut_test(void)
+{
+	static unsigned char chunky[WW * WH];
+	unsigned char clut[768], bpal[16 * 3], brem[256];
+	short i, x, y, n;
+	long err = 0, npx = 0;
+
+	for (i = 0; i < 768; i++) clut[i] = 0;
+	/* 0..9 the area colours: a tight cluster, 2.5% of the band each — under
+	 * the 3% reservation bar, so the CUT is all they have. */
+	for (i = 0; i < 10; i++) {
+		clut[i*3+0] = (unsigned char)(120 + i * 3);
+		clut[i*3+1] = (unsigned char)(130 - i * 3);
+		clut[i*3+2] = (unsigned char)(140 + i * 3);
+	}
+	/* 10..54 rarities: maximum spread, one pixel per row each. */
+	for (i = 10; i < 55; i++) {
+		clut[i*3+0] = (unsigned char)((i * 97) & 0xff);
+		clut[i*3+1] = (unsigned char)((i * 53) & 0xff);
+		clut[i*3+2] = (unsigned char)((i * 191) & 0xff);
+	}
+	for (y = 0; y < WH; y++) {
+		x = 0;
+		for (i = 0; i < 10; i++)                 /* 10 x 15 = 150 px */
+			for (n = 0; n < 15; n++) chunky[y*WW + x++] = (unsigned char)i;
+		for (i = 10; i < 55; i++)                /* 45 x  1 =  45 px */
+			chunky[y*WW + x++] = (unsigned char)i;
+		while (x < WW) chunky[y*WW + x++] = 0;
+	}
+
+	quant_banded(chunky, WW, WH, clut, 1, 16, 4, bpal, brem, (unsigned char *)0);
+
+	for (y = 0; y < WH; y++)
+		for (x = 0; x < WW; x++) {
+			unsigned char v = chunky[y*WW+x];
+			unsigned char *g;
+			short dr, dg, db;
+
+			if (v >= 10)
+				continue;                /* rarities are not the claim */
+			g  = bpal + brem[v]*3;
+			dr = clut[v*3+0]-g[0]; dg = clut[v*3+1]-g[1];
+			db = clut[v*3+2]-g[2];
+			err += (long)dr*dr + (long)dg*dg + (long)db*db;
+			npx++;
+		}
+	err /= npx;
+	/* Measured: 438 counting colours, 67 counting pixels. */
+	if (err > 120) {
+		printf("WEIGHTED CUT: area pixels average %ld sq err — the cut is "
+		       "following the colour LIST, not the pixels\n", err);
+		return 1;
+	}
+	return 0;
+}
+
 int main(void)
 {
 	int bad = 0;
@@ -433,6 +513,7 @@ int main(void)
 	if (flat_area_test()) return 1;
 	if (border_slot_test()) return 1;
 	if (dominance_test()) return 1;
+	if (weighted_cut_test()) return 1;
 	printf("OK  mse(8)=%ld mse(16)=%ld mse(32)=%ld  band-global-mse=%ld\n",
 	       e8, e16, e32, gmse);
 	return 0;

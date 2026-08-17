@@ -40,23 +40,36 @@ static unsigned char quant_snap(short v, short bits)
  * both sides non-empty (caller guarantees spread >= 1). Returns the left
  * side's length. Counting-based (no comparison sort) — O(len)+O(256). */
 static short quant_partition(unsigned char *idx, const unsigned char *clut,
-                             short start, short len, short axis)
+                             short start, short len, short axis,
+                             const unsigned short *w)
 {
-	unsigned short hist[256];
+	/* STATIC, not a local: weighted sums need 32 bits (a band can hold
+	 * 32000 sampled pixels) and this is the deepest frame in the reducer —
+	 * quant_banded -> quant_reduce_n_w -> here — on targets whose stack the
+	 * quantiser already strains (see plat_sys.h). Single-threaded by
+	 * construction, like the rest of this header. */
+	static unsigned long hist[256];
 	unsigned char tmp[256];
-	short i, lo = 255, hi = 0, t, cum, half, li, ri;
+	short i, lo = 255, hi = 0, t, li, ri;
+	unsigned long cum, half, tot = 0;
 
 	for (i = 0; i < 256; i++)
 		hist[i] = 0;
 	for (i = 0; i < len; i++) {
 		short v = clut[idx[start + i] * 3 + axis];
-		hist[v]++;
+		unsigned long q = w ? w[idx[start + i]] : 1u;
+
+		hist[v] += q;
+		tot     += q;
 		if (v < lo) lo = v;
 		if (v > hi) hi = v;
 	}
 	/* threshold in [lo, hi-1] so both the min- and max-valued members land
-	 * on opposite sides — guarantees a genuine split when spread >= 1. */
-	half = len >> 1;
+	 * on opposite sides — guarantees a genuine split when spread >= 1.
+	 * The median is by POPULATION when weights are supplied: splitting so
+	 * that each half covers the same NUMBER OF PIXELS is what makes the
+	 * reduction follow the picture instead of its colour list. */
+	half = tot >> 1;
 	cum = 0;
 	for (t = lo; t < hi; t++) {
 		cum += hist[t];
@@ -88,9 +101,10 @@ static short quant_partition(unsigned char *idx, const unsigned char *clut,
  * colours than the budget). The banded quantiser feeds it the COMPACT list of
  * colours actually used in a band, so ncolors is usually well under 256.
  */
-static short quant_reduce_n(const unsigned char *clut, short ncolors,
-                            short n, short bits,
-                            unsigned char *out_pal, unsigned char *remap)
+static short quant_reduce_n_w(const unsigned char *clut, short ncolors,
+                              short n, short bits,
+                              unsigned char *out_pal, unsigned char *remap,
+                              const unsigned short *w)
 {
 	unsigned char idx[256];
 	short bstart[QUANT_MAX_N], blen[QUANT_MAX_N];
@@ -111,10 +125,12 @@ static short quant_reduce_n(const unsigned char *clut, short ncolors,
 	blen[0] = ncolors;
 
 	while (nbox < n) {
-		short best = -1, bestspread = 0, bestaxis = 0, b;
+		short best = -1, bestaxis = 0, b;
+		unsigned long bestspread = 0;
 
 		for (b = 0; b < nbox; b++) {
-			short lo[3], hi[3], a, s;
+			short lo[3], hi[3], a;
+			unsigned long pop = 0, sc;
 
 			if (blen[b] < 2)
 				continue;
@@ -127,11 +143,17 @@ static short quant_reduce_n(const unsigned char *clut, short ncolors,
 					if (c[a] < lo[a]) lo[a] = c[a];
 					if (c[a] > hi[a]) hi[a] = c[a];
 				}
+				pop += w ? w[idx[bstart[b] + j]] : 1u;
 			}
+			/* SPREAD x POPULATION, not spread x member count. The box to
+			 * split is the one contributing the most ERROR, and error is
+			 * paid per pixel — a wide box covering three pixels matters
+			 * less than a narrow one covering half the band. With w == NULL
+			 * this reduces exactly to the old member-count rule. */
 			for (a = 0; a < 3; a++) {
-				s = hi[a] - lo[a];
-				if (s > bestspread) {
-					bestspread = s;
+				sc = (unsigned long)(hi[a] - lo[a]) * pop;
+				if (sc > bestspread) {
+					bestspread = sc;
 					best = b;
 					bestaxis = a;
 				}
@@ -142,7 +164,7 @@ static short quant_reduce_n(const unsigned char *clut, short ncolors,
 
 		{
 			short half = quant_partition(idx, clut, bstart[best],
-			                             blen[best], bestaxis);
+			                             blen[best], bestaxis, w);
 
 			bstart[nbox] = bstart[best] + half;
 			blen[nbox] = blen[best] - half;
@@ -153,17 +175,25 @@ static short quant_reduce_n(const unsigned char *clut, short ncolors,
 
 	for (i = 0; i < nbox; i++) {
 		long sr = 0, sg = 0, sb = 0;
+		unsigned long pop = 0;
 
+		/* The representative is the box's POPULATION-weighted mean, so a
+		 * colour covering most of the box lands on its own value instead of
+		 * being dragged toward whatever rare colours share the box. */
 		for (j = 0; j < blen[i]; j++) {
 			const unsigned char *c = clut + idx[bstart[i] + j] * 3;
+			unsigned long q = w ? w[idx[bstart[i] + j]] : 1u;
 
-			sr += c[0];
-			sg += c[1];
-			sb += c[2];
+			sr += (long)c[0] * q;
+			sg += (long)c[1] * q;
+			sb += (long)c[2] * q;
+			pop += q;
 		}
-		out_pal[i * 3 + 0] = quant_snap((short)(sr / blen[i]), bits);
-		out_pal[i * 3 + 1] = quant_snap((short)(sg / blen[i]), bits);
-		out_pal[i * 3 + 2] = quant_snap((short)(sb / blen[i]), bits);
+		if (pop == 0)
+			pop = 1;
+		out_pal[i * 3 + 0] = quant_snap((short)(sr / (long)pop), bits);
+		out_pal[i * 3 + 1] = quant_snap((short)(sg / (long)pop), bits);
+		out_pal[i * 3 + 2] = quant_snap((short)(sb / (long)pop), bits);
 		for (j = 0; j < blen[i]; j++)
 			remap[idx[bstart[i] + j]] = (unsigned char)i;
 	}
@@ -171,6 +201,16 @@ static short quant_reduce_n(const unsigned char *clut, short ncolors,
 		out_pal[i * 3 + 0] = out_pal[i * 3 + 1] = out_pal[i * 3 + 2] = 0;
 
 	return nbox;
+}
+
+/* Unweighted reduce — every colour counts once, whatever it covers. Kept as
+ * the plain name because that is what a caller with no population data wants. */
+static short quant_reduce_n(const unsigned char *clut, short ncolors,
+                            short n, short bits,
+                            unsigned char *out_pal, unsigned char *remap)
+{
+	return quant_reduce_n_w(clut, ncolors, n, bits, out_pal, remap,
+	                        (const unsigned short *)0);
 }
 
 /* Global reduce over a full 256-entry CLUT — the nbands==1 case. Convenience
@@ -293,6 +333,7 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 	static unsigned char domin[QUANT_MAX_BANDS][32];    /* ditto, >= KEEP_PCT  */
 	static unsigned char minor[QUANT_MAX_BANDS][32];    /* ditto, >= MINOR_PCT */
 	unsigned short cnt[256];         /* this band's population histogram   */
+	static unsigned short ccw[256];  /* the compact list's populations      */
 	unsigned char  kept[256];        /* 0 = no, else exact slot + 1        */
 	unsigned char cclut[256 * 3];
 	unsigned char cremap[256];
@@ -441,13 +482,34 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 				cclut[m * 3 + 0] = clut[i * 3 + 0];
 				cclut[m * 3 + 1] = clut[i * 3 + 1];
 				cclut[m * 3 + 2] = clut[i * 3 + 2];
+				ccw[m] = cnt[i];        /* its share of the band */
 				m++;
 			}
 		}
 		n = 0;
+		/* ★ POPULATION-WEIGHTED. The cut used to count each colour ONCE
+		 * however much of the band it covered, because the population was
+		 * not known at set_palette time — but this function histograms the
+		 * band anyway for the reservation above, so it IS known here, and
+		 * has been ever since that was added. Handing cnt[] to the reducer
+		 * makes it split and average by AREA, which is what the eye
+		 * weights. Measured against every pixel's true CLUT colour, mean
+		 * squared RGB error over two captured frames:
+		 *
+		 *     title screen  16 col / 10 bands   356 -> 299
+		 *     event screen  16 col / 10 bands   185 -> 154
+		 *     title screen  32 col / 25 bands   276 -> 247   (ECS)
+		 *     event screen  32 col / 25 bands   105 -> 101
+		 *
+		 * for +6% on the re-band (quant_banded 6590 -> 6989 t200): the
+		 * median scan accumulates weights instead of counts and the
+		 * representative multiplies by one. The gain is smaller than a
+		 * free-standing weighted cut scores (252/122) because
+		 * exact-preservation already reserves the largest areas — the two
+		 * mechanisms overlap by design. */
 		if (m > 0 && ncol - nkeep > 0)
-			n = quant_reduce_n(cclut, m, (short)(ncol - nkeep), bits,
-			                   bpal + nkeep * 3, cremap);
+			n = quant_reduce_n_w(cclut, m, (short)(ncol - nkeep), bits,
+			                     bpal + nkeep * 3, cremap, ccw);
 		live[b] = (short)(nkeep + n);       /* live entries in this band */
 		for (i = live[b] * 3; i < ncol * 3; i++)
 			bpal[i] = 0;
