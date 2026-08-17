@@ -150,9 +150,24 @@ echo "window OPEN — driving the walk"
 # looks entirely plausible. So: keep stepping until the close breakpoint dumps.
 # Returns are interleaved because walking trips event pop-ups, and a movement key
 # sent into one of those modals is eaten.
+#
+# ★ AND IT MUST STOP IF THE EMULATOR DIES. "Loop until a marker appears in the
+# emulator's log" spins forever the moment the emulator is gone — the marker can
+# never arrive, and the loop has no other exit. This harness has produced exactly
+# that before: two shells were found still alive after four and seven days, burning
+# no CPU, waiting on a Hatari that had long since exited. Bound it on the process
+# and on a key count.
 KEYS=(Up Left Up Right Up Down Up Left Return Up Right Up Left Up Right Return)
 i=0
 until grep -q "CPU addresses listed" "$OUT/run.log" 2>/dev/null; do
+	if ! pgrep -x hatari >/dev/null; then
+		echo "emulator exited after $i keys — no profile dump; run is void"
+		exit 3
+	fi
+	if [ "$i" -ge 4000 ]; then
+		echo "drove $i keys without the window closing — giving up; lower close_vbl"
+		exit 3
+	fi
 	send "$WID" "${KEYS[$((i % ${#KEYS[@]}))]}"
 	i=$((i + 1))
 	sleep 0.7
