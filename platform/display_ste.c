@@ -95,6 +95,10 @@ static short          s_ints_on;
 static unsigned char           s_clut[256 * 3];
 static unsigned char           s_band_pal[ST_NBANDS * ST_NCOL * 3];
 static unsigned char           s_band_remap[ST_NBANDS * 256];
+/* ROW-PHASE DITHER (#138): the odd-row companion to s_band_remap. Even rows
+ * keep the canonical map byte for byte, so the baseline is exactly what it was
+ * and -DFRUA_NODITHER restores it. See quant_band_dither. */
+static unsigned char           s_band_remap_odd[ST_NBANDS * 256];
 /* ADR-0016 B1: the CLUT the current band palettes were built from. A re-band
  * (median-cut over 32000 sampled pixels + 10 per-band reduces) is the ST's big
  * per-scene-change cost, and set_palette marks the bands dirty on EVERY
@@ -184,6 +188,8 @@ static unsigned char *st_vp_scratch(short *pitch);
 static void           st_vp_commit(short x, short y, short w, short h);
 static void           st_vp_overwrite(short x, short y, short w, short h);
 static void           st_vp_composite(void);
+static void           st_build_dither(void);
+static const unsigned char *st_row_lut(short y);
 
 /* --- raster-split interrupt handlers -------------------------------------
  *
@@ -281,6 +287,8 @@ static long sp_p1_cmpwords, sp_p1_inkbytes, sp_p1_built;
  * s_used_idx capture right after it, and the viewport overlay memcpy. Time
  * them apart before touching any of them. */
 static long sp_rb_vpcopy, sp_rb_quant, sp_rb_used, sp_rb_ffull;
+static long sp_rb_dither;  /* row-phase partner map rebuilds */
+static long sp_rb_dith_n;  /* how many times it ran */
 static long sp_rb_ffrows, sp_rb_ffcopy;   /* force-full: builds vs the 192 KB */
 static long sp_rb_n;
 static long sp_rb_dom;          /* re-bands the dominance probe caused */
@@ -553,8 +561,7 @@ static void st_blit_rows(short x0, short w, short y0, short h)
 
 	for (y = 0; y < h; y++) {
 		short yy = (short)(y0 + y);
-		short band = (short)((long)yy * ST_NBANDS / ST_H);
-		const unsigned char *lut = s_band_remap + (long)band * 256;
+		const unsigned char *lut = st_row_lut(yy);
 		const unsigned char *src = s_chunky + (long)yy * ST_W + x0;
 		unsigned char *dst = s_screen + (long)yy * LINE_BYTES + (long)(x0 / 16) * 8;
 
@@ -901,6 +908,43 @@ static void st_pal_registers_only(void)
 	 * clear s_dirty, i.e. tell st_present the bands are current — cancelling
 	 * the proper re-quant this is only ever a stand-in for. */
 	st_encode_hw_palette();
+	/* The dither map is NOT rebuilt here. This path is a stand-in that runs
+	 * on every substantial install — several per screen — and rebuilding the
+	 * partners each time was measured at most of the feature's cost. The
+	 * partners simply lag one re-band, which for a stand-in is the right
+	 * trade: the colours are already approximate here by construction. */
+}
+
+/* Rebuild the odd-row dither map. Cheap enough to run on every palette move:
+ * it only looks at indices the band actually contains, and skips the
+ * second-nearest search entirely for colours already reproduced within the
+ * grid's rounding noise — which is most of the chrome and all of the text. */
+static void st_build_dither(void)
+{
+#ifdef FRUA_STPROF
+	long td = Supexec(st_prof_hz200);
+
+	sp_rb_dith_n++;
+#endif
+#ifdef FRUA_DITHER
+	quant_band_dither(s_clut, ST_NBANDS, ST_NCOL, s_band_pal, s_band_remap,
+	                  s_band_used, s_band_remap_odd);
+#else
+	memcpy(s_band_remap_odd, s_band_remap, sizeof s_band_remap_odd);
+#endif
+#ifdef FRUA_STPROF
+	sp_rb_dither += Supexec(st_prof_hz200) - td;
+#endif
+}
+
+/* The remap a given screen row converts through. Row-phase dithering means the
+ * pointer changes per ROW and the inner loop never does — see
+ * quant_band_dither for why that is the only shape the backend can afford. */
+static const unsigned char *st_row_lut(short y)
+{
+	short band = (short)((long)y * ST_NBANDS / ST_H);
+
+	return ((y & 1) ? s_band_remap_odd : s_band_remap) + (long)band * 256;
 }
 
 static void st_repalette(void)
@@ -1031,6 +1075,7 @@ static void st_reband(void)
 	 */
 	st_compute_slot_reps();          /* B4 Phase-0: reps for palette-only rebands */
 	st_build_hw_palette();
+	st_build_dither();
 
 	/* B3.2: the FIRST re-band has no aligned predecessor, and the viewport path
 	 * clobbers s_shadow (its temp), so both must convert everything.
@@ -1060,6 +1105,7 @@ static int st_dt_target(struct dsp_planar_dt *dt)
 		return 0;                        /* no palette / no remap yet */
 	dt->planes       = s_dt;
 	dt->remap        = s_band_remap;
+	dt->remap_odd    = s_band_remap_odd;
 	dt->cov          = s_dt_cov;
 	dt->idx          = s_dt_idx;
 	dt->rowcov       = s_dt_rowcov;
@@ -1229,8 +1275,7 @@ static int st_row_differs(const unsigned char *a, const unsigned char *b)
 
 static void st_dt_build_row(short y)
 {
-	short band = (short)((long)y * ST_NBANDS / ST_H);
-	const unsigned char *lut  = s_band_remap + (long)band * 256;
+	const unsigned char *lut  = st_row_lut(y);
 	const unsigned char *crow = s_chunky + (long)y * ST_W;
 
 	/* Rebuild the row through the OPTIMIZED span converter (nibble transpose
@@ -2464,8 +2509,7 @@ static void st_vp_composite_fast(void)
 	for (pg = 0; pg < NPAGES; pg++) {
 		for (r = 0; r < s_vp_h; r++) {
 			short yy   = (short)(s_vp_y + r);
-			short band = (short)((long)yy * ST_NBANDS / ST_H);
-			const unsigned char *lut = s_band_remap + (long)band * 256;
+			const unsigned char *lut = st_row_lut(yy);
 			const unsigned char *scr =
 			    s_vp_scratch + (long)yy * VP_SCR_PITCH;
 			unsigned char *drow = s_page[pg] + (long)yy * LINE_BYTES;
@@ -2522,8 +2566,7 @@ static void st_vp_composite_slow(void)
 	 * (the viewport spans bands 1..5; the row's band picks the map). */
 	for (r = 0; r < s_vp_h; r++) {
 		short yy   = (short)(s_vp_y + r);
-		short band = (short)((long)yy * ST_NBANDS / ST_H);
-		const unsigned char *lut = s_band_remap + (long)band * 256;
+		const unsigned char *lut = st_row_lut(yy);
 		const unsigned char *srow =
 		    s_vp_scratch + (long)yy * VP_SCR_PITCH + s_vp_x;
 		long rowoff = (long)r * VP_PLANE_STRIDE;
@@ -2637,8 +2680,7 @@ static void st_c2p_page(unsigned char *dstbase)
 {
 	short y;
 	for (y = 0; y < ST_H; y++) {
-		short band = (short)((long)y * ST_NBANDS / ST_H);
-		const unsigned char *lut = s_band_remap + (long)band * 256;
+		const unsigned char *lut = st_row_lut(y);
 		const unsigned char *src = s_chunky + (long)y * ST_W;
 		unsigned char *dst = dstbase + (long)y * LINE_BYTES;
 		st_c2p_span(src, dst, ST_W, lut);
@@ -3296,6 +3338,8 @@ static void st_present(void)
 		dbg_log_num("b63rb:   of them dominance= ", sp_rb_dom);
 		dbg_log_num("b63rb:   vp overlay    = ", sp_rb_vpcopy);
 		dbg_log_num("b63rb:   quant_banded  = ", sp_rb_quant);
+		dbg_log_num("b63rb:   dither build  = ", sp_rb_dither);
+		dbg_log_num("b63rb:   dither builds = ", sp_rb_dith_n);
 		dbg_log_num("b63rb:   used_idx scan = ", sp_rb_used);
 		dbg_log_num("b63rb:   FORCE-FULL    = ", sp_rb_ffull);
 			dbg_log_num("b63rb:     ff rowbuilds= ", sp_rb_ffrows);

@@ -205,6 +205,11 @@ quant_reduce(const unsigned char *clut, short n, short bits,
  * comparison is noise, hence the macro rather than two copies of the test. */
 #define QUANT_IS_DOM(c, t) ((long)(c) * 100 >= (long)(t) * QUANT_KEEP_PCT)
 
+/* A colour covering less than this much of a band is RARE: it exists, but it
+ * cannot carry a visible area. Used to keep per-index work off colours that
+ * cannot repay it — see band_used's level 2 and quant_band_dither. */
+#define QUANT_MINOR_PCT 1
+
 /* HYSTERESIS. A colour ENTERS the dominant set at QUANT_KEEP_PCT and only
  * LEAVES it below this lower bar. Without the gap, a colour hovering at the
  * threshold — a panel a few pixels of text keeps nudging either side of 3% —
@@ -248,9 +253,11 @@ quant_reduce(const unsigned char *clut, short n, short bits,
  *
  *   band_pal[nbands*ncol*3] — per-band snapped palettes
  *   band_used[nbands*256]   — OPTIONAL (NULL to skip). Per band and index:
- *                             0 absent, 1 present, 2 DOMINANT (>= KEEP_PCT of
- *                             the band — the flat-area colours the reservation
- *                             above is built around). A per-band quantiser's
+ *                             0 absent, 1 present but RARE (< MINOR_PCT, too
+ *                             little area to matter), 2 present in quantity,
+ *                             3 DOMINANT (>= KEEP_PCT of the band — the
+ *                             flat-area colours the reservation above is built
+ *                             around). A per-band quantiser's
  *                             palettes depend on CONTENT as well as the CLUT,
  *                             so a caller needs this to know when the LAYOUT
  *                             has moved and the bands are stale.
@@ -284,6 +291,7 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 	static unsigned char present[QUANT_MAX_BANDS][32];  /* per-band, 1 bit/idx */
 	static long dmat[QUANT_ALIGN_N][QUANT_ALIGN_N];     /* pass-2 pair distances */
 	static unsigned char domin[QUANT_MAX_BANDS][32];    /* ditto, >= KEEP_PCT  */
+	static unsigned char minor[QUANT_MAX_BANDS][32];    /* ditto, >= MINOR_PCT */
 	unsigned short cnt[256];         /* this band's population histogram   */
 	unsigned char  kept[256];        /* 0 = no, else exact slot + 1        */
 	unsigned char cclut[256 * 3];
@@ -326,13 +334,19 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 			total += w;
 		}
 
-		/* Record the DOMINANT set while the histogram is still live — the
-		 * caller's staleness test compares against it (see band_used). */
+		/* Record the DOMINANT set — and, separately, which colours cover
+		 * enough of the band to be worth per-index work later — while the
+		 * histogram is still live. Both feed band_used below. */
 		for (i = 0; i < 32; i++)
-			domin[b][i] = 0;
-		for (i = 0; i < 256; i++)
-			if (cnt[i] && QUANT_IS_DOM(cnt[i], total))
+			domin[b][i] = minor[b][i] = 0;
+		for (i = 0; i < 256; i++) {
+			if (!cnt[i])
+				continue;
+			if (QUANT_IS_DOM(cnt[i], total))
 				domin[b][i >> 3] |= (unsigned char)(1u << (i & 7));
+			if ((long)cnt[i] * 100 >= total * QUANT_MINOR_PCT)
+				minor[b][i >> 3] |= (unsigned char)(1u << (i & 7));
+		}
 
 		/* ★ SLOT 0 IS THE HARDWARE BORDER, SO IT IS RESERVED FIRST AND
 		 * IDENTICALLY IN EVERY BAND.
@@ -668,6 +682,7 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 				for (i = 0; i < 256; i++)
 					band_used[(long)b * 256 + i] = (unsigned char)
 					    (((present[b][i >> 3] >> (i & 7)) & 1u)
+					     + ((minor[b][i >> 3] >> (i & 7)) & 1u)
 					     + ((domin[b][i >> 3] >> (i & 7)) & 1u));
 	}
 }
@@ -721,7 +736,7 @@ quant_band_dominant_moved(const unsigned char *chunky, short w, short h,
 	if (total == 0)
 		return 0;
 	for (i = 0; i < 256; i++) {
-		if (band_used_row[i] == 2) {
+		if (band_used_row[i] >= 3) {
 			if (QUANT_LEFT_DOM(cnt[i], total))
 				return 1;               /* fell out of the set */
 		} else if (cnt[i] && QUANT_IS_DOM(cnt[i], total)) {
@@ -729,6 +744,148 @@ quant_band_dominant_moved(const unsigned char *chunky, short w, short h,
 		}
 	}
 	return 0;
+}
+
+/* How far a colour may sit from its palette entry and still be drawn SOLID.
+ *
+ * "Only dither when the nearest entry is not exact" is the rule that makes
+ * dithering selective for free — chrome and glyphs keep their crisp edges
+ * because their colours are reproduced exactly. But "exact" cannot be tested
+ * as zero error: quant_snap lands every entry on the MIDPOINT of its hardware
+ * cell, so a colour the band reproduces perfectly still sits up to half a cell
+ * away — 8 per gun at 4 bits/gun, which is 2*64 + 5*64 + 64 = 512 under the
+ * weights used here. Testing for zero therefore dithers the flat panels that
+ * exact-preservation went to the trouble of reserving; measured on the title
+ * screen, it came back cross-hatched. Anything inside the grid's own rounding
+ * noise must stay solid. */
+#define QUANT_DITHER_FLOOR 512
+
+/* How many of an entry's nearest palette neighbours are considered as its
+ * dither partner. See the neighbour table in quant_band_dither. */
+#define QUANT_DITHER_NB 6
+
+/* Build the ODD-ROW companion to `band_remap`, for row-phase dithering.
+ *
+ * The backends map a pixel with ONE table lookup, so the only dither they can
+ * afford is N remap LUTs chosen by pixel position. Choosing by ROW (y & 1) is
+ * free — the LUT pointer is picked once per row and the inner loop never
+ * changes — where a checkerboard would have to alternate tables WITHIN a span
+ * and would cost the flat-span fast path as well.
+ *
+ * Two phases can express one blend: 50/50. So an index is given its second
+ * choice on odd rows when its colour sits at least a quarter of the way toward
+ * that second entry, and left alone otherwise. band_remap itself is never
+ * touched, which means even rows render EXACTLY as they do today and the
+ * feature can be judged (or disabled) without disturbing the baseline.
+ *
+ * Only indices the band actually contains are considered (band_used): a colour
+ * absent at quant time is on the canonical fallback path and dithering it
+ * would spend work on pixels that are not there.
+ */
+static __attribute__((unused)) void
+quant_band_dither(const unsigned char *clut, short nbands, short ncol,
+                  const unsigned char *band_pal,
+                  const unsigned char *band_remap,
+                  const unsigned char *band_used,
+                  unsigned char *band_remap_odd)
+{
+	unsigned char nb[QUANT_ALIGN_N][QUANT_DITHER_NB];
+	short b, i, k, n;
+
+	if (ncol > QUANT_ALIGN_N)
+		return;                          /* no backend asks for this */
+	for (b = 0; b < nbands; b++) {
+		const unsigned char *pal = band_pal + (long)b * ncol * 3;
+		const unsigned char *rem = band_remap + (long)b * 256;
+		const unsigned char *use = band_used + (long)b * 256;
+		unsigned char *odd = band_remap_odd + (long)b * 256;
+
+		/* NEIGHBOUR TABLE, once per band. The partner for an index is the
+		 * palette entry nearest its true colour other than the one it
+		 * already maps to — and since that colour sits near its own entry,
+		 * the partner is in practice one of THAT ENTRY's nearest
+		 * neighbours. Ranking the palette against itself is ncol*ncol
+		 * distances; searching all ncol per index was ncol per USED index,
+		 * and a band holds far more used indices than it has slots. On the
+		 * boot that is 9,600 distance evaluations a band against ~440. */
+		for (k = 0; k < ncol; k++) {
+			long best[QUANT_DITHER_NB];
+
+			for (n = 0; n < QUANT_DITHER_NB; n++) {
+				best[n] = 0x7FFFFFFFL;
+				nb[k][n] = (unsigned char)k;
+			}
+			for (i = 0; i < ncol; i++) {
+				long dr, dg, db, d;
+				short j;
+
+				if (i == k)
+					continue;
+				dr = (long)pal[k * 3 + 0] - pal[i * 3 + 0];
+				dg = (long)pal[k * 3 + 1] - pal[i * 3 + 1];
+				db = (long)pal[k * 3 + 2] - pal[i * 3 + 2];
+				d  = 2L * dr * dr + 5L * dg * dg + db * db;
+				for (j = 0; j < QUANT_DITHER_NB; j++)
+					if (d < best[j]) {
+						short m;
+
+						for (m = QUANT_DITHER_NB - 1; m > j; m--) {
+							best[m] = best[m - 1];
+							nb[k][m] = nb[k][m - 1];
+						}
+						best[j] = d;
+						nb[k][j] = (unsigned char)i;
+						break;
+					}
+			}
+		}
+
+		for (i = 0; i < 256; i++) {
+			const unsigned char *c = clut + (long)i * 3;
+			short i0 = rem[i], i1 = -1;
+			long  dr, dg, db, d0, d1 = 0x7FFFFFFFL;
+			long  num = 0, den = 0;
+
+			odd[i] = (unsigned char)i0;
+			/* Absent colours are fallback territory, and RARE ones
+			 * cannot show a blend however good it is — a handful of
+			 * pixels has no gradient to smooth. Skipping both is what
+			 * makes this affordable: a picture band USES most of the
+			 * 256 indices but only a few dozen cover any area. */
+			if (use[i] < 2)
+				continue;
+			dr = (long)c[0] - pal[i0 * 3 + 0];
+			dg = (long)c[1] - pal[i0 * 3 + 1];
+			db = (long)c[2] - pal[i0 * 3 + 2];
+			d0 = 2L * dr * dr + 5L * dg * dg + db * db;
+			if (d0 <= QUANT_DITHER_FLOOR)
+				continue;                /* solid: within grid noise */
+
+			for (n = 0; n < QUANT_DITHER_NB; n++) {
+				long d;
+
+				k = nb[i0][n];
+				if (k == i0)
+					continue;
+				dr = (long)c[0] - pal[k * 3 + 0];
+				dg = (long)c[1] - pal[k * 3 + 1];
+				db = (long)c[2] - pal[k * 3 + 2];
+				d  = 2L * dr * dr + 5L * dg * dg + db * db;
+				if (d < d1) { d1 = d; i1 = k; }
+			}
+			if (i1 < 0)
+				continue;
+			/* how far from pal[i0] toward pal[i1] does the colour lie? */
+			for (k = 0; k < 3; k++) {
+				long a = pal[i0 * 3 + k], e = pal[i1 * 3 + k];
+
+				num += ((long)c[k] - a) * (e - a);
+				den += (e - a) * (e - a);
+			}
+			if (den > 0 && num * 4L > den)   /* t > 1/4 -> mix 50/50 */
+				odd[i] = (unsigned char)i1;
+		}
+	}
 }
 
 #endif /* PLATFORM_QUANTIZE_H */

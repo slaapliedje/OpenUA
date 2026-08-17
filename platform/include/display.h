@@ -151,6 +151,13 @@ const unsigned char *dsp_planar_remap(short *nbands, short *screen_h);
 struct dsp_planar_dt {
 	unsigned char       *planes;      /* live interleaved plane buffer       */
 	const unsigned char *remap;       /* nbands * 256 index -> palette slot   */
+	/* ROW-PHASE DITHER: the map ODD screen rows use. NULL means "same as
+	 * remap" — a backend that does not dither needs no change, and the
+	 * writers below fall through to the single map. Draw-time stamps MUST
+	 * agree with what the present-time converter would have produced for
+	 * that row, or a stamped row and a converted row disagree and the
+	 * ownership skip shows it. */
+	const unsigned char *remap_odd;
 	unsigned char       *cov;         /* w*h coverage: 1 where a writer wrote */
 	unsigned char       *idx;         /* w*h: the chunky index each writer laid */
 	short               *rowcov;      /* h entries: covered-pixel count per row —

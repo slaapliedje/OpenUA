@@ -65,6 +65,13 @@ void planar_draw_target_register(int (*fn)(struct dsp_planar_dt *dt))
 
 int dsp_planar_draw_target(dsp_planar_dt_t *dt)
 {
+	/* ZERO FIRST. Callers declare this on the stack and every backend fills
+	 * only the fields it knows about, so a field added for ONE backend
+	 * (remap_odd, for the ST's row-phase dither) would otherwise reach the
+	 * others as stack garbage — and the shim tests it for NULL before
+	 * dereferencing it. One memset here is cheaper than remembering to add
+	 * the field to every backend, and it cannot be forgotten next time. */
+	memset(dt, 0, sizeof *dt);
 	return s_dt_fn ? s_dt_fn(dt) : 0;
 }
 

@@ -834,6 +834,14 @@ static const unsigned char *s_dcm_base;      /* dt->chunky the memo is for   */
 static long                 s_dcm_lo, s_dcm_hi = -1;
 static short                s_dcm_sy, s_dcm_band, s_dcm_nb, s_dcm_h;
 
+/* Which remap does screen row `sy` convert through? Row-phase dithering gives
+ * odd rows their own map (see quant_band_dither); a backend that does not
+ * dither leaves remap_odd NULL and every row takes the single map. A stamp
+ * that used the wrong one would disagree with the present-time converter for
+ * that row, which the #41 ownership skip would then preserve on screen. */
+#define DC_ROWMAP(dt, sy) \
+	(((dt)->remap_odd != NULL && ((sy) & 1)) ? (dt)->remap_odd : (dt)->remap)
+
 static int dc_map(const dsp_planar_dt_t *dt, const unsigned char *p,
                   short *sx, short *sy, short *band)
 {
@@ -981,7 +989,7 @@ static void dc_plane_fill(const dsp_planar_dt_t *dt, const unsigned char *prow,
 
 	if (!dc_map(dt, prow, &sx, &sy, &band))
 		return;                          /* offscreen pixmap: not our screen */
-	slot = dt->remap[(long)band * 256 + idx];
+	slot = DC_ROWMAP(dt, sy)[(long)band * 256 + idx];
 	{
 		/* #125e: SPAN, not per-pixel. The DC_PUT loop that used to live here
 		 * was 96% of jt103's cost (4.67 s of a 4.85 s panel fill on an 8 MHz
@@ -1031,7 +1039,7 @@ static void dc_plane_bridge_span(const dsp_planar_dt_t *dt,
 
 	if (!dc_map(dt, prow, &sx, &sy, &band))
 		return;                          /* offscreen pixmap: not our screen */
-	lut  = dt->remap + (long)band * 256;
+	lut  = DC_ROWMAP(dt, sy) + (long)band * 256;
 	x1   = (short)(sx + w);
 	if (x1 > dt->w) x1 = dt->w;
 	if (x1 <= sx)
@@ -3101,7 +3109,7 @@ static void dc_plane_px(const dsp_planar_dt_t *dt, const unsigned char *p,
 
 	if (!dc_map(dt, p, &sx, &sy, &band))
 		return;                          /* offscreen pixmap: not our screen */
-	DC_PUT(dt, sx, sy, dt->remap[(long)band * 256 + idx]);
+	DC_PUT(dt, sx, sy, DC_ROWMAP(dt, sy)[(long)band * 256 + idx]);
 	if (dt->cov) {
 		long c = (long)sy * dt->w + sx;
 		if (!dt->cov[c]) {

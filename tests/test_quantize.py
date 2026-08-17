@@ -319,6 +319,8 @@ static int border_slot_test(void)
  * Frames here are 200x20, one band, sampled every other row => 2000 counted
  * pixels, so 3% (enter) is 60 and 2% (leave) is 40 — fine enough to sit a
  * colour deliberately between the two bars and check the hysteresis.
+ *
+ * band_used levels: 0 absent, 1 rare, 2 present in quantity, 3 dominant.
  */
 #define DW 200
 #define DH 20
@@ -349,8 +351,9 @@ static int dominance_test(void)
 	 * presence test. */
 	dom_frame(f, 5, 9, 50);
 	quant_banded(f, DW, DH, clut, 1, 16, 4, pal, rem, used);
-	if (used[5] != 2 || used[9] != 1) {
-		printf("DOM: classes wrong, used[5]=%d used[9]=%d (want 2,1)\n",
+	if (used[5] != 3 || used[9] < 1 || used[9] > 2) {
+		printf("DOM: classes wrong, used[5]=%d used[9]=%d "
+		       "(want 3 = dominant, 1..2 = present-not-dominant)\n",
 		       used[5], used[9]);
 		return 1;
 	}
@@ -388,8 +391,9 @@ static int dominance_test(void)
 	 * nudges it, and every one of those re-bands is invisible. */
 	dom_frame(f, 5, 9, 60);
 	quant_banded(f, DW, DH, clut, 1, 16, 4, pal, rem, used);
-	if (used[9] != 2) {
-		printf("DOM: 3.0%% did not earn class 2 (got %d)\n", used[9]);
+	if (used[9] != 3) {
+		printf("DOM: 3.0%% did not earn the dominant class (got %d)\n",
+		       used[9]);
 		return 1;
 	}
 	dom_frame(f, 5, 9, 45);
