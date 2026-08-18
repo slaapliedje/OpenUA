@@ -12384,6 +12384,16 @@ static short g_view_force_full = 0;  /* set on a live switch -> full clear+prese
  * really damage the chrome still sets g_view_force_full. */
 #ifdef FRUA_TILEPROF
 long g_tp_seen, g_tp_put, g_tp_tiles;   /* #134 wall-tile pixel volume */
+/* #144: sizing for a PLANAR TILE CACHE. Volume alone does not size a cache —
+ * DISTINCTNESS does. A masked per-pixel blit cannot be stamped into planes
+ * cheaply (that is the ~1900 cycles/pixel scalar path ADR-0016 exists to avoid),
+ * so the planar-native route for walls is to convert each TILE once to planes +
+ * mask and then blit word-wise. That is only worth it if tiles REPEAT: these
+ * count distinct (slot, idx) pairs cumulatively and per render, and accumulate
+ * the planar bytes such a cache would hold (4 planes + 1 mask, word-padded). */
+long g_tp_distinct, g_tp_frame_distinct, g_tp_bytes;
+unsigned char g_tp_seen_tile[CW_SLOTS][256];
+unsigned char g_tp_frame_tile[CW_SLOTS][256];
 #endif
 #ifdef FRUA_TILEVERIFY
 long g_tv_n, g_tv_bad;
@@ -13795,7 +13805,27 @@ static void l309c_tile(unsigned char *page, short top, short left,
 		}
 #endif
 #ifdef FRUA_TILEPROF
-		{ extern long g_tp_tiles; g_tp_tiles++; }
+		{
+			extern long g_tp_tiles, g_tp_distinct, g_tp_frame_distinct;
+			extern long g_tp_bytes;
+			extern unsigned char g_tp_seen_tile[CW_SLOTS][256];
+			extern unsigned char g_tp_frame_tile[CW_SLOTS][256];
+			short si = (slot >= 0 && slot < CW_SLOTS) ? slot : 0;
+			unsigned char ii = (unsigned char)idx;
+
+			g_tp_tiles++;
+			if (!g_tp_seen_tile[si][ii]) {
+				g_tp_seen_tile[si][ii] = 1;
+				g_tp_distinct++;
+				/* what a planar entry would cost: 4 bitplanes + 1 mask,
+				 * (w+15)/16 words per plane per row, h rows */
+				g_tp_bytes += (long)(((w + 15) / 16) * 2) * 5 * h;
+			}
+			if (!g_tp_frame_tile[si][ii]) {
+				g_tp_frame_tile[si][ii] = 1;
+				g_tp_frame_distinct++;
+			}
+		}
 #endif
 		return;
 	}
@@ -15176,9 +15206,18 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 #ifdef FRUA_TILEPROF
 		{
 			extern long g_tp_seen, g_tp_put, g_tp_tiles;
+			extern long g_tp_distinct, g_tp_frame_distinct, g_tp_bytes;
+			extern unsigned char g_tp_frame_tile[CW_SLOTS][256];
 			dbg_log_num("r3d: tiles      = ", g_tp_tiles);
 			dbg_log_num("r3d: px examined= ", g_tp_seen);
 			dbg_log_num("r3d: px stored  = ", g_tp_put);
+			/* #144 cache sizing: blits vs DISTINCT tiles this frame is the
+			 * reuse factor; the cumulative pair is the working set. */
+			dbg_log_num("r3d: distinct/fr= ", g_tp_frame_distinct);
+			dbg_log_num("r3d: distinct cum= ", g_tp_distinct);
+			dbg_log_num("r3d: planar bytes= ", g_tp_bytes);
+			memset(g_tp_frame_tile, 0, sizeof g_tp_frame_tile);
+			g_tp_frame_distinct = 0;
 			g_tp_seen = g_tp_put = g_tp_tiles = 0;
 		}
 #endif
