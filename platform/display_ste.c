@@ -1191,6 +1191,46 @@ static unsigned char s_ink_idx[256];    /* index seen unmapped this present  */
 static short         s_ink_n;           /* distinct indices recorded         */
 static short         s_ink_over;        /* blew INK_MAX -> full re-quant     */
 
+/* #142: SIZE THE NEW-INK RE-QUANT BEFORE TOUCHING INK_MAX.
+ *
+ * st_reband is 4.5% of the walk, and it is NOT driven by qd_set_palette: every
+ * count>=32 palette write happens before the walk starts, so s_dirty is never set
+ * that way during it. The trigger is this path — a step draws indices the band
+ * palettes do not cover, st_patch_new_ink() places them incrementally, and past
+ * INK_MAX distinct new indices it declines and the whole frame is re-quantised.
+ *
+ * Raising INK_MAX trades fidelity for speed (more indices land on nearest-existing
+ * slots rather than a proper re-partition), so it needs numbers first: how often
+ * the patch is asked, how often it declines and WHY, and — the one the threshold
+ * actually depends on — how far past 24 the true distinct count goes. The shipping
+ * code cannot answer that last one because it stops counting at the threshold
+ * (`break` on overflow), so under this flag it keeps counting instead. That makes
+ * the diagnostic build scan more, but leaves the DECISION identical: s_ink_over is
+ * still set at exactly the same point. */
+#ifdef FRUA_PALDIAG
+static unsigned long pk_present, pk_calls, pk_ok, pk_over, pk_empty, pk_nopal;
+static unsigned long pk_reband, pk_repal, pk_next = 64;
+static unsigned long pk_b25_32, pk_b33_48, pk_b49_64, pk_b65up;
+static short         pk_true_n, pk_true_max;
+
+static void pk_dump(void)
+{
+	dbg_file_num("inkdiag: presents      = ", (long)pk_present);
+	dbg_file_num("inkdiag: patch calls   = ", (long)pk_calls);
+	dbg_file_num("inkdiag:   ACCEPTED    = ", (long)pk_ok);
+	dbg_file_num("inkdiag:   decline over= ", (long)pk_over);
+	dbg_file_num("inkdiag:   decline none= ", (long)pk_empty);
+	dbg_file_num("inkdiag:   decline nopal=", (long)pk_nopal);
+	dbg_file_num("inkdiag: st_reband     = ", (long)pk_reband);
+	dbg_file_num("inkdiag: st_repalette  = ", (long)pk_repal);
+	dbg_file_num("inkdiag: true-n max    = ", (long)pk_true_max);
+	dbg_file_num("inkdiag:   true 25..32 = ", (long)pk_b25_32);
+	dbg_file_num("inkdiag:   true 33..48 = ", (long)pk_b33_48);
+	dbg_file_num("inkdiag:   true 49..64 = ", (long)pk_b49_64);
+	dbg_file_num("inkdiag:   true 65+    = ", (long)pk_b65up);
+}
+#endif
+
 
 /* Does a 320-byte surface row differ? (#63)
  *
@@ -1317,8 +1357,14 @@ static int st_dt_ready_row(short y)
 				ink++;
 				if (!s_ink_idx[c]) {
 					s_ink_idx[c] = 1;
+#ifdef FRUA_PALDIAG
+					pk_true_n++;
+					if (++s_ink_n > INK_MAX)
+						s_ink_over = 1;  /* same decision, keep counting */
+#else
 					if (++s_ink_n > INK_MAX)
 						{ s_ink_over = 1; break; }
+#endif
 				}
 			}
 		}
@@ -1571,8 +1617,17 @@ static int st_patch_new_ink(void)
 {
 	short c, s, b, y, patched = 0;
 
+#ifdef FRUA_PALDIAG
+	pk_calls++;
+	if (s_ink_over)        pk_over++;
+	else if (s_ink_n <= 0) pk_empty++;
+	else if (!s_have_pal)  pk_nopal++;
+#endif
 	if (s_ink_over || s_ink_n <= 0 || !s_have_pal)
 		return 0;
+#ifdef FRUA_PALDIAG
+	pk_ok++;
+#endif
 
 	for (c = 0; c < 256; c++) {
 		short best = 0;
@@ -2928,8 +2983,14 @@ static void st_present(void)
 			}
 #endif
 			if (content_same) {
+#ifdef FRUA_PALDIAG
+				pk_repal++;
+#endif
 				st_repalette();
 			} else {
+#ifdef FRUA_PALDIAG
+				pk_reband++;
+#endif
 #ifdef FRUA_STPROF
 				/* #89 thread 2: a PARTIAL epoch reset is only worth
 				 * building if a reband typically leaves most of the
@@ -3008,6 +3069,20 @@ static void st_present(void)
 			s_banded_valid = 0;
 		}
 	}
+#ifdef FRUA_PALDIAG
+	if (pk_true_n > pk_true_max)
+		pk_true_max = pk_true_n;
+	if      (pk_true_n >= 65) pk_b65up++;
+	else if (pk_true_n >= 49) pk_b49_64++;
+	else if (pk_true_n >= 33) pk_b33_48++;
+	else if (pk_true_n >= 25) pk_b25_32++;
+	pk_true_n = 0;
+	pk_present++;
+	if (pk_present >= pk_next) {
+		pk_next = pk_present + 64;
+		pk_dump();
+	}
+#endif
 	s_dt_new_ink = 0;
 	if (s_ink_n) {
 		memset(s_ink_idx, 0, sizeof s_ink_idx);
