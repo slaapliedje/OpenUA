@@ -2359,14 +2359,35 @@ static void st_vp_composite_fast(void)
 		for (x = rx0; x < rx1; x++) scr[x] = chk[x];
 	}
 
-	for (pg = 0; pg < NPAGES; pg++) {
+	/* ★ CONVERT ONCE, REPLICATE THE BYTES (#142). The transpose is
+	 * PAGE-INDEPENDENT: `scr` is the shared scratch and `lut` is
+	 * s_band_remap + band*256 where band = yy * ST_NBANDS / ST_H, so for a given
+	 * (row, x) c2p4st_32 computes byte-identical plane words for page 0 and page
+	 * 1. Running the `for (pg...)` loop around the conversion therefore did the
+	 * whole c2p TWICE to produce two copies of the same bytes — half the walk's
+	 * composite, spent recomputing a known answer.
+	 *
+	 * The slow path in this same file has always done it the right way ("c2p once
+	 * + blit twice", per st_vp_composite's own comment); only the fast path
+	 * carried the duplicate. Now it converts into page 0 and copies that row's
+	 * span to the others, which is 48 bytes (12 longs) against three 32-pixel
+	 * transposes — the copy is a small fraction of what it replaces.
+	 *
+	 * The span is contiguous and wholly ours: block x writes 8 words at
+	 * (x >> 4) * 8, so [ax, aend) maps to bytes [(ax>>4)*8, (aend>>4)*8) — for
+	 * the live 96px viewport, drow+8 .. drow+56. The trailing st_c2p8 column
+	 * writes inside that same range, so copying after both loops covers it. */
+	{
+		long sb = (long)(ax   >> 4) * 8;         /* first byte of the span */
+		long se = (long)(aend >> 4) * 8;         /* one past the last      */
+
 		for (r = 0; r < s_vp_h; r++) {
 			short yy   = (short)(s_vp_y + r);
 			short band = (short)((long)yy * ST_NBANDS / ST_H);
 			const unsigned char *lut = s_band_remap + (long)band * 256;
 			const unsigned char *scr =
 			    s_vp_scratch + (long)yy * VP_SCR_PITCH;
-			unsigned char *drow = s_page[pg] + (long)yy * LINE_BYTES;
+			unsigned char *drow = s_page[0] + (long)yy * LINE_BYTES;
 
 			for (x = ax; x + 32 <= aend; x = (short)(x + 32)) {
 				const unsigned char *sp = scr + x;
@@ -2393,6 +2414,20 @@ static void st_vp_composite_fast(void)
 				sp_vp_col8++;
 #endif
 				x = (short)(x + 8);
+			}
+
+			/* Replicate this row's converted span to the other page(s), while
+			 * it is still warm. Long-wise: the span is 8-byte aligned by
+			 * construction and its length is a multiple of 8. */
+			for (pg = 1; pg < NPAGES; pg++) {
+				const unsigned long *sr =
+				    (const unsigned long *)(drow + sb);
+				unsigned long *dr = (unsigned long *)
+				    (s_page[pg] + (long)yy * LINE_BYTES + sb);
+				long n = (se - sb) >> 2;
+
+				while (n-- > 0)
+					*dr++ = *sr++;
 			}
 		}
 	}
@@ -3266,7 +3301,10 @@ static void st_prof_play_dump(void)
 	dbg_log_num("b63play: vp w*1000+h    = ", (long)s_vp_w * 1000L + s_vp_h);
 	dbg_log_num("b63play:   of which c2p = ", sp_vp_conv);
 	dbg_log_num("b63play:   of which blit= ", sp_vp_blit);
-	/* Stage A/C sizing: the fast-composite span census (summed over BOTH pages).
+	/* Stage A/C sizing: the fast-composite span census. NOTE since #142 this is
+	 * ONE page's blocks, not two: the fast composite converts once and copies the
+	 * bytes to the other page, so a per-composite total that used to read 528 now
+	 * reads 264. Halving here is the fix landing, not the census breaking.
 	 * flat 32-blocks = the floor/ceiling FILLS (Stage A target); textured =
 	 * the WALL tiles (Stage C). A big flat share means Stage A is already cheap
 	 * (c2p4st_32_flat) and the win is in the walls. */
