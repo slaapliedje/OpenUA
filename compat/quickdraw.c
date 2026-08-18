@@ -29,7 +29,8 @@
 #include "font_8x8.h"           /* qd_font_8x8 — fallback bitmap font */
 #include "mac_font.h"           /* g_mac_font — preferred when loaded */
 #include "input.h"              /* plat_mouse_pos — software cursor   */
-#if defined(FRUA_PRESENTCENSUS) || defined(FRUA_NCPROF) || defined(FRUA_REBAKEVERIFY)
+#if defined(FRUA_PRESENTCENSUS) || defined(FRUA_NCPROF) || defined(FRUA_REBAKEVERIFY) \
+ || defined(FRUA_PALDIAG)
 #include "dbglog.h"             /* #61/#63 present census; #122 nc histogram */
 #endif
 
@@ -1957,11 +1958,48 @@ void PenPat(const Pattern *pat)
  */
 static dsp_color_t g_palette[256];
 
+/* #142: pending CLUT range whose effect on the baked colour cursor has not been
+ * applied yet; -1 = nothing pending. qd_set_palette only records the range and
+ * qd_bake_sync() (called from cursor_composite, the sole consumer of the baked
+ * image) does the work. */
+static short s_bake_lo = -1, s_bake_hi = -1;
+
 #ifdef FRUA_NCPROF
 /* #123: qd_set_palette's `count` distribution. Incremental rebaking is only
  * worth building if partial writes are common — one counter decides it. */
 static unsigned long nc_sp_calls, nc_sp_count_sum, nc_sp_full;
 static unsigned long nc_sp_b16, nc_sp_b32, nc_sp_b64, nc_sp_b128, nc_sp_b255;
+#endif
+
+/* #142: WHY is the palette costing 9% of a corridor walk?
+ *
+ * st_reband (4.5%) and qd_rebake_range (4.5%) are both DOWNSTREAM of this
+ * function: a write with count >= 32 marks the ST bands dirty, and every write
+ * re-bakes the cursor. Neither is suspicious on a scene change; both are pure
+ * waste if the engine is re-installing colours it has already installed. That is
+ * the thing to measure before changing anything — a redundant-write count, not a
+ * guess. Counts each call, whether the incoming range is byte-identical to what
+ * the cache already holds, and the same split for the >= 32 writes that are the
+ * only ones that can trigger a re-band. */
+#ifdef FRUA_PALDIAG
+static unsigned long pd_calls, pd_same, pd_big, pd_same_big, pd_next = 100;
+/* rebake path: which arm is actually being taken, and does anything move?
+ * 2500 writes x 256 apply-iterations is only ~0.26% of the walk window, so the
+ * measured 4.5% has to be full 256-entry RESCANS. Count them per arm. */
+static unsigned long pd_rb, pd_rb_fullpath, pd_rb_fullone, pd_rb_changed;
+
+void pal_diag_dump(void);
+void pal_diag_dump(void)
+{
+	dbg_file_num("paldiag: calls          = ", (long)pd_calls);
+	dbg_file_num("paldiag:   byte-identical= ", (long)pd_same);
+	dbg_file_num("paldiag:   count>=32     = ", (long)pd_big);
+	dbg_file_num("paldiag:   >=32 AND same = ", (long)pd_same_big);
+	dbg_file_num("paldiag: rebake calls   = ", (long)pd_rb);
+	dbg_file_num("paldiag:   full-path     = ", (long)pd_rb_fullpath);
+	dbg_file_num("paldiag:   bake_full_one = ", (long)pd_rb_fullone);
+	dbg_file_num("paldiag:   idx CHANGED   = ", (long)pd_rb_changed);
+}
 #endif
 
 void qd_set_palette(const RGBColor *colors, short first, short count)
@@ -1974,6 +2012,29 @@ void qd_set_palette(const RGBColor *colors, short first, short count)
 		return;
 	if (first >= 256 || count > 256 || first + count > 256)
 		return;
+#ifdef FRUA_PALDIAG
+	{
+		short k;
+		int   same = 1;
+
+		for (k = 0; k < count; k++) {
+			if (g_palette[first + k].r != (unsigned char)(colors[k].red   >> 8)
+			 || g_palette[first + k].g != (unsigned char)(colors[k].green >> 8)
+			 || g_palette[first + k].b != (unsigned char)(colors[k].blue  >> 8)) {
+				same = 0;
+				break;
+			}
+		}
+		pd_calls++;
+		if (count >= 32)         pd_big++;
+		if (same)                pd_same++;
+		if (same && count >= 32) pd_same_big++;
+		if (pd_calls >= pd_next) {
+			pd_next = pd_calls + 100;
+			pal_diag_dump();
+		}
+	}
+#endif
 #ifdef FRUA_NCPROF
 	nc_sp_calls++;
 	nc_sp_count_sum += (unsigned long)count;
@@ -2016,10 +2077,26 @@ void qd_set_palette(const RGBColor *colors, short first, short count)
 			qd_touch_all();
 		QDT(3);
 	}
-	/* #123: incremental — see qd_rebake_range. 98% of writes touch <= 16 of
-	 * 256 entries, so re-scanning the whole palette for all 16 cursor
-	 * colours was ~16x more work than the write justifies. */
-	qd_rebake_range(first, count);  /* keep the colour cursor true to the CLUT */
+	/* #142: DEFER the cursor re-bake to the point of use instead of doing it
+	 * here. #123 made this incremental, which was the right first move, but the
+	 * walk profile shows the remaining cost is still 4.5% and the counters say
+	 * why: over a 900-write drive, 902 re-bakes moved a baked index FIFTEEN
+	 * times. The other 887 recomputed distances and rebuilt all 256 cursor
+	 * pixels to arrive at the answer they already had.
+	 *
+	 * The baked image has exactly ONE consumer (cursor_composite), so the bake
+	 * only has to be correct when the cursor is actually drawn — at most once
+	 * per present, against thousands of palette writes. Accumulate the touched
+	 * range and let qd_bake_sync() do the work there.
+	 *
+	 * The union [lo,hi) is deliberately conservative: widening it can only make
+	 * the eventual scan larger, never make its answer wrong, and a union that
+	 * reaches 256 entries takes qd_rebake_range's full-rescan arm, which is also
+	 * correct. */
+	if (s_bake_lo < 0 || first < s_bake_lo)
+		s_bake_lo = first;
+	if ((short)(first + count) > s_bake_hi)
+		s_bake_hi = (short)(first + count);
 }
 
 /* Debug accessor: copy the live shim CLUT out as 256 packed RGB triples.
@@ -2466,6 +2543,9 @@ static void qd_derive_mono_cursor(const unsigned char *raw,
  * evaluations to re-decide answers that provably could not have moved.
  * qd_nearest_color was 26-34% of the ST play loop and 87.5% of its calls came
  * from here (#122). */
+#ifdef FRUA_PALDIAG
+static unsigned char pd_before[16];
+#endif
 static unsigned char s_bake_idx[16];    /* the chosen palette index per colour */
 static long          s_bake_d[16];      /* and its distance, to compare against */
 static short         s_bake_valid;      /* 0 => the next rebake must be full    */
@@ -2489,6 +2569,9 @@ static long qd_bake_dist(short r, short g, short b, short i)
  * minima, and an exact match short-circuits. */
 static void qd_bake_full_one(short c)
 {
+#ifdef FRUA_PALDIAG
+	pd_rb_fullone++;
+#endif
 	short r = (short)g_color_cursor.pal[c * 3 + 0];
 	short g = (short)g_color_cursor.pal[c * 3 + 1];
 	short b = (short)g_color_cursor.pal[c * 3 + 2];
@@ -2547,7 +2630,18 @@ static void qd_rebake_range(short first, short count)
 #ifdef FRUA_NOINCREBAKE
 	s_bake_valid = 0;                       /* A/B arm: always full */
 #endif
+#ifdef FRUA_PALDIAG
+	pd_rb++;
+	{
+		short z;
+		for (z = 0; z < 16; z++)
+			pd_before[z] = s_bake_idx[z];
+	}
+#endif
 	if (!s_bake_valid || count >= 256 || first < 0) {
+#ifdef FRUA_PALDIAG
+		pd_rb_fullpath++;
+#endif
 		for (c = 0; c < 16; c++)
 			qd_bake_full_one(c);
 		s_bake_valid = 1;
@@ -2611,13 +2705,33 @@ static void qd_rebake_range(short first, short count)
 		qd_bake_apply();
 	}
 #endif
+#ifdef FRUA_PALDIAG
+	{
+		short z;
+		for (z = 0; z < 16; z++)
+			if (pd_before[z] != s_bake_idx[z]) { pd_rb_changed++; break; }
+	}
+#endif
 	qd_bake_apply();
 }
 
 static void qd_rebake_color_pointer(void)
 {
 	s_bake_valid = 0;               /* callers here want a fresh bake */
+	s_bake_lo = s_bake_hi = -1;     /* a full bake subsumes anything pending */
 	qd_rebake_range(0, 256);
+}
+
+/* #142: apply any palette writes accumulated since the last bake. Called from
+ * the one place the baked image is read, so a deferred bake is invisible. */
+static void qd_bake_sync(void)
+{
+	short lo = s_bake_lo, hi = s_bake_hi;
+
+	if (lo < 0)
+		return;
+	s_bake_lo = s_bake_hi = -1;
+	qd_rebake_range(lo, (short)(hi - lo));
 }
 
 void qd_install_color_pointer(short w, short h, short hotx, short hoty,
@@ -2889,6 +3003,7 @@ static void cursor_composite(void)
 	 * say so. (The net-neutral bracket in qd_cursor_track saves only #152's
 	 * boolean, not the row set, so it did not cover this.) */
 	qd_touch_rows(oy, (short)(oy + 16));
+	qd_bake_sync();                 /* #142: bake here, not per palette write */
 	black = qd_nearest_color(&bk);
 	white = qd_nearest_color(&wh);
 
