@@ -12394,6 +12394,22 @@ long g_tp_seen, g_tp_put, g_tp_tiles;   /* #134 wall-tile pixel volume */
 long g_tp_distinct, g_tp_frame_distinct, g_tp_bytes;
 unsigned char g_tp_seen_tile[CW_SLOTS][256];
 unsigned char g_tp_frame_tile[CW_SLOTS][256];
+/* #144 THE QUESTION THAT DECIDES THE CACHE KEY. A cached planar tile has the
+ * index->slot remap baked in, and that remap is PER BAND (band = y*nbands/h), so
+ * an entry is only valid for the band it was built against. If tiles routinely
+ * straddle a band boundary the key has to become (slot, idx, band) and the
+ * working set multiplies by nbands — 64 entries could become 640. Measured over
+ * the CLIPPED rows, since rows outside [clip_t, clip_b) are never drawn. */
+long  g_tp_straddle;        /* blits whose drawn rows cross a band boundary */
+long  g_tp_bandspan;        /* sum of bands touched, to get the mean        */
+short g_tp_maxbands;        /* worst single tile                            */
+/* ...and the question that ACTUALLY decides it. Straddling only forces a
+ * band-keyed cache if the REMAP DIFFERS across the bands the tile spans, for the
+ * values that tile writes. quantize.h reserves exact slots for kept colours, so
+ * the wall band may well map identically in every band — in which case one cached
+ * planar tile is valid everywhere and straddling is irrelevant. Compares the
+ * actual distinct source bytes of each straddling tile. */
+long g_tp_remap_same, g_tp_remap_diff;
 #endif
 #ifdef FRUA_TILEVERIFY
 long g_tv_n, g_tv_bad;
@@ -13825,6 +13841,66 @@ static void l309c_tile(unsigned char *page, short top, short left,
 				g_tp_frame_tile[si][ii] = 1;
 				g_tp_frame_distinct++;
 			}
+			{
+				extern long  g_tp_straddle, g_tp_bandspan;
+				extern short g_tp_maxbands;
+				short nb = 0, shh = 0;
+
+				(void)dsp_planar_remap(&nb, &shh);
+				if (nb > 0 && shh > 0) {
+					short ytop = (y0 < g_cwf_clip_t)
+					           ? g_cwf_clip_t : y0;
+					short ybot = (short)(y0 + h);
+					short b0, b1;
+
+					if (ybot > g_cwf_clip_b)
+						ybot = g_cwf_clip_b;
+					if (ybot > ytop) {
+						b0 = (short)((long)ytop * nb / shh);
+						b1 = (short)((long)(ybot - 1) * nb / shh);
+						g_tp_bandspan += (long)(b1 - b0 + 1);
+						if (b1 != b0)
+							g_tp_straddle++;
+						if ((short)(b1 - b0 + 1) > g_tp_maxbands)
+							g_tp_maxbands = (short)(b1 - b0 + 1);
+						if (b1 != b0) {
+							extern long g_tp_remap_same,
+							            g_tp_remap_diff;
+							const unsigned char *rm =
+							    dsp_planar_remap(&nb, &shh);
+							unsigned char present[256];
+							short rr, cc, kk, bb, differs = 0;
+
+							for (kk = 0; kk < 256; kk++)
+								present[kk] = 0;
+							for (rr = 0; rr < h; rr++)
+								for (cc = 0; cc < w; cc++)
+									present[body[(long)rr * w + cc]] = 1;
+							for (kk = 0; kk < 256 && !differs; kk++) {
+								short off2, v2;
+
+								if (!present[kk] || kk == 255)
+									continue;
+								off2 = (short)(kk - 32);
+								v2   = kk;
+								if (off2 >= 0 && off2 < CW_BAND) {
+									if (g_cw_strans[slot][off2])
+										continue;
+									v2 = (short)(base + off2);
+								}
+								for (bb = (short)(b0 + 1); bb <= b1; bb++)
+									if (rm[(long)bb * 256 + v2]
+									 != rm[(long)b0 * 256 + v2]) {
+										differs = 1;
+										break;
+									}
+							}
+							if (differs) g_tp_remap_diff++;
+							else         g_tp_remap_same++;
+						}
+					}
+				}
+			}
 		}
 #endif
 		return;
@@ -15216,6 +15292,18 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 			dbg_log_num("r3d: distinct/fr= ", g_tp_frame_distinct);
 			dbg_log_num("r3d: distinct cum= ", g_tp_distinct);
 			dbg_log_num("r3d: planar bytes= ", g_tp_bytes);
+			{
+				extern long  g_tp_straddle, g_tp_bandspan;
+				extern short g_tp_maxbands;
+				dbg_log_num("r3d: STRADDLE cum= ", g_tp_straddle);
+				dbg_log_num("r3d: bandspan cum= ", g_tp_bandspan);
+				dbg_log_num("r3d: max bands/tile=", (long)g_tp_maxbands);
+				{
+					extern long g_tp_remap_same, g_tp_remap_diff;
+					dbg_log_num("r3d: remap SAME  = ", g_tp_remap_same);
+					dbg_log_num("r3d: remap DIFFER= ", g_tp_remap_diff);
+				}
+			}
 			memset(g_tp_frame_tile, 0, sizeof g_tp_frame_tile);
 			g_tp_frame_distinct = 0;
 			g_tp_seen = g_tp_put = g_tp_tiles = 0;
