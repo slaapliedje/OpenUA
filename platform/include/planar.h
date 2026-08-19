@@ -122,6 +122,17 @@ void planar_viewport_register(unsigned char *(*scratch)(short *pitch),
  * while the engine believes it drew the picture. Registered by the same
  * backends that register the viewport hooks; a no-op everywhere else.
  */
+/* ADR-0016 B5: the engine STAMPS the viewport's planes itself and the backend
+ * only has to move them. dsp_viewport_planes() hands back a page-layout plane
+ * buffer (same interleaved form and pitch as a screen page, addressed in
+ * ABSOLUTE screen coords) for the engine to draw into; dsp_viewport_commit_planes
+ * then says "these planes hold the frame", and the composite becomes a COPY —
+ * no chunky->planar conversion at all. A backend that has not registered returns
+ * NULL, and the engine keeps to the chunky scratch it has always used, so the
+ * layout stays platform's business and only the ST/STe path changes today. */
+void planar_viewport_planes_register(unsigned char *(*planes)(short *pitch),
+                                     void (*commit)(short, short, short, short));
+
 void planar_viewport_overwrite_register(void (*fn)(short x, short y,
                                                    short w, short h));
 void planar_viewport_overwrite(short x, short y, short w, short h);

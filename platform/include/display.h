@@ -194,6 +194,10 @@ int dsp_planar_draw_target(dsp_planar_dt_t *dt);
  * points themselves live in the shared planar module so both build trees link. */
 unsigned char *dsp_viewport_scratch(short *pitch);
 void           dsp_viewport_commit(short x, short y, short w, short h);
+/* ADR-0016 B5 — draw the viewport's PLANES directly; NULL when the backend
+ * wants the chunky scratch instead (Falcon/TT, and any backend not yet on it). */
+unsigned char *dsp_viewport_planes(short *pitch);
+void           dsp_viewport_commit_planes(short x, short y, short w, short h);
 
 /* Atari builds: the _VDO cookie value (video hardware id in the high word:
  * 0 ST, 1 STE, 2 TT, 3 VIDEL; 0 when no jar). Cached after the first call.

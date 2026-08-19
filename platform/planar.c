@@ -40,6 +40,27 @@ void dsp_viewport_commit(short x, short y, short w, short h)
 		s_vp_commit_fn(x, y, w, h);
 }
 
+static unsigned char *(*s_vp_planes_fn)(short *pitch);
+static void           (*s_vp_commitp_fn)(short x, short y, short w, short h);
+
+void planar_viewport_planes_register(unsigned char *(*planes)(short *pitch),
+                                     void (*commit)(short, short, short, short))
+{
+	s_vp_planes_fn  = planes;
+	s_vp_commitp_fn = commit;
+}
+
+unsigned char *dsp_viewport_planes(short *pitch)
+{
+	return s_vp_planes_fn ? s_vp_planes_fn(pitch) : (unsigned char *)0;
+}
+
+void dsp_viewport_commit_planes(short x, short y, short w, short h)
+{
+	if (s_vp_commitp_fn)
+		s_vp_commitp_fn(x, y, w, h);
+}
+
 /* Committed-viewport invalidation — see the long note in planar.h. */
 static void (*s_vp_overwrite_fn)(short x, short y, short w, short h);
 

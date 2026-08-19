@@ -12399,12 +12399,20 @@ static short g_view_force_full = 0;  /* set on a live switch -> full clear+prese
  * against the later one, which is also what the chunky path ends up showing. */
 #ifdef FRUA_VPPLANAR
 #include "planar_tile_cache.h"
-#define VPP_ROWS   200
-#define VPP_PITCH  160                    /* ST-Low interleaved, 4 planes */
+/* ★ VPP_ROWS FOLLOWS THE BACKEND'S BUFFER, NOT THE SCREEN. The planes now live
+ * in platform (dsp_viewport_planes), which sizes them to VP_MAX = 128 rows —
+ * enough for a viewport whose bottom edge is inside VP_MAX, which the commit
+ * enforces. Leaving this at the screen's 200 would let a clip taller than the
+ * buffer write past its end. */
+#define VPP_ROWS   128
 #define VPP_COVW   (320 / 8)
 #define VPP_TILES  160
 #define VPP_POOLW  24000L                 /* words, ~48 KB vs 28-34 KB measured */
-static unsigned char  g_vpp_plane[(long)VPP_ROWS * VPP_PITCH];
+/* The page-layout plane buffer the backend lends us for this frame, and its
+ * pitch. NULL on a chunky backend (Falcon/TT) or with the ST's A/B knob off, in
+ * which case nothing below stamps anything and the chunky path stands alone. */
+static unsigned char *g_vpp_dst;
+static short          g_vpp_dpitch;
 static unsigned char  g_vpp_cov[(long)VPP_ROWS * VPP_COVW];
 /* ★ THE BACKDROP GETS ITS OWN CACHE, NOT A CORNER OF THE TILE ONE. Its key has
  * to carry a GENERATION (g_back_gen): a new level's BACK.CTL replaces g_back_img
@@ -13925,7 +13933,7 @@ static void l309c_tile(unsigned char *page, short top, short left,
 			short nb = 0, shh = 0;
 			const unsigned char *rm = dsp_planar_remap(&nb, &shh);
 
-			if (rm != NULL && nb > 0 && shh > 0) {
+			if (rm != NULL && nb > 0 && shh > 0 && g_vpp_dst != NULL) {
 				short si = (slot >= 0 && slot < CW_SLOTS) ? slot : 0;
 				short bnd = (short)((long)y0 * nb / shh);
 				unsigned short *tile;
@@ -14015,7 +14023,7 @@ static void l309c_tile(unsigned char *page, short top, short left,
 					short rr2, cc2;
 
 					g_vpp_blits++;
-					planar_tile_blit(g_vpp_plane, VPP_PITCH, tile, w, h,
+					planar_tile_blit(g_vpp_dst, g_vpp_dpitch, tile, w, h,
 					                 x0, y0,
 					                 g_cwf_clip_l, g_cwf_clip_r,
 					                 g_cwf_clip_t, g_cwf_clip_b);
@@ -15294,6 +15302,27 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	/* coverage is per FRAME: only pixels this render's tiles wrote are compared */
 	memset(g_vpp_cov, 0, sizeof g_vpp_cov);
 #endif
+#ifdef FRUA_VPPLANAR
+	/* ADR-0016 B5: ask the backend for the viewport's PLANES. Non-NULL means the
+	 * writers below stamp them directly and the composite becomes a copy; NULL
+	 * means this backend wants the chunky scratch and nothing here changes.
+	 *
+	 * ★ CLEAR THE GROUPS, INCLUDING THE BITS WE DO NOT OWN. The left edge (x=24)
+	 * sits inside a 16-pixel group whose first eight pixels are the stone frame,
+	 * and this buffer is not the screen — the composite merges each edge group
+	 * through a mask, so whatever we leave in those bits is discarded. Clearing
+	 * whole groups is therefore both simpler and safe. */
+	g_vpp_dst = dsp_viewport_planes(&g_vpp_dpitch);
+	if (g_vpp_dst != NULL && g_vpp_dpitch > 0) {
+		long gb = (long)(VL >> 4) * 8;
+		long ge = (long)(((VR + 15) >> 4)) * 8;
+		short vy;
+
+		for (vy = VT; vy < VB && vy < VPP_ROWS; vy++)
+			memset(g_vpp_dst + (long)vy * g_vpp_dpitch + gb, 0,
+			       (size_t)(ge - gb));
+	}
+#endif
 	g_cwf_px = vtgt;
 #ifdef FRUA_R3DPROF
 	{ extern long g_r3d_t0; g_r3d_t0 = TickCount(); }
@@ -15428,7 +15457,7 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 				 * and the win is not to make them planar but to SKIP them.
 				 * Count the span pixels and how many land inside the rect the
 				 * backdrop will repaint — a geometric test, not a readback. */
-				if (vp && px1 > px0) {
+				if (vp && g_vpp_dst != NULL && px1 > px0) {
 					short nbf = 0, shf = 0;
 					const unsigned char *rmf =
 					    dsp_planar_remap(&nbf, &shf);
@@ -15443,7 +15472,7 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 
 						if (bf < 0) bf = 0;
 						if (bf >= nbf) bf = (short)(nbf - 1);
-						planar_span_stlow(g_vpp_plane, VPP_PITCH, 4,
+						planar_span_stlow(g_vpp_dst, g_vpp_dpitch, 4,
 						                  yy, xa, xb,
 						                  rmf[(long)bf * 256
 						                      + (unsigned char)fill]);
@@ -15580,7 +15609,7 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	 * g_back_img — that is the bytes actually on screen, so the mirror cannot
 	 * disagree with the picture through a scaling difference of my own making.
 	 * Read only on a rebuild; a hit touches neither. */
-	if (vp && g_back_w > 0 && g_back_h > 0) {
+	if (vp && g_vpp_dst != NULL && g_back_w > 0 && g_back_h > 0) {
 		short nbb = 0, shb = 0;
 		const unsigned char *rmb = dsp_planar_remap(&nbb, &shb);
 		short kvl = (short)g_a5_3056, kvt = (short)g_a5_3054;
@@ -15686,7 +15715,7 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 					short rr, cc;
 
 					g_vpb_strips++;
-					planar_tile_blit(g_vpp_plane, VPP_PITCH, strip,
+					planar_tile_blit(g_vpp_dst, g_vpp_dpitch, strip,
 					                 kw, hh, kvl, sy,
 					                 g_cwf_clip_l, g_cwf_clip_r,
 					                 g_cwf_clip_t, g_cwf_clip_b);
@@ -15852,7 +15881,7 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 					const unsigned char *crow =
 					    vtgt + (long)vy * vpitch;
 					const unsigned char *prow =
-					    g_vpp_plane + (long)vy * VPP_PITCH;
+					    g_vpp_dst + (long)vy * g_vpp_dpitch;
 					const unsigned char *cov =
 					    g_vpp_cov + (long)vy * VPP_COVW;
 
@@ -15918,7 +15947,17 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 			}
 		}
 #endif
-		dsp_viewport_commit(VL, VT, (short)(VR - VL), (short)(VB - VT));
+		/* ADR-0016 B5: if we stamped the planes, hand THOSE over — the
+		 * backend then copies rather than converting. Otherwise the chunky
+		 * commit, exactly as before. */
+#ifdef FRUA_VPPLANAR
+		if (g_vpp_dst != NULL)
+			dsp_viewport_commit_planes(VL, VT, (short)(VR - VL),
+			                           (short)(VB - VT));
+		else
+#endif
+			dsp_viewport_commit(VL, VT, (short)(VR - VL),
+			                    (short)(VB - VT));
 #ifdef FRUA_BAR28
 	/* #141: is the flag ALREADY back on by the end of the render? If so the
 	 * render re-arms the very condition that makes the next frame reload the

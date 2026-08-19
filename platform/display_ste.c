@@ -178,6 +178,16 @@ static unsigned char          *s_offpage;   /* B3.0b: non-displayed ST-RAM page 
 #define VP_PLANE_STRIDE ((VP_MAX + 15) / 16 * 2)/* 16 bytes/plane row         */
 static unsigned char s_vp_scratch[(long)VP_SCR_PITCH * VP_MAX];
 static unsigned char s_vp_planes[ST_DEPTH * VP_PLANE_STRIDE * VP_MAX];
+/* ADR-0016 B5: the viewport's planes as the engine stamped them, in PAGE layout
+ * (same interleaved form and pitch as a screen page, absolute screen coords) so
+ * the composite is a copy rather than a conversion. VP_MAX rows is enough for a
+ * viewport whose bottom edge is inside VP_MAX, which st_vp_commit enforces. */
+static unsigned char s_vp_ilv[(long)LINE_BYTES * VP_MAX];
+static short         s_vp_planar;               /* s_vp_ilv holds this frame  */
+/* ★ THE A/B KNOB, and it is RUNTIME so both arms are one binary. 0 makes
+ * st_vp_planes() hand back NULL, the engine keeps to the chunky scratch, and the
+ * composite converts exactly as it did before — the old path, same build. */
+short st_planar_viewport = 1;
 static short         s_vp_x, s_vp_y, s_vp_w, s_vp_h;
 static short         s_vp_active;               /* a committed rect awaits composite */
 /* ★ #61: WHICH PAGES STILL OWE THE COMPOSITE.
@@ -200,6 +210,8 @@ static short         s_st_active;               /* this backend is the live one 
 static unsigned char *st_vp_scratch(short *pitch);
 static void           st_vp_commit(short x, short y, short w, short h);
 static void           st_vp_overwrite(short x, short y, short w, short h);
+static unsigned char *st_vp_planes_buf(short *pitch);
+static void           st_vp_commit_planes(short x, short y, short w, short h);
 static void           st_vp_composite(void);
 
 /* --- raster-split interrupt handlers -------------------------------------
@@ -2128,6 +2140,7 @@ static int st_init(short want_w, short want_h)
 	s_vp_active = 0;
 	s_st_active = 1;
 	planar_viewport_register(st_vp_scratch, st_vp_commit);
+	planar_viewport_planes_register(st_vp_planes_buf, st_vp_commit_planes);
 	planar_viewport_overwrite_register(st_vp_overwrite);
 
 #ifdef FRUA_PLANAR
@@ -2177,6 +2190,8 @@ static int st_init(short want_w, short want_h)
 static void st_shutdown(void)
 {
 	if (s_st_active) {
+		planar_viewport_planes_register((unsigned char *(*)(short *))0,
+		                                (void (*)(short, short, short, short))0);
 		planar_viewport_register((unsigned char *(*)(short *))0,
 		                         (void (*)(short, short, short, short))0);
 		planar_viewport_overwrite_register(
@@ -2254,6 +2269,7 @@ static void st_vp_commit(short x, short y, short w, short h)
 	}
 	s_vp_x = x; s_vp_y = y; s_vp_w = w; s_vp_h = h;
 	s_vp_active = 1;
+	s_vp_planar = 0;                         /* chunky commit: convert as before */
 	s_vp_have   = 1;
 	s_vp_owe[0] = 1;                         /* #61: EVERY page owes it */
 	s_vp_owe[1] = 1;
@@ -2494,6 +2510,92 @@ static void st_vp_composite_slow(void)
 	}
 }
 
+/* --- ADR-0016 B5: engine-stamped planes ---------------------------------- */
+
+static unsigned char *st_vp_planes_buf(short *pitch)
+{
+	if (!st_planar_viewport)
+		return (unsigned char *)0;       /* A/B arm: chunky scratch as before */
+	if (pitch)
+		*pitch = LINE_BYTES;
+	return s_vp_ilv;
+}
+
+static void st_vp_commit_planes(short x, short y, short w, short h)
+{
+	st_vp_commit(x, y, w, h);                /* same bookkeeping and rejects */
+	if (s_vp_active)
+		s_vp_planar = 1;
+}
+
+/*
+ * Copy the engine's planes into every page's hole.
+ *
+ * ★ THE EDGE GROUPS ARE MERGED, NOT COPIED. A 16-pixel group is the smallest
+ * unit of ST-Low plane storage, and the viewport's left edge (x = 24) sits in
+ * the MIDDLE of group 1 — pixels 16..23 of that group belong to the chrome
+ * around the hole. Copying whole groups would blank eight columns of the stone
+ * frame every frame. So each group carries a mask of the pixels we own; a fully
+ * owned group is two long stores, a partial one is four masked word merges.
+ * With the live 88x88 viewport at x=24 that is exactly one partial group per
+ * row and five whole ones.
+ */
+static void st_vp_composite_copy(void)
+{
+	short gx0 = (short)(s_vp_x >> 4);
+	short gx1 = (short)(((s_vp_x + s_vp_w) + 15) >> 4);
+	unsigned short gm[(VP_MAX / 16) + 2];
+	short g, r, pg, i;
+#ifdef FRUA_STPROF
+	long t0 = Supexec(st_prof_hz200);
+#endif
+
+	if (gx1 - gx0 > (short)(sizeof gm / sizeof gm[0]))
+		return;                          /* cannot happen: VP_MAX bounds it */
+	for (g = gx0; g < gx1; g++) {
+		short lo = (short)(g * 16);
+		short a  = (s_vp_x > lo) ? s_vp_x : lo;
+		short b  = ((short)(s_vp_x + s_vp_w) < (short)(lo + 16))
+		         ? (short)(s_vp_x + s_vp_w) : (short)(lo + 16);
+		unsigned short m = 0;
+
+		for (i = (short)(a - lo); i < (short)(b - lo); i++)
+			m |= (unsigned short)(0x8000u >> i);
+		gm[g - gx0] = m;
+	}
+
+	for (r = 0; r < s_vp_h; r++) {
+		short yy = (short)(s_vp_y + r);
+		const unsigned char *srow = s_vp_ilv + (long)yy * LINE_BYTES;
+
+		for (pg = 0; pg < NPAGES; pg++) {
+			unsigned char *drow = s_page[pg] + (long)yy * LINE_BYTES;
+
+			for (g = gx0; g < gx1; g++) {
+				unsigned short m = gm[g - gx0];
+				const unsigned short *sp =
+				    (const unsigned short *)(srow + (long)g * 8);
+				unsigned short *dp =
+				    (unsigned short *)(drow + (long)g * 8);
+
+				if (m == 0xFFFFu) {
+					((unsigned long *)dp)[0] =
+					    ((const unsigned long *)sp)[0];
+					((unsigned long *)dp)[1] =
+					    ((const unsigned long *)sp)[1];
+				} else if (m) {
+					for (i = 0; i < ST_DEPTH; i++)
+						dp[i] = (unsigned short)
+						    ((dp[i] & ~m) | (sp[i] & m));
+				}
+			}
+		}
+	}
+#ifdef FRUA_STPROF
+	sp_vp_blit += Supexec(st_prof_hz200) - t0;
+#endif
+}
+
 static void st_vp_composite(void)
 {
 #ifdef FRUA_STPROF
@@ -2538,13 +2640,30 @@ static void st_vp_composite(void)
 	 * st_vp_commit already rejects anything outside VP_MAX, which is smaller
 	 * than the screen either way, so this is belt-and-braces against a future
 	 * caller that widens the viewport. */
-	if (((s_vp_x | s_vp_w) & 7) == 0
+	/* ★ SAY WHICH PATH IS LIVE. A copy composite that silently never engaged
+	 * would fall back to the c2p and produce a PIXEL-IDENTICAL screen — the one
+	 * failure this change cannot be caught by looking at. One marker each, first
+	 * use only, so DBG.LOG answers it instead of an assumption. */
+	if (s_vp_planar) {
+		static short said;
+
+		if (!said) { said = 1; dbg_log("ste: viewport composite = COPY (B5)"); }
+		st_vp_composite_copy();          /* B5: engine stamped the planes */
+	}
+	else if (((s_vp_x | s_vp_w) & 7) == 0
 	    && s_vp_x >= 0 && s_vp_y >= 0
 	    && (short)(s_vp_x + s_vp_w) <= ST_W
-	    && (short)(s_vp_y + s_vp_h) <= ST_H)
+	    && (short)(s_vp_y + s_vp_h) <= ST_H) {
+		static short said;
+
+		if (!said) { said = 1; dbg_log("ste: viewport composite = c2p (fast)"); }
 		st_vp_composite_fast();
-	else
+	} else {
+		static short said;
+
+		if (!said) { said = 1; dbg_log("ste: viewport composite = c2p (slow)"); }
 		st_vp_composite_slow();
+	}
 #ifdef FRUA_STPROF
 	sp_vp_t += Supexec(st_prof_hz200) - t0;
 	sp_vp_n++;
