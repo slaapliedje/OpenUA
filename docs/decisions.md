@@ -1282,3 +1282,54 @@ so neither is easy to exercise on demand (the overland guard needs a party at a
 map edge, the transfer message needs a design being test-played). They are
 transcription-verified, not yet observed firing — recorded in the hunk log rather
 than claimed as live-tested.
+
+### ADR-0016 addendum (2026-08-18) — B5: the ST viewport is stamped in planes and the composite is a COPY
+
+B2.1 moved the dungeon viewport into a private CHUNKY scratch that the backend
+converted to planes at present time. B5 removes the conversion: the engine now
+stamps the viewport's bitplanes as it draws — wall tiles out of a planar cache,
+the backdrop as cached per-band strips, the perspective-shell regions as planar
+spans — and `st_vp_composite_copy()` moves those planes into both pages. The
+chunky→planar bridge for the viewport is gone.
+
+Interface (platform owns the layout, as the layer rule requires):
+
+```
+dsp_viewport_planes(&pitch)          page-layout plane buffer, absolute coords,
+                                     NULL if the backend wants the chunky scratch
+dsp_viewport_commit_planes(x,y,w,h)  "these planes hold the frame"
+dsp_reband_pending()                 is a re-quantise due at the next present?
+dsp_viewport_chunky_valid(v)         was the chunky scratch refreshed this frame?
+```
+
+A backend that never registers gets the old path by construction. Falcon/TT are
+chunky-native and unaffected; **the Amiga is deliberately NOT on B5 yet** — its
+backends do not register the hook, and the engine-side writers are excluded from
+`FRUA_AMIGA` so an A1200 does not carry ~56 KB of BSS for caches it cannot use.
+
+Measured on the ST walk (same drive, same profile window, one binary via the
+`vpplanar=off` video.cfg key):
+
+| | before | after |
+|---|---|---|
+| `l309c_tile` | 639.7M | 482.0M |
+| `render_3d_faithful` | 313.7M | 159.0M |
+| screen vs the pre-change build | — | AE = 0 |
+
+~310M cycles, 10.4% of all cycles in the window, with the picture unchanged.
+
+**THE CHUNKY PASS DID NOT GO AWAY — IT BECAME LAZY, AND THAT IS THE HONEST END
+STATE.** `st_reband` copies the chunky viewport over a shadow of `s_chunky`
+before quantising, so the 16-colour palette is derived from the walls and sky and
+not merely the HUD. Deleting the pass outright costs AE = 45,472 (wall indices
+fall to the RGB-nearest fallback and come back in HUD greys). It cannot move to
+the planar side either: the planes hold SLOT numbers already collapsed through
+the current remap, while the quantiser needs the original CLUT indices WITH
+populations in order to CHOOSE that remap — circular. A sum of per-tile index
+histograms is not a substitute, because it double-counts every overdrawn pixel
+and can move the population-weighted exact-slot reservation.
+
+So the pass runs only on frames where a re-quantise is coming (measured: 6 of 8
+renders skipped it). The prediction over-predicts on purpose, and a wrong
+prediction is COUNTED (`s_rb_stale`, logged once, shipped compiled in) rather
+than silently quantising the previous frame's walls.

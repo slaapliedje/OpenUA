@@ -5009,3 +5009,62 @@ walk view. Two different game states, not two renderings. Re-paced for the TT
 the frame pace, so only conversion WORK is meaningful here. This wants real
 hardware, and the TT now has a reason to be measured on it.
 
+
+## B5 — the viewport stops converting (#144, 2026-08-18)
+
+The dungeon viewport is now stamped in planes at draw time and composited by a
+copy. See the ADR-0016 addendum in `docs/decisions.md` for the interface and the
+numbers; this section is the traps, which cost most of the session.
+
+**The verifier has a structural blind spot, and it is not a small one.**
+`FRUA_VPPLANAR` compares the planes against the chunky pixels — so it only ever
+runs in a build where the chunky path is ALIVE. That is its reference. Every
+counter it reports (`uncovered`, `MISSED`, `MISMATCH`) can therefore read zero
+while the planes-only build is broken, because the thing that breaks is the
+REMOVAL of the reference. Two regressions proved it: the planar backdrop was
+building its strips out of `vtgt`, so deleting the chunky pass took its own
+source with it and the sky and floor went black; and the palette derivation
+above. A screenshot caught the first, the backend's own comment named the second.
+**Green there means "the two paths agree while both run", never "the planar path
+stands alone."**
+
+**A composite that never engages is pixel-identical to one that does.** If the
+copy path silently falls back to the c2p — engine hands back NULL planes, the
+commit takes the chunky branch, anything — the screen is exactly right. That is
+the one failure this change cannot be caught by looking at, so each path logs a
+one-shot marker and DBG.LOG says `COPY (B5)` or `c2p (fast)` outright.
+
+**Measure the A/B on ONE binary.** `vpplanar=off` in `video.cfg` (same reader as
+`display_nova.c`'s `novalut`) selects the arms without a rebuild. Two builds
+differ in layout and codegen, which is how a performance claim quietly becomes a
+claim about the compiler. The chunky arm reproduces an older build's screenshot
+at AE = 0, which is also what establishes that the fixture is deterministic
+enough for a pixel diff to mean anything.
+
+**Shares are a trap in a fixed-time window.** The profile window is 35,000 VBLs
+of EMULATED time, so total cycles in it are conserved (2,976M vs 2,968M across
+the arms, 0.29% apart). When rendering gets cheaper the freed cycles are spent on
+more game-loop iterations, so every other function grows and DILUTES the share of
+the thing that shrank — `l309c_tile` went 23.4% -> 18.2% while actually dropping
+157.7M cycles. Read absolute cycles, and check where the saving went (here: 20%
+to TOS idle, the rest to more frames).
+
+**"No output" and "a reading of zero" are the same text.** Four consecutive runs
+produced no lazy-pass counters at all; each time the log threshold sat above the
+render count (8 renders against a threshold of 512, then 64, then 8). The fix is
+to fire on the FIRST call while investigating. The same shape bit three other
+checks in this work, each needing a second measurement whose only job was to
+prove the first could fail: `STAMPED` beside `SURVIVORS` (a sentinel that might
+never have been written), `rebands seen` beside `reband-on-stale` (a check that
+might never have run), and a whole-row `ROW DIFF` beside the restricted
+`band DIFF` (a comparison that might have had nothing to find — it did not, and
+that is how the single replicated palette was discovered).
+
+**Build every target, not the one you are iterating on.** The plane fetch went in
+outside its `#ifdef` and broke AGA, ECS, the Atari 020 and the shipping ST while
+the ST diagnostic build stayed green throughout.
+
+**Still open:** the chunky pass survives as a rare palette-sampling pass (~1 frame
+in 4 measured), and the Amiga is not on B5 — its backends do not register
+`dsp_viewport_planes`, so ECS/AGA keep the chunky scratch and their own
+composite.
