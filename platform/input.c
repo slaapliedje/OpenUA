@@ -51,12 +51,43 @@ unsigned long plat_ticks(void)
 {
 	/* 200 Hz → 60 Hz: *60/200 = *3/10. The unsigned-long arithmetic
 	 * gives us ~248 days of run-time before the 60 Hz counter wraps,
-	 * comfortably outside any plausible session. */
-	unsigned long h200 = g_plat_in_super
-	                   ? (unsigned long)read_hz200()
-	                   : (unsigned long)Supexec(read_hz200);
+	 * comfortably outside any plausible session.
+	 *
+	 * ★ MEMOISED, because the 68000 has no 32-bit divide and this is where
+	 * most of them come from. #125's histogram put 63% of every software
+	 * division in the program right here — 121,168 of 191,501 over a boot and
+	 * a walk. The source only advances 200 times a second while TickCount is
+	 * asked far more often, so nearly every one of those divides recomputes an
+	 * answer that has not changed. Cache the last (h200 -> tick) pair and the
+	 * divide happens once per 5 ms tick instead of once per call.
+	 *
+	 * ★ THE CACHE IS RACE-FREE BY CONSTRUCTION, NOT BY LUCK. plat_ticks is
+	 * also called from the sound VBL (jt1091 -> jt1149 -> TickCount), and a
+	 * two-word cache written by an interrupt is exactly the kind of thing that
+	 * tears on a 16-bit bus: a long store is two bus cycles. So the interrupt
+	 * path does not touch the cache at all — it computes directly, as it
+	 * already had to, since Supexec is a TRAP and trapping inside an interrupt
+	 * handler is fatal here. That leaves the main path as the sole reader AND
+	 * writer, and it cannot race with itself.
+	 *
+	 * NOT collapsed to a multiply-shift: 1/10 needs a 64-bit intermediate to
+	 * stay exact over the counter's range, and __udivdi3 on a 68000 is worse
+	 * than what it replaces (the same histogram shows it costing FOUR
+	 * __udivsi3 calls apiece). */
+	if (g_plat_in_super)
+		return ((unsigned long)read_hz200() * 3UL) / 10UL;
 
-	return (h200 * 3UL) / 10UL;
+	{
+		static unsigned long s_h200 = 0xFFFFFFFFUL;   /* no plausible match */
+		static unsigned long s_tick;
+		unsigned long h200 = (unsigned long)Supexec(read_hz200);
+
+		if (h200 != s_h200) {
+			s_tick = (h200 * 3UL) / 10UL;
+			s_h200 = h200;
+		}
+		return s_tick;
+	}
 }
 
 #ifdef FRUA_AUTOPLAY

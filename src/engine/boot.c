@@ -15958,6 +15958,18 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	{ extern long g_r3d_t2; g_r3d_t2 = TickCount(); }
 #endif
 	l6148();
+#ifdef FRUA_DIVPROF
+	/* ★ #125's dump fires at "menu: modal up" — the BOOT window. The question
+	 * now is the PLAY loop, so dump again every 32 renders. The counters are
+	 * cumulative and the freeze only spans the dump itself, so the walk figure
+	 * is a later dump minus the boot one. */
+	{
+		static short dpn;
+		extern void div_prof_dump(void);
+
+		if (++dpn >= 8) { dpn = 0; div_prof_dump(); }
+	}
+#endif
 #ifdef FRUA_R3DPROF
 	{ extern long g_r3d_t3; g_r3d_t3 = TickCount(); }
 #endif
