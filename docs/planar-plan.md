@@ -5068,3 +5068,37 @@ the ST diagnostic build stayed green throughout.
 in 4 measured), and the Amiga is not on B5 — its backends do not register
 `dsp_viewport_planes`, so ECS/AGA keep the chunky scratch and their own
 composite.
+
+## #141 — the speckle is the BUDGET, not a stale remap (2026-08-19)
+
+The task title guessed "stale remap suspected". It is not. Two findings, and the
+second one invalidates a test gate rather than any shipped code.
+
+**It is not intermittent — the HARNESS was.** Eight boots of the slot-B walk
+fixture gave AE = 0 six times and AE = 61,848 twice, and the two bad frames are
+byte-identical to EACH OTHER. Diffing the palette traces (FRUA_PALTRACE) shows
+the runs agree for 50 events exactly and then the "bad" ones simply continue:
+three small palette writes, a re-band, then ~80 `setpal first=97 count=6`
+(palette cycling). They did not diverge, they PROGRESSED — to the complete walk
+screen WITH the command bar, while the clean runs were photographed before the
+bar was drawn. A 70 s settle after `b` reproduces the speckle every time.
+
+**So the AE reference frame used throughout #144/#142 is an INCOMPLETE state.**
+`st-dungeon-skipfill.png` has an empty command-bar box. Every AE = 0 in that work
+compared one pre-command-bar frame against another. It exercised the 3D viewport,
+which is what those changes touched, so their conclusions stand — but it never
+covered the HUD/command-bar palette path at all, which is exactly where this bug
+lives. **A walk AE gate must wait for the command bar** (or it silently tests
+less than it looks like it does).
+
+**The number that settles the cause:** distinct CLUT indices per re-band over a
+fixture boot — 7, 84, 59, 59, 129, 129, 182, 182, 32, 32, 16, 20, **64, 66**. The
+complete walk frame asks for 64-66 colours against ST_NCOL = 16 slots, and the
+re-band that produces the speckle runs with `vp_active=1 chunky_ok=1`, i.e. with
+the viewport folded into the quant source CORRECTLY. Nothing is stale. The bar's
+inks join the competition for QUANT_KEEP's six exact slots, wall colours lose,
+and the median cut puts greys on red/cyan.
+
+That is a hue error rather than an approximation, so it is one of: the 16 chosen
+colours carry no neutral, or the nearest-match metric mis-picks. Both belong with
+#138/#139 (offline pre-quantise), not with a remap repair.

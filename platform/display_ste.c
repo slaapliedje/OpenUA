@@ -917,6 +917,10 @@ static void st_reband(void)
 		 * have, and one that would otherwise show up only as a subtle wrong
 		 * shade nobody traces back here. Count it, and say so once. */
 		s_rb_seen++;
+#ifdef FRUA_PALTRACE
+		dbg_log_num("pt: reband RUN vp_active=1 chunky_ok = ",
+		            (long)s_vp_chunky_ok);
+#endif
 		if (!s_vp_chunky_ok) {
 			s_rb_stale++;
 			if (s_rb_stale == 1)
@@ -971,6 +975,22 @@ static void st_reband(void)
 		for (n = 0; n < (long)ST_W * ST_H; n++)
 			s_used_idx[qsrc[n]] = 1;
 	}
+#ifdef FRUA_PALTRACE
+	/* ★ HOW MANY COLOURS IS THIS FRAME ASKING FOR? The task title guesses a
+	 * stale remap; the speckle is equally what an OVERRUN BUDGET looks like —
+	 * 16 slots cannot reproduce a frame with far more distinct indices, so the
+	 * excess resolves through the RGB-nearest fallback and the walls freckle.
+	 * One number decides which story it is, and it costs a 256-entry scan on a
+	 * path that already scanned 64,000 pixels. */
+	{
+		short ui, un = 0;
+
+		for (ui = 0; ui < 256; ui++)
+			if (s_used_idx[ui])
+				un++;
+		dbg_log_num("pt: distinct indices in frame = ", (long)un);
+	}
+#endif
 #ifdef FRUA_STPROF
 	sp_rb_used += Supexec(st_prof_hz200) - tu;
 	}
@@ -3164,6 +3184,9 @@ static void st_present(void)
 		 * a matching CLUT would reproduce the same band palettes. */
 		if (s_banded_valid &&
 		    memcmp(s_clut, s_clut_banded, sizeof s_clut) == 0) {
+#ifdef FRUA_PALTRACE
+			dbg_log("pt: reband SKIP (clut unchanged)");
+#endif
 			s_dirty = 0;
 #ifdef FRUA_STPROF
 			sp_reband_skip++;
@@ -3300,9 +3323,17 @@ static void st_present(void)
 		 * used to go straight to `s_dirty = 1; s_banded_valid = 0`,
 		 * i.e. a full re-quant plus a whole-frame rebuild, for ink that
 		 * had not moved the CLUT by a single byte. */
-		if (!st_patch_new_ink()) {
-			s_dirty        = 1;
-			s_banded_valid = 0;
+		{
+			int patched = st_patch_new_ink();
+#ifdef FRUA_PALTRACE
+			dbg_log_num("pt: newink n = ", s_dt_new_ink);
+			dbg_log(patched ? "pt: newink PATCHED"
+			                : "pt: newink DECLINED -> requant");
+#endif
+			if (!patched) {
+				s_dirty        = 1;
+				s_banded_valid = 0;
+			}
 		}
 	}
 #ifdef FRUA_PALDIAG
@@ -3632,6 +3663,13 @@ static void st_set_palette(const dsp_color_t *colors, short first, short count)
 	 * cycle slots are the future fix, see the plan doc). */
 	if (count >= 32 || !s_have_pal)
 		s_dirty = 1;                     /* re-band at next full present */
+#ifdef FRUA_PALTRACE
+	/* #141: the speckle is the RGB/luma fallback showing, so trace every event
+	 * that can move the remap and diff a GOOD run against a BAD one. Per
+	 * palette event, not per frame — these are rare. */
+	dbg_log_num("pt: setpal first*1000+count = ",
+	            (long)first * 1000 + (long)count);
+#endif
 }
 
 static const dsp_backend_t ste_backend = {
