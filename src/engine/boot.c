@@ -14018,6 +14018,19 @@ static void l309c_tile(unsigned char *page, short top, short left,
 					              g_vpp_ent, VPP_TILES);
 					g_vpp_ready = 1;
 				}
+				/* ★ THE LUT AND THE INDEX SCAN ARE MISS-ONLY WORK, and
+				 * leaving them on the hit path cost more than the chunky
+				 * blit they replaced. pt_cache_get fingerprints from the
+				 * ENTRY's stored index list, so a hit needs neither — yet
+				 * both ran on every blit: a 256-entry table build and a
+				 * full O(w*h) scan of the tile body, ~2,500 times a run
+				 * against ~300 actual rebuilds.
+				 *
+				 * The verify build still needs the LUT on every blit,
+				 * because its coverage recording tests transparency
+				 * through it. Shipping records no coverage at all — that
+				 * bitmap is read only by the verifier. */
+#ifdef FRUA_VPPLANAR
 				/* chunky -> SLOT table. The optimised blit builds an
 				 * equivalent one in its own scope, so rebuild it here
 				 * rather than reach for it: same rules (255 key, the
@@ -14046,6 +14059,40 @@ static void l309c_tile(unsigned char *page, short top, short left,
 						    : 0;
 					}
 				}
+#endif
+				tile = pt_cache_get(&g_vpp_cache, si, idx,
+				                    rm + (long)bnd * 256);
+				if (tile == NULL) {
+#ifndef FRUA_VPPLANAR
+				/* chunky -> SLOT table. The optimised blit builds an
+				 * equivalent one in its own scope, so rebuild it here
+				 * rather than reach for it: same rules (255 key, the
+				 * per-set magenta key, the band rebase), then composed
+				 * with the remap so the tile bakes SLOTS, not indices. */
+				{
+					short q;
+
+					for (q = 0; q < 256; q++) {
+						short off3 = (short)(q - 32);
+						unsigned short t2;
+
+						if (q == 255)
+							t2 = 0;
+						else if (off3 >= 0 && off3 < CW_BAND)
+							t2 = g_cw_strans[slot][off3]
+							   ? 0
+							   : (unsigned short)(0x100u
+							     | ((base + off3) & 0xff));
+						else
+							t2 = (unsigned short)(0x100u | q);
+						g_vpp_pre[q] = (unsigned char)(t2 & 0xff);
+						g_vpp_lut[q] = t2
+						    ? (unsigned short)(0x100u
+						      | rm[(long)bnd * 256 + (t2 & 0xff)])
+						    : 0;
+					}
+				}
+#endif
 				/* ★ WHICH REMAP ENTRIES THIS TILE DEPENDS ON. Fingerprinting
 				 * the whole band row rebuilt a tile whenever ANY index moved,
 				 * including ones it never draws — 455 rebuilds over a 125-key
@@ -14079,9 +14126,6 @@ static void l309c_tile(unsigned char *page, short top, short left,
 					if (g_vpp_nused > PT_MAX_USED)
 						g_vpp_nused = 0;   /* whole-row fallback */
 				}
-				tile = pt_cache_get(&g_vpp_cache, si, idx,
-				                    rm + (long)bnd * 256);
-				if (tile == NULL) {
 					tile = pt_cache_reserve(&g_vpp_cache, si, idx,
 					                        w, h,
 					                        rm + (long)bnd * 256,
@@ -14100,7 +14144,11 @@ static void l309c_tile(unsigned char *page, short top, short left,
 					                 x0, y0,
 					                 g_cwf_clip_l, g_cwf_clip_r,
 					                 g_cwf_clip_t, g_cwf_clip_b);
-					/* record coverage in draw order */
+#ifdef FRUA_VPPLANAR
+					/* Coverage, in draw order — read ONLY by the verifier
+					 * below, so a shipping build must not pay for it: this
+					 * is a second O(w*h) pass per blit whose product
+					 * nothing reads once FRUA_VPPLANAR is off. */
 					for (rr2 = 0; rr2 < h; rr2++) {
 						short dy2 = (short)(y0 + rr2);
 
@@ -14121,6 +14169,7 @@ static void l309c_tile(unsigned char *page, short top, short left,
 							    (unsigned char)(0x80u >> (dx2 & 7));
 						}
 					}
+#endif
 				}
 			}
 		}
