@@ -12452,6 +12452,17 @@ long g_vpb_rowdiff;
 long g_vpb_scr_pairs, g_vpb_scr_diffbands, g_vpb_scr_worst;
 /* perspective-shell fills: pixels written, and pixels the backdrop will cover */
 long g_tf_px, g_tf_hidden, g_tf_regions;
+#endif
+/* ★ RUNTIME, NOT COMPILE-TIME, so both A/B arms are ONE binary. A compile-time
+ * probe has changed the incidence of a rendering bug in this tree before (#91)
+ * and four variants of one masked it entirely; a flag that only gates a branch
+ * cannot do that. 1 = skip the perspective-shell fills when the backdrop will
+ * cover the hole (see render_3d_faithful), 0 = draw them as before. */
+short g_r3d_skipfill = 1;
+#ifdef FRUA_FILLSENT
+long g_tf_sent_surv, g_tf_sent_frames, g_tf_sent_px, g_tf_sent_stamped;
+#endif
+#ifdef FRUA_VPPLANAR
 static unsigned short g_vpp_pool[VPP_POOLW];
 static pt_entry_t     g_vpp_ent[VPP_TILES];
 static pt_cache_t     g_vpp_cache;
@@ -15307,6 +15318,22 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	 * (2,62,11,42): jt116 maps (a,b,c,d) -> jt1161(top=((b+8)>>1)+8000,
 	 * left=(a<<2)+8004, bottom=((b+d+8)>>1)+8000, right=((a+c)<<2)+8004), then
 	 * jt1135 transforms to screen and the rect is clipped to g_a5_-3054..-3052. */
+	/* ★ SKIP THE SHELL FILLS WHEN THE BACKDROP WILL COVER THEM. Measured over a
+	 * 139-key walk (1e0a2610): the three regions tile the 88x88 hole EXACTLY and
+	 * with no overlap — 1,014,464 pixels over 131 frames, 7,744 a frame — and all
+	 * 1,014,464 land inside the rect the backdrop then repaints opaquely. The
+	 * hole was being painted three times before a wall tile landed: the scratch
+	 * clear, these fills, then the backdrop.
+	 *
+	 * The condition is the backdrop's PRESENCE, not the fill colour. A dungeon
+	 * cell's fills read index 0 and the scratch clear already wrote 0, so there
+	 * the fills are provably redundant twice over — but a town or outdoor cell
+	 * sets its own non-zero colours, and a chunky backend (Falcon/TT) has no
+	 * clear at all, since vtgt is the shared surface. Backdrop coverage is the
+	 * invariant that holds in every one of those cases: the blit below runs
+	 * map_px over exactly this rect with no key colour, so every pixel of it is
+	 * written. When there is no backdrop (id == 0) the fills ARE the picture and
+	 * are drawn as before. */
 	{
 		static const short rgn[3][5] = {
 			{2, 16, 11, 44, -12294},   /* sky / ceiling */
@@ -15314,7 +15341,41 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 			{2, 62, 11, 42, -12291},   /* floor         */
 		};
 		short i;
-		for (i = 0; i < 3; i++) {
+		short covered = (short)(g_back_w > 0 && g_back_h > 0);
+#ifdef FRUA_FILLSENT
+		/* ★ THE PROOF IS A READBACK, NOT THE RECT TEST. Containment showed the
+		 * backdrop's RECT covers the fills; it cannot show every pixel of that
+		 * rect is actually written. So when the fills are skipped, stamp the
+		 * hole with a sentinel no palette index here uses and count what
+		 * survives the backdrop. A surviving pixel is one the fills used to
+		 * paint and nothing now does — exactly the regression this change could
+		 * cause, and it fails loudly instead of quietly. */
+		if (g_r3d_skipfill && covered) {
+			short sy2, sx2;
+
+			for (sy2 = VT; sy2 < VB; sy2++)
+				memset(vtgt + (long)sy2 * vpitch + VL, 0xFE,
+				       (size_t)(VR - VL));
+			/* ★ AND COUNT THE STAMP ITSELF. "0 survivors" is exactly what a
+			 * stamp that never landed would also report — the failure mode
+			 * this session has already produced three times. Reading the
+			 * sentinel back HERE gives the denominator its own evidence: if
+			 * `stamped` is not the full hole, the survivor count is void. */
+			for (sy2 = VT; sy2 < VB; sy2++) {
+				const unsigned char *r2 =
+				    vtgt + (long)sy2 * vpitch;
+
+				for (sx2 = VL; sx2 < VR; sx2++)
+					if (r2[sx2] == 0xFE)
+						g_tf_sent_stamped++;
+			}
+		}
+#endif
+		if (g_r3d_skipfill && covered)
+			i = 3;                      /* fills are invisible: skip them */
+		else
+			i = 0;
+		for (; i < 3; i++) {
 			short a = rgn[i][0], b = rgn[i][1], c = rgn[i][2], d = rgn[i][3];
 			short fill = (short)(unsigned char)g_a5_byte(rgn[i][4]);
 			short y1, x1, y2, x2, ct, cl, cb, cr, yy, xx;
@@ -15714,6 +15775,24 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 		}
 	}
 #endif
+#ifdef FRUA_FILLSENT
+	/* count sentinel survivors: pixels the fills used to paint that nothing
+	 * paints now. Runs before the wall tiles, which would otherwise mask them. */
+	if (g_r3d_skipfill && g_back_w > 0 && g_back_h > 0) {
+		short sy3, sx3;
+
+		g_tf_sent_frames++;
+		for (sy3 = VT; sy3 < VB; sy3++) {
+			const unsigned char *r3 = vtgt + (long)sy3 * vpitch;
+
+			for (sx3 = VL; sx3 < VR; sx3++) {
+				g_tf_sent_px++;
+				if (r3[sx3] == 0xFE)
+					g_tf_sent_surv++;
+			}
+		}
+	}
+#endif
 	l57f2();                /* gated backdrop-image overlay (l58c4) */
 #ifdef FRUA_R3DPROF
 	{ extern long g_r3d_t2; g_r3d_t2 = TickCount(); }
@@ -15830,6 +15909,12 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 				dbg_file_num("tf: regions   = ", g_tf_regions);
 				dbg_file_num("tf: fill px   = ", g_tf_px);
 				dbg_file_num("tf: hidden px = ", g_tf_hidden);
+#ifdef FRUA_FILLSENT
+				dbg_file_num("tf: sent frame= ", g_tf_sent_frames);
+				dbg_file_num("tf: STAMPED   = ", g_tf_sent_stamped);
+				dbg_file_num("tf: sent px   = ", g_tf_sent_px);
+				dbg_file_num("tf: SURVIVORS = ", g_tf_sent_surv);
+#endif
 			}
 		}
 #endif
