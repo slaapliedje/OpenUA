@@ -1001,6 +1001,26 @@ static void st_reband(void)
 	 * #63: this is a SECOND full-frame pass over the same 64000 pixels
 	 * quant_banded just histogrammed — measured apart from the cut itself so
 	 * the duplication can be priced before it is removed. */
+	/* ★ AND IT IS STORE-BOUND, NOT LOAD-BOUND — tried and reverted 2026-08-19.
+	 * Reading long-wise (one fetch feeding four table stores) is the same
+	 * substitution that took the row compare from 93 cycles/byte to ~30 (#63),
+	 * and here it changed the marginal cost per re-band by NOTHING: 82.0 t200
+	 * before, 82.0 after, over 9 re-bands each way. The reasoning does not
+	 * transfer — the row compare is a COMPARE (loads only) while this is a
+	 * scatter-store: 64,000 byte writes into a 256-entry table, one bus cycle
+	 * apiece. The loads were never the cost.
+	 *
+	 * A future attempt must remove STORES. Two candidates: skip the write when
+	 * the source long repeats (a flat run costs one compare instead of four
+	 * stores — content-dependent, and granite chrome is noisy); or scan only
+	 * the rows quant_banded actually sampled. The second halves it but is a
+	 * SEMANTIC change, not an optimisation: quant samples every other row, so
+	 * scanning all of them makes s_used_idx a SUPERSET of what the quant really
+	 * saw — an index living only on odd rows is marked "seen" without ever
+	 * having been quantised. Settle that before trading it.
+	 *
+	 * Context for whoever picks this up: the walk-phase split is band 51% of
+	 * in-present, and per re-band FORCE-FULL 297 t200 / quant 93 / this 82. */
 #ifdef FRUA_STPROF
 	{ long tu = Supexec(st_prof_hz200);
 #endif
