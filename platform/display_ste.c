@@ -157,6 +157,8 @@ static short                   s_vbl_slot = -1;
  * force-full path (every LUT moved → all 200 rows) or the row-diff path. Declared
  * here because st_blit_full is above the main FRUA_STPROF block. */
 static short                   sp_forced_flag;
+/* Same reason as sp_forced_flag: st_reband is above the main FRUA_STPROF block. */
+static long                    sp_rb_noskew;   /* re-bands that moved no used index */
 static unsigned char          *s_offpage;   /* B3.0b: non-displayed ST-RAM page */
 #endif
 
@@ -1193,6 +1195,50 @@ static void st_reband(void)
 	 * c2p's on a re-band only; re-bands are rare and the flat-fill already tamed
 	 * the c2p. The smart-skip's machinery was removed 2026-07-26 — it had been
 	 * unreachable ever since this decision. */
+	/* ★ A RE-BAND THAT MOVED NOTHING NEEDS NO REBUILD. B3.2's stable-slot
+	 * alignment permutes the new slots to match the old positions, and it
+	 * sometimes succeeds completely: measured over 19 re-bands of a fixture
+	 * walk, one moved 0 of 59 used indices while the others moved 25-86%
+	 * (57.2% overall). When no USED index changed slot, every plane on screen
+	 * still encodes the right colour and the force-full — 297 t200, the single
+	 * largest item in a re-band — is pure waste.
+	 *
+	 * Unused indices may still have moved: harmless, because by definition no
+	 * pixel carries one, and anything drawn afterwards is stamped through the
+	 * new remap anyway.
+	 *
+	 * The viewport's planes are covered by the same argument, so s_remap_gen
+	 * does not move either — which keeps B5's copy path (2b1acdd7) instead of
+	 * dropping it to the conversion for a change that changed nothing.
+	 *
+	 * NOT a revival of the removed "smart-skip": that tried to rebuild a SUBSET
+	 * of rows from a per-page dirty map and was wrong for the alternate page
+	 * (the "brown chrome"). This is all-or-nothing and page-independent. */
+	{
+		short mi, umoved = 0;
+
+		if (!s_have_prev_pal) {
+			umoved = 1;              /* no predecessor: convert everything */
+		} else {
+			for (mi = 0; mi < 256; mi++)
+				if (s_used_idx[mi]
+				 && s_remap_prev[mi] != s_band_remap[mi]) {
+					umoved = 1;
+					break;
+				}
+		}
+		if (!umoved) {
+			s_remap_gen--;           /* undo the bump: nothing went stale */
+#ifdef FRUA_STPROF
+			sp_rb_noskew++;
+#endif
+#ifdef FRUA_PALTRACE
+			dbg_log("pt: reband moved NO used index -> no force-full");
+#endif
+			s_ink_fresh = 1;
+			return;
+		}
+	}
 	(void)first;
 	s_force_full   = 1;
 	/* #63(1): s_used_idx above was captured from THIS frame, so the
@@ -3521,6 +3567,7 @@ static void st_present(void)
 		 * vpcopy/quant/used/align sum to st_reband; ffull is the whole-frame
 		 * rebuild each reband forces afterwards. */
 		dbg_log_num("b63rb: rebands run     = ", sp_rb_n);
+		dbg_log_num("b63rb:   no-skew (skipped)= ", sp_rb_noskew);
 		dbg_log_num("b63rb:   vp overlay    = ", sp_rb_vpcopy);
 		dbg_log_num("b63rb:   quant_banded  = ", sp_rb_quant);
 		dbg_log_num("b63rb:   used_idx scan = ", sp_rb_used);
