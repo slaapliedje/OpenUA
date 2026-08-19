@@ -2183,6 +2183,33 @@ static int st_init(short want_w, short want_h)
 		memset(s_offpage, 0, SCREEN_BYTES);
 #endif
 
+	/* ★ THE A/B ARM, SELECTABLE WITHOUT A REBUILD. `vpplanar=off` in video.cfg
+	 * puts the viewport back on the chunky scratch + c2p composite, so a
+	 * before/after can be measured with ONE binary — the same code, the same
+	 * layout, the same alignment. Two builds would differ in more than the thing
+	 * under test, which is how a performance claim quietly becomes a claim about
+	 * codegen. Same reader as display_nova.c's novalut key. */
+	{
+		char  buf[192];
+		short fh = (short)Fopen("video.cfg", 0);
+
+		if (fh >= 0) {
+			long n = Fread(fh, (long)sizeof buf - 1, buf);
+			int  i;
+
+			Fclose(fh);
+			if (n > 0) {
+				buf[n] = '\0';
+				for (i = 0; buf[i] != '\0'; i++)
+					if (buf[i] >= 'A' && buf[i] <= 'Z')
+						buf[i] = (char)(buf[i] + 32);
+				if (strstr(buf, "vpplanar=off") != NULL) {
+					st_planar_viewport = 0;
+					dbg_log("ste: viewport planes DISABLED (video.cfg)");
+				}
+			}
+		}
+	}
 	dbg_log("ste: ST-low 320x200x4 16-colour, per-band Timer-B palette up");
 	return 0;
 }

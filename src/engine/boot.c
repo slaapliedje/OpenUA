@@ -12397,7 +12397,47 @@ static short g_view_force_full = 0;  /* set on a live switch -> full clear+prese
  *
  * Coverage is stamped in draw order, so a pixel written by two tiles is compared
  * against the later one, which is also what the chunky path ends up showing. */
-#ifdef FRUA_VPPLANAR
+/* ★ TWO FLAGS, TWO JOBS. FRUA_VPP_WRITE compiles the planar WRITERS — the tiles,
+ * the backdrop strips, the shell spans — and is on in any ST/STe planar build.
+ * FRUA_VPPLANAR additionally keeps the chunky path alive as a REFERENCE and turns
+ * the verifier on; it is a measurement build, not a shipping one. Amiga is
+ * excluded until its backend registers dsp_viewport_planes: the hook would hand
+ * back NULL there and nothing would stamp, but the caches are ~56 KB of BSS and
+ * an A1200's chip RAM should not carry them for nothing. */
+#if (defined(FRUA_PLANAR) && !defined(FRUA_AMIGA)) || defined(FRUA_VPPLANAR)
+#define FRUA_VPP_WRITE 1
+#endif
+/* ★ THE CHUNKY VIEWPORT PASS STAYS, AND NOT OUT OF CAUTION — IT HAS A SECOND
+ * READER. Deleting it is the whole point of #144 and it is measurably wrong
+ * today, because st_reband() copies s_vp_scratch over a shadow of s_chunky
+ * before quantising, so the 16-colour palette is derived from the walls and sky
+ * as well as the HUD (display_ste.c says so, and says what breaks: the wall
+ * indices fall to the RGB-nearest fallback and come back in HUD greys). With the
+ * chunky pass gone the palette no longer sees the 3D view. Measured on ONE
+ * binary through the video.cfg A/B: the chunky arm is PIXEL-IDENTICAL to the
+ * pre-change build (AE = 0), the planes-only arm differs by 45,472 pixels.
+ *
+ * And it cannot be fixed by moving the same trick to the planar side: the planes
+ * hold SLOT numbers, already collapsed through the current remap, while the
+ * quantiser needs the original CLUT indices WITH populations in order to choose
+ * that remap. Recovering them from the planes is circular.
+ *
+ * The way out is to hand the backend the viewport's index histogram instead of
+ * its pixels — each cached tile's index counts are fixed when it is converted,
+ * so a frame's histogram is O(distinct indices) per blit rather than O(pixels).
+ * That is a subsystem, not a tweak, so until it exists this is opt-in:
+ * -DFRUA_VPP_NOCHUNKY runs the experiment, the default ships the correct
+ * picture, and B5's composite win is kept either way. */
+#if defined(FRUA_VPP_NOCHUNKY) && !defined(FRUA_VPPLANAR)
+#define VPP_KEEP_CHUNKY 0
+#else
+#define VPP_KEEP_CHUNKY 1
+#endif
+
+#ifndef FRUA_VPP_WRITE
+#define VPP_NOCHUNKY 0
+#endif
+#ifdef FRUA_VPP_WRITE
 #include "planar_tile_cache.h"
 /* ★ VPP_ROWS FOLLOWS THE BACKEND'S BUFFER, NOT THE SCREEN. The planes now live
  * in platform (dsp_viewport_planes), which sizes them to VP_MAX = 128 rows —
@@ -12405,6 +12445,10 @@ static short g_view_force_full = 0;  /* set on a live switch -> full clear+prese
  * enforces. Leaving this at the screen's 200 would let a clip taller than the
  * buffer write past its end. */
 #define VPP_ROWS   128
+/* Is the chunky viewport pass dead this frame? Only when the planes are live AND
+ * this is not the measurement build. Reads as 0 in a build with no planar
+ * writers, so those keep the chunky path unchanged. */
+#define VPP_NOCHUNKY (g_vpp_nochunky)
 #define VPP_COVW   (320 / 8)
 #define VPP_TILES  160
 #define VPP_POOLW  24000L                 /* words, ~48 KB vs 28-34 KB measured */
@@ -12412,6 +12456,7 @@ static short g_view_force_full = 0;  /* set on a live switch -> full clear+prese
  * pitch. NULL on a chunky backend (Falcon/TT) or with the ST's A/B knob off, in
  * which case nothing below stamps anything and the chunky path stands alone. */
 static unsigned char *g_vpp_dst;
+static short          g_vpp_nochunky;
 static short          g_vpp_dpitch;
 static unsigned char  g_vpp_cov[(long)VPP_ROWS * VPP_COVW];
 /* ★ THE BACKDROP GETS ITS OWN CACHE, NOT A CORNER OF THE TILE ONE. Its key has
@@ -12470,7 +12515,7 @@ short g_r3d_skipfill = 1;
 #ifdef FRUA_FILLSENT
 long g_tf_sent_surv, g_tf_sent_frames, g_tf_sent_px, g_tf_sent_stamped;
 #endif
-#ifdef FRUA_VPPLANAR
+#ifdef FRUA_VPP_WRITE
 static unsigned short g_vpp_pool[VPP_POOLW];
 static pt_entry_t     g_vpp_ent[VPP_TILES];
 static pt_cache_t     g_vpp_cache;
@@ -12480,6 +12525,7 @@ static unsigned char  g_vpp_used[PT_MAX_USED];
 static short          g_vpp_nused;
 static short          g_vpp_ready;
 long g_vpp_checked, g_vpp_bad, g_vpp_nocache, g_vpp_blits;
+long g_vpp_uncov, g_vpp_missed;
 #endif
 
 #ifdef FRUA_TILEPROF
@@ -12543,6 +12589,29 @@ long g_pdpf_calls;   /* #140: port_draw_play_frame calls per compose */
 long g_pdpf_site[4]; /* #141: ...by call site */
 #endif
 #define BD_MAP_MAX 320   /* #132: backdrop scale maps, one screen wide */
+/* ★ THE SCALE MAPS BELONG TO BOTH PATHS NOW. They used to be statics inside the
+ * chunky blit, which was fine while the planar strips took their source from the
+ * pixels that blit had just written. The moment the chunky pass goes away, that
+ * source goes with it — the walls survived (they come from the tile cache) and
+ * the sky and floor came back BLACK. So the maps live here and the planar
+ * rebuild scales g_back_img itself, depending on nothing the chunky pass does. */
+static short g_bd_bx[BD_MAP_MAX], g_bd_by[BD_MAP_MAX];
+static short g_bd_mw, g_bd_mh, g_bd_sw, g_bd_sh;
+
+static void bd_scale_maps(short bw, short bh, short sw_, short sh_)
+{
+	short i;
+
+	if (bw <= 0 || bh <= 0 || bw > BD_MAP_MAX || bh > BD_MAP_MAX)
+		return;
+	if (bw == g_bd_mw && bh == g_bd_mh && sw_ == g_bd_sw && sh_ == g_bd_sh)
+		return;                          /* #132: the divides stay rare */
+	for (i = 0; i < bw; i++)
+		g_bd_bx[i] = (short)(((long)i * sw_) / bw);
+	for (i = 0; i < bh; i++)
+		g_bd_by[i] = (short)(((long)i * sh_) / bh);
+	g_bd_mw = bw; g_bd_mh = bh; g_bd_sw = sw_; g_bd_sh = sh_;
+}
 static short g_view_hud_only = 0;
 #ifdef FRUA_R3DPROF
 long g_r3d_t0, g_r3d_t1, g_r3d_t2, g_r3d_t3, g_r3d_t4, g_r3d_tb;  /* #132 phases */
@@ -12579,7 +12648,7 @@ static void  port_event_tail_expire(void);
 #define BACK_PAL_BASE 144
 static unsigned char g_back_img[BACK_W * BACK_H];
 static short g_back_w = 0, g_back_h = 0;   /* loaded dims (0 = none)       */
-#ifdef FRUA_VPPLANAR
+#ifdef FRUA_VPP_WRITE
 /* Bumped by load_backdrop whenever g_back_img changes — the planar mirror's
  * backdrop cache keys on this, since nothing else about the blit does. */
 static short g_back_gen = 0;
@@ -13085,7 +13154,7 @@ static int load_backdrop(short n)
 	}
 	g_back_w = w;
 	g_back_h = h;
-#ifdef FRUA_VPPLANAR
+#ifdef FRUA_VPP_WRITE
 	g_back_gen++;
 #endif
 
@@ -13858,6 +13927,7 @@ static void l309c_tile(unsigned char *page, short top, short left,
 		 *     loop becomes load / test / store. Rebuilt per tile so it can
 		 *     never go stale against a wall reload; 256 iterations against
 		 *     13,968 pixels pays for itself many times over. */
+		if (!VPP_NOCHUNKY)
 		{
 			/* STATIC, not a local: 512 bytes of stack frame five calls
 			 * deep (jt199 -> l5b42 -> jt200 -> jt114 -> here) on a
@@ -13928,7 +13998,7 @@ static void l309c_tile(unsigned char *page, short top, short left,
 			}
 		}
 #endif
-#ifdef FRUA_VPPLANAR
+#ifdef FRUA_VPP_WRITE
 		{
 			short nb = 0, shh = 0;
 			const unsigned char *rm = dsp_planar_remap(&nb, &shh);
@@ -15293,16 +15363,30 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	unsigned char *vp    = dsp_viewport_scratch(&vp_pitch);
 	unsigned char *vtgt  = vp ? vp : px;
 	short          vpitch = vp ? vp_pitch : pitch;
-	if (vp) {
+	if (vp && !VPP_NOCHUNKY) {
 		short vy;
+		/* ★ 0xFD, NOT 0, IN THE VERIFICATION BUILD — because the verifier has a
+		 * hole I am about to rely on. It compares only pixels the planar writers
+		 * COVERED, so a writer I never mirrored is invisible to it: its chunky
+		 * pixels are simply skipped, and deleting the chunky path would drop
+		 * that art with every counter still reading zero. Clearing to a sentinel
+		 * makes the inverse question answerable — an uncovered pixel that is no
+		 * longer 0xFD is exactly a writer the planar path does not reproduce.
+		 * The composite takes the planes here, so this never reaches the screen. */
 		for (vy = VT; vy < VB; vy++)
-			memset(vp + (long)vy * vpitch + VL, 0, (size_t)(VR - VL));
+			memset(vp + (long)vy * vpitch + VL,
+#ifdef FRUA_VPPLANAR
+			       0xFD,
+#else
+			       0,
+#endif
+			       (size_t)(VR - VL));
 	}
 #ifdef FRUA_VPPLANAR
 	/* coverage is per FRAME: only pixels this render's tiles wrote are compared */
 	memset(g_vpp_cov, 0, sizeof g_vpp_cov);
 #endif
-#ifdef FRUA_VPPLANAR
+#ifdef FRUA_VPP_WRITE
 	/* ADR-0016 B5: ask the backend for the viewport's PLANES. Non-NULL means the
 	 * writers below stamp them directly and the composite becomes a copy; NULL
 	 * means this backend wants the chunky scratch and nothing here changes.
@@ -15313,6 +15397,7 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	 * through a mask, so whatever we leave in those bits is discarded. Clearing
 	 * whole groups is therefore both simpler and safe. */
 	g_vpp_dst = dsp_viewport_planes(&g_vpp_dpitch);
+	g_vpp_nochunky = (short)(g_vpp_dst != NULL && !VPP_KEEP_CHUNKY);
 	if (g_vpp_dst != NULL && g_vpp_dpitch > 0) {
 		long gb = (long)(VL >> 4) * 8;
 		long ge = (long)(((VR + 15) >> 4)) * 8;
@@ -15437,12 +15522,12 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 				short py1 = (cb > sh) ? sh : cb;
 
 				(void)xx;
-				if (px1 > px0)
+				if (px1 > px0 && !VPP_NOCHUNKY)
 					for (yy = py0; yy < py1; yy++)
 						memset(vtgt + (long)yy * vpitch + px0,
 						       (unsigned char)fill,
 						       (size_t)(px1 - px0));
-#ifdef FRUA_VPPLANAR
+#ifdef FRUA_VPP_WRITE
 				/* ★ THE CHEAP LAYER, AND POSSIBLY A DEAD ONE. A solid region
 				 * is the one thing planes are already good at: no mask, no
 				 * conversion, no cache — planar_span_stlow writes a constant
@@ -15509,7 +15594,7 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 #ifdef FRUA_R3DPROF
 	{ extern long g_r3d_tb; g_r3d_tb = TickCount(); }
 #endif
-	if (g_back_w > 0 && g_back_h > 0) {
+	if (g_back_w > 0 && g_back_h > 0 && !VPP_NOCHUNKY) {
 		short bvl = (short)g_a5_3056, bvt = (short)g_a5_3054;
 		short bvr = (short)g_a5_3052, bvb = (short)g_a5_3050;
 		short bw = (short)(bvr - bvl), bh = (short)(bvb - bvt);
@@ -15537,34 +15622,23 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 		 * cheap either way but tables for the same reason. Cached across
 		 * frames — the viewport and backdrop dimensions rarely change. */
 		{
-			static short s_bx[BD_MAP_MAX], s_by[BD_MAP_MAX];
-			static short s_bw, s_bh, s_sw, s_sh_;
-
+			bd_scale_maps(bw, bh, g_back_w, g_back_h);
 			if (bw > 0 && bh > 0 && bw <= BD_MAP_MAX && bh <= BD_MAP_MAX) {
-				if (bw != s_bw || bh != s_bh
-				 || g_back_w != s_sw || g_back_h != s_sh_) {
-					for (xx = 0; xx < bw; xx++)
-						s_bx[xx] = (short)(((long)xx * g_back_w) / bw);
-					for (yy = 0; yy < bh; yy++)
-						s_by[yy] = (short)(((long)yy * g_back_h) / bh);
-					s_bw = bw; s_bh = bh;
-					s_sw = g_back_w; s_sh_ = g_back_h;
-				}
 				for (yy = 0; yy < bh; yy++) {
 					const unsigned char *srow =
-						g_back_img + (long)s_by[yy] * g_back_w;
+						g_back_img + (long)g_bd_by[yy] * g_back_w;
 					short dy = (short)(bvt + yy);
 
 					for (xx = 0; xx < bw; xx++)
 						map_px(vtgt, vpitch, sw, sh,
 						       (short)(bvl + xx), dy,
-						       srow[s_bx[xx]]);
+						       srow[g_bd_bx[xx]]);
 				}
 			}
 		}
 #endif
 	}
-#ifdef FRUA_VPPLANAR
+#ifdef FRUA_VPP_WRITE
 	/* ★ THE BACKDROP AS A CACHED PLANAR BLIT (#144) — same discipline as the
 	 * tiles in 07100171: mirror it, prove it, change nothing on screen yet.
 	 *
@@ -15672,14 +15746,17 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 					short nused = 0, rr, cc, q;
 
 					memset(seen, 0, sizeof seen);
+					bd_scale_maps(kw, kh, g_back_w, g_back_h);
 					for (rr = 0; rr < hh; rr++) {
-						const unsigned char *sr = vtgt
-						    + (long)(sy + rr) * vpitch + kvl;
+						/* scale straight from the ART — see bd_scale_maps */
+						const unsigned char *sr = g_back_img
+						    + (long)g_bd_by[sy + rr - kvt]
+						      * g_back_w;
 						unsigned char *dr = g_vpb_body
 						    + (long)rr * kw;
 
 						for (cc = 0; cc < kw; cc++) {
-							unsigned char v = sr[cc];
+							unsigned char v = sr[g_bd_bx[cc]];
 
 							dr[cc] = v;
 							if (seen[v])
@@ -15891,8 +15968,13 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 						short got = 0, pp;
 						unsigned char want;
 
-						if (!(cov[vx >> 3] & (0x80u >> (vx & 7))))
+						if (!(cov[vx >> 3] & (0x80u >> (vx & 7)))) {
+							/* uncovered: did ANYTHING draw here? */
+							g_vpp_uncov++;
+							if (crow[vx] != 0xFD)
+								g_vpp_missed++;
 							continue;
+						}
 						for (pp = 0; pp < 4; pp++) {
 							const unsigned short *wp =
 							    (const unsigned short *)
@@ -15915,6 +15997,8 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 				dbg_file_num("vpp: blits    = ", g_vpp_blits);
 				dbg_file_num("vpp: checked  = ", g_vpp_checked);
 				dbg_file_num("vpp: MISMATCH = ", g_vpp_bad);
+				dbg_file_num("vpp: uncovered= ", g_vpp_uncov);
+				dbg_file_num("vpp: MISSED    = ", g_vpp_missed);
 				dbg_file_num("vpp: no-cache = ", g_vpp_nocache);
 				dbg_file_num("vpp: rebuilt  = ", (long)g_vpp_cache.rebuilt);
 				dbg_file_num("vpp: hit      = ", (long)g_vpp_cache.hit);
@@ -15950,7 +16034,7 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 		/* ADR-0016 B5: if we stamped the planes, hand THOSE over — the
 		 * backend then copies rather than converting. Otherwise the chunky
 		 * commit, exactly as before. */
-#ifdef FRUA_VPPLANAR
+#ifdef FRUA_VPP_WRITE
 		if (g_vpp_dst != NULL)
 			dsp_viewport_commit_planes(VL, VT, (short)(VR - VL),
 			                           (short)(VB - VT));
