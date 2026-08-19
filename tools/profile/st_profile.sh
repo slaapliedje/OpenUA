@@ -86,6 +86,10 @@ ready() { grep -q 'menu: modal up' "$OUT/run.log" 2>/dev/null \
 echo "waiting for the menu (console AND DBG.LOG) ..."
 for _ in $(seq 1 60); do
 	ready && break
+	if ! pgrep -x hatari >/dev/null; then
+		echo "emulator exited during boot — run is void"
+		exit 3
+	fi
 	sleep 5
 done
 ready || echo "WARNING: never saw 'menu: modal up' on EITHER sink — boot may have stalled"
@@ -137,8 +141,23 @@ if grep -q "VBL=$((OPEN+1))" "$OUT/run.log" 2>/dev/null; then
 	exit 2
 fi
 
+# ★ THIS LOOP NEEDS THE SAME PROCESS GUARD AS THE DRIVE LOOP, and for a sharper
+# reason than "it might spin". e6c6f59d bounded the DRIVE loop only. Kill the
+# emulator while a run sits here and the script does not die — it keeps polling
+# $OUT/run.log, which the NEXT invocation deletes and recreates. The old script
+# then sees the new run's window open, starts sending keys into the new run's
+# Hatari, and both drive the same emulator: two key streams into one window, and
+# two scripts aggregating the same profile. Observed 2026-08-18 — both printed
+# "walked 135 keys" and byte-identical cycle totals (3,046,928,298), which is what
+# gave it away. Bind the wait to the emulator we launched.
 echo "in the dungeon — waiting for the window to open (VBL > $OPEN) ..."
-until grep -q "VBL=$((OPEN+1))" "$OUT/run.log" 2>/dev/null; do sleep 5; done
+until grep -q "VBL=$((OPEN+1))" "$OUT/run.log" 2>/dev/null; do
+	if ! pgrep -x hatari >/dev/null; then
+		echo "emulator exited before the window opened — run is void"
+		exit 3
+	fi
+	sleep 5
+done
 echo "window OPEN — driving the walk"
 # ★ DRIVE FOR THE WHOLE WINDOW, NOT A FIXED NUMBER OF KEYS. A 35,000-VBL window is
 # ~700 s of emulated time; sixteen keys at 0.7 s span a few tens of seconds of it.

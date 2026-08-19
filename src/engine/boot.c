@@ -12406,6 +12406,50 @@ static short g_view_force_full = 0;  /* set on a live switch -> full clear+prese
 #define VPP_POOLW  24000L                 /* words, ~48 KB vs 28-34 KB measured */
 static unsigned char  g_vpp_plane[(long)VPP_ROWS * VPP_PITCH];
 static unsigned char  g_vpp_cov[(long)VPP_ROWS * VPP_COVW];
+/* ★ THE BACKDROP GETS ITS OWN CACHE, NOT A CORNER OF THE TILE ONE. Its key has
+ * to carry a GENERATION (g_back_gen): a new level's BACK.CTL replaces g_back_img
+ * wholesale while (slot, idx) and the remap fingerprint can all stay put, so a
+ * shared cache would happily serve the previous dungeon's sky. Generation as part
+ * of the key would instead leak an entry and its pool words per backdrop — the
+ * tile cache never evicts, by design, because wall art is bounded. So: a small
+ * private cache, flushed whole when the generation or the viewport dims move.
+ * Five strips of 88x20 is ~3,000 words; 4,000 leaves room for a taller hole. */
+#define VPB_SLOT_BASE 1000       /* well clear of CW_SLOTS wall slots        */
+#define VPB_MAXW      160
+#define VPB_MAXH      128
+#define VPB_STRIPH    40         /* tallest band strip we will copy at once  */
+#define VPB_TILES     12
+#define VPB_MAXBANDS  16
+#define VPB_POOLW     4000L
+static unsigned short g_vpb_pool[VPB_POOLW];
+static pt_entry_t     g_vpb_ent[VPB_TILES];
+static pt_cache_t     g_vpb_cache;
+static unsigned char  g_vpb_body[(long)VPB_MAXW * VPB_STRIPH];
+static unsigned short g_vpb_lut[256];
+static unsigned char  g_vpb_used[PT_MAX_USED];
+static short          g_vpb_ready;
+long g_vpb_strips, g_vpb_nocache;
+/* ★ WAS PER-BAND ACTUALLY NECESSARY? The argument for splitting the backdrop into
+ * one strip per band is that its content differs by band by construction (sky
+ * above, floor below), so quantize.h's populous-colour reservation cannot be
+ * relied on to give an index the same slot everywhere — unlike the wall indices,
+ * where d419e311 measured exactly that. An argument is not a measurement, and if
+ * the bands agree anyway the split is 5x the conversions for nothing.
+ *
+ * So compare, every frame, each strip's band remap against the TOP strip's over
+ * the indices the backdrop is actually observed to use — the union below, not the
+ * nominal BACK_PAL_BASE..+32 range, which is itself an assumption. Agreement here
+ * means one conversion could have served every strip. */
+static unsigned char g_vpb_seen[256];    /* union of observed backdrop indices */
+long g_vpb_bsame, g_vpb_bdiff, g_vpb_bpairs, g_vpb_bworst, g_vpb_nseen;
+long g_vpb_rowdiff;
+/* ★ POSITIVE CONTROL ACROSS THE WHOLE SCREEN. The viewport only spans bands 1..5,
+ * all of it dungeon view; if those agree it may be because the check is broken, or
+ * because that content really does quantise the same. Band 0 and band 9 hold the
+ * chrome and the HUD — utterly different content — so if NO band differs from band
+ * 0 anywhere in its 256 entries, the honest reading is that the ST is running ONE
+ * palette for the whole screen and per-band is inert, not that the bands agree. */
+long g_vpb_scr_pairs, g_vpb_scr_diffbands, g_vpb_scr_worst;
 static unsigned short g_vpp_pool[VPP_POOLW];
 static pt_entry_t     g_vpp_ent[VPP_TILES];
 static pt_cache_t     g_vpp_cache;
@@ -12514,6 +12558,11 @@ static void  port_event_tail_expire(void);
 #define BACK_PAL_BASE 144
 static unsigned char g_back_img[BACK_W * BACK_H];
 static short g_back_w = 0, g_back_h = 0;   /* loaded dims (0 = none)       */
+#ifdef FRUA_VPPLANAR
+/* Bumped by load_backdrop whenever g_back_img changes — the planar mirror's
+ * backdrop cache keys on this, since nothing else about the blit does. */
+static short g_back_gen = 0;
+#endif
 static short g_back_set = 1;               /* 1-based backdrop index       */
 static short g_back_max = 19;
 static short g_back_auto = 1;              /* 1 = pick per-cell from the map;
@@ -13015,6 +13064,9 @@ static int load_backdrop(short n)
 	}
 	g_back_w = w;
 	g_back_h = h;
+#ifdef FRUA_VPPLANAR
+	g_back_gen++;
+#endif
 
 	/* item 0 = the backdrop's RGB-triple palette -> clut[BACK_PAL_BASE..]. */
 	p0 = l37aa(sub, 0);
@@ -15372,6 +15424,246 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 		}
 #endif
 	}
+#ifdef FRUA_VPPLANAR
+	/* ★ THE BACKDROP AS A CACHED PLANAR BLIT (#144) — same discipline as the
+	 * tiles in 07100171: mirror it, prove it, change nothing on screen yet.
+	 *
+	 * The backdrop is the layer this is easiest on. It is the BOTTOM layer, so
+	 * it needs no mask at all (the trapezoid fills under it are entirely
+	 * covered — the image spans the whole 88x88 hole, opaquely, via map_px);
+	 * and it is static per level, so one conversion serves every frame until
+	 * the party changes zone. Against that, the chunky path rescales and stores
+	 * 7,744 pixels EVERY render — the largest single fixed cost in the walk
+	 * after the tile blits.
+	 *
+	 * ★ PER BAND — AND THE MEASUREMENT SAYS THE SPLIT IS FREE TODAY, FOR A
+	 * REASON I SHOULD HAVE READ RATHER THAN MEASURED. The argument for it was
+	 * that the backdrop is the one thing in the viewport whose content differs
+	 * by band by construction (sky above, floor below), so quantize.h's
+	 * populous-colour reservation could not be relied on to give an index the
+	 * same slot everywhere. Sound as a risk. But the actual state of the ST
+	 * backend is simpler: display_ste.c calls quant_banded with nbands = 1 and
+	 * REPLICATES the one palette into all ten band slots (ADR-0016 B1, to kill
+	 * the #40 seams). There is only one palette, so of course every band agrees.
+	 *
+	 * Measured over a 139-key walk before that line was read: 552 band pairs,
+	 * 0 differing entries over the backdrop's own indices — and the whole-screen
+	 * control says the same, 1,242 pairs across bands 0..9, not one differing
+	 * band. Bands 0 and 9 hold chrome and HUD, so that is as different as the
+	 * content gets. It is unanimous because it is one palette.
+	 *
+	 * The split STAYS anyway, and not out of sentiment: st_build_hw_palette
+	 * keeps the raster-split machinery precisely so per-band anchoring can come
+	 * back for an art-heavy screen, and on that day this code is already right.
+	 * It costs 5 entries and 50 rebuilds against 580 hits — noise.
+	 *
+	 * ★ AND IT PUTS A LIMIT ON d419e311. That commit read the tiles' 3,544/3,544
+	 * band agreement as proof that "quantize.h's exact-slot reservation holds
+	 * ACROSS re-bands". It does not prove that. One replicated palette produces
+	 * the identical measurement, and is the likelier explanation. The (slot, idx)
+	 * cache key is still correct today — for this reason rather than that one —
+	 * but if per-band anchoring ever returns, that question genuinely reopens
+	 * for the tiles, where the answer is NOT already built.
+	 *
+	 * The source is the scaled image the chunky path just wrote into vtgt, not
+	 * g_back_img — that is the bytes actually on screen, so the mirror cannot
+	 * disagree with the picture through a scaling difference of my own making.
+	 * Read only on a rebuild; a hit touches neither. */
+	if (vp && g_back_w > 0 && g_back_h > 0) {
+		short nbb = 0, shb = 0;
+		const unsigned char *rmb = dsp_planar_remap(&nbb, &shb);
+		short kvl = (short)g_a5_3056, kvt = (short)g_a5_3054;
+		short kvr = (short)g_a5_3052, kvb = (short)g_a5_3050;
+		short kw  = (short)(kvr - kvl), kh = (short)(kvb - kvt);
+
+		if (rmb != NULL && nbb > 0 && shb > 0 && kw > 0 && kh > 0
+		 && kw <= VPB_MAXW && kh <= VPB_MAXH) {
+			static short s_gen = -1, s_kw = -1, s_kh = -1;
+			short sy = kvt, band0, nband = 0;
+			short bandlist[VPB_MAXBANDS];
+
+			if (!g_vpb_ready) {
+				pt_cache_init(&g_vpb_cache, g_vpb_pool, VPB_POOLW,
+				              g_vpb_ent, VPB_TILES);
+				g_vpb_ready = 1;
+			}
+			/* New art, or a resized hole: the whole cache is stale, and the
+			 * pool has to come back with it — entries are never evicted
+			 * individually, so keying the generation instead would leak. */
+			if (g_back_gen != s_gen || kw != s_kw || kh != s_kh) {
+				pt_cache_flush(&g_vpb_cache);
+				memset(g_vpb_seen, 0, sizeof g_vpb_seen);
+				g_vpb_nseen = 0;
+				s_gen = g_back_gen; s_kw = kw; s_kh = kh;
+			}
+			band0 = -1;
+			while (sy < kvb) {
+				short band = (short)((long)sy * nbb / shb);
+				short ey = sy, hh, key;
+				unsigned short *strip;
+
+				if (band < 0) band = 0;
+				if (band >= nbb) band = (short)(nbb - 1);
+				/* extend while the band holds (and the copy buffer does) */
+				while (ey < kvb && (short)(ey - sy) < VPB_STRIPH) {
+					short bb = (short)((long)ey * nbb / shb);
+
+					if (bb < 0) bb = 0;
+					if (bb >= nbb) bb = (short)(nbb - 1);
+					if (bb != band)
+						break;
+					ey++;
+				}
+				hh = (short)(ey - sy);
+				if (hh <= 0)
+					break;
+				/* key on the strip's TOP ROW, not just the band: if a band
+				 * ever splits across two strips the two must not share an
+				 * entry and thrash each other's geometry. */
+				if (band0 < 0)
+					band0 = band;
+				if (nband < VPB_MAXBANDS)
+					bandlist[nband++] = band;
+				key = (short)(VPB_SLOT_BASE + band);
+				strip = pt_cache_get(&g_vpb_cache, key, sy,
+				                     rmb + (long)band * 256);
+				if (strip == NULL) {
+					unsigned char seen[256];
+					short nused = 0, rr, cc, q;
+
+					memset(seen, 0, sizeof seen);
+					for (rr = 0; rr < hh; rr++) {
+						const unsigned char *sr = vtgt
+						    + (long)(sy + rr) * vpitch + kvl;
+						unsigned char *dr = g_vpb_body
+						    + (long)rr * kw;
+
+						for (cc = 0; cc < kw; cc++) {
+							unsigned char v = sr[cc];
+
+							dr[cc] = v;
+							if (seen[v])
+								continue;
+							seen[v] = 1;
+							if (!g_vpb_seen[v]) {
+								g_vpb_seen[v] = 1;
+								g_vpb_nseen++;
+							}
+							if (nused < PT_MAX_USED)
+								g_vpb_used[nused] = v;
+							nused++;
+						}
+					}
+					if (nused > PT_MAX_USED)
+						nused = 0;      /* whole-row fallback */
+					/* opaque throughout: no key colour, and the backdrop
+					 * bytes are DIRECT clut indices (no rebase) */
+					for (q = 0; q < 256; q++)
+						g_vpb_lut[q] = (unsigned short)(0x100u
+						    | rmb[(long)band * 256 + q]);
+					strip = pt_cache_reserve(&g_vpb_cache, key, sy,
+					                         kw, hh,
+					                         rmb + (long)band * 256,
+					                         g_vpb_used, nused);
+					if (strip != NULL)
+						planar_tile_build(strip, g_vpb_body,
+						                  kw, hh, g_vpb_lut);
+				}
+				if (strip == NULL) {
+					g_vpb_nocache++;
+				} else {
+					short rr, cc;
+
+					g_vpb_strips++;
+					planar_tile_blit(g_vpp_plane, VPP_PITCH, strip,
+					                 kw, hh, kvl, sy,
+					                 g_cwf_clip_l, g_cwf_clip_r,
+					                 g_cwf_clip_t, g_cwf_clip_b);
+					for (rr = 0; rr < hh; rr++) {
+						short dy2 = (short)(sy + rr);
+
+						if (dy2 < g_cwf_clip_t
+						 || dy2 >= g_cwf_clip_b
+						 || dy2 < 0 || dy2 >= VPP_ROWS)
+							continue;
+						for (cc = 0; cc < kw; cc++) {
+							short dx2 = (short)(kvl + cc);
+
+							if (dx2 < g_cwf_clip_l
+							 || dx2 >= g_cwf_clip_r
+							 || dx2 < 0 || dx2 >= 320)
+								continue;
+							g_vpp_cov[(long)dy2 * VPP_COVW
+							          + (dx2 >> 3)] |=
+							    (unsigned char)(0x80u >> (dx2 & 7));
+						}
+					}
+				}
+				sy = ey;
+			}
+			{
+				short b2, q2;
+
+				for (b2 = 1; b2 < nbb && b2 < 64; b2++) {
+					short d2 = 0;
+
+					for (q2 = 0; q2 < 256; q2++)
+						if (rmb[(long)b2 * 256 + q2]
+						 != rmb[q2])
+							d2++;
+					g_vpb_scr_pairs++;
+					if (d2 > 0)
+						g_vpb_scr_diffbands++;
+					if (d2 > g_vpb_scr_worst)
+						g_vpb_scr_worst = d2;
+				}
+			}
+			/* ★ COMPARE AFTER THE LOOP, NOT INSIDE IT. The union of observed
+			 * indices is filled by REBUILDS, so a comparison made mid-loop on
+			 * the frame that populates it runs against a half-built set and
+			 * can only MISS disagreements — the optimistic direction, which is
+			 * how a check ends up unable to fail. Doing it here costs one pass
+			 * and compares every band against the top one over the whole set
+			 * as it stands at the end of the frame. */
+			{
+				short bi, q;
+
+				for (bi = 0; bi < nband; bi++) {
+					short d = 0;
+
+					if (bandlist[bi] == band0)
+						continue;
+					for (q = 0; q < 256; q++) {
+						short ne = rmb[(long)bandlist[bi] * 256 + q]
+						        != rmb[(long)band0 * 256 + q];
+
+						/* ★ THE SAME PASS ALSO COMPARES THE WHOLE ROW, and
+						 * that is not idle curiosity — it is what stops a
+						 * "DIFF = 0" from being unfalsifiable. Two bands
+						 * holding different content almost certainly have
+						 * SOME index resolving differently, so a non-zero
+						 * row DIFF demonstrates this comparison can fire.
+						 * If it were zero too, the honest reading would be
+						 * "the check is broken", not "the bands agree". */
+						if (ne)
+							g_vpb_rowdiff++;
+						if (!g_vpb_seen[q])
+							continue;
+						if (ne) {
+							d++;
+							g_vpb_bdiff++;
+						} else {
+							g_vpb_bsame++;
+						}
+					}
+					g_vpb_bpairs++;
+					if (d > g_vpb_bworst)
+						g_vpb_bworst = d;
+				}
+			}
+		}
+	}
+#endif
 	l57f2();                /* gated backdrop-image overlay (l58c4) */
 #ifdef FRUA_R3DPROF
 	{ extern long g_r3d_t2; g_r3d_t2 = TickCount(); }
@@ -15470,6 +15762,21 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 				dbg_file_num("vpp: hit      = ", (long)g_vpp_cache.hit);
 				dbg_file_num("vpp: miss     = ", (long)g_vpp_cache.miss);
 				dbg_file_num("vpp: full     = ", (long)g_vpp_cache.full);
+				dbg_file_num("vpb: strips   = ", g_vpb_strips);
+				dbg_file_num("vpb: rebuilt  = ", (long)g_vpb_cache.rebuilt);
+				dbg_file_num("vpb: hit      = ", (long)g_vpb_cache.hit);
+				dbg_file_num("vpb: miss     = ", (long)g_vpb_cache.miss);
+				dbg_file_num("vpb: full     = ", (long)g_vpb_cache.full);
+				dbg_file_num("vpb: no-cache = ", g_vpb_nocache);
+				dbg_file_num("vpb: idx seen  = ", g_vpb_nseen);
+				dbg_file_num("vpb: band SAME = ", g_vpb_bsame);
+				dbg_file_num("vpb: band DIFF = ", g_vpb_bdiff);
+				dbg_file_num("vpb: band pair = ", g_vpb_bpairs);
+				dbg_file_num("vpb: band worst= ", g_vpb_bworst);
+				dbg_file_num("vpb: ROW  DIFF = ", g_vpb_rowdiff);
+				dbg_file_num("vpb: scr pairs = ", g_vpb_scr_pairs);
+				dbg_file_num("vpb: scr DIFFb = ", g_vpb_scr_diffbands);
+				dbg_file_num("vpb: scr worst = ", g_vpb_scr_worst);
 			}
 		}
 #endif
