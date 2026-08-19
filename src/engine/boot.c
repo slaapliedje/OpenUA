@@ -12431,11 +12431,13 @@ static short g_view_force_full = 0;  /* set on a live switch -> full clear+prese
  * is COUNTED rather than silently quantising last frame's walls (see
  * s_rb_stale). Measured cost of the pass it skips: 310.6M cycles a window,
  * 10.4% of all cycles, halving render_3d_faithful. */
-#ifdef FRUA_VPPLANAR
-#define VPP_KEEP_CHUNKY 1        /* the verifier compares against it */
-#else
-#define VPP_KEEP_CHUNKY 0
-#endif
+/* ★ ALWAYS 1 NOW. This was 0 for the shipping build while the pass was LAZY
+ * (drawn only when a re-band was predicted). The composite's c2p fallback reads
+ * this scratch, so it has to be fresh on ANY present that finds the planes
+ * stale — and st_patch_new_ink moves the remap from inside the present, after
+ * the render, which no prediction can see. Setting it 0 and dropping the lazy
+ * term is what turned the viewport BLACK: chunky never drawn, then converted. */
+#define VPP_KEEP_CHUNKY 1
 
 #ifndef FRUA_VPP_WRITE
 #define VPP_NOCHUNKY 0
@@ -15449,8 +15451,16 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	 * through a mask, so whatever we leave in those bits is discarded. Clearing
 	 * whole groups is therefore both simpler and safe. */
 	g_vpp_dst = dsp_viewport_planes(&g_vpp_dpitch);
-	g_vpp_nochunky = (short)(g_vpp_dst != NULL && !VPP_KEEP_CHUNKY
-	                         && !dsp_reband_pending());
+	/* ★ THE LAZY PASS IS RETIRED, and for a correctness reason rather than a
+	 * measurement one. The composite now falls back to converting the CHUNKY
+	 * scratch whenever the remap moved since the planes were stamped (see
+	 * s_remap_gen) — and that fallback needs the scratch to be FRESH. A re-band
+	 * is predictable, so the lazy pass covered it; st_patch_new_ink is NOT, it
+	 * re-points indices from inside the present, after the render. So a frame
+	 * that skipped the chunky pass could be asked to convert a stale one. Draw
+	 * it every frame; the ~310M cycles that costs are the price of the freckles
+	 * NOT being there, and the 479M hit-path win (8ccfd174) is untouched. */
+	g_vpp_nochunky = (short)(g_vpp_dst != NULL && !VPP_KEEP_CHUNKY);
 	dsp_viewport_chunky_valid((short)!g_vpp_nochunky);
 	if (g_vpp_dst != NULL && g_vpp_dpitch > 0) {
 		long gb = (long)(VL >> 4) * 8;

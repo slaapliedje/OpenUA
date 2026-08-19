@@ -211,6 +211,21 @@ static unsigned char *st_vp_scratch(short *pitch);
 static void           st_vp_commit(short x, short y, short w, short h);
 static void           st_vp_overwrite(short x, short y, short w, short h);
 static short s_vp_chunky_ok;            /* chunky scratch refreshed this frame */
+/* ★ THE PLANES BAKE SLOT NUMBERS, SO A REMAP CHANGE INVALIDATES THEM. This is
+ * the B5 hazard, found live: the viewport's planes carry slot indices, and when
+ * st_reband re-quantises or st_patch_new_ink re-points an index, those same slot
+ * numbers now mean DIFFERENT colours. Re-copying them paints the walls in
+ * whatever the slots became — cyan/red freckles over grey stone, against clean
+ * stone on the Falcon and on this same binary with vpplanar=off.
+ *
+ * Before B5 nothing had to track this: the composite converted from the chunky
+ * scratch through the CURRENT remap every present, so a palette change fixed
+ * itself. The copy path has no such self-correction, so the generation is now
+ * explicit — bumped wherever the remap moves, recorded when planes are
+ * committed, and compared before trusting them. */
+static unsigned long s_remap_gen;       /* bumped on every remap change      */
+static unsigned long s_vp_gen;          /* generation the planes were stamped for */
+static long          s_vp_gen_stale;    /* composites that fell back to c2p   */
 static long  s_rb_stale;                /* re-bands that quantised a STALE one */
 static long  s_rb_seen;                 /* re-bands that reached that decision */
 
@@ -248,6 +263,7 @@ static void st_vp_chunky_valid(short valid)
 		dbg_log_num("ste: lazy chunky skipped = ", s_lazy_skip);
 		dbg_log_num("ste: lazy chunky drawn   = ", s_lazy_draw);
 		dbg_log_num("ste: reband-on-stale     = ", s_rb_stale);
+		dbg_log_num("ste: planes-stale c2p   = ", s_vp_gen_stale);
 	}
 }
 
@@ -957,6 +973,24 @@ static void st_reband(void)
 #endif
 	quant_banded(qsrc, ST_W, ST_H, s_clut,
 	             1, ST_NCOL, ST_BITS, s_band_pal, s_band_remap);
+	s_remap_gen++;                           /* planes stamped before this are stale */
+#ifdef FRUA_PALTRACE
+	/* ★ WHICH 16 COLOURS DID IT PICK? #141 narrowed the speckle to the budget
+	 * (64-66 indices into 16 slots), leaving two candidates: the chosen 16 carry
+	 * no NEUTRAL, so stone greys have nowhere to land and fall to whatever hue
+	 * is nearest; or they do carry one and the nearest-match metric mis-picks.
+	 * Dumping the palette decides it. Packed r<<16|g<<8|b, one slot per line —
+	 * the snapped 3-bit-per-gun values, i.e. what the hardware will show. */
+	{
+		short pi;
+
+		for (pi = 0; pi < ST_NCOL; pi++)
+			dbg_log_num("pt: slot rgb = ",
+			            ((long)s_band_pal[pi * 3 + 0] << 16)
+			          | ((long)s_band_pal[pi * 3 + 1] << 8)
+			          |  (long)s_band_pal[pi * 3 + 2]);
+	}
+#endif
 #ifdef FRUA_STPROF
 	sp_rb_quant += Supexec(st_prof_hz200) - tq;
 	}
@@ -1732,6 +1766,7 @@ static int st_patch_new_ink(void)
 	}
 	if (!patched)
 		return 0;
+	s_remap_gen++;                           /* re-pointed indices: see s_vp_gen */
 
 	/* Every row holding the patched index was stamped through the OLD
 	 * mapping, so its planes are stale. We do NOT know which rows those are:
@@ -2626,8 +2661,10 @@ static unsigned char *st_vp_planes_buf(short *pitch)
 static void st_vp_commit_planes(short x, short y, short w, short h)
 {
 	st_vp_commit(x, y, w, h);                /* same bookkeeping and rejects */
-	if (s_vp_active)
+	if (s_vp_active) {
 		s_vp_planar = 1;
+		s_vp_gen    = s_remap_gen;
+	}
 }
 
 /*
@@ -2746,7 +2783,19 @@ static void st_vp_composite(void)
 	 * would fall back to the c2p and produce a PIXEL-IDENTICAL screen — the one
 	 * failure this change cannot be caught by looking at. One marker each, first
 	 * use only, so DBG.LOG answers it instead of an assumption. */
-	if (s_vp_planar) {
+	if (s_vp_planar && s_vp_gen != s_remap_gen) {
+		/* ★ SAY WHEN THE GUARD FIRES. A generation check that never triggers is
+		 * indistinguishable from one that works, so count the falls back to the
+		 * conversion instead of inferring them from a clean frame. */
+		static short said_stale;
+
+		s_vp_gen_stale++;
+		if (!said_stale) {
+			said_stale = 1;
+			dbg_log("ste: viewport planes STALE (remap moved) -> c2p");
+		}
+	}
+	if (s_vp_planar && s_vp_gen == s_remap_gen) {
 		static short said;
 
 		if (!said) { said = 1; dbg_log("ste: viewport composite = COPY (B5)"); }
