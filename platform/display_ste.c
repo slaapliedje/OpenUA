@@ -974,6 +974,32 @@ static void st_reband(void)
 #ifdef FRUA_STPROF
 	{ long tq = Supexec(st_prof_hz200);
 #endif
+#ifdef FRUA_QDUMP
+	/* ★ CAPTURE THE QUANTISER'S INPUTS, so tools/quant can be run on a real
+	 * frame instead of a synthetic one. Writes the 320x200 index surface and
+	 * the 768-byte CLUT exactly as quant_banded is about to see them — the
+	 * viewport overlay included, since qsrc is s_shadow when a viewport is
+	 * committed. One pair per re-band, numbered; the tools take the pair as
+	 * arguments. GEMDOS, so they land in the mounted gamedata dir.
+	 *
+	 * These files are DERIVED FROM COPYRIGHTED ART — they are frame buffers of
+	 * the game. Never commit them (data/ is git-ignored for the same reason). */
+	{
+		static short qd_n;
+		char nm[16];
+		short fh;
+
+		nm[0] = 'q'; nm[1] = (char)('0' + (qd_n / 10) % 10);
+		nm[2] = (char)('0' + qd_n % 10);
+		nm[3] = '.'; nm[4] = 'f'; nm[5] = 'r'; nm[6] = 'm'; nm[7] = 0;
+		fh = (short)Fcreate(nm, 0);
+		if (fh >= 0) { Fwrite(fh, (long)ST_W * ST_H, qsrc); Fclose(fh); }
+		nm[4] = 'c'; nm[5] = 'l'; nm[6] = 't';
+		fh = (short)Fcreate(nm, 0);
+		if (fh >= 0) { Fwrite(fh, 768L, s_clut); Fclose(fh); }
+		qd_n++;
+	}
+#endif
 	quant_banded(qsrc, ST_W, ST_H, s_clut,
 	             1, ST_NCOL, ST_BITS, s_band_pal, s_band_remap);
 	s_remap_gen++;                           /* planes stamped before this are stale */
