@@ -61,6 +61,27 @@ void dsp_viewport_commit_planes(short x, short y, short w, short h)
 		s_vp_commitp_fn(x, y, w, h);
 }
 
+static int  (*s_rb_pending_fn)(void);
+static void (*s_rb_valid_fn)(short);
+
+void planar_reband_query_register(int (*pending)(void),
+                                  void (*chunky_valid)(short))
+{
+	s_rb_pending_fn = pending;
+	s_rb_valid_fn   = chunky_valid;
+}
+
+int dsp_reband_pending(void)
+{
+	return s_rb_pending_fn ? s_rb_pending_fn() : 0;
+}
+
+void dsp_viewport_chunky_valid(short valid)
+{
+	if (s_rb_valid_fn)
+		s_rb_valid_fn(valid);
+}
+
 /* Committed-viewport invalidation — see the long note in planar.h. */
 static void (*s_vp_overwrite_fn)(short x, short y, short w, short h);
 

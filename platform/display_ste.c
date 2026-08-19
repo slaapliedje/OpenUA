@@ -210,6 +210,47 @@ static short         s_st_active;               /* this backend is the live one 
 static unsigned char *st_vp_scratch(short *pitch);
 static void           st_vp_commit(short x, short y, short w, short h);
 static void           st_vp_overwrite(short x, short y, short w, short h);
+static short s_vp_chunky_ok;            /* chunky scratch refreshed this frame */
+static long  s_rb_stale;                /* re-bands that quantised a STALE one */
+static long  s_rb_seen;                 /* re-bands that reached that decision */
+
+/* ★ OVER-PREDICT ON PURPOSE. s_dirty alone is not the re-band condition — the
+ * present also skips when the CLUT matches the one already banded — so this says
+ * "pending" more often than a re-band actually fires. That costs an unnecessary
+ * chunky pass; the opposite error costs a palette derived from last frame's
+ * walls. Wrong in the cheap direction by construction. */
+static int st_reband_pending(void)
+{
+	return (s_dirty || !s_banded_valid || !s_have_pal) ? 1 : 0;
+}
+
+/* ★ AND COUNT WHETHER THE PASS IS ACTUALLY BEING SKIPPED. "AE = 0 and no stale
+ * re-band" is exactly what a prediction that ALWAYS says pending would report —
+ * correct picture, zero staleness, and no saving whatever. Without this the only
+ * evidence of laziness is an inferred profile delta. Logged every 512 frames so
+ * the trace cost is nil. */
+static long s_lazy_skip, s_lazy_draw;
+
+static void st_vp_chunky_valid(short valid)
+{
+	s_vp_chunky_ok = valid;
+	if (valid)
+		s_lazy_draw++;
+	else
+		s_lazy_skip++;
+	/* ★ NOT PER RENDER. dbg_log writes through Cconws, which paints into screen
+	 * memory on this machine, so a per-frame line corrupts the display AND skews
+	 * the timing it is meant to measure. Every 256th render is enough to see the
+	 * ratio; the stale case says so the moment it happens, which is the part
+	 * that cannot wait. Measured 2026-08-18 over a fixture walk: 6 skipped, 2
+	 * drawn, 2 re-bands seen, 0 stale. */
+	if (((s_lazy_skip + s_lazy_draw) & 255) == 0) {
+		dbg_log_num("ste: lazy chunky skipped = ", s_lazy_skip);
+		dbg_log_num("ste: lazy chunky drawn   = ", s_lazy_draw);
+		dbg_log_num("ste: reband-on-stale     = ", s_rb_stale);
+	}
+}
+
 static unsigned char *st_vp_planes_buf(short *pitch);
 static void           st_vp_commit_planes(short x, short y, short w, short h);
 static void           st_vp_composite(void);
@@ -869,6 +910,18 @@ static void st_reband(void)
 #endif
 	if (s_vp_active) {
 		short r;
+
+		/* ★ THE CONTROL FOR THE PREDICTION. If a re-band ever fires on a frame
+		 * the engine skipped the chunky pass for, the palette is being derived
+		 * from the PREVIOUS frame's walls — the exact failure the prediction can
+		 * have, and one that would otherwise show up only as a subtle wrong
+		 * shade nobody traces back here. Count it, and say so once. */
+		s_rb_seen++;
+		if (!s_vp_chunky_ok) {
+			s_rb_stale++;
+			if (s_rb_stale == 1)
+				dbg_log("ste: RE-BAND ON A STALE VIEWPORT (lazy chunky missed)");
+		}
 		memcpy(s_shadow, s_chunky, (long)ST_W * ST_H);
 		for (r = 0; r < s_vp_h; r++) {
 			short yy = (short)(s_vp_y + r);
@@ -2141,6 +2194,7 @@ static int st_init(short want_w, short want_h)
 	s_st_active = 1;
 	planar_viewport_register(st_vp_scratch, st_vp_commit);
 	planar_viewport_planes_register(st_vp_planes_buf, st_vp_commit_planes);
+	planar_reband_query_register(st_reband_pending, st_vp_chunky_valid);
 	planar_viewport_overwrite_register(st_vp_overwrite);
 
 #ifdef FRUA_PLANAR
@@ -2217,6 +2271,7 @@ static int st_init(short want_w, short want_h)
 static void st_shutdown(void)
 {
 	if (s_st_active) {
+		planar_reband_query_register((int (*)(void))0, (void (*)(short))0);
 		planar_viewport_planes_register((unsigned char *(*)(short *))0,
 		                                (void (*)(short, short, short, short))0);
 		planar_viewport_register((unsigned char *(*)(short *))0,

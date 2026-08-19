@@ -198,6 +198,14 @@ void           dsp_viewport_commit(short x, short y, short w, short h);
  * wants the chunky scratch instead (Falcon/TT, and any backend not yet on it). */
 unsigned char *dsp_viewport_planes(short *pitch);
 void           dsp_viewport_commit_planes(short x, short y, short w, short h);
+/* Is a re-quantise due at the next present? The engine uses this to decide
+ * whether the chunky viewport pass is needed THIS frame — st_reband derives the
+ * palette from those pixels. 0 when the backend does not care. */
+int            dsp_reband_pending(void);
+/* Tell the backend whether the chunky viewport scratch was refreshed this frame,
+ * so a re-band that fires against a stale one can be COUNTED rather than
+ * silently quantising last frame's walls. */
+void           dsp_viewport_chunky_valid(short valid);
 
 /* Atari builds: the _VDO cookie value (video hardware id in the high word:
  * 0 ST, 1 STE, 2 TT, 3 VIDEL; 0 when no jar). Cached after the first call.

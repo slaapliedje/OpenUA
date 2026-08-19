@@ -12407,31 +12407,34 @@ static short g_view_force_full = 0;  /* set on a live switch -> full clear+prese
 #if (defined(FRUA_PLANAR) && !defined(FRUA_AMIGA)) || defined(FRUA_VPPLANAR)
 #define FRUA_VPP_WRITE 1
 #endif
-/* ★ THE CHUNKY VIEWPORT PASS STAYS, AND NOT OUT OF CAUTION — IT HAS A SECOND
- * READER. Deleting it is the whole point of #144 and it is measurably wrong
- * today, because st_reband() copies s_vp_scratch over a shadow of s_chunky
- * before quantising, so the 16-colour palette is derived from the walls and sky
- * as well as the HUD (display_ste.c says so, and says what breaks: the wall
- * indices fall to the RGB-nearest fallback and come back in HUD greys). With the
- * chunky pass gone the palette no longer sees the 3D view. Measured on ONE
- * binary through the video.cfg A/B: the chunky arm is PIXEL-IDENTICAL to the
- * pre-change build (AE = 0), the planes-only arm differs by 45,472 pixels.
+/* ★ THE CHUNKY VIEWPORT PASS IS NOW LAZY, NOT DEAD. It has a second reader:
+ * st_reband() copies s_vp_scratch over a shadow of s_chunky before quantising,
+ * so the 16-colour palette is derived from the walls and sky and not just the
+ * HUD (display_ste.c names what breaks otherwise — wall indices fall to the
+ * RGB-nearest fallback and come back in HUD greys, which is exactly what the
+ * planes-only build rendered: AE = 45,472 against AE = 0 for the chunky arm).
  *
- * And it cannot be fixed by moving the same trick to the planar side: the planes
- * hold SLOT numbers, already collapsed through the current remap, while the
- * quantiser needs the original CLUT indices WITH populations in order to choose
- * that remap. Recovering them from the planes is circular.
+ * It cannot move to the planar side — the planes hold SLOT numbers already
+ * collapsed through the current remap, while the quantiser needs the original
+ * CLUT indices WITH populations in order to choose that remap — and a sum of
+ * per-tile histograms is not the same histogram either, because it double-counts
+ * every overdrawn pixel and can move the exact-slot reservation.
  *
- * The way out is to hand the backend the viewport's index histogram instead of
- * its pixels — each cached tile's index counts are fixed when it is converted,
- * so a frame's histogram is O(distinct indices) per blit rather than O(pixels).
- * That is a subsystem, not a tweak, so until it exists this is opt-in:
- * -DFRUA_VPP_NOCHUNKY runs the experiment, the default ships the correct
- * picture, and B5's composite win is kept either way. */
-#if defined(FRUA_VPP_NOCHUNKY) && !defined(FRUA_VPPLANAR)
-#define VPP_KEEP_CHUNKY 0
+ * But the reader is RARE. A re-band happens tens of times in a drive, against a
+ * frame every step, and the palette dirty flag is set BEFORE the render. So ask:
+ * draw the chunky viewport only on frames where a re-quantise is coming.
+ *
+ * ★ ASKING BEATS RE-RENDERING ON DEMAND. The obvious alternative — have
+ * st_reband call back into the engine for a fresh chunky viewport — runs a full
+ * render from INSIDE present, re-entering l6148/jt199 and the A5 clip
+ * save/restore mid-frame. Prediction needs none of that, and a wrong prediction
+ * is COUNTED rather than silently quantising last frame's walls (see
+ * s_rb_stale). Measured cost of the pass it skips: 310.6M cycles a window,
+ * 10.4% of all cycles, halving render_3d_faithful. */
+#ifdef FRUA_VPPLANAR
+#define VPP_KEEP_CHUNKY 1        /* the verifier compares against it */
 #else
-#define VPP_KEEP_CHUNKY 1
+#define VPP_KEEP_CHUNKY 0
 #endif
 
 #ifndef FRUA_VPP_WRITE
@@ -15397,7 +15400,9 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	 * through a mask, so whatever we leave in those bits is discarded. Clearing
 	 * whole groups is therefore both simpler and safe. */
 	g_vpp_dst = dsp_viewport_planes(&g_vpp_dpitch);
-	g_vpp_nochunky = (short)(g_vpp_dst != NULL && !VPP_KEEP_CHUNKY);
+	g_vpp_nochunky = (short)(g_vpp_dst != NULL && !VPP_KEEP_CHUNKY
+	                         && !dsp_reband_pending());
+	dsp_viewport_chunky_valid((short)!g_vpp_nochunky);
 	if (g_vpp_dst != NULL && g_vpp_dpitch > 0) {
 		long gb = (long)(VL >> 4) * 8;
 		long ge = (long)(((VR + 15) >> 4)) * 8;

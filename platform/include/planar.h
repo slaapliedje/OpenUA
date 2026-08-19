@@ -132,6 +132,8 @@ void planar_viewport_register(unsigned char *(*scratch)(short *pitch),
  * layout stays platform's business and only the ST/STe path changes today. */
 void planar_viewport_planes_register(unsigned char *(*planes)(short *pitch),
                                      void (*commit)(short, short, short, short));
+void planar_reband_query_register(int (*pending)(void),
+                                  void (*chunky_valid)(short));
 
 void planar_viewport_overwrite_register(void (*fn)(short x, short y,
                                                    short w, short h));
