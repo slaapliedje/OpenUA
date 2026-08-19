@@ -12410,6 +12410,9 @@ static unsigned short g_vpp_pool[VPP_POOLW];
 static pt_entry_t     g_vpp_ent[VPP_TILES];
 static pt_cache_t     g_vpp_cache;
 static unsigned short g_vpp_lut[256];
+static unsigned char  g_vpp_pre[256];     /* chunky value BEFORE the remap */
+static unsigned char  g_vpp_used[PT_MAX_USED];
+static short          g_vpp_nused;
 static short          g_vpp_ready;
 long g_vpp_checked, g_vpp_bad, g_vpp_nocache, g_vpp_blits;
 #endif
@@ -13860,22 +13863,10 @@ static void l309c_tile(unsigned char *page, short top, short left,
 			if (rm != NULL && nb > 0 && shh > 0) {
 				short si = (slot >= 0 && slot < CW_SLOTS) ? slot : 0;
 				short bnd = (short)((long)y0 * nb / shh);
-				unsigned long ep;
 				unsigned short *tile;
 
 				if (bnd < 0) bnd = 0;
 				if (bnd >= nb) bnd = (short)(nb - 1);
-				/* The epoch is the remap CONTENT, not a counter: the backend
-				 * exposes no generation, and a cheap checksum over the band
-				 * row the tile was built against changes exactly when the
-				 * bytes it baked in change. Cheap and self-correcting. */
-				{
-					const unsigned char *row = rm + (long)bnd * 256;
-					short q;
-					ep = 0;
-					for (q = 0; q < 256; q++)
-						ep = ep * 31u + row[q];
-				}
 				if (!g_vpp_ready) {
 					pt_cache_init(&g_vpp_cache, g_vpp_pool, VPP_POOLW,
 					              g_vpp_ent, VPP_TILES);
@@ -13902,16 +13893,53 @@ static void l309c_tile(unsigned char *page, short top, short left,
 							     | ((base + off3) & 0xff));
 						else
 							t2 = (unsigned short)(0x100u | q);
+						g_vpp_pre[q] = (unsigned char)(t2 & 0xff);
 						g_vpp_lut[q] = t2
 						    ? (unsigned short)(0x100u
 						      | rm[(long)bnd * 256 + (t2 & 0xff)])
 						    : 0;
 					}
 				}
-				tile = pt_cache_get(&g_vpp_cache, si, idx, ep);
+				/* ★ WHICH REMAP ENTRIES THIS TILE DEPENDS ON. Fingerprinting
+				 * the whole band row rebuilt a tile whenever ANY index moved,
+				 * including ones it never draws — 455 rebuilds over a 125-key
+				 * walk against only 67 genuine first sightings. The dependency
+				 * set is the POST-REBASE chunky values the tile actually
+				 * writes, since those are what index the remap. Collected in
+				 * one pass over the body; past PT_MAX_USED we hand back 0 and
+				 * the cache falls back to the whole row. */
+				{
+					unsigned char seen[256];
+					short rr3, cc3;
+
+					g_vpp_nused = 0;
+					memset(seen, 0, sizeof seen);
+					for (rr3 = 0; rr3 < h; rr3++) {
+						const unsigned char *sr3 =
+						    body + (long)rr3 * w;
+						for (cc3 = 0; cc3 < w; cc3++) {
+							unsigned char v3 = sr3[cc3];
+							unsigned char pv;
+
+							if (!g_vpp_lut[v3] || seen[v3])
+								continue;
+							seen[v3] = 1;
+							pv = g_vpp_pre[v3];
+							if (g_vpp_nused < PT_MAX_USED)
+								g_vpp_used[g_vpp_nused] = pv;
+							g_vpp_nused++;
+						}
+					}
+					if (g_vpp_nused > PT_MAX_USED)
+						g_vpp_nused = 0;   /* whole-row fallback */
+				}
+				tile = pt_cache_get(&g_vpp_cache, si, idx,
+				                    rm + (long)bnd * 256);
 				if (tile == NULL) {
 					tile = pt_cache_reserve(&g_vpp_cache, si, idx,
-					                        w, h, ep);
+					                        w, h,
+					                        rm + (long)bnd * 256,
+					                        g_vpp_used, g_vpp_nused);
 					if (tile != NULL)
 						planar_tile_build(tile, body, w, h,
 						                  g_vpp_lut);

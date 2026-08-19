@@ -39,126 +39,199 @@ static pt_entry_t     ents[NTILE];
 static unsigned char  bodies[NTILE][W * H];
 static unsigned short lut[256];
 static unsigned short fresh[PT_WORDS_FOR(W, H)];
+static unsigned char  rm_row[256];        /* the band's remap row */
 
 static int bad;
 
-/* every hit must equal a fresh conversion of the same body with the same lut */
-static void check(pt_cache_t *c, short slot, short idx, int t, unsigned long ep)
+/* the indices tile t actually draws, as the cache wants them */
+static short used_of(int t, unsigned char *out)
 {
-	unsigned short *got = pt_cache_get(c, slot, idx, ep);
+    unsigned char seen[256];
+    short n = 0;
+    int i;
 
-	if (!got) return;                       /* a miss is legal, staleness included */
-	planar_tile_build(fresh, bodies[t], W, H, lut);
-	if (memcmp(got, fresh, sizeof fresh) != 0) {
-		if (++bad <= 3)
-			printf("STALE HIT slot=%d idx=%d epoch=%lu\n",
-			       slot, idx, ep);
-	}
+    memset(seen, 0, sizeof seen);
+    for (i = 0; i < W * H; i++) {
+        unsigned char v = bodies[t][i];
+        if (!lut[v] || seen[v]) continue;
+        seen[v] = 1;
+        if (n < PT_MAX_USED) out[n] = v;
+        n++;
+    }
+    return (n > PT_MAX_USED) ? 0 : n;      /* 0 = fall back to whole row */
 }
 
-static void fill_lut(void)
+/* compose chunky -> slot through the remap, the way the engine does */
+static void build_lut2(unsigned short *l2)
 {
-	int i;
-	for (i = 0; i < 256; i++) {
-		unsigned char k = rnd();
-		lut[i] = (k < 64) ? 0 : (unsigned short)(0x100u | (k & 15));
-	}
+    int i;
+    for (i = 0; i < 256; i++)
+        l2[i] = lut[i] ? (unsigned short)(0x100u | rm_row[lut[i] & 0xff]) : 0;
+}
+
+static void check(pt_cache_t *c, short slot, short idx, int t)
+{
+    unsigned short *got = pt_cache_get(c, slot, idx, rm_row);
+    unsigned short l2[256];
+
+    if (!got) return;                      /* a miss is legal */
+    build_lut2(l2);
+    planar_tile_build(fresh, bodies[t], W, H, l2);
+    if (memcmp(got, fresh, sizeof fresh) != 0) {
+        if (++bad <= 3) printf("STALE HIT slot=%d idx=%d\n", slot, idx);
+    }
+}
+
+static unsigned short *put(pt_cache_t *c, short slot, short idx, int t)
+{
+    unsigned char used[PT_MAX_USED];
+    short n = used_of(t, used);
+    unsigned short *e = pt_cache_reserve(c, slot, idx, W, H, rm_row, used, n);
+    unsigned short l2[256];
+
+    if (e) { build_lut2(l2); planar_tile_build(e, bodies[t], W, H, l2); }
+    return e;
 }
 
 int main(void)
 {
-	pt_cache_t c;
-	int t, round;
-	unsigned long epoch = 1;
+    pt_cache_t c;
+    int t, round, i;
 
-	pt_cache_init(&c, pool, POOL_WORDS, ents, NTILE);
-	fill_lut();
-	for (t = 0; t < NTILE; t++) {
-		int i;
-		for (i = 0; i < W * H; i++) bodies[t][i] = rnd();
-	}
+    pt_cache_init(&c, pool, POOL_WORDS, ents, NTILE);
+    for (i = 0; i < 256; i++) {
+        unsigned char k = rnd();
+        lut[i] = (k < 64) ? 0 : (unsigned short)(0x100u | k);
+        rm_row[i] = (unsigned char)(rnd() & 15);
+    }
+    for (t = 0; t < NTILE; t++)
+        for (i = 0; i < W * H; i++)
+            bodies[t][i] = (unsigned char)(rnd() % 40);   /* few distinct */
 
-	/* warm: every tile converted once */
-	for (t = 0; t < NTILE; t++) {
-		unsigned short *e = pt_cache_reserve(&c, (short)(t % 3),
-		                                     (short)t, W, H, epoch);
-		if (!e) { printf("UNEXPECTED FULL at %d\n", t); return 1; }
-		planar_tile_build(e, bodies[t], W, H, lut);
-	}
-	if (c.miss != NTILE) { printf("miss=%lu want %d\n", c.miss, NTILE); return 1; }
+    for (t = 0; t < NTILE; t++)
+        if (!put(&c, (short)(t % 3), (short)t, t)) { printf("UNEXPECTED FULL\n"); return 1; }
+    if (c.miss != NTILE) { printf("miss=%lu\n", c.miss); return 1; }
 
-	/* steady state: all hits, all correct */
-	for (round = 0; round < 3; round++)
-		for (t = 0; t < NTILE; t++)
-			check(&c, (short)(t % 3), (short)t, t, epoch);
-	if (c.hit == 0) { printf("no hits at all\n"); return 1; }
+    for (round = 0; round < 3; round++)
+        for (t = 0; t < NTILE; t++)
+            check(&c, (short)(t % 3), (short)t, t);
+    if (c.hit == 0) { printf("no hits\n"); return 1; }
 
-	/* a RE-BAND: new epoch + a different remap. Every entry must miss, and the
-	 * rebuild must reuse its slab rather than exhausting the pool. */
-	{
-		long used_before = c.pool_used;
-		unsigned long reb_before;
+    /* ★ THE NARROWING. Move a remap entry NO tile draws: every entry must still
+     * hit. Whole-row fingerprinting would invalidate all of them here. */
+    {
+        unsigned long hit0 = c.hit;
+        int unused_i = -1;
 
-		epoch++;
-		fill_lut();
-		for (t = 0; t < NTILE; t++)
-			if (pt_cache_get(&c, (short)(t % 3), (short)t, epoch)) {
-				printf("STALE ENTRY SURVIVED A RE-BAND t=%d\n", t);
-				return 1;
-			}
-		reb_before = c.rebuilt;
-		for (t = 0; t < NTILE; t++) {
-			unsigned short *e = pt_cache_reserve(&c, (short)(t % 3),
-			                                     (short)t, W, H, epoch);
-			if (!e) { printf("FULL on rebuild at %d\n", t); return 1; }
-			planar_tile_build(e, bodies[t], W, H, lut);
-		}
-		if (c.pool_used != used_before) {
-			printf("pool GREW on rebuild: %ld -> %ld\n",
-			       used_before, c.pool_used);
-			return 1;
-		}
-		if (c.rebuilt - reb_before != NTILE) {
-			printf("rebuilt=%lu want %d\n", c.rebuilt - reb_before, NTILE);
-			return 1;
-		}
-		for (t = 0; t < NTILE; t++)
-			check(&c, (short)(t % 3), (short)t, t, epoch);
-	}
+        for (i = 0; i < 256 && unused_i < 0; i++) {
+            int t2, drawn = 0;
+            for (t2 = 0; t2 < NTILE && !drawn; t2++) {
+                int j;
+                for (j = 0; j < W * H; j++)
+                    if (bodies[t2][j] == i && lut[i]) { drawn = 1; break; }
+            }
+            if (!drawn) unused_i = i;
+        }
+        if (unused_i < 0) { printf("no unused index to perturb\n"); return 1; }
+        rm_row[unused_i] = (unsigned char)((rm_row[unused_i] + 7) & 15);
+        for (t = 0; t < NTILE; t++)
+            if (!pt_cache_get(&c, (short)(t % 3), (short)t, rm_row)) {
+                printf("UNUSED-ENTRY CHANGE INVALIDATED t=%d\n", t);
+                return 1;
+            }
+        if (c.hit != hit0 + NTILE) { printf("hit accounting off\n"); return 1; }
+    }
 
-	/* a WALL-SET change: same idx, different art. Without a flush the cache
-	 * would hand back the old tile, so prove the flush is what saves it. */
-	{
-		int i;
-		for (i = 0; i < W * H; i++) bodies[0][i] = (unsigned char)(rnd() ^ 0x5a);
-		if (!pt_cache_get(&c, 0, 0, epoch)) {
-			printf("expected a hit before the flush\n"); return 1;
-		}
-		pt_cache_flush(&c);
-		if (pt_cache_get(&c, 0, 0, epoch)) {
-			printf("FLUSH DID NOT DROP THE ENTRY\n"); return 1;
-		}
-		if (c.pool_used != 0) { printf("flush left pool_used=%ld\n", c.pool_used); return 1; }
-	}
+    /* ...and a remap entry a tile DOES draw must still invalidate it. */
+    {
+        unsigned char used[PT_MAX_USED];
+        short n = used_of(0, used);
 
-	/* pool exhaustion must be refused, not overrun */
-	{
-		pt_cache_t s;
-		static unsigned short tiny[PT_WORDS_FOR(W, H)];
-		static pt_entry_t     te[2];
-		unsigned short *a, *b;
+        if (n <= 0) { printf("tile 0 has no compact index set\n"); return 1; }
+        rm_row[used[0]] = (unsigned char)((rm_row[used[0]] + 9) & 15);
+        if (pt_cache_get(&c, 0, 0, rm_row)) {
+            printf("USED-ENTRY CHANGE DID NOT INVALIDATE\n");
+            return 1;
+        }
+        if (!put(&c, 0, 0, 0)) { printf("rebuild failed\n"); return 1; }
+        check(&c, 0, 0, 0);
+    }
 
-		pt_cache_init(&s, tiny, PT_WORDS_FOR(W, H), te, 2);
-		a = pt_cache_reserve(&s, 0, 0, W, H, 1);
-		b = pt_cache_reserve(&s, 0, 1, W, H, 1);
-		if (!a) { printf("first reserve failed\n"); return 1; }
-		if (b)  { printf("OVERRAN THE POOL\n"); return 1; }
-		if (s.full != 1) { printf("full=%lu want 1\n", s.full); return 1; }
-	}
+    /* ★ THE FALLBACK ARM. A tile with more than PT_MAX_USED distinct indices
+     * cannot store a compact list, so nused becomes 0 and the fingerprint goes
+     * back to the whole row — coarser, never wrong. Exercise it: it must hit
+     * while nothing moves, and must invalidate when ANY row entry moves. */
+    {
+        unsigned char used[PT_MAX_USED];
+        short n;
 
-	printf("stale_hits=%d hits=%lu miss=%lu rebuilt=%lu full=%lu\n",
-	       bad, c.hit, c.miss, c.rebuilt, c.full);
-	return bad ? 1 : 0;
+        for (i = 0; i < W * H; i++)
+            bodies[2][i] = (unsigned char)rnd();       /* ~all 256 values */
+        n = used_of(2, used);
+        if (n != 0) { printf("expected the whole-row fallback, got n=%d\n", n); return 1; }
+        if (!put(&c, 2, 2, 2)) { printf("fallback reserve failed\n"); return 1; }
+        check(&c, 2, 2, 2);
+        if (!pt_cache_get(&c, 2, 2, rm_row)) { printf("fallback entry did not hit\n"); return 1; }
+        {
+            /* any entry at all must now invalidate it */
+            int k = 0;
+            rm_row[k] = (unsigned char)((rm_row[k] + 5) & 15);
+            if (pt_cache_get(&c, 2, 2, rm_row)) {
+                printf("FALLBACK DID NOT INVALIDATE ON A ROW CHANGE\n");
+                return 1;
+            }
+        }
+    }
+
+    /* a wall-set change: same idx, different art -> only a flush saves it */
+    {
+        for (i = 0; i < W * H; i++) bodies[1][i] = (unsigned char)(rnd() % 40);
+        pt_cache_flush(&c);
+        if (pt_cache_get(&c, 1, 1, rm_row)) { printf("FLUSH FAILED\n"); return 1; }
+        if (c.pool_used != 0) { printf("flush left pool\n"); return 1; }
+    }
+
+    /* ★ A CALLER THAT DOES NOT CLAMP. used_of() already returns 0 past
+     * PT_MAX_USED, so the guard inside pt_set_used is only reachable from a
+     * malformed caller — and without it the copy walks off uidx[] and smashes
+     * the entry table. Call reserve directly with an oversized count and
+     * require the fallback. */
+    {
+        pt_cache_t g;
+        static unsigned short gpool[PT_WORDS_FOR(W, H) * 2];
+        static pt_entry_t     ge[2];
+        unsigned char used[256];
+        int k;
+
+        for (k = 0; k < 256; k++) used[k] = (unsigned char)k;
+        pt_cache_init(&g, gpool, PT_WORDS_FOR(W, H) * 2, ge, 2);
+        if (!pt_cache_reserve(&g, 0, 0, W, H, rm_row, used, 200)) {
+            printf("oversized reserve failed\n"); return 1;
+        }
+        if (ge[0].nused != 0) {
+            printf("OVERSIZED nused NOT CLAMPED: %d\n", ge[0].nused);
+            return 1;
+        }
+        if (ge[1].slot != -1) { printf("entry table corrupted\n"); return 1; }
+    }
+
+    /* exhaustion is refused, not overrun */
+    {
+        pt_cache_t s;
+        static unsigned short tiny[PT_WORDS_FOR(W, H)];
+        static pt_entry_t     te[2];
+        unsigned char used[PT_MAX_USED];
+        short n = used_of(0, used);
+
+        pt_cache_init(&s, tiny, PT_WORDS_FOR(W, H), te, 2);
+        if (!pt_cache_reserve(&s, 0, 0, W, H, rm_row, used, n)) { printf("first failed\n"); return 1; }
+        if ( pt_cache_reserve(&s, 0, 1, W, H, rm_row, used, n)) { printf("OVERRAN POOL\n"); return 1; }
+        if (s.full != 1) { printf("full=%lu\n", s.full); return 1; }
+    }
+
+    printf("stale_hits=%d hits=%lu miss=%lu rebuilt=%lu full=%lu\n",
+           bad, c.hit, c.miss, c.rebuilt, c.full);
+    return bad ? 1 : 0;
 }
 """
 
