@@ -12382,6 +12382,38 @@ static short g_view_force_full = 0;  /* set on a live switch -> full clear+prese
  * 0, 0, 15, and 81 pixels of 64,000, all of them clock text. So repaint the
  * HUD and present, and skip port_draw_play_frame entirely. Anything that can
  * really damage the chrome still sets g_view_force_full. */
+/* #144 IN-SITU EQUIVALENCE PROOF for the planar tile cache.
+ *
+ * planar_tile.h is mutation-tested on the host against a naive per-pixel scatter,
+ * but with synthetic tiles and synthetic LUTs. Before anything on screen depends
+ * on the cache it has to be shown equal on the REAL renderer: real wall pieces,
+ * real per-set magenta keys, real band remaps, real arbitrary x. Same discipline
+ * as FRUA_TILEVERIFY and the b123ver rebake proof already in this tree.
+ *
+ * Under FRUA_VPPLANAR every colour tile blit ALSO goes through the cache into a
+ * planar MIRROR of the screen, and each covered pixel is then compared against
+ * remap[band][the chunky value the normal blit wrote]. Nothing ever reads the
+ * mirror back, so this cannot change the picture — it can only report.
+ *
+ * Coverage is stamped in draw order, so a pixel written by two tiles is compared
+ * against the later one, which is also what the chunky path ends up showing. */
+#ifdef FRUA_VPPLANAR
+#include "planar_tile_cache.h"
+#define VPP_ROWS   200
+#define VPP_PITCH  160                    /* ST-Low interleaved, 4 planes */
+#define VPP_COVW   (320 / 8)
+#define VPP_TILES  160
+#define VPP_POOLW  24000L                 /* words, ~48 KB vs 28-34 KB measured */
+static unsigned char  g_vpp_plane[(long)VPP_ROWS * VPP_PITCH];
+static unsigned char  g_vpp_cov[(long)VPP_ROWS * VPP_COVW];
+static unsigned short g_vpp_pool[VPP_POOLW];
+static pt_entry_t     g_vpp_ent[VPP_TILES];
+static pt_cache_t     g_vpp_cache;
+static unsigned short g_vpp_lut[256];
+static short          g_vpp_ready;
+long g_vpp_checked, g_vpp_bad, g_vpp_nocache, g_vpp_blits;
+#endif
+
 #ifdef FRUA_TILEPROF
 long g_tp_seen, g_tp_put, g_tp_tiles;   /* #134 wall-tile pixel volume */
 /* #144: sizing for a PLANAR TILE CACHE. Volume alone does not size a cache —
@@ -13820,6 +13852,105 @@ static void l309c_tile(unsigned char *page, short top, short left,
 			}
 		}
 #endif
+#ifdef FRUA_VPPLANAR
+		{
+			short nb = 0, shh = 0;
+			const unsigned char *rm = dsp_planar_remap(&nb, &shh);
+
+			if (rm != NULL && nb > 0 && shh > 0) {
+				short si = (slot >= 0 && slot < CW_SLOTS) ? slot : 0;
+				short bnd = (short)((long)y0 * nb / shh);
+				unsigned long ep;
+				unsigned short *tile;
+
+				if (bnd < 0) bnd = 0;
+				if (bnd >= nb) bnd = (short)(nb - 1);
+				/* The epoch is the remap CONTENT, not a counter: the backend
+				 * exposes no generation, and a cheap checksum over the band
+				 * row the tile was built against changes exactly when the
+				 * bytes it baked in change. Cheap and self-correcting. */
+				{
+					const unsigned char *row = rm + (long)bnd * 256;
+					short q;
+					ep = 0;
+					for (q = 0; q < 256; q++)
+						ep = ep * 31u + row[q];
+				}
+				if (!g_vpp_ready) {
+					pt_cache_init(&g_vpp_cache, g_vpp_pool, VPP_POOLW,
+					              g_vpp_ent, VPP_TILES);
+					g_vpp_ready = 1;
+				}
+				/* chunky -> SLOT table. The optimised blit builds an
+				 * equivalent one in its own scope, so rebuild it here
+				 * rather than reach for it: same rules (255 key, the
+				 * per-set magenta key, the band rebase), then composed
+				 * with the remap so the tile bakes SLOTS, not indices. */
+				{
+					short q;
+
+					for (q = 0; q < 256; q++) {
+						short off3 = (short)(q - 32);
+						unsigned short t2;
+
+						if (q == 255)
+							t2 = 0;
+						else if (off3 >= 0 && off3 < CW_BAND)
+							t2 = g_cw_strans[slot][off3]
+							   ? 0
+							   : (unsigned short)(0x100u
+							     | ((base + off3) & 0xff));
+						else
+							t2 = (unsigned short)(0x100u | q);
+						g_vpp_lut[q] = t2
+						    ? (unsigned short)(0x100u
+						      | rm[(long)bnd * 256 + (t2 & 0xff)])
+						    : 0;
+					}
+				}
+				tile = pt_cache_get(&g_vpp_cache, si, idx, ep);
+				if (tile == NULL) {
+					tile = pt_cache_reserve(&g_vpp_cache, si, idx,
+					                        w, h, ep);
+					if (tile != NULL)
+						planar_tile_build(tile, body, w, h,
+						                  g_vpp_lut);
+				}
+				if (tile == NULL) {
+					g_vpp_nocache++;
+				} else {
+					short rr2, cc2;
+
+					g_vpp_blits++;
+					planar_tile_blit(g_vpp_plane, VPP_PITCH, tile, w, h,
+					                 x0, y0,
+					                 g_cwf_clip_l, g_cwf_clip_r,
+					                 g_cwf_clip_t, g_cwf_clip_b);
+					/* record coverage in draw order */
+					for (rr2 = 0; rr2 < h; rr2++) {
+						short dy2 = (short)(y0 + rr2);
+
+						if (dy2 < g_cwf_clip_t || dy2 >= g_cwf_clip_b
+						 || dy2 < 0 || dy2 >= VPP_ROWS)
+							continue;
+						for (cc2 = 0; cc2 < w; cc2++) {
+							short dx2 = (short)(x0 + cc2);
+
+							if (dx2 < g_cwf_clip_l
+							 || dx2 >= g_cwf_clip_r
+							 || dx2 < 0 || dx2 >= 320)
+								continue;
+							if (!g_vpp_lut[body[(long)rr2 * w + cc2]])
+								continue;   /* transparent */
+							g_vpp_cov[(long)dy2 * VPP_COVW
+							          + (dx2 >> 3)] |=
+							    (unsigned char)(0x80u >> (dx2 & 7));
+						}
+					}
+				}
+			}
+		}
+#endif
 #ifdef FRUA_TILEPROF
 		{
 			extern long g_tp_tiles, g_tp_distinct, g_tp_frame_distinct;
@@ -15066,6 +15197,10 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 		for (vy = VT; vy < VB; vy++)
 			memset(vp + (long)vy * vpitch + VL, 0, (size_t)(VR - VL));
 	}
+#ifdef FRUA_VPPLANAR
+	/* coverage is per FRAME: only pixels this render's tiles wrote are compared */
+	memset(g_vpp_cov, 0, sizeof g_vpp_cov);
+#endif
 	g_cwf_px = vtgt;
 #ifdef FRUA_R3DPROF
 	{ extern long g_r3d_t0; g_r3d_t0 = TickCount(); }
@@ -15251,6 +15386,65 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 	/* Hand the rendered viewport rect to the backend for the planar composite
 	 * (ADR-0016 B2). No-op when vtgt == px (chunky backends). */
 	if (vp)
+#ifdef FRUA_VPPLANAR
+		/* ★ THE PROOF. For every pixel a tile actually wrote, the planar
+		 * mirror must hold exactly remap[band][the chunky byte the normal
+		 * blit left]. Compared here, before the commit, while the scratch
+		 * still holds this frame's pixels. */
+		{
+			short nbv = 0, shv = 0;
+			const unsigned char *rmv = dsp_planar_remap(&nbv, &shv);
+
+			if (rmv != NULL && nbv > 0 && shv > 0) {
+				short vy, vx;
+
+				for (vy = VT; vy < VB && vy < VPP_ROWS; vy++) {
+					short bndv = (short)((long)vy * nbv / shv);
+					const unsigned char *crow =
+					    vtgt + (long)vy * vpitch;
+					const unsigned char *prow =
+					    g_vpp_plane + (long)vy * VPP_PITCH;
+					const unsigned char *cov =
+					    g_vpp_cov + (long)vy * VPP_COVW;
+
+					if (bndv < 0) bndv = 0;
+					if (bndv >= nbv) bndv = (short)(nbv - 1);
+					for (vx = VL; vx < VR && vx < 320; vx++) {
+						short got = 0, pp;
+						unsigned char want;
+
+						if (!(cov[vx >> 3] & (0x80u >> (vx & 7))))
+							continue;
+						for (pp = 0; pp < 4; pp++) {
+							const unsigned short *wp =
+							    (const unsigned short *)
+							    (prow + (long)(vx >> 4) * 8
+							     + pp * 2);
+							if (*wp & (unsigned short)
+							    (0x8000u >> (vx & 15)))
+								got |= (short)(1 << pp);
+						}
+						want = rmv[(long)bndv * 256 + crow[vx]];
+						g_vpp_checked++;
+						if (want != (unsigned char)got) {
+							g_vpp_bad++;
+							if (g_vpp_bad <= 4)
+								dbg_file_num("vpp MISMATCH y*1000+x= ",
+								             (long)vy * 1000 + vx);
+						}
+					}
+				}
+				dbg_file_num("vpp: blits    = ", g_vpp_blits);
+				dbg_file_num("vpp: checked  = ", g_vpp_checked);
+				dbg_file_num("vpp: MISMATCH = ", g_vpp_bad);
+				dbg_file_num("vpp: no-cache = ", g_vpp_nocache);
+				dbg_file_num("vpp: rebuilt  = ", (long)g_vpp_cache.rebuilt);
+				dbg_file_num("vpp: hit      = ", (long)g_vpp_cache.hit);
+				dbg_file_num("vpp: miss     = ", (long)g_vpp_cache.miss);
+				dbg_file_num("vpp: full     = ", (long)g_vpp_cache.full);
+			}
+		}
+#endif
 		dsp_viewport_commit(VL, VT, (short)(VR - VL), (short)(VB - VT));
 #ifdef FRUA_BAR28
 	/* #141: is the flag ALREADY back on by the end of the render? If so the
