@@ -226,6 +226,7 @@ static short s_vp_chunky_ok;            /* chunky scratch refreshed this frame *
 static unsigned long s_remap_gen;       /* bumped on every remap change      */
 static unsigned long s_vp_gen;          /* generation the planes were stamped for */
 static long          s_vp_gen_stale;    /* composites that fell back to c2p   */
+static long          s_vp_copy_n;       /* composites that used the planes    */
 static long  s_rb_stale;                /* re-bands that quantised a STALE one */
 static long  s_rb_seen;                 /* re-bands that reached that decision */
 
@@ -2799,6 +2800,7 @@ static void st_vp_composite(void)
 		static short said;
 
 		if (!said) { said = 1; dbg_log("ste: viewport composite = COPY (B5)"); }
+		s_vp_copy_n++;
 		st_vp_composite_copy();          /* B5: engine stamped the planes */
 	}
 	else if (((s_vp_x | s_vp_w) & 7) == 0
@@ -2815,6 +2817,23 @@ static void st_vp_composite(void)
 		if (!said) { said = 1; dbg_log("ste: viewport composite = c2p (slow)"); }
 		st_vp_composite_slow();
 	}
+	/* ★ THE BALANCE, not just "both paths fired". If the generation guard sends
+	 * most presents to the conversion, B5's copy is largely notional and the
+	 * planar composite wants re-examining rather than defending. Every 32
+	 * composites — these are per present, not per frame. */
+	{
+		static long bn;
+
+		/* First call AND every 64th: "no output" and "a reading of zero" are the
+		 * same text, and a threshold above the event count has produced silence
+		 * I misread as data five times in this work. The first-call line makes
+		 * the two distinguishable for free. */
+		if ((++bn) == 1 || (bn & 63) == 0) {
+			dbg_log_num("ste: vp COPY presents = ", s_vp_copy_n);
+			dbg_log_num("ste: vp c2p fallbacks = ", s_vp_gen_stale);
+		}
+	}
+
 #ifdef FRUA_STPROF
 	sp_vp_t += Supexec(st_prof_hz200) - t0;
 	sp_vp_n++;
