@@ -1164,6 +1164,40 @@ static void st_reband(void)
 		memcpy(s_band_pal, newpal, sizeof newpal);
 		for (v = 0; v < 256; v++)
 			s_band_remap[v] = pos[s_band_remap[v]];
+#ifdef FRUA_STPROF
+		/* ★ IS THE CHURN AVOIDABLE? #146 measured 57.2% of used indices moving
+		 * slot per re-band, and the obvious reading is "the permutation is
+		 * weak". But a permutation can only RELABEL — it cannot preserve a
+		 * colour the new median cut no longer produces. So split the moves:
+		 * an index whose new slot holds the SAME colour its old slot did was
+		 * moved by labelling and could have been kept; one whose colour
+		 * genuinely changed was moved by the CUT and no labelling could have
+		 * saved it. That decides whether #146 belongs in this function or in
+		 * quantize.h. */
+		{
+			short mv_avoid = 0, mv_cut = 0, mv_near = 0;
+
+			for (v = 0; v < 256; v++) {
+				short os, ns;
+				long d;
+
+				if (!s_used_idx[v])
+					continue;
+				os = s_remap_prev[v];
+				ns = s_band_remap[v];
+				if (os == ns)
+					continue;
+				d = st_coldist(s_band_pal + (long)ns * 3,
+				               s_band_pal_prev + (long)os * 3);
+				if (d == 0)            mv_avoid++;
+				else if (d <= 3 * 32L * 32L) mv_near++;
+				else                   mv_cut++;
+			}
+			dbg_log_num("b146: moved-but-same-colour = ", (long)mv_avoid);
+			dbg_log_num("b146:   moved-near-colour   = ", (long)mv_near);
+			dbg_log_num("b146:   moved-CUT-changed   = ", (long)mv_cut);
+		}
+#endif
 	}
 #ifdef FRUA_STPROF
 	sp_rb_align += Supexec(st_prof_hz200) - ta;
