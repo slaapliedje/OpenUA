@@ -12450,6 +12450,8 @@ long g_vpb_rowdiff;
  * 0 anywhere in its 256 entries, the honest reading is that the ST is running ONE
  * palette for the whole screen and per-band is inert, not that the bands agree. */
 long g_vpb_scr_pairs, g_vpb_scr_diffbands, g_vpb_scr_worst;
+/* perspective-shell fills: pixels written, and pixels the backdrop will cover */
+long g_tf_px, g_tf_hidden, g_tf_regions;
 static unsigned short g_vpp_pool[VPP_POOLW];
 static pt_entry_t     g_vpp_ent[VPP_TILES];
 static pt_cache_t     g_vpp_cache;
@@ -15350,6 +15352,54 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 						memset(vtgt + (long)yy * vpitch + px0,
 						       (unsigned char)fill,
 						       (size_t)(px1 - px0));
+#ifdef FRUA_VPPLANAR
+				/* ★ THE CHEAP LAYER, AND POSSIBLY A DEAD ONE. A solid region
+				 * is the one thing planes are already good at: no mask, no
+				 * conversion, no cache — planar_span_stlow writes a constant
+				 * word per plane per group, so this needs none of the
+				 * machinery the tiles and the backdrop needed.
+				 *
+				 * The counters ask a different question. These fills are laid
+				 * FIRST, and the backdrop that follows covers the whole
+				 * viewport hole opaquely (map_px, no key colour, exactly the
+				 * g_a5_3056..3052 x 3054..3050 rect). If that holds every
+				 * frame, the fills are drawing pixels nothing will ever see,
+				 * and the win is not to make them planar but to SKIP them.
+				 * Count the span pixels and how many land inside the rect the
+				 * backdrop will repaint — a geometric test, not a readback. */
+				if (vp && px1 > px0) {
+					short nbf = 0, shf = 0;
+					const unsigned char *rmf =
+					    dsp_planar_remap(&nbf, &shf);
+
+					g_tf_regions++;
+					if (rmf != NULL && nbf > 0 && shf > 0)
+					for (yy = py0; yy < py1 && yy < VPP_ROWS; yy++) {
+						short bf = (short)((long)yy * nbf / shf);
+						short xa = (px0 < 0) ? 0 : px0;
+						short xb = (px1 > 320) ? 320 : px1;
+						short xc;
+
+						if (bf < 0) bf = 0;
+						if (bf >= nbf) bf = (short)(nbf - 1);
+						planar_span_stlow(g_vpp_plane, VPP_PITCH, 4,
+						                  yy, xa, xb,
+						                  rmf[(long)bf * 256
+						                      + (unsigned char)fill]);
+						for (xc = xa; xc < xb; xc++)
+							g_vpp_cov[(long)yy * VPP_COVW
+							          + (xc >> 3)] |=
+							    (unsigned char)(0x80u >> (xc & 7));
+						g_tf_px += (long)(xb - xa);
+						if (g_back_w > 0 && g_back_h > 0
+						 && yy >= (short)g_a5_3054
+						 && yy <  (short)g_a5_3050
+						 && xa >= (short)g_a5_3056
+						 && xb <= (short)g_a5_3052)
+							g_tf_hidden += (long)(xb - xa);
+					}
+				}
+#endif
 			}
 #endif
 		}
@@ -15777,6 +15827,9 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 				dbg_file_num("vpb: scr pairs = ", g_vpb_scr_pairs);
 				dbg_file_num("vpb: scr DIFFb = ", g_vpb_scr_diffbands);
 				dbg_file_num("vpb: scr worst = ", g_vpb_scr_worst);
+				dbg_file_num("tf: regions   = ", g_tf_regions);
+				dbg_file_num("tf: fill px   = ", g_tf_px);
+				dbg_file_num("tf: hidden px = ", g_tf_hidden);
 			}
 		}
 #endif
