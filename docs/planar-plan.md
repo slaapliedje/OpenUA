@@ -5147,24 +5147,70 @@ and +2.7% by 48 presents. The MARGINAL cost over the dungeon phase alone
 (presents 32→48) is **+18.5%**, and that is the number to quote: the split only
 exists on dungeon screens.
 
+### Where that 18.5% went
+
+Almost all of it was Timer B. The raster resolution had to go from 20 rows to 8
+(the viewport is at y=24, 88 tall, and 24/112/200 are all multiples of 8; 20
+cannot express those boundaries), so the handler fired 25 times a frame where
+only TWO of those boundaries are a real palette change.
+
+Two fixes were tried, in order, and only the second worked:
+
+1. **A fast exit for unchanged bands** — a flag array tested before the d0-d7
+   save, so a band inside a group cost a test, a pointer bump and an `rte`.
+   Measured **807 cycles/fire against 771 for the full handler**: no change.
+   Entry and exit are the whole bill at this cadence. Reverted.
+2. **Variable TBDR** — reprogram the timer per fire so it fires only at group
+   boundaries, twice a frame instead of twenty-five times. This is the one that
+   worked:
+
+| presents | off | 25 fires | 2 fires |
+|---------:|----:|---------:|--------:|
+|       16 | 13,814 | 13,814 | 13,649 |
+|       32 | 19,980 | 19,949 | 19,851 |
+|       48 | 23,580 | 24,216 | 23,535 |
+
+The marginal dungeon-phase cost (presents 32→48) goes from **+18.5% to +2.3%**,
+and the rendered frame is **AE=0 against the 25-fire version** — the split lands
+on exactly the same scanlines.
+
+#### How the reprogramming works
+
+MFP68901 event-count mode: a write to TBDR while the timer RUNS sets the data
+register only — the counter keeps the value it reloaded at the last underflow —
+so a written interval always takes effect one fire later. Each fire descriptor
+(`struct st_tb_fire`) therefore carries both halves:
+
+- `expect` — the counter's reload while THIS fire runs. The spin waits for the
+  counter to drop below it, which is how the boundary line's display ending is
+  detected. It used to be the constant `ST_RPB` and cannot be now.
+- `next` — what to program into TBDR during this fire, i.e. the interval that
+  will run after the NEXT one.
+
+The last live fire programs 255, which cannot underflow inside 200 display
+lines, so the frame ends with no further interrupts and the VBL re-phases from
+scratch. Trailing sentinels make a late-serviced request (the #91 case)
+harmless instead of a walk off the table.
+
+The handler needed a scratch register for the now-variable compare, so the
+palette loads into **d0-d6 and a1** rather than d0-d7 — still eight registers
+and 32 bytes, and `moveml`'s register order is fixed, so the load and the store
+agree.
+
 ### Why it is still default-off
 
-Almost all of that 18.5% is Timer B. The raster resolution had to go from 20
-rows to 8 (the viewport is at y=24, 88 tall, and 24/112/200 are all multiples
-of 8; 20 cannot express those boundaries), so the handler fires 25 times a
-frame where only TWO of those boundaries are a real palette change.
+Not for cost any more. It is opt-in because it has only been exercised on the
+dungeon walk (which is the only screen that commits a viewport, so it is the
+only screen where `s_ngrp` is ever 3), and because the one-line-early fire plus
+the spin is timing-sensitive in a way Hatari may not reproduce exactly. The
+gate is a real-hardware check; flipping the default is a one-line change after
+that.
 
-`st_prof_tbcost` prices a fire at ~800 cycles, which is ~12% of the machine at
-25 fires a frame. **A fast exit for unchanged bands was written and measured:
-807 cycles/fire against 771 for the full handler — no change.** Entry and exit
-are the whole bill at this cadence, so a cheaper handler is not the lever;
-FEWER FIRES is. It was reverted rather than shipped: complexity in an IPL-6
-handler for a measured zero.
-
-The open item is a variable TBDR — reload with each group's height and fire
-twice a frame instead of twenty-five times, which would put the cost near 1%.
-It lives in the handler's spin test, which compares against a constant reload,
-and that is the one place in `display_ste.c` with a documented deadlock (#91).
+**`st_prof_tbcost` no longer prices this.** It armed Timer B by force, which
+worked when the timer fired at a fixed cadence regardless of content; forcing it
+on a uniform screen now arms a timer with nothing scheduled. It refuses and says
+so rather than reporting the cost of an idle timer as the cost of the split.
+The wall-clock fixture A/B above replaces it — one binary, `vpbands` on vs off.
 
 ### Traps found on the way here
 

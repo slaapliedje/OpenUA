@@ -204,7 +204,46 @@ static unsigned char           s_gused[ST_MAXGRP][256];
 short                          st_vp_bands;
 
 short  st_band_stpal[ST_NBANDS + 1][ST_NCOL];   /* ST-format, +sentinel  */
-short *st_band_ptr;                             /* next band for Timer B */
+
+/* --- Timer B fires on GROUP boundaries, not band boundaries ---------------
+ *
+ * ★ THE COST OF THE SPLIT WAS THE INTERRUPT, NOT THE HANDLER. The raster
+ * resolution is 8 rows because the viewport's edges have to land on a boundary
+ * (y=24, 88 tall), but only s_ngrp-1 of the 25 boundaries are a real palette
+ * change. Firing at all 25 cost ~800 cycles apiece — 12% of the machine to
+ * install the same sixteen colours 23 extra times — and a fast exit for the
+ * unchanged ones was written and MEASURED at 807 cycles/fire against 771 for
+ * the full handler: entry and exit are the whole bill at that cadence, so a
+ * cheaper handler is not the lever. Fewer fires is.
+ *
+ * So the timer is reprogrammed per fire. MFP68901 event-count mode: a write to
+ * TBDR while the timer RUNS sets the data register only — the counter keeps
+ * the value it reloaded at the last underflow — so a written interval always
+ * takes effect one fire later. Each descriptor therefore carries both halves:
+ *
+ *   expect  the counter's reload while THIS fire runs. The spin waits for the
+ *           counter to drop below it, which is how the boundary line's display
+ *           ending is detected; it used to be a constant (ST_RPB) and cannot be
+ *           now.
+ *   next    what to program into TBDR during this fire, i.e. the interval that
+ *           will run after the NEXT one.
+ *
+ * The last live fire programs 255, which cannot underflow again inside 200
+ * display lines, so the frame ends with no further interrupts and the VBL
+ * re-phases from scratch. A trailing sentinel makes a stray fire harmless. */
+struct st_tb_fire {
+	short         pal[ST_NCOL];     /* 32 bytes: moveml straight to 0xFF8240 */
+	unsigned char expect;
+	unsigned char next;
+};
+/* The handler walks these with one postincrementing pointer, so the struct's
+ * size IS the stride — it must stay at 34. */
+typedef char st_tb_fire_is_34[(sizeof(struct st_tb_fire) == 34) ? 1 : -1];
+struct st_tb_fire  st_tb_tab[ST_MAXGRP + 2];    /* live fires + sentinels   */
+struct st_tb_fire *st_tb_ptr;                   /* the handler's cursor     */
+static short       st_tb_nfire;                 /* fires per frame (ngrp-1) */
+static unsigned char st_tb_first;               /* VBL: counter, one early  */
+static unsigned char st_tb_data0;               /* VBL: the first reload    */
 /* ★ THE COST OF THE SPLIT IS THE INTERRUPT, NOT THE HANDLER. Only two of the
  * 25 band boundaries are a real palette change; the rest re-load registers that
  * already hold those values. A fast exit for them was written and MEASURED — a
@@ -511,12 +550,13 @@ void st_vbl_handler(void)
 	if (arm) {
 		IERA &= (unsigned char)~TB_BIT; /* Timer B cannot preempt the re-phase  */
 		TBCR = 0;                       /* stop: the writes must not race       */
-		TBDR = ST_RPB - 1;              /* first fire ONE LINE EARLY            */
+		TBDR = st_tb_first;             /* first fire ONE LINE EARLY. Stopped,
+		                                 * so this loads the COUNTER too        */
 		TBCR = 8;                       /* event-count mode, re-armed in phase  */
-		TBDR = ST_RPB;                  /* reload for all LATER fires (the MFP
-		                                 * only picks this up at the next
-		                                 * underflow, so the -1 above stands
-		                                 * for the first) */
+		TBDR = st_tb_data0;             /* reload for the fire AFTER the first
+		                                 * (the MFP only picks a write up at the
+		                                 * next underflow, so the -1 folded into
+		                                 * st_tb_first stands for the first)     */
 		IPRA = TB_CLR_MASK;             /* drop anything latched while masked   */
 		IERA |= TB_BIT;
 		s_tb_live = 1;
@@ -536,9 +576,9 @@ void st_vbl_handler(void)
 		g_tb_fires = 0;
 		sp_tb_total += f;               /* #63: cumulative, for the A/B bench */
 		if (sp_frames > 0) {            /* frame 0 is partial by construction */
-			if (f < ST_NBANDS) {
+			if (f < st_tb_nfire) {
 				sp_starved++;
-				sp_fires_lost += (ST_NBANDS - f);
+				sp_fires_lost += (st_tb_nfire - f);
 				if (f < sp_fires_min) sp_fires_min = f;
 			}
 		}
@@ -547,7 +587,7 @@ void st_vbl_handler(void)
 #endif
 	for (i = 0; i < ST_NCOL; i++)
 		hw[i] = st_band_stpal[0][i];
-	st_band_ptr = &st_band_stpal[1][0];
+	st_tb_ptr = &st_tb_tab[0];
 }
 
 __asm__(
@@ -582,7 +622,6 @@ extern void st_vbl_trampoline(void);
  * teardown paths stop the timer too. Falling through just stores the palette a
  * line early — a cosmetic band offset, which is the correct thing to prefer
  * over a hang. */
-typedef char st_asm_assumes_rpb_8[(ST_RPB == 8) ? 1 : -1];
 /* #61: count band fires per frame so interrupt STARVATION is measurable
  * directly, instead of inferred from pixels. One addq per band; STPROF only. */
 #ifdef FRUA_STPROF
@@ -595,18 +634,24 @@ __asm__(
 	".globl _st_timerb_trampoline\n"
 	"_st_timerb_trampoline:\n"
 	TB_COUNT_INSN
-	"  moveml %d0-%d7/%a0,%sp@-\n"
-	"  movel  _st_band_ptr,%a0\n"
-	"  moveml %a0@+,%d0-%d7\n"
-	"  movel  %a0,_st_band_ptr\n"
+	"  moveml %d0-%d7/%a0-%a1,%sp@-\n"
+	"  movel  _st_tb_ptr,%a0\n"
+	/* ★ THE PALETTE GOES INTO d0-d6 AND a1, NOT d0-d7. Eight registers is
+	 * still 32 bytes, and it buys d7 as a scratch for the spin's compare
+	 * value — which is per-fire now, so it cannot be an immediate any more.
+	 * moveml's register order is fixed, so the load and the store agree. */
+	"  moveml %a0@+,%d0-%d6/%a1\n"  /* palette; a0 -> expect               */
+	"  moveb  %a0@+,%d7\n"          /* the counter's reload for this fire  */
 	"1:\n"
-	"  cmpib  #8,0xFFFFFA21\n"      /* TBDR still at reload (ST_RPB)?      */
+	"  cmpb   0xFFFFFA21,%d7\n"     /* TBDR still at that reload?          */
 	"  jne    2f\n"                 /* no: the line ended — store now      */
 	"  tstb   0xFFFFFA1B\n"         /* TBCR == 0 -> timer STOPPED, TBDR is */
 	"  jne    1b\n"                 /*   frozen: spinning would deadlock   */
 	"2:\n"
-	"  moveml %d0-%d7,0xFFFF8240\n"
-	"  moveml %sp@+,%d0-%d7/%a0\n"
+	"  moveml %d0-%d6/%a1,0xFFFF8240\n"
+	"  moveb  %a0@+,0xFFFFFA21\n"   /* program the interval after the next */
+	"  movel  %a0,_st_tb_ptr\n"
+	"  moveml %sp@+,%d0-%d7/%a0-%a1\n"
 	"  moveb  #0xFE,0xFFFFFA0F\n"
 	"  rte\n"
 );
@@ -877,6 +922,47 @@ static void st_build_hw_palette(void)
 					break;
 				}
 		s_tb_uniform = uniform;
+
+		{	/* The schedule itself: one fire per GROUP boundary, in
+			 * scanlines. st_tb_first folds in the "one line early" that
+			 * lets the handler spin for the boundary line to end, and
+			 * st_tb_data0 is the reload the FIRST fire will find — the MFP
+			 * takes a running write one underflow later, so the value a
+			 * fire needs was always programmed by its predecessor. */
+			short k, nf = (short)(uniform ? 0 : s_ngrp - 1);
+			short y[ST_MAXGRP];
+			unsigned char data;
+
+			for (k = 0; k < nf; k++)
+				y[k] = (short)(s_grp_b0[k + 1] * ST_RPB);
+			st_tb_nfire = nf;
+			st_tb_first = (unsigned char)(nf > 0 ? y[0] - 1 : 255);
+			data        = (unsigned char)(nf > 1 ? y[1] - y[0] : 255);
+			st_tb_data0 = data;
+			for (k = 0; k < nf; k++) {
+				unsigned char nd = (unsigned char)
+				    ((k + 2 < nf) ? (y[k + 2] - y[k + 1]) : 255);
+
+				memcpy(st_tb_tab[k].pal,
+				       st_band_stpal[s_grp_b0[k + 1]],
+				       (size_t)(ST_NCOL * 2));
+				st_tb_tab[k].expect = data;
+				st_tb_tab[k].next   = nd;
+				data = nd;
+			}
+			/* Sentinels. A fire that arrives after the schedule is spent —
+			 * a request latched while masked, serviced late (#91) — installs
+			 * the last group's colours again and asks for an interval that
+			 * cannot underflow inside 200 display lines, instead of walking
+			 * off the table. */
+			for (k = nf; k < ST_MAXGRP + 2; k++) {
+				memcpy(st_tb_tab[k].pal,
+				       st_band_stpal[nf > 0 ? s_grp_b0[nf] : 0],
+				       (size_t)(ST_NCOL * 2));
+				st_tb_tab[k].expect = 255;
+				st_tb_tab[k].next   = 255;
+			}
+		}
 	}
 	memcpy(s_clut_banded, s_clut, sizeof s_clut);   /* B1: snapshot the CLUT */
 	s_banded_valid = 1;
@@ -2459,7 +2545,7 @@ static int st_init(short want_w, short want_h)
 	s_surface.pixels = s_chunky;
 	s_dirty    = 1;
 	s_have_pal = 0;
-	st_band_ptr = &st_band_stpal[1][0];      /* valid before the first fire */
+	st_tb_ptr = &st_tb_tab[0];               /* valid before the first fire */
 
 	/* Install the raster split: a VBL slot (re-phases Timer B + loads band 0)
 	 * and Timer B in event-count mode firing every ST_RPB display lines. */
@@ -3151,6 +3237,19 @@ static void st_prof_tbcost(void)
 
 	if (s_offpage == NULL)
 		return;
+	/* ★ THIS INSTRUMENT NO LONGER MEASURES WHAT IT USED TO, AND IT MUST SAY SO.
+	 * It arms Timer B by force to price the split, which worked when the timer
+	 * fired at a fixed cadence regardless of content. It now fires on a
+	 * SCHEDULE built from the palette groups, so forcing it on a uniform screen
+	 * arms a timer with nothing to do — st_tb_first is 255, which cannot
+	 * underflow inside 200 display lines — and the A/B would report the cost of
+	 * an idle timer as the cost of the split. Refuse rather than print it. The
+	 * measurement that replaced it is the wall-clock fixture A/B with
+	 * vpbands=on vs off, which is one binary and needs no forcing. */
+	if (st_tb_nfire <= 0) {
+		dbg_log("stprof tb: no schedule (uniform palettes) - not priced");
+		return;
+	}
 
 	/* A/B/A. The arms run back to back in one boot, so the only thing that
 	 * could still confound them is ORDER (a warm-up effect, an unrelated
