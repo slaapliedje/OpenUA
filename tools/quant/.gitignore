@@ -2,3 +2,6 @@ qfid
 qpre
 qdither
 qstable
+qvp
+qrender
+*.ppm

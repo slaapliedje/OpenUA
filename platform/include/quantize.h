@@ -393,14 +393,51 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 				             | (((clut[i * 3 + 1] >> 5) & 7) << 2)
 				             |  ((clut[i * 3 + 2] >> 6) & 3)];
 		}
-		/* Present colours override the fallback: the reserved ones map to
-		 * their exact slot, the rest to their cut slot (offset past the
-		 * reservation). */
+		/* Present colours override the fallback.
+		 *
+		 * ★ NOT THE CUT'S OWN LABELLING. quant_reduce_n hands back the BOX
+		 * each colour fell in, and a median-cut box is not the box whose
+		 * representative is nearest — the split that separated two colours
+		 * happened before either box had its final representative. Measured
+		 * on a captured walk frame (tools/quant/qvp), against the true CLUT
+		 * colour of every pixel, with the SAME palette both ways:
+		 *
+		 *     whole frame, 16 col   box 198.3   nearest 151.7
+		 *     the viewport rect     box 692.6   nearest 369.7
+		 *     viewport alone, 8 col box 889.0   nearest 281.6
+		 *
+		 * so the labelling is worth more than the palette on the screens
+		 * that matter, and the fewer the slots the more it is worth. The
+		 * search is only over the colours that are PRESENT (m of them,
+		 * ntot entries each) because those are the ones on screen; absent
+		 * ones keep the bucket table, which is why this costs m*ntot and
+		 * not 256*ntot. Weighted 2:5:1 to match the bucket table.
+		 *
+		 * cremap is still what quant_reduce_n filled in; it is no longer
+		 * read, but the cut needs somewhere to put it. */
+		for (i = 0; i < m; i++) {
+			const unsigned char *c = cclut + (long)i * 3;
+			long  bestd = 0x7FFFFFFFL;
+			short bestj = 0, j;
+
+			for (j = 0; j < ntot; j++) {
+				short dr = (short)(bpal[j * 3 + 0] - c[0]);
+				short dg = (short)(bpal[j * 3 + 1] - c[1]);
+				short db = (short)(bpal[j * 3 + 2] - c[2]);
+				long  d  = 2L * dr * dr + 5L * dg * dg + 1L * db * db;
+
+				if (d < bestd) {
+					bestd = d;
+					bestj = j;
+				}
+			}
+			brem[idxlist[i]] = (unsigned char)bestj;
+		}
+		/* The reserved slots are exact by construction, so they win over
+		 * any search — and they must be applied LAST for that to hold. */
 		for (i = 0; i < 256; i++)
 			if (kept[i])
 				brem[i] = (unsigned char)(kept[i] - 1);
-		for (i = 0; i < m; i++)
-			brem[idxlist[i]] = (unsigned char)(nkeep + cremap[i]);
 	}
 }
 
