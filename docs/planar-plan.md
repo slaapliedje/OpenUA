@@ -5309,3 +5309,80 @@ AGA is unaffected: 256 colours, one palette, no band split.
   re-band compared against an all-zero previous remap. It forced a rebuild
   anyway (index 0 is almost never slot 0 in a fresh cut), but by luck. It tests
   `first` now.
+
+## What SSI actually shipped on the Amiga (Curse of the Azure Bonds, 1991)
+
+The ST disks answered "did SSI beat 16 colours" with a clean no. The Amiga disks
+answer the ECS-side version of the same question, and the answer is again no —
+but the numbers are more interesting than the verdict.
+
+Rig: amiberry, plain A500 (KS 1.3, OCS, 512K + 512K slow), both ADFs in df0/df1.
+Config `cab-a500.uae`. The cracked disk still shows the rune-wheel prompt but
+accepts any answer. Menu is the ST's — PLAY / DEMO / TRANSFER / QUIT — then
+`p`, any key + Return past the wheel, `l`, `a`, Return, `b`.
+
+### ★ MEASURE NOTHING OFF A DEFAULT AMIBERRY CAPTURE
+
+amiberry ships `gfx_linemode=double2` and upsamples lores to hires, and **it
+blends**. A panel that is flat by construction — our own ECS HUD — read as
+**30 distinct colours** in a 40x40 crop, and a whole frame read as 4086. Any
+colour count taken off such a capture measures the scaler.
+
+Two things fix it, and the second matters more:
+
+- `openua-ecs-exact.uae` / `cab-a500.uae` carry `gfx_linemode=none`,
+  `gfx_resolution=lores` and a 360x284 1:1 window. **Do not put these in
+  `openua-ecs.uae`** — the run-amiga-port skill's documented click coordinates
+  assume the 720x568 window.
+- Filter to GENUINE palette entries: an OCS/ECS colour is 4 bits per gun, which
+  the emulator writes as v*17, so every channel of a real colour is a multiple
+  of 17. Blends almost never are. Add a population floor (>= 40 px) and the
+  residue vanishes.
+
+  ★ The first version of this test kept pixels sitting in a flat horizontal run
+  of >= 3 instead. That is biased against a TEXTURED image and in favour of a
+  flat one — precisely backwards for comparing our quantised photographic art
+  against SSI's flat authored art. It scored us 14 and them 10; the population
+  floor scores us 16 and them 15. Use the population floor.
+
+### The findings
+
+**No copper split.** COLOR00 is one value — black — down the entire frame, on
+the title screen and in the corridor. Same test that found our own 25-band
+border striping (1a411666). SSI used a single palette; the copper was doing
+nothing but the display.
+
+**They did enrich the Amiga over the ST, by about 1.5x.** Same corridor, same
+scene:
+
+| | whole screen | viewport alone |
+|---|---:|---:|
+| CAB, Atari ST | 10 | 8 |
+| CAB, Amiga | 15 | 11 |
+
+and the extra entries are shading, not new hues — two dark blues where the ST
+had one, three teals where the ST had one, two browns where the ST had one.
+
+**Against our ECS build, the budget is a tie and the SPENDING is opposite.**
+Corridor frame, whole screen:
+
+| | genuine colours | per scanline max |
+|---|---:|---:|
+| CAB Amiga | 15 | 13 |
+| OpenUA ECS | 16 | 11 |
+
+Theirs goes on CHROMA — teal chrome, cyan text, a green, a brown door. Ours
+goes on a nine-step GREY RAMP (#333333 #443333 #555544 #555555 #666666 #777777
+#888888 #999999 #AAAAAA #BBBBBB #CCCCCC), because our corridor is quantised
+photographic stone with a smooth luminance gradient and our chrome is a granite
+texture. Neither is "better"; they are different art pipelines, and that is the
+honest answer to "does our port beat the 1990 original".
+
+### A question this raised about OUR build
+
+16 colours frame-wide against 11 per scanline. We have 25 independent per-band
+palettes and could show far more, so on this screen the 25 cuts are landing on
+nearly the same greys — the split is buying little while costing 25 cuts per
+re-band. That is a hypothesis, not a finding: the population floor could be
+suppressing band-local colours. Worth its own measurement before anyone spends
+effort tuning ECS_NBANDS.
