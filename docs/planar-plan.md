@@ -5112,8 +5112,15 @@ boundaries chosen by arithmetic. It does not hold for a boundary placed exactly
 where the content changes, and the dungeon screen has two such lines — the top
 and bottom edges of the first-person viewport.
 
-`vpbands=on` in `video.cfg` splits there. It is a RUNTIME knob, default off, so
-one binary holds both arms.
+It is ON BY DEFAULT since 2026-08-20. `vpbands=off` in `video.cfg` is the escape
+hatch. Still a RUNTIME knob rather than a compile-time one, and that stays true
+now the default has flipped: one binary has to hold both arms or an A/B is
+comparing two builds.
+
+Both directions are verified on the fixture walk with one binary — no
+`video.cfg` gives 21 distinct colours in the game area and **AE=0 against the
+opt-in `vpbands=on` render**; `vpbands=off` gives 15 and **AE=0 against the
+pre-split render**.
 
 ### What it buys
 
@@ -5197,14 +5204,13 @@ palette loads into **d0-d6 and a1** rather than d0-d7 — still eight registers
 and 32 bytes, and `moveml`'s register order is fixed, so the load and the store
 agree.
 
-### Why it is still default-off
+### The one thing an emulator cannot settle
 
-Not for cost any more. It is opt-in because it has only been exercised on the
-dungeon walk (which is the only screen that commits a viewport, so it is the
-only screen where `s_ngrp` is ever 3), and because the one-line-early fire plus
-the spin is timing-sensitive in a way Hatari may not reproduce exactly. The
-gate is a real-hardware check; flipping the default is a one-line change after
-that.
+The one-line-early fire plus the spin is timing-sensitive, and Hatari's MFP is
+not a real MFP. Everything else about the split has been measured here, but that
+part has not been seen on hardware. If a real ST ever disagrees — a palette
+landing a line early or late, a torn band edge — `vpbands=off` is the first
+thing to reach for, and it restores a byte-identical pre-split frame.
 
 **`st_prof_tbcost` no longer prices this.** It armed Timer B by force, which
 worked when the timer fired at a fixed cadence regardless of content; forcing it

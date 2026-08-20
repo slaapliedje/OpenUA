@@ -185,7 +185,9 @@ static short                   s_have_prev_pal;
  *
  * s_ngrp == 1 reproduces the old behaviour EXACTLY — one cut, expanded to every
  * band, every band identical, so s_tb_uniform stays 1 and Timer B never arms.
- * That is what makes this switchable at runtime rather than at compile time. */
+ * That is what makes this switchable at runtime rather than at compile time, and
+ * it is also why every screen WITHOUT a viewport is unaffected by the default
+ * flip: they were already the s_ngrp == 1 path and still are. */
 static short                   s_ngrp = 1;      /* live groups (1 .. ST_MAXGRP) */
 static short                   s_grp_b0[ST_MAXGRP + 1]; /* group -> first band  */
 static unsigned char           s_gpal[ST_MAXGRP][ST_NCOL * 3];
@@ -198,10 +200,21 @@ static unsigned char           s_gslot_rep[ST_MAXGRP][ST_NCOL];
  * guard both read it that way; these are the per-group subsets the slot
  * alignment needs, and they are collected by the same pass. */
 static unsigned char           s_gused[ST_MAXGRP][256];
-/* Runtime, not compile-time: one binary has to hold both arms or an A/B is
- * comparing two builds (which has misled this port more than once). video.cfg
- * `vpbands=on` turns it on. */
-short                          st_vp_bands;
+/* ON BY DEFAULT since 2026-08-20. It shipped opt-in for one day while the screen
+ * sweep ran: boot, title and the main menu stay at one group and are AE=0 against
+ * the pre-split build; the dungeon walk, three town/BIGPIC events and the treasure
+ * screen all render correctly at three; and combat measures exactly 16 colours in
+ * the game area, i.e. one group, which is what s_vp_active being clear looks like
+ * from outside. Marginal cost over the dungeon phase is +2.3% once Timer B fires
+ * on group boundaries instead of band boundaries.
+ *
+ * Runtime, not compile-time, and that stays true now the default has flipped: one
+ * binary has to hold both arms or an A/B is comparing two builds, which has misled
+ * this port more than once. video.cfg `vpbands=off` is the escape hatch — and it is
+ * the one to reach for first if a REAL ST ever disagrees with Hatari about the
+ * one-line-early fire and the spin, which is the part of this no emulator can
+ * settle. */
+short                          st_vp_bands = 1;
 
 short  st_band_stpal[ST_NBANDS + 1][ST_NCOL];   /* ST-format, +sentinel  */
 
@@ -2702,7 +2715,12 @@ static int st_init(short want_w, short want_h)
 				 * Same reasoning as vpplanar — ONE binary, both
 				 * arms, so an A/B compares the split and nothing
 				 * else. */
-				if (strstr(buf, "vpbands=on") != NULL) {
+				/* Both directions, so a config written against
+				 * either default keeps meaning what it says. */
+				if (strstr(buf, "vpbands=off") != NULL) {
+					st_vp_bands = 0;
+					dbg_log("ste: viewport palette group DISABLED (video.cfg)");
+				} else if (strstr(buf, "vpbands=on") != NULL) {
 					st_vp_bands = 1;
 					dbg_log("ste: viewport palette group ENABLED (video.cfg)");
 				}
