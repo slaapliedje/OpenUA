@@ -329,6 +329,61 @@ static short         s_vp_active;               /* a committed rect awaits compo
  * otherwise consume the other page's credit. */
 static unsigned char s_vp_owe[NPAGES];          /* pages still owing it       */
 static short         s_vp_have;                 /* scratch holds a valid rect */
+
+/* ★ REBUILDING A ROW FROM s_chunky ERASES THE VIEWPORT'S SHARE OF IT (#148).
+ *
+ * The viewport deliberately does NOT live in s_chunky (ADR-0016 B2) — that is
+ * what keeps the roster and chrome on its scanlines static so the row-diff can
+ * skip them — so s_chunky's viewport hole is BLACK (measured: 0 of 88 columns
+ * non-zero against 88 of 88 in the scratch). Both row writers below convert a
+ * WHOLE 320-pixel row, so rebuilding one that crosses the viewport paints 88
+ * columns of black straight through it.
+ *
+ * A row is only rebuilt when it CHANGES, which is why the damage is a band and
+ * not the whole pane: rows 24..102 carry static chrome beside a constant hole
+ * and never rebuild, while the compass and the coordinate/clock box sit at rows
+ * ~103..125 and the clock ticks. Nine black rows across the bottom of the 3D
+ * view, stopping exactly where the viewport ends at row 111, because rows 112+
+ * have no viewport to erase. It shipped, and it was in every affected walk frame.
+ *
+ * Nothing put it back because st_vp_composite returns unless the page OWES a
+ * composite, and #90 clears both owes at the end of every one — correct on its
+ * own terms (the composite really does write both pages) but it assumes nothing
+ * else overwrites the viewport afterwards. So re-arm the owe here and the
+ * st_vp_composite() that already follows every present repaints it.
+ *
+ * s_vp_have, NOT s_vp_active: the scratch and the stamped planes both persist
+ * after the commit is consumed, which is what makes the repaint possible.
+ *
+ * ★ AND IT HAS TO SIT IN BOTH WRITERS. The first attempt at this hooked only
+ * st_blit_rows and measured NO EFFECT, which read as a refutation and was not:
+ * CPU68K=68000 implies FRUA_PLANAR, so the ST's full present goes through
+ * st_dt_present_full/st_dt_build_row and never calls st_blit_rows at all. The
+ * hook was on a path the walk does not take. */
+#ifdef FRUA_STPROF
+/* Same reason as sp_forced_flag above: st_vp_touched sits ABOVE the main
+ * FRUA_STPROF block, so its counter has to be declared here. */
+static long sp_vp_rearm;                  /* #148 viewport repaints forced */
+#endif
+
+/* Runtime, like st_vp_bands and st_planar_viewport and for the same reason: one
+ * binary has to carry both arms or an A/B compares two builds. `vprepair=off`
+ * restores the shipped behaviour — nine black rows at the bottom of the 3D view
+ * — which is what makes the control runnable at all. */
+short st_vp_repair = 1;
+
+static void st_vp_touched(short y0, short h)
+{
+	if (st_vp_repair && s_vp_have && s_vp_h > 0
+	    && y0 < (short)(s_vp_y + s_vp_h) && (short)(y0 + h) > s_vp_y) {
+		s_vp_owe[0] = 1;
+		s_vp_owe[1] = 1;
+#ifdef FRUA_STPROF
+		sp_vp_rearm++;
+#endif
+	}
+}
+
 static short         s_st_active;               /* this backend is the live one */
 static unsigned char *st_vp_scratch(short *pitch);
 static void           st_vp_commit(short x, short y, short w, short h);
@@ -749,9 +804,13 @@ static unsigned char  s_prof_convwhy[ST_H];
 static short          s_prof_mmx[ST_H];
 #endif
 
+static void st_vp_touched(short y0, short h);
+
 static void st_blit_rows(short x0, short w, short y0, short h)
 {
 	short y;
+
+	st_vp_touched(y0, h);
 
 	for (y = 0; y < h; y++) {
 		short yy = (short)(y0 + y);
@@ -2508,6 +2567,36 @@ static void st_dt_present_full(void)
 	if (s_nruns == 0)
 		goto log;
 
+	/* ★ #148: A RUN COPY ERASES THE VIEWPORT, EXACTLY AS THE FORCE-FULL DOES.
+	 *
+	 * #61 already found this hazard and fixed it for the force-full branch above
+	 * — "this just rewrote BOTH pages from s_dt, which does not carry the
+	 * composited viewport (the composite writes the PAGE, not s_dt). Both pages
+	 * owe it again." The incremental path copies from the same s_dt and was never
+	 * given the same treatment, and that path is the common case on the walk.
+	 *
+	 * What it looks like: s_dt's viewport columns are built from s_chunky, whose
+	 * viewport hole is BLACK (measured: 0 of 88 columns non-zero against 88 of 88
+	 * in the scratch), because ADR-0016 B2 keeps the viewport out of the shared
+	 * surface on purpose. A row is only rebuilt when it CHANGES, so rows 24..102
+	 * — static chrome beside a constant hole — never move, while the compass and
+	 * the coordinate/clock box at rows ~103..125 tick. The result was nine black
+	 * rows across the bottom of the 3D view, stopping at 111 where the viewport
+	 * ends. It shipped.
+	 *
+	 * Re-arming here rather than at the build site is deliberate: s_dt PERSISTS
+	 * with the hole in it, so a row built once can be re-copied on any later
+	 * present with no build to notice. Hooking the build repaired the first copy
+	 * and left every subsequent one broken — measured, one of three drives still
+	 * showed the band. The copy is the event that damages the page, so the copy
+	 * is what must re-arm. */
+	{
+		short i;
+
+		for (i = 0; i < s_nruns; i++)
+			st_vp_touched(s_runs[i].y0, s_runs[i].n);
+	}
+
 	/* pass 2 — one copy per run */
 #ifdef FRUA_STPROF
 	{
@@ -2937,6 +3026,16 @@ static int st_init(short want_w, short want_h)
 				/* #139: reuse a palette already cut for this CLUT
 				 * instead of re-cutting it. Both keys, same reason
 				 * as vpbands. */
+				/* #148: repaint the viewport after a copy that
+				 * crossed its rows. Off = the shipped bug, for
+				 * the control arm. */
+				if (strstr(buf, "vprepair=off") != NULL) {
+					st_vp_repair = 0;
+					dbg_log("ste: viewport repair DISABLED (video.cfg)");
+				} else if (strstr(buf, "vprepair=on") != NULL) {
+					st_vp_repair = 1;
+					dbg_log("ste: viewport repair ENABLED (video.cfg)");
+				}
 				if (strstr(buf, "palcache=off") != NULL) {
 					st_pal_cache = 0;
 					dbg_log("ste: palette cache DISABLED (video.cfg)");
@@ -4149,6 +4248,7 @@ static void st_present(void)
 		dbg_log_num("b63rb:   FORCE-FULL    = ", sp_rb_ffull);
 		dbg_log_num("b139pc: cache HITS    = ", sp_pc_hit);
 		dbg_log_num("b139pc: cache misses  = ", sp_pc_miss);
+		dbg_log_num("b148: vp repaints forced= ", sp_vp_rearm);
 			dbg_log_num("b63rb:     ff rowbuilds= ", sp_rb_ffrows);
 			dbg_log_num("b63rb:     ff copies   = ", sp_rb_ffcopy);
 		/* #63 PASS-1 ATTRIBUTION. Exact work counters x calibrated unit
