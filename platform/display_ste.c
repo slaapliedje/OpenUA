@@ -1086,6 +1086,58 @@ static int st_remap_split(void)
 	return 0;
 }
 
+/* ★ COLOUR REGISTER 0 IS THE BORDER, AND WITH A RASTER SPLIT EVERY GROUP GETS A
+ * TURN AT IT. Each group's register 0 is displayed in the border on that
+ * group's own scanlines, so three independent cuts put three different colours
+ * there and the border grows a horizontal band exactly as tall as the viewport.
+ * It is outside the 320x200 image, which is why it survives every check that
+ * crops to the image — this one was found by looking at a full screenshot.
+ *
+ * The alignment already claims position 0 by colour within each group, which
+ * keeps it stable over time but does not make the groups AGREE. So: pick, in
+ * each later group, the slot nearest group 0's slot 0, permute it into position
+ * 0 (palette and remap together, so no pixel changes meaning), and then set its
+ * RGB to group 0's exactly. The permutation is free; the assignment costs a
+ * little fidelity for whatever indices live in that slot, and buys a border
+ * that is one colour.
+ *
+ * ★ may_permute IS NOT A TUNING KNOB. st_repalette's whole premise is that the
+ * slot numbering does not move, so the planes already on screen stay valid and
+ * no force-full is needed. Permuting there would renumber slots behind those
+ * planes — the "brown chrome" failure — so that path passes 0 and takes the RGB
+ * assignment alone. st_reband has just re-quantised and will force-full anyway,
+ * so it passes 1. */
+static void st_unify_border(short may_permute)
+{
+	short g, s, n, best;
+	long  bestd;
+	unsigned char newpal[ST_NCOL * 3];
+	unsigned char pos[ST_NCOL];
+
+	for (g = 1; g < s_ngrp; g++) {
+		best  = 0;
+		bestd = 0x7fffffffL;
+		for (s = 0; s < ST_NCOL; s++) {
+			long d = st_coldist(s_gpal[g] + (long)s * 3, s_gpal[0]);
+
+			if (d < bestd) { bestd = d; best = s; }
+		}
+		if (may_permute && best != 0) {  /* swap `best` and 0 */
+			for (n = 0; n < ST_NCOL; n++)
+				pos[n] = (unsigned char)n;
+			pos[best] = 0;
+			pos[0]    = (unsigned char)best;
+			for (n = 0; n < ST_NCOL; n++)
+				memcpy(newpal + (long)pos[n] * 3,
+				       s_gpal[g] + (long)n * 3, 3);
+			memcpy(s_gpal[g], newpal, sizeof newpal);
+			for (n = 0; n < 256; n++)
+				s_grem[g][n] = pos[s_grem[g][n]];
+		}
+		memcpy(s_gpal[g], s_gpal[0], 3);   /* exactly, so the border is one colour */
+	}
+}
+
 static void st_repalette(void)
 {
 	short g, s;
@@ -1101,8 +1153,15 @@ static void st_repalette(void)
 			s_gpal[g][s * 3 + 1] = quant_snap(s_clut[idx * 3 + 1], ST_BITS);
 			s_gpal[g][s * 3 + 2] = quant_snap(s_clut[idx * 3 + 2], ST_BITS);
 		}
-		memcpy(s_gpal_prev[g], s_gpal[g], (size_t)(ST_NCOL * 3));
 	}
+	/* The reps are per group, so each group re-derives its own slot 0 and the
+	 * border would band again on the fast path exactly as it does on the slow
+	 * one. Only the RGB assignment matters here — the slot numbering is
+	 * unchanged by construction on this path, so the permutation inside is a
+	 * no-op and the planes stay valid. */
+	st_unify_border(0);
+	for (g = 0; g < s_ngrp; g++)
+		memcpy(s_gpal_prev[g], s_gpal[g], (size_t)(ST_NCOL * 3));
 	st_build_hw_palette();
 	s_force_full   = 0;      /* planes unchanged: nothing to re-convert */
 }
@@ -1157,10 +1216,10 @@ static void st_align_group(short g)
 	 * The ORIGINAL code walked old positions 0..15 in order, so position 0
 	 * always got first pick by colour — its order dependence was, for this one
 	 * slot, load-bearing. Keep exactly that and let the correspondence matching
-	 * have the other fifteen. With a raster split the border takes GROUP 0's
-	 * register 0 above the split and the later groups' below it, so pinning it
-	 * in group 0 is what keeps the top and bottom border black. */
-	if (g == 0) {
+	 * have the other fifteen. With a raster split EVERY group's register 0
+	 * reaches the border on its own scanlines, so the claim has to happen
+	 * to hold the same colour in every group — see st_unify_border. */
+	{
 		short best = 0;
 		long  bestd = 0x7fffffffL;
 
@@ -1388,8 +1447,10 @@ static void st_reband(void)
 			sp_rb_align += Supexec(st_prof_hz200) - ta;
 #endif
 		}
-		memcpy(s_gpal_prev[g], s_gpal[g], (size_t)(ST_NCOL * 3));
 	}
+	st_unify_border(1);
+	for (g = 0; g < s_ngrp; g++)
+		memcpy(s_gpal_prev[g], s_gpal[g], (size_t)(ST_NCOL * 3));
 	memset(s_used_idx, 0, sizeof s_used_idx);
 	for (g = 0; g < s_ngrp; g++)
 		for (i = 0; i < 256; i++)

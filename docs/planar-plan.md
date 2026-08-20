@@ -5212,6 +5212,52 @@ on a uniform screen now arms a timer with nothing scheduled. It refuses and says
 so rather than reporting the cost of an idle timer as the cost of the split.
 The wall-clock fixture A/B above replaces it — one binary, `vpbands` on vs off.
 
+### Screens checked with it on
+
+| screen | groups | result |
+|---|---|---|
+| boot, title, main menu | 1 | unchanged (15-16 colours) |
+| dungeon walk | 3 | 24-27 colours, correct |
+| town / BIGPIC event (innkeeper, tavern, barbarian portrait) | 3 | 19-20 colours, correct, roster text keeps its red/cyan |
+| treasure / XP | 3 | 19-20 colours, correct |
+| **combat** | — | **NOT VERIFIED — see below** |
+
+Across two full drives, 33 re-bands: three groups **only** on screens that commit
+a viewport. Everything else stays at one.
+
+Combat could not be reached headlessly. The `-DFRUA_CBTSND -DFRUA_CBTAUTO
+-DFRUA_CBTPLAY` harness (#74) **bus-errors during boot** on the ST build
+(`Bus Error reading at address $0, PC=$7f80a`), and it does so with `vpbands`
+OFF as well, so it is not this change — but it means the auto-combat route is
+unavailable. `-DFRUA_CBTSND` alone boots, but its `k` hotkey does nothing from
+the walk, which is consistent with the letter-key hit-test that eats bare
+letters there. The HEIRS slot-A chain does run a combat (it ends on the XP /
+treasure screen) but resolves it faster than a 2 s sampling interval catches.
+
+By construction combat should stay at one group — `st_group_layout` requires
+`s_vp_active`, which only `st_vp_commit` sets, and combat does not render the
+first-person viewport — but that is reasoning, not measurement.
+
+### ★ THE BORDER BANDS, AND CROPPING TO THE IMAGE HIDES IT
+
+Colour register 0 is what the ST shows in the **border**, and with a raster split
+every group gets a turn at it. Three independent cuts put three different
+colours there, and the border grows a horizontal band exactly as tall as the
+viewport — measured on the left border strip, `#555544` above and below against
+`#555555` inside.
+
+It survived the first round of checks because every comparison cropped to the
+320x200 image, where there is nothing wrong. It was found by looking at a full
+screenshot.
+
+`st_unify_border()` fixes it: in each later group, find the slot nearest group
+0's slot 0, permute it into position 0 (palette and remap together, so no pixel
+changes meaning), then set its RGB to group 0's exactly. `st_repalette` calls it
+with `may_permute = 0` — that path's whole premise is that slot numbering does
+not move, so the planes on screen stay valid and no force-full is needed;
+permuting there would renumber slots behind those planes, which is the "brown
+chrome" failure. `st_reband` passes 1, having just re-quantised.
+
 ### Traps found on the way here
 
 - **The band count is the RASTER RESOLUTION, not the palette count.** Groups
