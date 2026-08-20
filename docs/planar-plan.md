@@ -5493,3 +5493,74 @@ before only by luck. The cache buys back the *cut*, which was never the expensiv
 part of a re-band. At 14,480 t200 the whole-frame rebuild is still ~23% of
 in-present on the walk and nothing here touches it. That is the next lever, and
 it is a bigger one.
+
+## #148: nine black rows at the bottom of the ST's 3D view — twelve instruments, no cause
+
+Found by the user in a screenshot, mid-way through the #139 palette-cache A/B.
+Game rows 103..111 of the viewport come out fully black on the ST/STE; the
+Falcon renders the identical frame — same cell, same in-game minute, verified at
+a legible crop — complete. It ships, and it is in every affected walk frame.
+
+The cause is still open. This section exists because the expensive part was not
+the bug, it was **instrument design**: twelve experiments, each individually
+reasonable, most of them measuring something other than what I thought.
+
+### What is eliminated, and how
+
+| suspect | test | result |
+|---|---|---|
+| draw-time viewport writer | `vpplanar=off` | reproduces |
+| the whole ADR-0016 writer half | `PLANAR=0` | reproduces |
+| raster split / per-group cuts | `vpbands=off` | reproduces — and that arm has ONE palette frame-wide |
+| engine pane placement (`VL/VT/VR/VB`) | Falcon, same cell | clean; shares the code |
+| engine's render into the scratch | poison the buffer with `0xFE` | **0 unwritten rows of 88** |
+| the composite | self-triggering scan, both present hooks | never leaves a blank row |
+| a blit clobbering viewport rows | re-arm `s_vp_owe` in `st_blit_rows` | **no effect** |
+
+Six stages each measure healthy and the output is still wrong, which means one of
+the six is answering a question nobody asked.
+
+### The two live leads
+
+**The composite's own stamp does not survive.** Stamping slot 15 into the entire
+viewport rect in EVERY page at the tail of `st_vp_composite` leaves no trace on
+screen seconds later. Something rewrites those rows after the composite runs, and
+it is not `st_blit_rows` — re-arming the owe there changed nothing.
+
+**The ST and the Falcon fork at `dsp_viewport_scratch()`.** It returns NULL on the
+Falcon, so the engine renders the 3D view straight into the chunky surface. The
+ST returns `s_vp_scratch`, and the engine takes a different path.
+`planar_viewport_register()` runs unconditionally in `st_init`, so **neither
+`vpplanar=off` nor `PLANAR=0` crosses that fork** — every elimination above stayed
+on the same side of it. Nothing has yet tested the ST with no scratch at all.
+
+### ★ THE TRAPS, all paid for
+
+- **`st_present` is the FULL present; the walk presents by RECT.** A hook there
+  barely runs while the band is on screen.
+- **`st_present_rect`'s B2.2 fast path returns early** when the rect lies inside
+  the active viewport — which is precisely the walk's own present — so a hook at
+  that function's tail is DEAD CODE during the walk. Measured: **0 calls**.
+- **`st_vp_composite` fires about once per walk STEP**, not per present: it
+  returns unless the page owes a composite and #90 clears both owes each time. A
+  probe gated on composite #400 never fires; a 60-key drive reaches ~100.
+- **"Are the planes zero" is the wrong question.** The planes always hold real
+  non-zero slots on the black rows — 13, 4, 10, 10, 7, 11 at one sample. Five
+  probes tested `slot != 0` and all reported healthy while the band sat on screen.
+- **The defect is VIEW-dependent** (cell 12,5 shows it; other cells do not), so a
+  probe firing at a fixed count samples whatever frame is up rather than the
+  broken one. Self-trigger on the signature — and require a PARTIAL band, because
+  `badn == s_vp_h` is just the legitimate before-the-first-composite state and
+  will latch a one-shot on the wrong frame.
+- **A QDUMP capture cannot tell a drawn row from a stale one**: it composites the
+  scratch over `s_chunky`, so a row the engine never wrote shows leftovers from an
+  earlier, taller render. (The poison probe has since proved the scratch is fully
+  written, so captures are trustworthy again — but that argument was load-bearing
+  for two rounds before it was checked.)
+- **Silence and a reading of zero are identical in DBG.LOG.** Print the call
+  count with every dump. This is the same lesson the `vp COPY presents` counter
+  already carries in a comment ten lines from where the probes were being written.
+- **Verify the screenshot geometry rather than assume it.** The game image is at
+  (96,58) in the Hatari window at 2x, not (0,0); the Falcon's is (20,80). An
+  early per-group difference table was computed at the wrong offset and reported
+  error leaking into group 2 that does not exist.
