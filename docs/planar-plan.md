@@ -5386,3 +5386,110 @@ nearly the same greys — the split is buying little while costing 25 cuts per
 re-band. That is a hypothesis, not a finding: the population floor could be
 suppressing band-local colours. Worth its own measurement before anyone spends
 effort tuning ECS_NBANDS.
+
+## Pinning the palette: it is a CACHE, and the walk is an alternation (#139)
+
+#139's "next step" was written as *pin the viewport's palette so the group stops
+re-cutting*, and it was blocked on data: only 2 of the 14 QDUMP captures were
+dungeon walks and they were near-identical, so "one fixed palette across many
+walk screens" could not be priced. #147's headless combat route made a wider
+drive cheap, so the first thing this step produced was a longer capture —
+`tools/quant/st_walkcap.sh`, which is `st_profile.sh`'s drive minus the
+profiler, running until the QDUMP numbering is nearly full.
+
+**A 300-key HEIRS drive, and the premise was wrong.** 14,336 presents, 85
+re-bands. The new-ink overflow path — `st_patch_new_ink` declining past
+`INK_MAX` — accounts for **11 of them**. The other 74 are `qd_set_palette`.
+The note in `display_ste.c`'s #142 block says the opposite:
+
+> st_reband is 4.5% of the walk, and it is NOT driven by qd_set_palette: every
+> count>=32 palette write happens before the walk starts, so s_dirty is never set
+> that way during it.
+
+That is false, and it mattered: it aimed the whole task at `INK_MAX` when the
+lever is somewhere else entirely. (The `INK_MAX` question does now have its
+answer as a by-product — `FRUA_PALDIAG`'s `true-n max` is **44**, with 9
+presents in 25..32 and 2 in 33..48, so raising the threshold from 24 to 48 would
+convert every one of the 11 declines into a patch. That is #142's to spend.)
+
+**Eighteen CLUTs, and the cycle is four deep.** Across the 76 play-phase
+re-bands there are 18 distinct CLUTs, and 58 land on one this code has already
+cut. The backend does remember a CLUT — `s_clut_banded`, the skip at the top of
+`st_present` — but it remembers exactly one, and one is the wrong number for an
+alternation. The LRU curve, simulated over the capture set in re-band order:
+
+| size | 1 | 2 | 3 | **4** | 5 | 6 | 8 | 13 |
+|---|--:|--:|--:|--:|--:|--:|--:|--:|
+| hit | 0% | 2% | 2% | **53%** | 55% | 65% | 73% | 76% |
+
+Nothing at all until four, because the cycle is walk → cleared viewport → walk →
+event picture. `ST_PCACHE` is 8: two thirds of the ceiling for ~20 KB, where 13
+buys three more points for another 12 KB.
+
+**★ 40% OF THE WALK'S RE-BANDS QUANTISE A BLACK VIEWPORT.** 35 of the 87
+captures have a uniform viewport rect: the engine clears, presents, then draws.
+`reband-on-stale` is **0**, so this is not the lazy-chunky hazard that counter
+watches for — the scratch genuinely holds a cleared viewport at that moment.
+Those cuts derive a palette with no wall colours in it, which then guarantees the
+next frame arrives full of ink the palette does not cover. Not addressed here;
+recorded because it is the largest single structural waste the capture set shows.
+
+### What the cache costs in fidelity
+
+`tools/quant/qpin`. ★ **It compares only WITHIN one CLUT, and the first cut of
+the tool did not** — it pinned every frame to frame 0's palette and reported a
+25x error, which is not a fidelity result but one colour space scored against
+another's palette. A pin can only ever mean "reuse the palette we already cut
+FOR THIS CLUT". Over the 58 repeats, against re-cutting:
+
+    viewport   +7.9%
+    everything else   -3.7%
+
+The chrome IMPROVING is not a fluke. A fresh cut on a frame whose viewport has
+just filled with an event portrait re-partitions the roster panel's colours too;
+the cached cut does not.
+
+**A narrower key buys nothing.** #139 recorded that q12 → q13 were consecutive
+walk frames whose CLUTs differed in exactly two entries, neither used by the
+viewport, and that this forced a full re-band — which reads like an argument for
+keying the cache on the USED subset instead of all 768 bytes. Re-classed that
+way the same run gives **18 distinct CLUTs, exactly as before**. The anecdote
+does not generalise; the full-CLUT key is not costing anything.
+
+### What it costs in time — and what it does NOT buy
+
+One binary, `video.cfg` `palcache=off` selecting the arm, `-DFRUA_RNGSEED=12345`
+pinning the dice, 150 keys each. t200:
+
+| | ON | OFF | Δ/present |
+|---|--:|--:|--:|
+| re-bands (hit+miss) | 54 | 57 | |
+| cache hits | 32 (59%) | 0 | |
+| in-present TOTAL | 56,893 | 63,033 | −11.1% |
+| band (the re-band branch) | 16,455 | 20,636 | **−21.4%** |
+| the median cut alone | 3,156 | 6,768 | **−54.1%** |
+| used-index scan | 6,077 | 6,402 | −6.5% |
+| slot align | 328 | 329 | −1.8% |
+| FORCE-FULL | 14,480 | 15,056 | −5.2% |
+
+A 59% hit rate takes 54% off the cut — the hit rate landing where it should and
+nowhere it should not, with `slot align` flat at −1.8% as the control.
+
+**★ QUOTE −6.6%, NOT −11.1%.** The band branch is the only part the cache
+touches, and 4,181 t200 of the 6,140 saved is band; 4,181/63,033 = 6.6%. The
+remaining 1,959 is unattributed — the arms are not identical despite the pinned
+seed (54 vs 57 re-bands, 2176 vs 2144 presents), because key injection at 0.7 s
+against emulator wall-clock is not deterministic. Banking the headline number
+here would be banking run-to-run noise.
+
+**★ AND THE FORCE-FULL SURVIVES, WHICH WAS THE HOPE.** The reasoning going in
+was that a restored palette should be far likelier to survive `st_align_group`
+with no USED index moving slot, skipping the force-full — the single largest item
+in a re-band. It does not: FORCE-FULL moved −5.2%, and `no-skew` fired 0 times
+with the cache against 1 without. The reason is structural. Coming back to CLUT A
+after a re-band on CLUT B, the alignment permutes A's palette to match **B's**
+numbering, and the used indices are A's scene — so they land where they landed
+before only by luck. The cache buys back the *cut*, which was never the expensive
+part of a re-band. At 14,480 t200 the whole-frame rebuild is still ~23% of
+in-present on the walk and nothing here touches it. That is the next lever, and
+it is a bigger one.

@@ -486,6 +486,7 @@ static long sp_p1_cmpwords, sp_p1_inkbytes, sp_p1_built;
  * s_used_idx capture right after it, and the viewport overlay memcpy. Time
  * them apart before touching any of them. */
 static long sp_rb_vpcopy, sp_rb_quant, sp_rb_used, sp_rb_align, sp_rb_ffull;
+static long sp_pc_hit, sp_pc_miss;        /* #139 palette cache        */
 static long sp_rb_ffrows, sp_rb_ffcopy;   /* force-full: builds vs the 192 KB */
 static long sp_rb_n;
 static long sp_cal_cmp, sp_cal_ink, sp_cal_bld, sp_cal_loop;  /* bench t200   */
@@ -1151,6 +1152,10 @@ static void st_unify_border(short may_permute)
 	}
 }
 
+/* Defined with the rest of the palette cache, below st_buf_differs — which
+ * this path predates. */
+static void st_pc_flush(void);
+
 static void st_repalette(void)
 {
 	short g, s;
@@ -1176,7 +1181,161 @@ static void st_repalette(void)
 	for (g = 0; g < s_ngrp; g++)
 		memcpy(s_gpal_prev[g], s_gpal[g], (size_t)(ST_NCOL * 3));
 	st_build_hw_palette();
+	/* ★ THIS PATH INVALIDATES THE PALETTE CACHE. It keeps the slot numbering
+	 * and moves the RGB, so an entry cut under the old CLUT still LOOKS
+	 * current (its stored CLUT would match a later install) while its
+	 * palette now describes colours that are gone. Cheaper and safer to drop
+	 * the lot than to reason about which entries survived. */
+	st_pc_flush();
 	s_force_full   = 0;      /* planes unchanged: nothing to re-convert */
+}
+
+/* --- THE PALETTE CACHE (#139 "pin it") -----------------------------------
+ *
+ * ★ WHAT THE WALK'S RE-BANDS ACTUALLY ARE. #142 recorded that st_reband "is NOT
+ * driven by qd_set_palette: every count>=32 palette write happens before the
+ * walk starts". That is wrong, and a 300-key HEIRS drive says so plainly: 85
+ * re-bands, of which the new-ink overflow path (st_patch_new_ink declining past
+ * INK_MAX) accounts for **11**. The other 74 are CLUT installs. The walk is not
+ * one scene whose palette drifts — it is a handful of scenes ALTERNATING, and
+ * every switch back re-cuts a palette this code has already cut.
+ *
+ * How few scenes: over the 76 play-phase re-bands of that drive there are **18
+ * distinct CLUTs**, and 58 of the 76 land on a CLUT cut before. The backend
+ * already remembers one (s_clut_banded, the skip in st_present) — but ONE is
+ * exactly the wrong number for an alternation, and the LRU curve measured off
+ * the capture set says so:
+ *
+ *     size  1    2    3    4    5    6    8   13
+ *     hit   0%   2%   2%  53%  55%  65%  73%  76%
+ *
+ * Nothing until 4, because the cycle is walk -> cleared viewport -> walk -> event
+ * picture and a 1-deep memory never sees the same CLUT twice running. ST_PCACHE
+ * is 8: two thirds of the ceiling for 20 KB, where 13 buys three more points for
+ * another 12 KB.
+ *
+ * ★ IT IS A PIN, NOT A SHORTCUT — the restored palette was cut from DIFFERENT
+ * pixels, so it is not what re-cutting would produce. Priced offline over the
+ * repeats (tools/quant/qpin, which compares only within one CLUT because
+ * comparing across two is meaningless): viewport error +7.9%, everything
+ * outside it -3.7%. The chrome improving is not a fluke — a fresh cut on a
+ * frame whose viewport just filled with a portrait re-partitions the roster
+ * panel's colours too, and the cached cut does not.
+ *
+ * A hit still runs the used-index scan, the slot alignment, the border
+ * unification and the hardware-palette build; only the median cut is replaced.
+ * That matters for what to expect: quant_banded was measured at 0.73 s of a
+ * ~3.2 s re-band, so the cut alone is not the prize. The prize is that a
+ * restored palette is far likelier to survive st_align_group with no USED index
+ * moving slot, which skips the force-full — the single largest item in a
+ * re-band. */
+#define ST_PCACHE 8
+struct st_pcent {
+	unsigned long  hash;                     /* of the 768-byte CLUT         */
+	unsigned char  clut[768];                /* verified, never trusted raw  */
+	unsigned char  gpal[ST_MAXGRP][ST_NCOL * 3];
+	unsigned char  grem[ST_MAXGRP][256];
+	unsigned char  gused[ST_MAXGRP][256];    /* what the cut actually saw    */
+	short          ngrp;
+	short          b0[ST_MAXGRP + 1];
+	short          valid;
+};
+static struct st_pcent s_pcache[ST_PCACHE];
+static short           s_pc_mru[ST_PCACHE];      /* entry indices, MRU first */
+static short           s_pc_n;                   /* live entries             */
+/* Runtime, like st_vp_bands and for the same reason: an A/B that needs two
+ * binaries is an A/B of two binaries. video.cfg `palcache=off`. */
+short                  st_pal_cache = 1;
+
+/* Long-wise, because memcmp costs 93 cycles/byte on this target and this runs
+ * on every re-band (see st_row_differs for the same substitution). */
+static unsigned long st_pc_hash(const unsigned char *clut)
+{
+	const unsigned long *p = (const unsigned long *)clut;
+	unsigned long        h = 2166136261UL;
+	short                i;
+
+	for (i = 0; i < 768 / 4; i++)
+		h = (h ^ p[i]) * 16777619UL;
+	return h;
+}
+
+/* -1 on a miss. The hash narrows it to one candidate; the CLUT is then
+ * compared in full, because a false hit installs the WRONG sixteen colours
+ * behind live planes and that is not a failure mode worth saving 5 ms on. */
+static short st_pc_find(void)
+{
+	unsigned long h = st_pc_hash(s_clut);
+	short         k, g;
+
+	for (k = 0; k < s_pc_n; k++) {
+		struct st_pcent *e = &s_pcache[s_pc_mru[k]];
+
+		if (!e->valid || e->hash != h || e->ngrp != s_ngrp)
+			continue;
+		for (g = 0; g <= s_ngrp; g++)
+			if (e->b0[g] != s_grp_b0[g])
+				break;
+		if (g <= s_ngrp)
+			continue;                /* same CLUT, different split */
+		if (st_buf_differs(e->clut, s_clut, 768))
+			continue;
+		/* promote to MRU */
+		if (k) {
+			short v = s_pc_mru[k];
+			for (; k > 0; k--)
+				s_pc_mru[k] = s_pc_mru[k - 1];
+			s_pc_mru[0] = v;
+		}
+		return s_pc_mru[0];
+	}
+	return -1;
+}
+
+/* Insert the palettes as they stand — AFTER the alignment and the border
+ * unification, so a restore reproduces a state this backend has already
+ * shipped rather than a half-finished one. */
+static void st_pc_store(void)
+{
+	short slot, g, k;
+
+	if (s_pc_n < ST_PCACHE) {
+		slot = s_pc_n++;
+	} else {
+		slot = s_pc_mru[ST_PCACHE - 1];   /* evict the LRU */
+	}
+	{
+		struct st_pcent *e = &s_pcache[slot];
+
+		e->hash = st_pc_hash(s_clut);
+		memcpy(e->clut, s_clut, 768);
+		e->ngrp = s_ngrp;
+		for (g = 0; g <= s_ngrp; g++)
+			e->b0[g] = s_grp_b0[g];
+		for (g = 0; g < s_ngrp; g++) {
+			memcpy(e->gpal[g],  s_gpal[g],  (size_t)(ST_NCOL * 3));
+			memcpy(e->grem[g],  s_grem[g],  256);
+			memcpy(e->gused[g], s_gused[g], 256);
+		}
+		e->valid = 1;
+	}
+	for (k = (short)(s_pc_n - 1); k > 0; k--)
+		s_pc_mru[k] = s_pc_mru[k - 1];
+	s_pc_mru[0] = slot;
+}
+
+/* Every re-band renumbers slots, so a cached palette is only usable while the
+ * colour space it was cut in is still current. Nothing else here invalidates
+ * it — st_repalette moves the RGB behind fixed slots, which changes what the
+ * cached CLUT means, so that path drops the whole cache rather than reason
+ * about which entries survived. */
+static void st_pc_flush(void)
+{
+	short k;
+
+	for (k = 0; k < ST_PCACHE; k++)
+		s_pcache[k].valid = 0;
+	s_pc_n = 0;
 }
 
 /* The stable-slot alignment (#146), for ONE group.
@@ -1327,6 +1486,7 @@ static void st_reband(void)
 	const unsigned char *qsrc = s_chunky;
 	short g, i, first;
 	short old_ngrp = s_ngrp;
+	short pc;                                /* cache entry, or -1 on a miss */
 
 #ifdef FRUA_PLANAR
 	st_dt_epoch_reset();                     /* slots renumber: draw-time epoch */
@@ -1338,6 +1498,9 @@ static void st_reband(void)
 	 * region — so treat it exactly like the first re-band. */
 	st_group_layout();
 	first = (short)(!s_have_prev_pal || s_ngrp != old_ngrp);
+	/* AFTER st_group_layout: an entry is only valid for the split it was cut
+	 * under, so the lookup needs the live boundaries. */
+	pc = st_pal_cache ? st_pc_find() : -1;
 
 	/* Pin the composited walls' colours (ADR-0016 B1). After B2.1 the dungeon
 	 * viewport renders into the planar SCRATCH, not s_chunky, so the reband never
@@ -1449,8 +1612,35 @@ static void st_reband(void)
 		sp_rb_used += Supexec(st_prof_hz200) - tu;
 		}
 #endif
-		quant_banded(qsrc + n0, ST_W, (short)(y1 - y0), s_clut,
-		             1, ST_NCOL, ST_BITS, s_gpal[g], s_grem[g]);
+		if (pc >= 0) {
+			/* PIN: reuse the palette this CLUT was cut with. Indices the
+			 * cached cut never saw would otherwise keep quant_banded's
+			 * fallback for an ABSENT colour, which is the coarse 4x8x4
+			 * bucket table — the same fallback that makes a coloured glyph
+			 * land on whatever background matches its brightness. Give them
+			 * nearest-in-RGB instead, exactly as st_patch_new_ink does; the
+			 * loop only touches indices that are new to this palette. */
+			const struct st_pcent *e = &s_pcache[pc];
+
+			memcpy(s_gpal[g], e->gpal[g], (size_t)(ST_NCOL * 3));
+			memcpy(s_grem[g], e->grem[g], 256);
+			for (i = 0; i < 256; i++) {
+				short sl, best = 0;
+				long  bestd = 0x7fffffffL;
+
+				if (!s_gused[g][i] || e->gused[g][i])
+					continue;
+				for (sl = 0; sl < ST_NCOL; sl++) {
+					long d = st_coldist(s_clut + (long)i * 3,
+					                    s_gpal[g] + (long)sl * 3);
+					if (d < bestd) { bestd = d; best = sl; }
+				}
+				s_grem[g][i] = (unsigned char)best;
+			}
+		} else {
+			quant_banded(qsrc + n0, ST_W, (short)(y1 - y0), s_clut,
+			             1, ST_NCOL, ST_BITS, s_gpal[g], s_grem[g]);
+		}
 		if (!first) {
 #ifdef FRUA_STPROF
 			long ta = Supexec(st_prof_hz200);
@@ -1462,6 +1652,15 @@ static void st_reband(void)
 		}
 	}
 	st_unify_border(1);
+	/* Store the FINAL palettes — post-alignment, post-border — so a restore
+	 * reproduces a state this backend has already shipped. Only on a miss: a
+	 * hit has just been promoted to MRU and re-storing it would rewrite the
+	 * entry with a copy of itself. */
+	if (pc < 0 && st_pal_cache)
+		st_pc_store();
+#ifdef FRUA_STPROF
+	if (pc >= 0) sp_pc_hit++; else sp_pc_miss++;
+#endif
 	for (g = 0; g < s_ngrp; g++)
 		memcpy(s_gpal_prev[g], s_gpal[g], (size_t)(ST_NCOL * 3));
 	memset(s_used_idx, 0, sizeof s_used_idx);
@@ -1700,11 +1899,17 @@ static short         s_ink_over;        /* blew INK_MAX -> full re-quant     */
 
 /* #142: SIZE THE NEW-INK RE-QUANT BEFORE TOUCHING INK_MAX.
  *
- * st_reband is 4.5% of the walk, and it is NOT driven by qd_set_palette: every
+ * ★ THE FIRST SENTENCE OF THIS BLOCK USED TO BE FALSE, AND IT AIMED THE TASK AT
+ * THE WRONG LEVER. It read "st_reband ... is NOT driven by qd_set_palette: every
  * count>=32 palette write happens before the walk starts, so s_dirty is never set
- * that way during it. The trigger is this path — a step draws indices the band
- * palettes do not cover, st_patch_new_ink() places them incrementally, and past
- * INK_MAX distinct new indices it declines and the whole frame is re-quantised.
+ * that way during it". A 300-key HEIRS drive says otherwise: 85 re-bands, and
+ * THIS path — a step draws indices the band palettes do not cover,
+ * st_patch_new_ink() places them incrementally, and past INK_MAX distinct new
+ * indices it declines and the whole frame is re-quantised — accounts for 11 of
+ * them. The other 74 are palette installs. See the palette cache above, which is
+ * what that measurement led to.
+ *
+ * st_reband is 4.5% of the walk.
  *
  * Raising INK_MAX trades fidelity for speed (more indices land on nearest-existing
  * slots rather than a proper re-partition), so it needs numbers first: how often
@@ -2642,6 +2847,11 @@ static int st_init(short want_w, short want_h)
 	/* Take over the dungeon-viewport composite (ADR-0016 B2). */
 	s_vp_active = 0;
 	s_st_active = 1;
+	/* The cache holds palettes cut against a CLUT that a re-init has no reason
+	 * to preserve, and the statics survive one. Zeroed at load, so this only
+	 * matters the second time through — which is exactly when a stale entry
+	 * would be hardest to explain. */
+	st_pc_flush();
 	planar_viewport_register(st_vp_scratch, st_vp_commit);
 	planar_viewport_planes_register(st_vp_planes_buf, st_vp_commit_planes);
 	planar_reband_query_register(st_reband_pending, st_vp_chunky_valid);
@@ -2723,6 +2933,16 @@ static int st_init(short want_w, short want_h)
 				} else if (strstr(buf, "vpbands=on") != NULL) {
 					st_vp_bands = 1;
 					dbg_log("ste: viewport palette group ENABLED (video.cfg)");
+				}
+				/* #139: reuse a palette already cut for this CLUT
+				 * instead of re-cutting it. Both keys, same reason
+				 * as vpbands. */
+				if (strstr(buf, "palcache=off") != NULL) {
+					st_pal_cache = 0;
+					dbg_log("ste: palette cache DISABLED (video.cfg)");
+				} else if (strstr(buf, "palcache=on") != NULL) {
+					st_pal_cache = 1;
+					dbg_log("ste: palette cache ENABLED (video.cfg)");
 				}
 			}
 		}
@@ -3927,6 +4147,8 @@ static void st_present(void)
 		dbg_log_num("b63rb:   used_idx scan = ", sp_rb_used);
 		dbg_log_num("b63rb:   slot align    = ", sp_rb_align);
 		dbg_log_num("b63rb:   FORCE-FULL    = ", sp_rb_ffull);
+		dbg_log_num("b139pc: cache HITS    = ", sp_pc_hit);
+		dbg_log_num("b139pc: cache misses  = ", sp_pc_miss);
 			dbg_log_num("b63rb:     ff rowbuilds= ", sp_rb_ffrows);
 			dbg_log_num("b63rb:     ff copies   = ", sp_rb_ffcopy);
 		/* #63 PASS-1 ATTRIBUTION. Exact work counters x calibrated unit
