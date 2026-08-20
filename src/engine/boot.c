@@ -4982,6 +4982,19 @@ static short g_areatest_cmd = -1;   /* FRUA_AREATEST: 'a' in the walk latches th
 #ifdef FRUA_CBTSND
 static short g_cbtauto_done;        /* FRUA_CBTAUTO: shared one-shot — the l63c0 and
                                      * l731e fire sites must not BOTH start a combat */
+/* ★ THE FIRE MUST WAIT FOR A WALK, AND `-27990 == 4` IS NOT ONE (#147). Mode 4 is
+ * already set long before the main menu, so l731e's gate — mode 4 plus 2000 pump
+ * calls — came true during the BOOT and fired a GEO007 combat with no party
+ * seated. The engine wedged on the walk chrome with a monster in the viewport and
+ * an empty roster, and CBTSND+CBTAUTO+CBTPLAY turned the same premature fire into
+ * a bus error at $7f80a (`movea.l (a2),a2` through a null). Neither reproduced
+ * without CBTAUTO, which is why it read as a CBTPLAY fault.
+ *
+ * l63c0's poll sets this, so it can only be true once a real walk loop has run at
+ * least one iteration — which is exactly the precondition the fire needs and the
+ * one mode 4 does not express. It is never cleared: having reached a walk once,
+ * firing a combat is legitimate from then on. */
+static short g_cbt_walk_live;
 #ifndef FRUA_CBTAUTO_EV
 #define FRUA_CBTAUTO_EV 37          /* 1-based event to fire (GEO007: 37 = the
                                      * chance-0 type-1 combat; 21/22/25 = the
@@ -19274,6 +19287,7 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 
 		pollres = l2d3e();              /* event poll (JT[456]) */
 #ifdef FRUA_CBTSND
+		g_cbt_walk_live = 1;            /* #147: a real walk is running */
 #ifdef FRUA_CBTAUTO
 		/* Auto-fire (#74): the 'k' latch never trips under the headless
 		 * driver (the keypress reaches the engine — Escape/arrows work —
@@ -23475,8 +23489,8 @@ static void l731e(short arg)
 	{
 		static short s_cbtauto;
 
-		if (!g_cbtauto_done && s_cbtauto >= 0 && g_a5_27990 == 4
-		    && ++s_cbtauto > 2000) {
+		if (!g_cbtauto_done && s_cbtauto >= 0 && g_cbt_walk_live
+		    && g_a5_27990 == 4 && ++s_cbtauto > 2000) {
 			s_cbtauto = -1;
 			g_cbtauto_done = 1;
 			dbg_log_num("cbtauto: mode-4 pump stable - firing GEO007 ev ",
