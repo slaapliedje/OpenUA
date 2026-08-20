@@ -40,13 +40,28 @@
 #define ST_DEPTH    4                   /* 16 colours */
 #define ST_NCOL     (1 << ST_DEPTH)     /* 16 */
 #define ST_BITS     4                   /* STE: 4 bits/gun */
-#define ST_NBANDS   10                  /* 20 scanlines per band (200/10).
-                                         * The banded prototype showed 4-12
-                                         * bands capture most of the win; 10
-                                         * costs 2.5x less per re-band and
-                                         * 2.5x fewer raster interrupts than
-                                         * the first-cut 25. */
+#define ST_NBANDS   25                  /* 8 scanlines per band (200/25).
+                                         * ★ THIS IS THE RASTER RESOLUTION,
+                                         * NOT THE NUMBER OF PALETTES. Bands
+                                         * are grouped (see s_ngrp): a group
+                                         * holds ONE cut and every band inside
+                                         * it loads the same registers, so the
+                                         * cost that scales with 25 is the
+                                         * Timer B fires, not the re-band.
+                                         * 8 rows is the granularity the
+                                         * viewport needs — it lives at y=24
+                                         * and is 88 tall, and 24, 112 and 200
+                                         * are all multiples of 8, so a group
+                                         * boundary can land exactly on its
+                                         * edges. 20-row bands (the previous
+                                         * value) cannot express that, and a
+                                         * boundary anywhere else cuts through
+                                         * content that spans it: a tile whose
+                                         * slots were baked against one group
+                                         * renders its lower rows in the next
+                                         * group's colours. */
 #define ST_RPB      (ST_H / ST_NBANDS)
+#define ST_MAXGRP   3                   /* above / viewport rows / below */
 #define LINE_BYTES  (ST_W * ST_DEPTH / 8)   /* 160 bytes/line, interleaved */
 #define SCREEN_BYTES ((long)LINE_BYTES * ST_H)
 #define NPAGES      2                        /* B4: double-buffered page flip.
@@ -127,12 +142,12 @@ static short         s_ink_fresh;
  * computed every re-band and never read. Dead conservative code is not free
  * here: it advertises a fast path that does not run, which is actively
  * misleading when reading this file to chase a redraw artefact. */
-static unsigned char           s_band_pal_prev[ST_NCOL * 3];
+/* Superseded by s_gpal_prev[] / s_grem_prev[] / s_gslot_rep[] — the same three
+ * things, one set per palette GROUP (see below). */
 /* #63: the index->slot map AS IT STANDS the moment before a re-quant, so the
  * stable-slot alignment can maximise the number of indices that keep their
  * slot. Snapshotted at the top of st_reband rather than maintained at the
  * bottom, so it also captures whatever st_patch_new_ink has since changed. */
-static unsigned char           s_remap_prev[256];
 static short                   s_have_prev_pal;
 /* ADR-0016 B4 Phase-0 (scene-stable remap): a representative CLUT index per
  * slot, captured at each re-quant (the used index whose colour is nearest the
@@ -145,9 +160,63 @@ static short                   s_have_prev_pal;
  * needs (a within-scene palette change never invalidates planes) and, in the
  * current chunky model, also skips the ~2.2s force-full those rebands used to
  * pay. A genuine scene change (content differs) still re-quants (st_reband). */
-static unsigned char           s_slot_rep[ST_NCOL];
+
+/* --- PALETTE GROUPS (#139) -----------------------------------------------
+ *
+ * A group is a run of consecutive raster bands that share one cut. ADR-0016 B1
+ * put the whole frame in one group — a single 16-colour palette replicated to
+ * every band — because per-band palettes produced visible SEAMS (#40): a flat
+ * panel spanning a boundary came out in stripes. That is still true of
+ * boundaries chosen by arithmetic. It is NOT true of a boundary placed exactly
+ * where the content changes, and the dungeon screen has two such lines: the top
+ * and bottom edges of the first-person viewport. Split there and the viewport
+ * stops sharing its sixteen slots with the roster text and the granite chrome.
+ *
+ * Measured with tools/quant/qvp on the captured walk frames, against the true
+ * CLUT colour of every pixel (mean squared RGB):
+ *
+ *                       viewport   whole screen
+ *   one group             392.5        155.0
+ *   three groups          232.5        107.2      -41% / -31%
+ *
+ * and the second walk capture agrees (395.7 -> 245.3, 161.0 -> 106.9). Both
+ * halves improve: the chrome is not paying for the split, because it was the
+ * chrome's own colours crowding the viewport out.
+ *
+ * s_ngrp == 1 reproduces the old behaviour EXACTLY — one cut, expanded to every
+ * band, every band identical, so s_tb_uniform stays 1 and Timer B never arms.
+ * That is what makes this switchable at runtime rather than at compile time. */
+static short                   s_ngrp = 1;      /* live groups (1 .. ST_MAXGRP) */
+static short                   s_grp_b0[ST_MAXGRP + 1]; /* group -> first band  */
+static unsigned char           s_gpal[ST_MAXGRP][ST_NCOL * 3];
+static unsigned char           s_grem[ST_MAXGRP][256];
+static unsigned char           s_gpal_prev[ST_MAXGRP][ST_NCOL * 3];
+static unsigned char           s_grem_prev[ST_MAXGRP][256];
+static unsigned char           s_gslot_rep[ST_MAXGRP][ST_NCOL];
+/* Per-group used-index sets. The GLOBAL s_used_idx stays what it always was
+ * (anything on screen anywhere) because the new-ink scan and the repalette
+ * guard both read it that way; these are the per-group subsets the slot
+ * alignment needs, and they are collected by the same pass. */
+static unsigned char           s_gused[ST_MAXGRP][256];
+/* Runtime, not compile-time: one binary has to hold both arms or an A/B is
+ * comparing two builds (which has misled this port more than once). video.cfg
+ * `vpbands=on` turns it on. */
+short                          st_vp_bands;
+
 short  st_band_stpal[ST_NBANDS + 1][ST_NCOL];   /* ST-format, +sentinel  */
 short *st_band_ptr;                             /* next band for Timer B */
+/* ★ THE COST OF THE SPLIT IS THE INTERRUPT, NOT THE HANDLER. Only two of the
+ * 25 band boundaries are a real palette change; the rest re-load registers that
+ * already hold those values. A fast exit for them was written and MEASURED — a
+ * flag array tested before the d0-d7 save, so an unchanged band cost a test, a
+ * pointer bump and an rte — and st_prof_tbcost reported 807 cycles a fire
+ * against 771 for the full handler. No change. Entry and exit are the whole
+ * bill at this cadence, so the only lever is FEWER FIRES: a variable TBDR that
+ * reloads with each group's height and interrupts twice a frame instead of
+ * twenty-five times. That is the open item, and it is in the handler's spin
+ * test (it compares against a constant reload), which is the one place in this
+ * file with a documented deadlock (#91). The fast-exit version was reverted
+ * rather than shipped: complexity in an IPL-6 handler for a measured zero. */
 static short                   s_dirty;
 static short                   s_have_pal;
 static short                   s_vbl_slot = -1;
@@ -513,7 +582,7 @@ extern void st_vbl_trampoline(void);
  * teardown paths stop the timer too. Falling through just stores the palette a
  * line early — a cosmetic band offset, which is the correct thing to prefer
  * over a hang. */
-typedef char st_asm_assumes_rpb_20[(ST_RPB == 20) ? 1 : -1];
+typedef char st_asm_assumes_rpb_8[(ST_RPB == 8) ? 1 : -1];
 /* #61: count band fires per frame so interrupt STARVATION is measurable
  * directly, instead of inferred from pixels. One addq per band; STPROF only. */
 #ifdef FRUA_STPROF
@@ -531,7 +600,7 @@ __asm__(
 	"  moveml %a0@+,%d0-%d7\n"
 	"  movel  %a0,_st_band_ptr\n"
 	"1:\n"
-	"  cmpib  #20,0xFFFFFA21\n"     /* TBDR still at reload (ST_RPB)?      */
+	"  cmpib  #8,0xFFFFFA21\n"      /* TBDR still at reload (ST_RPB)?      */
 	"  jne    2f\n"                 /* no: the line ended — store now      */
 	"  tstb   0xFFFFFA1B\n"         /* TBCR == 0 -> timer STOPPED, TBDR is */
 	"  jne    1b\n"                 /*   frozen: spinning would deadlock   */
@@ -717,19 +786,65 @@ static int st_buf_differs(const unsigned char *a, const unsigned char *b,
 	return 0;
 }
 
-/* Replicate band 0's reduced palette to every band and encode the per-band
- * ST-format hardware palettes (STE gun encoding: nibble = (v0 << 3) | (v >> 1)),
- * plus the sentinel row (see st_band_stpal) and the CLUT snapshot the reband-skip
- * guard compares against. The remap is NOT touched here — only st_reband rebuilds
- * it; a palette-only refresh (st_repalette) reuses the fixed remap and just
- * re-encodes the RGB. Shared by st_reband and st_repalette. */
+/* Decide the group layout for the re-band about to run. Boundaries are BAND
+ * indices, so they are multiples of ST_RPB by construction and can never fall
+ * mid-band.
+ *
+ * Three groups only when a viewport is actually committed: on a menu or a
+ * full-screen picture there is no content line to split on, and an arbitrary
+ * split is the #40 seam all over again. Degenerate rects (a viewport touching
+ * the top or bottom of the screen) fall back to one group rather than
+ * producing an empty group — quant_banded on zero rows has nothing to cut. */
+static void st_group_layout(void)
+{
+	short t, b;
+
+	s_ngrp     = 1;
+	s_grp_b0[0] = 0;
+	s_grp_b0[1] = ST_NBANDS;
+	if (!st_vp_bands || !s_vp_active || s_vp_h <= 0)
+		return;
+	t = (short)(s_vp_y / ST_RPB);                       /* first viewport band */
+	b = (short)((s_vp_y + s_vp_h + ST_RPB - 1) / ST_RPB); /* one past the last */
+	if (t <= 0 || b >= ST_NBANDS || b <= t)
+		return;
+	s_ngrp     = 3;
+	s_grp_b0[0] = 0;
+	s_grp_b0[1] = t;
+	s_grp_b0[2] = b;
+	s_grp_b0[3] = ST_NBANDS;
+}
+
+/* Fan the groups out into the per-band arrays the rest of the backend reads:
+ * the c2p picks its LUT with band = y * ST_NBANDS / ST_H, and so does every
+ * draw-time writer in the engine (dsp_planar_remap). Neither knows about
+ * groups, and neither needs to — every band inside a group holds an identical
+ * copy, so a tile that straddles a band boundary WITHIN a group still bakes
+ * the right slots. Only a group boundary is a real edge, and those sit on the
+ * viewport's own edges. */
+static void st_expand_groups(void)
+{
+	short g, b;
+
+	for (g = 0; g < s_ngrp; g++)
+		for (b = s_grp_b0[g]; b < s_grp_b0[g + 1]; b++) {
+			memcpy(s_band_pal + (long)b * ST_NCOL * 3, s_gpal[g],
+			       (size_t)(ST_NCOL * 3));
+			memcpy(s_band_remap + (long)b * 256, s_grem[g], 256);
+		}
+}
+
+/* Fan the groups out (st_expand_groups) and encode the per-band ST-format
+ * hardware palettes (STE gun encoding: nibble = (v0 << 3) | (v >> 1)), plus the
+ * sentinel row (see st_band_stpal) and the CLUT snapshot the reband-skip guard
+ * compares against. The GROUP remaps are not rebuilt here — only st_reband and
+ * st_patch_new_ink change those; a palette-only refresh (st_repalette) reuses
+ * them and just re-encodes the RGB. Shared by st_reband and st_repalette. */
 static void st_build_hw_palette(void)
 {
 	short b, i;
 
-	for (b = 1; b < ST_NBANDS; b++)
-		memcpy(s_band_pal + (long)b * ST_NCOL * 3, s_band_pal,
-		       (size_t)(ST_NCOL * 3));
+	st_expand_groups();             /* groups -> the per-band arrays */
 	for (b = 0; b < ST_NBANDS; b++) {
 		const unsigned char *bp = s_band_pal + (long)b * ST_NCOL * 3;
 
@@ -746,9 +861,13 @@ static void st_build_hw_palette(void)
 	}
 	for (i = 0; i < ST_NCOL; i++)
 		st_band_stpal[ST_NBANDS][i] = st_band_stpal[ST_NBANDS - 1][i];
-	{	/* #63: does the split have anything to do this scene? See the flag's
-		 * comment — with a single replicated palette the answer is always no,
-		 * and Timer B is ~500 interrupts a second of pure overhead. */
+	{	/* #63: does the split have anything to do this scene? With a single
+		 * group the answer is always no, and Timer B is 1250 interrupts a
+		 * second of pure overhead, so it is not armed at all.
+		 *
+		 * With three groups only two of the twenty-five boundaries are a
+		 * real change, but the handler still fires at all of them — see the
+		 * st_band_chg note above for why a fast exit did not help. */
 		short uniform = 1;
 
 		for (b = 1; b < ST_NBANDS && uniform; b++)
@@ -773,20 +892,21 @@ static void st_build_hw_palette(void)
  * over a luma-fallback one far from it). */
 static void st_compute_slot_reps(void)
 {
-	short s, i;
+	short g, s, i;
 
+	for (g = 0; g < s_ngrp; g++)
 	for (s = 0; s < ST_NCOL; s++) {
 		long  bestd = 0x7fffffffL;
 		short bi = 0;
 
 		for (i = 0; i < 256; i++) {
 			long d;
-			if (s_band_remap[i] != s)
+			if (s_grem[g][i] != s)
 				continue;
-			d = st_coldist(s_clut + (long)i * 3, s_band_pal + (long)s * 3);
+			d = st_coldist(s_clut + (long)i * 3, s_gpal[g] + (long)s * 3);
 			if (d < bestd) { bestd = d; bi = i; }
 		}
-		s_slot_rep[s] = (unsigned char)bi;
+		s_gslot_rep[g][s] = (unsigned char)bi;
 	}
 }
 
@@ -857,56 +977,209 @@ static unsigned char s_used_idx[256];
 static int st_remap_split(void)
 {
 	short anchor[ST_NCOL];
-	short i, s;
+	short g, i, s;
 
-	for (s = 0; s < ST_NCOL; s++)
-		anchor[s] = -1;
-	for (i = 0; i < 256; i++) {
-		if (!s_used_idx[i])
-			continue;
-		s = s_band_remap[i];             /* band 0 = representative (B1) */
-		if (anchor[s] < 0) {
-			anchor[s] = i;
-			continue;
+	/* Per GROUP: a merge only matters where both indices are actually drawn,
+	 * and two groups can legitimately fold different pairs together. */
+	for (g = 0; g < s_ngrp; g++) {
+		for (s = 0; s < ST_NCOL; s++)
+			anchor[s] = -1;
+		for (i = 0; i < 256; i++) {
+			if (!s_gused[g][i])
+				continue;
+			s = s_grem[g][i];
+			if (anchor[s] < 0) {
+				anchor[s] = i;
+				continue;
+			}
+			if (st_coldist(s_clut + (long)i * 3,
+			               s_clut + (long)anchor[s] * 3) > 512)
+				return 1;
 		}
-		if (st_coldist(s_clut + (long)i * 3,
-		               s_clut + (long)anchor[s] * 3) > 512)
-			return 1;
 	}
 	return 0;
 }
 
 static void st_repalette(void)
 {
-	short s;
+	short g, s;
 
 #ifdef FRUA_PLANAR
 	st_dt_epoch_reset();                     /* slots renumber: draw-time epoch */
 #endif
-	for (s = 0; s < ST_NCOL; s++) {
-		unsigned char idx = s_slot_rep[s];
+	for (g = 0; g < s_ngrp; g++) {
+		for (s = 0; s < ST_NCOL; s++) {
+			unsigned char idx = s_gslot_rep[g][s];
 
-		s_band_pal[(long)s * 3 + 0] = quant_snap(s_clut[idx * 3 + 0], ST_BITS);
-		s_band_pal[(long)s * 3 + 1] = quant_snap(s_clut[idx * 3 + 1], ST_BITS);
-		s_band_pal[(long)s * 3 + 2] = quant_snap(s_clut[idx * 3 + 2], ST_BITS);
+			s_gpal[g][s * 3 + 0] = quant_snap(s_clut[idx * 3 + 0], ST_BITS);
+			s_gpal[g][s * 3 + 1] = quant_snap(s_clut[idx * 3 + 1], ST_BITS);
+			s_gpal[g][s * 3 + 2] = quant_snap(s_clut[idx * 3 + 2], ST_BITS);
+		}
+		memcpy(s_gpal_prev[g], s_gpal[g], (size_t)(ST_NCOL * 3));
 	}
-	memcpy(s_band_pal_prev, s_band_pal, sizeof s_band_pal_prev);
 	st_build_hw_palette();
 	s_force_full   = 0;      /* planes unchanged: nothing to re-convert */
 }
 
-/* Re-band: histogram + per-band reduce, then build the per-band ST-format
- * palettes (STE gun encoding: nibble = (v0 << 3) | (v >> 1)). The sentinel
- * row (see st_band_stpal) is a copy of the last band. */
+/* The stable-slot alignment (#146), for ONE group.
+ *
+ * Extracted from st_reband so that every group gets it. The correspondence has
+ * to be between a group's OWN previous cut and its new one: matching across
+ * groups would pair a viewport slot with a chrome slot, which is the opposite
+ * of what this is for. Permutes the new palette and remap in place so that as
+ * many USED indices as possible keep the slot number they already had.
+ *
+ * Now: build the 16x16 table of how many used indices move from old slot p to
+ * new slot n, and match the STRONGEST correspondences first. That optimises
+ * the quantity being measured directly. Slots with no correspondence at all
+ * (genuinely new colours) still fall back to nearest-colour, which keeps them
+ * somewhere sensible. Greedy rather than a full Hungarian matching: 16x16, and
+ * the table is dominated by a few large cells, so max-first lands on or very
+ * near the optimum for a few thousand cycles. */
+static void st_align_group(short g)
+{
+	unsigned char       *pal  = s_gpal[g];
+	unsigned char       *rem  = s_grem[g];
+	const unsigned char *palp = s_gpal_prev[g];
+	const unsigned char *remp = s_grem_prev[g];
+	const unsigned char *used = s_gused[g];
+	unsigned char tkn[ST_NCOL], tkp[ST_NCOL];
+	unsigned char pos[ST_NCOL];             /* pos[newslot] = its position   */
+	unsigned char newpal[ST_NCOL * 3];
+	short tab[ST_NCOL][ST_NCOL];            /* tab[new][old] = index count   */
+	short p, n, v, k;
+
+	for (n = 0; n < ST_NCOL; n++) {
+		tkn[n] = tkp[n] = 0;
+		pos[n] = (unsigned char)n;
+		for (p = 0; p < ST_NCOL; p++)
+			tab[n][p] = 0;
+	}
+	for (v = 0; v < 256; v++)
+		if (used[v])
+			tab[rem[v]][remp[v]]++;
+
+	/* ★ SLOT 0 IS THE BORDER, AND IT IS CLAIMED BY COLOUR FIRST — but only in
+	 * the group that actually owns the border. The renumber is invariant for
+	 * every PIXEL (palette and remap are permuted together, so index v keeps
+	 * its colour), yet the ST shows colour register 0 in the border, where no
+	 * pixel index is involved at all. Let the correspondence greedy have
+	 * position 0 and the border changes from black to whatever won it:
+	 * measured, 174976 pixels of the menu grab, entirely outside the 320x200
+	 * image.
+	 *
+	 * The ORIGINAL code walked old positions 0..15 in order, so position 0
+	 * always got first pick by colour — its order dependence was, for this one
+	 * slot, load-bearing. Keep exactly that and let the correspondence matching
+	 * have the other fifteen. With a raster split the border takes GROUP 0's
+	 * register 0 above the split and the later groups' below it, so pinning it
+	 * in group 0 is what keeps the top and bottom border black. */
+	if (g == 0) {
+		short best = 0;
+		long  bestd = 0x7fffffffL;
+
+		for (n = 0; n < ST_NCOL; n++) {
+			long d = st_coldist(pal + (long)n * 3, palp);
+
+			if (d < bestd) { bestd = d; best = n; }
+		}
+		tkn[best] = 1; tkp[0] = 1;
+		pos[best] = 0;
+	}
+
+	/* 1) strongest index correspondence first */
+	for (k = 0; k < ST_NCOL; k++) {
+		short bn = -1, bp = -1, bv = 0;
+
+		for (n = 0; n < ST_NCOL; n++) {
+			if (tkn[n]) continue;
+			for (p = 0; p < ST_NCOL; p++) {
+				if (tkp[p]) continue;
+				if (tab[n][p] > bv)
+					{ bv = tab[n][p]; bn = n; bp = p; }
+			}
+		}
+		if (bn < 0)
+			break;                  /* nothing left to correspond */
+		tkn[bn] = 1; tkp[bp] = 1;
+		pos[bn] = (unsigned char)bp;
+	}
+	/* 2) the rest: nearest colour, as before */
+	for (n = 0; n < ST_NCOL; n++) {
+		short best = -1;
+		long  bestd = 0x7fffffffL;
+
+		if (tkn[n]) continue;
+		for (p = 0; p < ST_NCOL; p++) {
+			long d;
+			if (tkp[p]) continue;
+			d = st_coldist(pal + (long)n * 3, palp + (long)p * 3);
+			if (d < bestd) { bestd = d; best = p; }
+		}
+		if (best < 0)
+			continue;               /* cannot happen: counts match */
+		tkn[n] = 1; tkp[best] = 1;
+		pos[n] = (unsigned char)best;
+	}
+	for (n = 0; n < ST_NCOL; n++)
+		memcpy(newpal + (long)pos[n] * 3, pal + (long)n * 3, 3);
+	memcpy(pal, newpal, sizeof newpal);
+	for (v = 0; v < 256; v++)
+		rem[v] = pos[rem[v]];
+#ifdef FRUA_STPROF
+	/* ★ IS THE CHURN AVOIDABLE? #146 measured 57.2% of used indices moving
+	 * slot per re-band, and the obvious reading is "the permutation is
+	 * weak". But a permutation can only RELABEL — it cannot preserve a
+	 * colour the new median cut no longer produces. So split the moves:
+	 * an index whose new slot holds the SAME colour its old slot did was
+	 * moved by labelling and could have been kept; one whose colour
+	 * genuinely changed was moved by the CUT and no labelling could have
+	 * saved it. That decides whether #146 belongs in this function or in
+	 * quantize.h. */
+	{
+		short mv_avoid = 0, mv_cut = 0, mv_near = 0;
+
+		for (v = 0; v < 256; v++) {
+			short os, ns;
+			long d;
+
+			if (!used[v])
+				continue;
+			os = remp[v];
+			ns = rem[v];
+			if (os == ns)
+				continue;
+			d = st_coldist(pal + (long)ns * 3, palp + (long)os * 3);
+			if (d == 0)                  mv_avoid++;
+			else if (d <= 3 * 32L * 32L) mv_near++;
+			else                         mv_cut++;
+		}
+		dbg_log_num("b146: moved-but-same-colour = ", (long)mv_avoid);
+		dbg_log_num("b146:   moved-near-colour   = ", (long)mv_near);
+		dbg_log_num("b146:   moved-CUT-changed   = ", (long)mv_cut);
+	}
+#endif
+}
+
+/* Re-band: one median cut per palette GROUP, the stable-slot alignment per
+ * group, then the per-band ST-format palettes. The sentinel row (see
+ * st_band_stpal) is a copy of the last band. */
 static void st_reband(void)
 {
-	short b;
 	const unsigned char *qsrc = s_chunky;
-	short first = !s_have_prev_pal;
+	short g, i, first;
+	short old_ngrp = s_ngrp;
 
 #ifdef FRUA_PLANAR
 	st_dt_epoch_reset();                     /* slots renumber: draw-time epoch */
 #endif
+
+	/* Decide the split BEFORE anything reads s_ngrp. A layout change has no
+	 * usable predecessor — the middle group's previous cut covered different
+	 * rows, so the correspondence would match colours that never shared a
+	 * region — so treat it exactly like the first re-band. */
+	st_group_layout();
+	first = (short)(!s_have_prev_pal || s_ngrp != old_ngrp);
 
 	/* Pin the composited walls' colours (ADR-0016 B1). After B2.1 the dungeon
 	 * viewport renders into the planar SCRATCH, not s_chunky, so the reband never
@@ -922,7 +1195,8 @@ static void st_reband(void)
 	 * below needs it, and taking it here also captures anything st_patch_new_ink
 	 * changed since the last re-quant. */
 	if (!first)
-		memcpy(s_remap_prev, s_band_remap, 256);
+		for (g = 0; g < s_ngrp; g++)
+			memcpy(s_grem_prev[g], s_grem[g], 256);
 
 #ifdef FRUA_STPROF
 	{ long tv = Supexec(st_prof_hz200);
@@ -960,20 +1234,6 @@ static void st_reband(void)
 	}
 #endif
 
-	/* ADR-0016 B1 (fixed per-scene palette): ONE global reduce over the whole
-	 * frame (nbands=1 histograms all rows), replicated to every band. A flat
-	 * colour that spans bands is now the SAME slot+RGB everywhere, so the per-band
-	 * palette SEAMS — the visible "banding" (#40), a uniform panel rendered as
-	 * brown/green/olive stripes — vanish. This is also approach B's target
-	 * palette model: the per-band scheme existed to stop the granite chrome
-	 * starving the viewport, but post-B2.1 the viewport is composited as its own
-	 * planar region, so the shared surface holds only the (flat, seam-prone) HUD
-	 * plus the overlaid walls above, which one 16-colour palette covers. The
-	 * raster-split machinery stays (identical per-band loads) so per-band
-	 * anchoring can return later if an art-heavy screen needs the extra colours. */
-#ifdef FRUA_STPROF
-	{ long tq = Supexec(st_prof_hz200);
-#endif
 #ifdef FRUA_QDUMP
 	/* ★ CAPTURE THE QUANTISER'S INPUTS, so tools/quant can be run on a real
 	 * frame instead of a synthetic one. Writes the 320x200 index surface and
@@ -1000,71 +1260,67 @@ static void st_reband(void)
 		qd_n++;
 	}
 #endif
-	quant_banded(qsrc, ST_W, ST_H, s_clut,
-	             1, ST_NCOL, ST_BITS, s_band_pal, s_band_remap);
-	s_remap_gen++;                           /* planes stamped before this are stale */
-#ifdef FRUA_PALTRACE
-	/* ★ WHICH 16 COLOURS DID IT PICK? #141 narrowed the speckle to the budget
-	 * (64-66 indices into 16 slots), leaving two candidates: the chosen 16 carry
-	 * no NEUTRAL, so stone greys have nowhere to land and fall to whatever hue
-	 * is nearest; or they do carry one and the nearest-match metric mis-picks.
-	 * Dumping the palette decides it. Packed r<<16|g<<8|b, one slot per line —
-	 * the snapped 3-bit-per-gun values, i.e. what the hardware will show. */
-	{
-		short pi;
 
-		for (pi = 0; pi < ST_NCOL; pi++)
-			dbg_log_num("pt: slot rgb = ",
-			            ((long)s_band_pal[pi * 3 + 0] << 16)
-			          | ((long)s_band_pal[pi * 3 + 1] << 8)
-			          |  (long)s_band_pal[pi * 3 + 2]);
-	}
+	/* --- the cut, once per group -------------------------------------------
+	 *
+	 * ADR-0016 B1 put the whole frame in one group and replicated the result to
+	 * every band, because per-band palettes produced the #40 SEAMS: a flat panel
+	 * spanning a boundary in stripes. That argument holds for boundaries chosen
+	 * by arithmetic and not for boundaries placed where the content changes, so
+	 * s_grp_b0 puts them on the viewport's own edges (st_group_layout) and
+	 * nowhere else. With s_ngrp == 1 this loop is byte-for-byte the old path.
+	 *
+	 * The used-index scan is folded in here rather than run as its own 64,000-
+	 * pixel pass: each pixel is still visited exactly once, and it yields the
+	 * PER-GROUP sets the alignment needs as well as the global one. */
+#ifdef FRUA_STPROF
+	{ long tq = Supexec(st_prof_hz200);
 #endif
+	for (g = 0; g < s_ngrp; g++) {
+		short y0 = (short)(s_grp_b0[g] * ST_RPB);
+		short y1 = (short)(s_grp_b0[g + 1] * ST_RPB);
+		long  n, n0 = (long)y0 * ST_W, n1 = (long)y1 * ST_W;
+
+#ifdef FRUA_STPROF
+		{ long tu = Supexec(st_prof_hz200);
+#endif
+		memset(s_gused[g], 0, 256);
+		for (n = n0; n < n1; n++)
+			s_gused[g][qsrc[n]] = 1;
+#ifdef FRUA_STPROF
+		sp_rb_used += Supexec(st_prof_hz200) - tu;
+		}
+#endif
+		quant_banded(qsrc + n0, ST_W, (short)(y1 - y0), s_clut,
+		             1, ST_NCOL, ST_BITS, s_gpal[g], s_grem[g]);
+		if (!first) {
+#ifdef FRUA_STPROF
+			long ta = Supexec(st_prof_hz200);
+#endif
+			st_align_group(g);
+#ifdef FRUA_STPROF
+			sp_rb_align += Supexec(st_prof_hz200) - ta;
+#endif
+		}
+		memcpy(s_gpal_prev[g], s_gpal[g], (size_t)(ST_NCOL * 3));
+	}
+	memset(s_used_idx, 0, sizeof s_used_idx);
+	for (g = 0; g < s_ngrp; g++)
+		for (i = 0; i < 256; i++)
+			if (s_gused[g][i])
+				s_used_idx[i] = 1;
+	s_remap_gen++;                           /* planes stamped before this are stale */
 #ifdef FRUA_STPROF
 	sp_rb_quant += Supexec(st_prof_hz200) - tq;
 	}
 #endif
 
-	/* Capture which indices this quant actually saw (st_remap_split's domain).
-	 * #63: this is a SECOND full-frame pass over the same 64000 pixels
-	 * quant_banded just histogrammed — measured apart from the cut itself so
-	 * the duplication can be priced before it is removed. */
-	/* ★ AND IT IS STORE-BOUND, NOT LOAD-BOUND — tried and reverted 2026-08-19.
-	 * Reading long-wise (one fetch feeding four table stores) is the same
-	 * substitution that took the row compare from 93 cycles/byte to ~30 (#63),
-	 * and here it changed the marginal cost per re-band by NOTHING: 82.0 t200
-	 * before, 82.0 after, over 9 re-bands each way. The reasoning does not
-	 * transfer — the row compare is a COMPARE (loads only) while this is a
-	 * scatter-store: 64,000 byte writes into a 256-entry table, one bus cycle
-	 * apiece. The loads were never the cost.
-	 *
-	 * A future attempt must remove STORES. Two candidates: skip the write when
-	 * the source long repeats (a flat run costs one compare instead of four
-	 * stores — content-dependent, and granite chrome is noisy); or scan only
-	 * the rows quant_banded actually sampled. The second halves it but is a
-	 * SEMANTIC change, not an optimisation: quant samples every other row, so
-	 * scanning all of them makes s_used_idx a SUPERSET of what the quant really
-	 * saw — an index living only on odd rows is marked "seen" without ever
-	 * having been quantised. Settle that before trading it.
-	 *
-	 * Context for whoever picks this up: the walk-phase split is band 51% of
-	 * in-present, and per re-band FORCE-FULL 297 t200 / quant 93 / this 82. */
-#ifdef FRUA_STPROF
-	{ long tu = Supexec(st_prof_hz200);
-#endif
-	{
-		long n;
-		memset(s_used_idx, 0, sizeof s_used_idx);
-		for (n = 0; n < (long)ST_W * ST_H; n++)
-			s_used_idx[qsrc[n]] = 1;
-	}
 #ifdef FRUA_PALTRACE
 	/* ★ HOW MANY COLOURS IS THIS FRAME ASKING FOR? The task title guesses a
 	 * stale remap; the speckle is equally what an OVERRUN BUDGET looks like —
 	 * 16 slots cannot reproduce a frame with far more distinct indices, so the
 	 * excess resolves through the RGB-nearest fallback and the walls freckle.
-	 * One number decides which story it is, and it costs a 256-entry scan on a
-	 * path that already scanned 64,000 pixels. */
+	 * One number decides which story it is. */
 	{
 		short ui, un = 0;
 
@@ -1072,174 +1328,13 @@ static void st_reband(void)
 			if (s_used_idx[ui])
 				un++;
 		dbg_log_num("pt: distinct indices in frame = ", (long)un);
-	}
-#endif
-#ifdef FRUA_STPROF
-	sp_rb_used += Supexec(st_prof_hz200) - tu;
+		dbg_log_num("pt: palette groups            = ", (long)s_ngrp);
 	}
 #endif
 
-	/* B3.2 STABLE-SLOT ALIGNMENT: renumber band 0's fresh 16 slots so that as many
-	 * CLUT indices as possible keep the slot number they already had. Purely a
-	 * renumber — the palette and the final remap are permuted together, so index
-	 * v keeps its exact colour and THE FRAME IS BIT-IDENTICAL either way. It buys
-	 * nothing visually; what it buys is remap entries that do not move, which is
-	 * what lets a row skip re-conversion after a re-band.
-	 *
-	 * ★ REWRITTEN (#63). The original matched on COLOUR DISTANCE, walking old
-	 * positions 0..15 in order and letting each claim its nearest unclaimed new
-	 * slot. Two things wrong with that:
-	 *
-	 *   1. WRONG OBJECTIVE. Minimising palette-position colour distance is a
-	 *      proxy; what actually matters is how many USED INDICES keep their slot.
-	 *      Where two old positions hold near-identical colours, distance cannot
-	 *      tell them apart, but the indices sitting on them can.
-	 *   2. ORDER-DEPENDENT GREEDY. Position 0 got first pick of all sixteen and
-	 *      position 15 took the leftovers, so one arbitrary early choice could
-	 *      displace a later exact correspondence and cascade.
-	 *
-	 * Now: build the 16x16 table of how many used indices move from old slot p to
-	 * new slot n, and match the STRONGEST correspondences first. That optimises
-	 * the quantity being measured directly. Slots with no correspondence at all
-	 * (genuinely new colours) still fall back to nearest-colour, which keeps them
-	 * somewhere sensible. Greedy rather than a full Hungarian matching: 16x16, and
-	 * the table is dominated by a few large cells, so max-first lands on or very
-	 * near the optimum for a few thousand cycles. */
-#ifdef FRUA_STPROF
-	{ long ta = Supexec(st_prof_hz200);
-#endif
-	if (!first) {
-		unsigned char tkn[ST_NCOL], tkp[ST_NCOL];
-		unsigned char pos[ST_NCOL];             /* pos[newslot] = its position   */
-		unsigned char newpal[ST_NCOL * 3];
-		short tab[ST_NCOL][ST_NCOL];            /* tab[new][old] = index count   */
-		short p, n, v, k;
-
-		for (n = 0; n < ST_NCOL; n++) {
-			tkn[n] = tkp[n] = 0;
-			pos[n] = (unsigned char)n;
-			for (p = 0; p < ST_NCOL; p++)
-				tab[n][p] = 0;
-		}
-		for (v = 0; v < 256; v++)
-			if (s_used_idx[v])
-				tab[s_band_remap[v]][s_remap_prev[v]]++;
-
-		/* ★ 0) SLOT 0 IS THE BORDER, AND IT IS CLAIMED BY COLOUR FIRST.
-		 * The renumber is invariant for every PIXEL — palette and remap are
-		 * permuted together, so index v keeps its colour — but the ST shows
-		 * colour register 0 in the border, where no pixel index is involved
-		 * at all. Let the correspondence greedy have position 0 and the
-		 * border changes from black to whatever won it: measured, 174976
-		 * pixels of the menu grab, entirely outside the 320x200 image.
-		 *
-		 * The ORIGINAL code walked old positions 0..15 in order, so position
-		 * 0 always got first pick by colour — its order dependence was, for
-		 * this one slot, load-bearing. Keep exactly that and let the
-		 * correspondence matching have the other fifteen. */
-		{
-			short best = 0;
-			long  bestd = 0x7fffffffL;
-
-			for (n = 0; n < ST_NCOL; n++) {
-				long d = st_coldist(s_band_pal + (long)n * 3,
-				                    s_band_pal_prev);
-				if (d < bestd) { bestd = d; best = n; }
-			}
-			tkn[best] = 1; tkp[0] = 1;
-			pos[best] = 0;
-		}
-
-		/* 1) strongest index correspondence first */
-		for (k = 0; k < ST_NCOL; k++) {
-			short bn = -1, bp = -1, bv = 0;
-
-			for (n = 0; n < ST_NCOL; n++) {
-				if (tkn[n]) continue;
-				for (p = 0; p < ST_NCOL; p++) {
-					if (tkp[p]) continue;
-					if (tab[n][p] > bv)
-						{ bv = tab[n][p]; bn = n; bp = p; }
-				}
-			}
-			if (bn < 0)
-				break;                  /* nothing left to correspond */
-			tkn[bn] = 1; tkp[bp] = 1;
-			pos[bn] = (unsigned char)bp;
-		}
-		/* 2) the rest: nearest colour, as before */
-		for (n = 0; n < ST_NCOL; n++) {
-			short best = -1;
-			long  bestd = 0x7fffffffL;
-
-			if (tkn[n]) continue;
-			for (p = 0; p < ST_NCOL; p++) {
-				long d;
-				if (tkp[p]) continue;
-				d = st_coldist(s_band_pal + (long)n * 3,
-				               s_band_pal_prev + (long)p * 3);
-				if (d < bestd) { bestd = d; best = p; }
-			}
-			if (best < 0)
-				continue;               /* cannot happen: counts match */
-			tkn[n] = 1; tkp[best] = 1;
-			pos[n] = (unsigned char)best;
-		}
-		for (n = 0; n < ST_NCOL; n++)
-			memcpy(newpal + (long)pos[n] * 3, s_band_pal + (long)n * 3, 3);
-		memcpy(s_band_pal, newpal, sizeof newpal);
-		for (v = 0; v < 256; v++)
-			s_band_remap[v] = pos[s_band_remap[v]];
-#ifdef FRUA_STPROF
-		/* ★ IS THE CHURN AVOIDABLE? #146 measured 57.2% of used indices moving
-		 * slot per re-band, and the obvious reading is "the permutation is
-		 * weak". But a permutation can only RELABEL — it cannot preserve a
-		 * colour the new median cut no longer produces. So split the moves:
-		 * an index whose new slot holds the SAME colour its old slot did was
-		 * moved by labelling and could have been kept; one whose colour
-		 * genuinely changed was moved by the CUT and no labelling could have
-		 * saved it. That decides whether #146 belongs in this function or in
-		 * quantize.h. */
-		{
-			short mv_avoid = 0, mv_cut = 0, mv_near = 0;
-
-			for (v = 0; v < 256; v++) {
-				short os, ns;
-				long d;
-
-				if (!s_used_idx[v])
-					continue;
-				os = s_remap_prev[v];
-				ns = s_band_remap[v];
-				if (os == ns)
-					continue;
-				d = st_coldist(s_band_pal + (long)ns * 3,
-				               s_band_pal_prev + (long)os * 3);
-				if (d == 0)            mv_avoid++;
-				else if (d <= 3 * 32L * 32L) mv_near++;
-				else                   mv_cut++;
-			}
-			dbg_log_num("b146: moved-but-same-colour = ", (long)mv_avoid);
-			dbg_log_num("b146:   moved-near-colour   = ", (long)mv_near);
-			dbg_log_num("b146:   moved-CUT-changed   = ", (long)mv_cut);
-		}
-#endif
-	}
-#ifdef FRUA_STPROF
-	sp_rb_align += Supexec(st_prof_hz200) - ta;
-	}
-#endif
-
-	memcpy(s_band_pal_prev, s_band_pal, sizeof s_band_pal_prev);
 	s_have_prev_pal = 1;
-
-	/* Replicate the fixed remap to every band (the pal replicate + hardware
-	 * encode happen in st_build_hw_palette). */
-	for (b = 1; b < ST_NBANDS; b++)
-		memcpy(s_band_remap + (long)b * 256, s_band_remap, 256);
-
 	st_compute_slot_reps();          /* B4 Phase-0: reps for palette-only rebands */
-	st_build_hw_palette();
+	st_build_hw_palette();           /* expands the groups into the bands */
 
 	/* B3.2: the FIRST re-band has no aligned predecessor, and the viewport path
 	 * clobbers s_shadow (its temp), so both must convert everything.
@@ -1273,19 +1368,26 @@ static void st_reband(void)
 	 *
 	 * NOT a revival of the removed "smart-skip": that tried to rebuild a SUBSET
 	 * of rows from a per-page dirty map and was wrong for the alternate page
-	 * (the "brown chrome"). This is all-or-nothing and page-independent. */
+	 * (the "brown chrome"). This is all-or-nothing and page-independent.
+	 *
+	 * ★ THE GUARD TESTS `first`, NOT `s_have_prev_pal`. It used to test the
+	 * latter, which this function sets to 1 a few lines above — so the
+	 * no-predecessor arm was dead and the first re-band compared against an
+	 * all-zero s_grem_prev. It happened to force a rebuild anyway (index 0 is
+	 * almost never slot 0 in a fresh cut), but only by luck. */
 	{
 		short mi, umoved = 0;
 
-		if (!s_have_prev_pal) {
+		if (first) {
 			umoved = 1;              /* no predecessor: convert everything */
 		} else {
-			for (mi = 0; mi < 256; mi++)
-				if (s_used_idx[mi]
-				 && s_remap_prev[mi] != s_band_remap[mi]) {
-					umoved = 1;
-					break;
-				}
+			for (g = 0; g < s_ngrp && !umoved; g++)
+				for (mi = 0; mi < 256; mi++)
+					if (s_gused[g][mi]
+					 && s_grem_prev[g][mi] != s_grem[g][mi]) {
+						umoved = 1;
+						break;
+					}
 		}
 		if (!umoved) {
 			s_remap_gen--;           /* undo the bump: nothing went stale */
@@ -1299,7 +1401,6 @@ static void st_reband(void)
 			return;
 		}
 	}
-	(void)first;
 	s_force_full   = 1;
 	/* #63(1): s_used_idx above was captured from THIS frame, so the
 	 * force-full's per-row new-ink scan cannot find anything. Skip it. */
@@ -1861,7 +1962,7 @@ static void st_pend_gather(void)
  * Returns 1 if it handled the ink, 0 to fall back to a full re-quant. */
 static int st_patch_new_ink(void)
 {
-	short c, s, b, y, patched = 0;
+	short c, s, y, patched = 0;
 
 #ifdef FRUA_PALDIAG
 	pk_calls++;
@@ -1876,21 +1977,28 @@ static int st_patch_new_ink(void)
 #endif
 
 	for (c = 0; c < 256; c++) {
-		short best = 0;
-		long  bestd = 0x7fffffffL;
+		short g;
 
 		if (!s_ink_idx[c])
 			continue;
-		for (s = 0; s < ST_NCOL; s++) {
-			long d = st_coldist(s_clut + (long)c * 3,
-			                    s_band_pal + (long)s * 3);
-			if (d < bestd) { bestd = d; best = s; }
+		/* Nearest slot in EACH group's own palette — the groups hold
+		 * different sixteens, so one answer cannot serve them all. */
+		for (g = 0; g < s_ngrp; g++) {
+			short best = 0;
+			long  bestd = 0x7fffffffL;
+
+			for (s = 0; s < ST_NCOL; s++) {
+				long d = st_coldist(s_clut + (long)c * 3,
+				                    s_gpal[g] + (long)s * 3);
+				if (d < bestd) { bestd = d; best = s; }
+			}
+			s_grem[g][c] = (unsigned char)best;
+			s_gused[g][c] = 1;
 		}
-		for (b = 0; b < ST_NBANDS; b++)
-			s_band_remap[(long)b * 256 + c] = (unsigned char)best;
 		s_used_idx[c] = 1;
 		patched++;
 	}
+	st_expand_groups();             /* the bands read by the c2p and the engine */
 	if (!patched)
 		return 0;
 	s_remap_gen++;                           /* re-pointed indices: see s_vp_gen */
@@ -2442,6 +2550,14 @@ static int st_init(short want_w, short want_h)
 				if (strstr(buf, "vpplanar=off") != NULL) {
 					st_planar_viewport = 0;
 					dbg_log("ste: viewport planes DISABLED (video.cfg)");
+				}
+				/* #139: give the viewport's rows their own cut.
+				 * Same reasoning as vpplanar — ONE binary, both
+				 * arms, so an A/B compares the split and nothing
+				 * else. */
+				if (strstr(buf, "vpbands=on") != NULL) {
+					st_vp_bands = 1;
+					dbg_log("ste: viewport palette group ENABLED (video.cfg)");
 				}
 			}
 		}

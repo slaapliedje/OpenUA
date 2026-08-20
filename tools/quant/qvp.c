@@ -288,6 +288,68 @@ static void row_band(short ncol)
 	       "row band (nearest)", ncol, (double)ein / nin, (double)eout / nout);
 }
 
+
+/* THE WHOLE PROPOSAL, not just the middle of it: three bands split at the
+ * viewport's top and bottom edge, each cut over its own rows. Reports the
+ * error in each band, and the area-weighted total so it can be compared
+ * against the single whole-frame cut directly. Boundaries are viewport-aligned
+ * on purpose — a band boundary anywhere else cuts through content that spans
+ * it, and a tile whose slots were baked against one band renders its lower
+ * rows in the next band's colours. */
+static void three_band(short ncol)
+{
+	static const char *name[3] = { "above", "viewport rows", "below" };
+	short y0[3], y1[3], k;
+	long  etot = 0, ntot = 0;
+	double ein_vp = 0.0;
+
+	y0[0] = 0;  y1[0] = ry;
+	y0[1] = ry; y1[1] = (short)(ry + rh);
+	y0[2] = (short)(ry + rh); y1[2] = H;
+
+	for (k = 0; k < 3; k++) {
+		short bh = (short)(y1[k] - y0[k]);
+		long  e = 0, ev = 0, nv = 0;
+		unsigned char nr[256];
+		short i, j, x, y;
+
+		if (bh <= 0)
+			continue;
+		memcpy(rect, chunky + (long)y0[k] * W, (size_t)((long)bh * W));
+		quant_banded(rect, W, bh, clut, 1, ncol, 4, bpal, brem);
+		for (i = 0; i < 256; i++) {
+			const unsigned char *c = clut + (long)i * 3;
+			long br = 0x7FFFFFFFL; short jr = 0;
+
+			for (j = 0; j < ncol; j++) {
+				const unsigned char *pp = bpal + (long)j * 3;
+				long dr = (long)c[0]-pp[0], dg = (long)c[1]-pp[1];
+				long db = (long)c[2]-pp[2];
+				long d = dr*dr + dg*dg + db*db;
+
+				if (d < br) { br = d; jr = j; }
+			}
+			nr[i] = (unsigned char)jr;
+		}
+		for (y = 0; y < bh; y++)
+			for (x = 0; x < W; x++) {
+				unsigned char ix = rect[(long)y * W + x];
+				long er = perr(ix, bpal + (long)nr[ix] * 3);
+
+				e += er;
+				if (in_rect(x, (short)(y0[k] + y))) { ev += er; nv++; }
+			}
+		etot += e;
+		ntot += (long)bh * W;
+		if (nv)
+			ein_vp = (double)ev / nv;
+		printf("    band %d %-14s rows %3d..%3d  %8.1f\n", k, name[k],
+		       y0[k], y1[k] - 1, (double)e / ((long)bh * W));
+	}
+	printf("  three-band ncol=%2d  viewport %8.1f   whole screen %8.1f\n",
+	       ncol, ein_vp, (double)etot / ntot);
+}
+
 /* Distinct source indices inside the rect — the ceiling on exact preservation. */
 static short rect_indices(void)
 {
@@ -386,6 +448,7 @@ int main(int argc, char **argv)
 		remap_compare(rect, cw, ch, 8, "chrome only (outside)");
 	}
 
+	three_band(16);
 	row_band(16);
 	row_band(8);
 

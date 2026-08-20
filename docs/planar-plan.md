@@ -5102,3 +5102,87 @@ and the median cut puts greys on red/cyan.
 That is a hue error rather than an approximation, so it is one of: the 16 chosen
 colours carry no neutral, or the nearest-match metric mis-picks. Both belong with
 #138/#139 (offline pre-quantise), not with a remap repair.
+
+## The viewport's own palette — B1's split, put back on the ST (#139)
+
+ADR-0016 B1 collapsed the ST's per-band palettes into ONE cut replicated to
+every band, because per-band palettes produced the #40 seams: a flat panel
+spanning a band boundary rendered in stripes. That reasoning holds for
+boundaries chosen by arithmetic. It does not hold for a boundary placed exactly
+where the content changes, and the dungeon screen has two such lines — the top
+and bottom edges of the first-person viewport.
+
+`vpbands=on` in `video.cfg` splits there. It is a RUNTIME knob, default off, so
+one binary holds both arms.
+
+### What it buys
+
+Measured with `tools/quant/qvp` on the captured walk frames, against the true
+CLUT colour of every pixel (mean squared RGB):
+
+|                       | viewport | whole screen |
+|-----------------------|---------:|-------------:|
+| one group             |    392.5 |        155.0 |
+| three groups          |    232.5 |        107.2 |
+| change                |     -41% |         -31% |
+
+The second walk capture agrees (395.7 → 245.3, 161.0 → 106.9). **Both** halves
+improve — the chrome is not paying for the split, because it was the chrome's
+own colours crowding the viewport out in the first place. On screen this shows
+up as the night sky, which the single cut rendered near-black and the split
+renders blue, and the frame carries **24 distinct colours instead of 16**.
+
+### What it costs
+
+Matched present counts, same binary, only the knob differs:
+
+| presents | wall ticks off | wall ticks on |
+|---------:|---------------:|--------------:|
+|       16 |         13,814 |        13,814 |
+|       32 |         19,980 |        19,949 |
+|       48 |         23,580 |        24,216 |
+
+Identical through the boot — there is no viewport yet, so both run one group —
+and +2.7% by 48 presents. The MARGINAL cost over the dungeon phase alone
+(presents 32→48) is **+18.5%**, and that is the number to quote: the split only
+exists on dungeon screens.
+
+### Why it is still default-off
+
+Almost all of that 18.5% is Timer B. The raster resolution had to go from 20
+rows to 8 (the viewport is at y=24, 88 tall, and 24/112/200 are all multiples
+of 8; 20 cannot express those boundaries), so the handler fires 25 times a
+frame where only TWO of those boundaries are a real palette change.
+
+`st_prof_tbcost` prices a fire at ~800 cycles, which is ~12% of the machine at
+25 fires a frame. **A fast exit for unchanged bands was written and measured:
+807 cycles/fire against 771 for the full handler — no change.** Entry and exit
+are the whole bill at this cadence, so a cheaper handler is not the lever;
+FEWER FIRES is. It was reverted rather than shipped: complexity in an IPL-6
+handler for a measured zero.
+
+The open item is a variable TBDR — reload with each group's height and fire
+twice a frame instead of twenty-five times, which would put the cost near 1%.
+It lives in the handler's spin test, which compares against a constant reload,
+and that is the one place in `display_ste.c` with a documented deadlock (#91).
+
+### Traps found on the way here
+
+- **The band count is the RASTER RESOLUTION, not the palette count.** Groups
+  (`s_ngrp`, `s_grp_b0`) are runs of bands sharing one cut. Every band inside a
+  group holds an identical copy, so a tile straddling a band boundary within a
+  group still bakes the right slots — only a group boundary is a real edge, and
+  those sit on the viewport's own edges. This is what let `ST_NBANDS` go to 25
+  without touching `band = y * nbands / h` in the c2p or in any of the engine's
+  draw-time writers.
+- **`s_ngrp == 1` has to be byte-identical to the old path**, and it is:
+  the same scripted walk gives AE=0 against the pre-change build, despite
+  `ST_NBANDS` going 10 → 25.
+- A layout change between re-bands has no usable predecessor — the middle
+  group's previous cut covered different rows — so it is treated as the first
+  re-band rather than aligned against nonsense.
+- The no-force-full guard tested `s_have_prev_pal`, which `st_reband` sets to 1
+  a few lines above it, so its no-predecessor arm was dead and the first
+  re-band compared against an all-zero previous remap. It forced a rebuild
+  anyway (index 0 is almost never slot 0 in a fresh cut), but by luck. It tests
+  `first` now.
