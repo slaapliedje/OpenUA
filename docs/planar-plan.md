@@ -5220,23 +5220,23 @@ The wall-clock fixture A/B above replaces it — one binary, `vpbands` on vs off
 | dungeon walk | 3 | 24-27 colours, correct |
 | town / BIGPIC event (innkeeper, tavern, barbarian portrait) | 3 | 19-20 colours, correct, roster text keeps its red/cyan |
 | treasure / XP | 3 | 19-20 colours, correct |
-| **combat** | — | **NOT VERIFIED — see below** |
+| combat | 1 | **16 colours exactly** — one palette, correct |
 
-Across two full drives, 33 re-bands: three groups **only** on screens that commit
-a viewport. Everything else stays at one.
+Three groups **only** on screens that commit a viewport. Everything else stays
+at one.
 
-Combat could not be reached headlessly. The `-DFRUA_CBTSND -DFRUA_CBTAUTO
--DFRUA_CBTPLAY` harness (#74) **bus-errors during boot** on the ST build
-(`Bus Error reading at address $0, PC=$7f80a`), and it does so with `vpbands`
-OFF as well, so it is not this change — but it means the auto-combat route is
-unavailable. `-DFRUA_CBTSND` alone boots, but its `k` hotkey does nothing from
-the walk, which is consistent with the letter-key hit-test that eats bare
-letters there. The HEIRS slot-A chain does run a combat (it ends on the XP /
-treasure screen) but resolves it faster than a 2 s sampling interval catches.
+Combat is measured, not inferred: with `vpbands=on`, the walk's game area
+carries **21** distinct colours and the combat screen carries **exactly 16**,
+with a uniform border in both. That is the direct observable for "the split is
+not engaged" — `st_group_layout` requires `s_vp_active`, which only
+`st_vp_commit` sets, and combat does not render the first-person viewport.
 
-By construction combat should stay at one group — `st_group_layout` requires
-`s_vp_active`, which only `st_vp_commit` sets, and combat does not render the
-first-person viewport — but that is reasoning, not measurement.
+Reaching it headlessly needed #147 fixed first: the `FRUA_CBTAUTO` auto-fire
+gated on `g_a5_27990 == 4`, which is already true during the boot, so it fired a
+combat with no party seated — wedging the engine, or bus-erroring at `$7f80a`
+once `FRUA_CBTPLAY` walked the party that was not there. The gate is now
+`g_cbt_walk_live`, set by l63c0's poll, so it can only come true after a real
+walk loop has run.
 
 ### ★ THE BORDER BANDS, AND CROPPING TO THE IMAGE HIDES IT
 
