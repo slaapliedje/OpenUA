@@ -5264,6 +5264,31 @@ not move, so the planes on screen stay valid and no force-full is needed;
 permuting there would renumber slots behind those planes, which is the "brown
 chrome" failure. `st_reband` passes 1, having just re-quantised.
 
+### The same bug was already shipping on ECS, with 25 bands
+
+`display_ecs.c` has run 25 real per-band cuts over 32 colours since the copper
+palette went in — the copper reloads all 32 registers at every band boundary for
+free, so it never had the ST's interrupt-cost problem and never needed the
+group machinery. But COLOR00 is the Amiga's border too, DIW is exactly 320x200,
+and the copper rewrites COLOR00 along with the other 31. Twenty-five
+independent cuts, twenty-five different border colours.
+
+Measured on a boot frame, down a single column of the left overscan:
+
+| | colours | runs |
+|---|---:|---:|
+| before | 21 | 28 |
+| before, display rows only | 16 | 21 |
+| after `ecs_unify_border` | 3 | 4 |
+| after, display rows only | **1** | **1** |
+
+Changing every 8 scanlines, one of the stripes pure white. Same fix as the ST's
+`st_unify_border` — nearest slot permuted into position 0, RGB forced to band
+0's — with the same `may_permute = 0` on the repalette path, which there forces
+the copper WORD alone.
+
+AGA is unaffected: 256 colours, one palette, no band split.
+
 ### Traps found on the way here
 
 - **The band count is the RASTER RESOLUTION, not the palette count.** Groups

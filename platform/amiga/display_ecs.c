@@ -360,6 +360,66 @@ static int ecs_remap_split(void)
 	return 0;
 }
 
+/* ★ COLOR00 IS THE AMIGA'S BORDER TOO, AND THERE ARE TWENTY-FIVE OF THEM.
+ *
+ * DIW is exactly 320x200, so every scanline of the overscan outside it shows
+ * COLOR00 — and the copper rewrites all 32 registers, COLOR00 included, at each
+ * of the 25 band boundaries. Twenty-five independent cuts put twenty-five
+ * different colours there, so the left and right overscan strips came out
+ * STRIPED: measured on a boot frame, 21 distinct colours in 28 runs down a
+ * single border column, changing every 8 scanlines, one of them pure white.
+ *
+ * It had shipped since the per-band copper palette went in. Nothing caught it
+ * because every check — the AE comparisons, the colour counts, the montages —
+ * looked at the 320x200 image, where there is nothing wrong. The ST hit the
+ * identical bug the day the raster split landed there (st_unify_border, #139);
+ * this is the same fix, and the ST's three bands flattered it by comparison.
+ *
+ * Pick, in each later band, the slot nearest band 0's slot 0, permute it into
+ * position 0 (palette and remap together, so no pixel changes meaning), then
+ * set its RGB to band 0's exactly. Matching band 0 rather than forcing black is
+ * deliberate: uniform is the requirement, and band 0's colour is the one the
+ * border already had before the split existed.
+ *
+ * ★ may_permute IS NOT A TUNING KNOB. ecs_repalette's premise is that slot
+ * numbering does not move, so the planes on screen stay valid and no force-full
+ * is needed; permuting there would renumber slots behind those planes. That
+ * path forces the copper WORD alone — see the tail of ecs_repalette. */
+static void ecs_unify_border(short may_permute)
+{
+	const unsigned char *p0 = s_band_pal;         /* band 0, slot 0 */
+	unsigned char newpal[ECS_NCOL * 3];
+	unsigned char pos[ECS_NCOL];
+	short b, s, n, best;
+	long  bestd;
+
+	for (b = 1; b < ECS_NBANDS; b++) {
+		unsigned char *bp = s_band_pal + (long)b * ECS_NCOL * 3;
+		unsigned char *br = s_band_remap + (long)b * 256;
+
+		best  = 0;
+		bestd = 0x7fffffffL;
+		for (s = 0; s < ECS_NCOL; s++) {
+			long d = e_coldist(bp + (long)s * 3, p0);
+
+			if (d < bestd) { bestd = d; best = s; }
+		}
+		if (may_permute && best != 0) {          /* swap `best` and 0 */
+			for (n = 0; n < ECS_NCOL; n++)
+				pos[n] = (unsigned char)n;
+			pos[best] = 0;
+			pos[0]    = (unsigned char)best;
+			for (n = 0; n < ECS_NCOL; n++)
+				memcpy(newpal + (long)pos[n] * 3,
+				       bp + (long)n * 3, 3);
+			memcpy(bp, newpal, sizeof newpal);
+			for (n = 0; n < 256; n++)
+				br[n] = pos[br[n]];
+		}
+		memcpy(bp, p0, 3);      /* exactly, so the border is one colour */
+	}
+}
+
 /* Content-same palette change: reload the copper COLOR words from the NEW
  * CLUT via each band-slot's representative index. Same 4-bit encoding as
  * ecs_reband. Empty slots (rep 0xFF) keep their words. */
@@ -377,6 +437,12 @@ static void ecs_repalette(void)
 			                          | ((s_clut[rep * 3 + 1] >> 4) << 4)
 			                          | (s_clut[rep * 3 + 2] >> 4));
 		}
+	/* The reps are per band, so each band re-derives its own slot 0 from a
+	 * different index and the border would stripe again on the fast path
+	 * exactly as it does on the slow one. Only the copper WORD is forced —
+	 * no slot number moves, so the planes on screen stay valid. */
+	for (b = 1; b < ECS_NBANDS; b++)
+		*s_cop_pal[b][0] = *s_cop_pal[0][0];
 	memcpy(e_clut_quant, s_clut, sizeof e_clut_quant);
 }
 
@@ -524,6 +590,7 @@ static void ecs_reband(void)
 
 	quant_banded(s_chunky, ECS_W, ECS_H, s_clut,
 	             ECS_NBANDS, ECS_NCOL, ECS_BITS, s_band_pal, s_band_remap);
+	ecs_unify_border(1);            /* one COLOR00 for the whole border */
 	/* Capture what this quant saw: the global used set (the new-ink
 	 * detector's domain) and the per-band sets (the split-guard's). */
 	{
