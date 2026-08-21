@@ -229,6 +229,11 @@ static short        g_bard_on;
 static short        g_bard_step;        /* index into the tune               */
 static short        g_bard_frames;      /* frames left in the current step   */
 static short        g_bard_vol;         /* pluck envelope, 64 -> 0           */
+static short        g_bard_atk;         /* attack ramp frames left           */
+static short        g_bass_step, g_bass_frames, g_bass_vol, g_bass_atk;
+static long         g_bard_calls;       /* bard_vbl invocations this window  */
+static unsigned long g_bard_tod;         /* last CIA-A TOD reading            */
+static unsigned long bard_tod(void);
 static UWORD        g_bard_vol0;        /* AUD0 volume to restore            */
 
 /* Paula period for a BARD_WAVE_LEN loop: 3546895 / (freq * 32), PAL.
@@ -241,20 +246,37 @@ static UWORD        g_bard_vol0;        /* AUD0 volume to restore            */
 #define BN_B3 449
 #define BN_C4 424
 #define BN_D4 377
+#define BN_FS3 599
+#define BN_E4 336
+#define BN_FS4 300
+#define BN_G4 283
+#define BN_A4 252
 #define BN_REST 0                       /* no retrigger; the last pluck rings */
 
 /* {period, frames} — PAL frames, quarter ~= 33 (~90 bpm, campfire pace). */
 static const short g_bard_tune[][2] = {
-	{ BN_D4, 33 }, { BN_REST, 17 }, { BN_A3, 33 }, { BN_REST, 17 },
-	{ BN_F3, 25 }, { BN_G3, 25 },   { BN_A3, 50 }, { BN_REST, 25 },
-	{ BN_D4, 33 }, { BN_C4, 17 },   { BN_A3, 33 }, { BN_REST, 17 },
-	{ BN_B3, 25 }, { BN_A3, 25 },   { BN_G3, 50 }, { BN_REST, 25 },
-	{ BN_F3, 33 }, { BN_REST, 17 }, { BN_A3, 33 }, { BN_REST, 17 },
-	{ BN_G3, 25 }, { BN_F3, 25 },   { BN_E3, 50 }, { BN_REST, 25 },
-	{ BN_D3, 33 }, { BN_E3, 17 },   { BN_F3, 33 }, { BN_G3, 17 },
-	{ BN_E3, 50 }, { BN_D3, 66 },   { BN_REST, 50 },
+	/* D mixolydian, ~170 bpm — the somber dorian ballad read as a dirge
+	 * ("shouldn't it be a bit more upbeat and adventurous?"). Rising
+	 * contours, dotted rhythms, lands on the octave. */
+	{ BN_D4, 18 },  { BN_D4, 9 },   { BN_E4, 9 },  { BN_FS4, 18 },
+	{ BN_G4, 9 },   { BN_FS4, 9 },  { BN_E4, 18 }, { BN_FS4, 9 },
+	{ BN_G4, 9 },   { BN_A4, 27 },  { BN_REST, 9 },
+	{ BN_A4, 9 },   { BN_G4, 9 },   { BN_FS4, 9 }, { BN_E4, 9 },
+	{ BN_FS4, 18 }, { BN_D4, 18 },  { BN_E4, 9 },  { BN_FS4, 9 },
+	{ BN_E4, 9 },   { BN_C4, 9 },   { BN_D4, 27 }, { BN_REST, 9 },
+	{ BN_D4, 9 },   { BN_FS4, 9 },  { BN_A4, 18 }, { BN_B3, 9 },
+	{ BN_C4, 9 },   { BN_A3, 18 },  { BN_G3, 9 },  { BN_A3, 9 },
+	{ BN_D4, 36 },  { BN_REST, 18 },
 };
 #define BARD_STEPS (short)(sizeof g_bard_tune / sizeof g_bard_tune[0])
+
+/* The ground bass: roots and fifths below the melody, one slow loop.
+ * A2 1008  G2 1131  C3 847  D3 755. */
+static const short g_bard_bass[][2] = {
+	{ 755, 36 }, { 1008, 36 }, { 755, 36 }, { 1131, 36 },
+	{ 847, 36 }, { 1008, 36 }, { 755, 36 }, { 755, 36 },
+};
+#define BARD_BASS_STEPS (short)(sizeof g_bard_bass / sizeof g_bard_bass[0])
 
 void plat_bard_start(void)
 {
@@ -266,17 +288,19 @@ void plat_bard_start(void)
 		g_bard_wave = AllocMem(BARD_WAVE_LEN, MEMF_CHIP);
 		if (g_bard_wave == NULL)
 			return;
-		/* one triangle cycle, -60..+60 and back: 120 across 16 samples
-		 * = 8 per step. (The first cut used *15, which peaks at 165 and
-		 * OVERFLOWS signed char — a pitch, but an aliased snarl.) */
+		/* one triangle cycle, FULL SCALE -120..+120 and back: the first
+		 * tavern request. +-60 left 6 dB on the table — Paula's volume
+		 * register tops out at 64, so loudness lives in the WAVEFORM.
+		 * 240 across 16 samples = 16 per step, peaks at exactly +-120,
+		 * safely inside signed char. */
 		for (i = 0; i < BARD_WAVE_LEN; i++)
 			g_bard_wave[i] = (signed char)
-			    (i < 16 ? i * 8 - 60 : 60 - (i - 16) * 8);
+			    (i < 16 ? i * 16 - 120 : 120 - (i - 16) * 16);
 	}
 	g_bard_vol0 = 64;
 	CUSTOM->aud[0].ac_vol = 0;              /* mute the frozen engine chord */
 	/* melody: AUD1.  drone: AUD2, a soft D3 that just loops. */
-	CUSTOM->dmacon = (UWORD)(DMAF_AUD1 | DMAF_AUD2);
+	CUSTOM->dmacon = (UWORD)(DMAF_AUD1 | DMAF_AUD2 | DMAF_AUD3);
 	CUSTOM->aud[1].ac_ptr = (UWORD *)g_bard_wave;
 	CUSTOM->aud[1].ac_len = BARD_WAVE_LEN / 2;
 	CUSTOM->aud[1].ac_per = BN_D4;
@@ -284,9 +308,18 @@ void plat_bard_start(void)
 	CUSTOM->aud[2].ac_ptr = (UWORD *)g_bard_wave;
 	CUSTOM->aud[2].ac_len = BARD_WAVE_LEN / 2;
 	CUSTOM->aud[2].ac_per = BN_D3;
-	CUSTOM->aud[2].ac_vol = 10;             /* the drone, well back */
-	CUSTOM->dmacon = (UWORD)(DMAF_SETCLR | DMAF_MASTER | DMAF_AUD1 | DMAF_AUD2);
+	CUSTOM->aud[2].ac_vol = 14;             /* drone present, not a pedal */
+	CUSTOM->aud[3].ac_ptr = (UWORD *)g_bard_wave;
+	CUSTOM->aud[3].ac_len = BARD_WAVE_LEN / 2;
+	CUSTOM->aud[3].ac_per = 755;
+	CUSTOM->aud[3].ac_vol = 0;
+	CUSTOM->dmacon = (UWORD)(DMAF_SETCLR | DMAF_MASTER | DMAF_AUD1
+	                         | DMAF_AUD2 | DMAF_AUD3);
+	g_bard_tod    = bard_tod();
 	g_bard_step   = 0;
+	g_bass_step   = 0;
+	g_bass_frames = 0;
+	g_bass_vol    = 0;
 	g_bard_frames = 0;
 	g_bard_vol    = 0;
 	g_bard_on     = 1;
@@ -294,34 +327,109 @@ void plat_bard_start(void)
 
 void plat_bard_stop(void)
 {
+	extern void dbg_log_num(const char *, long);
+
 	if (!g_bard_on)
 		return;
-	CUSTOM->dmacon = (UWORD)(DMAF_AUD1 | DMAF_AUD2);
+	/* ★ THE TEMPO COMPLAINT WAS QUANTITATIVE. The user heard the tavern cut
+	 * as slow with a tick; the RMS profile showed pluck cycles ~4 s apart
+	 * against a table written for ~1 s — so before retuning any music, log
+	 * how often this window's bard_vbl ACTUALLY ran. If it is well under
+	 * 50/s, the VBL is being starved during the quant and the tune tables
+	 * are innocent. */
+	dbg_log_num("bard: vbl calls this window = ", g_bard_calls);
+	g_bard_calls = 0;
+	CUSTOM->dmacon = (UWORD)(DMAF_AUD1 | DMAF_AUD2 | DMAF_AUD3);
 	CUSTOM->aud[1].ac_vol = 0;
 	CUSTOM->aud[2].ac_vol = 0;
+	CUSTOM->aud[3].ac_vol = 0;
 	CUSTOM->aud[0].ac_vol = g_bard_vol0;    /* the engine ring returns */
 	g_bard_on = 0;
 }
 
-/* Called from plat_sound_vbl every frame while the bard plays. */
+/* CIA-A TOD: a 24-bit counter ticking at 50 Hz off the POWER SUPPLY —
+ * hardware time, immune to the interrupt starvation measured below. Reading
+ * HI latches the value; reading LO releases the latch. */
+static unsigned long bard_tod(void)
+{
+	volatile UBYTE *cia = (volatile UBYTE *)0xBFE001;
+	unsigned long hi = cia[0x0A00], mid = cia[0x0900], lo = cia[0x0800];
+
+	return (hi << 16) | (mid << 8) | lo;
+}
+
+/* Called from plat_sound_vbl while the bard plays — but NOT once per frame:
+ * ★ MEASURED at 15-31 Hz during a quant against the nominal 50 (73 and 725
+ * calls in windows expecting ~250 and ~1150). The user heard the result
+ * precisely — "it's slow, and there's a tick in it": the tune ran at a third
+ * speed off the starved call rate. (The same starvation under-fills the
+ * ENGINE's ring during conversions, and it skews rl-clock timings taken
+ * inside a quant — both recorded as open findings.) So the sequencer clocks
+ * itself off CIA-A TOD and advances by ELAPSED 50 Hz ticks per call: at 15 Hz
+ * servicing the envelopes step in chunks of ~3, but the tempo is true. */
+static void bard_step_frame(void);
+
 static void bard_vbl(void)
 {
+	unsigned long tod, elapsed;
+
 	if (!g_bard_on)
 		return;
+	g_bard_calls++;
+	tod = bard_tod();
+	elapsed = (tod - g_bard_tod) & 0xFFFFFFUL;
+	g_bard_tod = tod;
+	if (elapsed > 8)
+		elapsed = 8;            /* wild delta (first call, TOD wrap): clamp */
+	while (elapsed-- > 0)
+		bard_step_frame();
+}
+
+static void bard_step_frame(void)
+{
 	if (g_bard_frames <= 0) {
 		short per = g_bard_tune[g_bard_step][0];
 
 		g_bard_frames = g_bard_tune[g_bard_step][1];
 		if (per != BN_REST) {
 			CUSTOM->aud[1].ac_per = (UWORD)per;
-			g_bard_vol = 64;                /* pluck */
+			g_bard_atk = 3;                 /* pluck: RAMP to 64 over 3
+			                                 * frames — an instant step at
+			                                 * arbitrary waveform phase is
+			                                 * a CLICK, the user's "tick" */
 		}
 		g_bard_step = (short)((g_bard_step + 1) % BARD_STEPS);
 	}
 	g_bard_frames--;
-	if (g_bard_vol > 0) {
-		g_bard_vol--;                           /* the string rings down */
+	if (g_bard_atk > 0) {
+		g_bard_atk--;
+		g_bard_vol = (short)(64 - g_bard_atk * 20);
 		CUSTOM->aud[1].ac_vol = (UWORD)g_bard_vol;
+	} else if (g_bard_vol > 0) {
+		g_bard_vol--;                   /* full-rate decay: the half-rate
+		                                 * "tavern sustain" made every note
+		                                 * a slow fade — literally the sound
+		                                 * of dying the user kept hearing */
+		CUSTOM->aud[1].ac_vol = (UWORD)g_bard_vol;
+	}
+	/* the ground bass: its own slow loop under the melody. Deliberately NOT
+	 * length-matched to the tune — the lines drift against each other and
+	 * realign, which is how a real pair noodles. */
+	if (g_bass_frames <= 0) {
+		g_bass_frames = g_bard_bass[g_bass_step][1];
+		CUSTOM->aud[3].ac_per = (UWORD)g_bard_bass[g_bass_step][0];
+		g_bass_atk = 3;
+		g_bass_step = (short)((g_bass_step + 1) % BARD_BASS_STEPS);
+	}
+	g_bass_frames--;
+	if (g_bass_atk > 0) {
+		g_bass_atk--;
+		g_bass_vol = (short)(40 - g_bass_atk * 12);
+		CUSTOM->aud[3].ac_vol = (UWORD)g_bass_vol;
+	} else if (g_bass_vol > 0) {
+		g_bass_vol--;                   /* to SILENCE: the held floor of 12
+		                                 * was one more permanent drone */
+		CUSTOM->aud[3].ac_vol = (UWORD)g_bass_vol;
 	}
 }
 
