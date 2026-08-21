@@ -30,6 +30,7 @@
 
 #include <exec/types.h>
 #include <exec/memory.h>
+#include <exec/execbase.h>
 #include <graphics/gfxbase.h>
 #include <graphics/view.h>
 #include <hardware/custom.h>
@@ -752,10 +753,45 @@ extern const unsigned char qd_font_8x8[256][8];
 /* The DSOTS clause: the bar fills as the cut walks its 25 bands — real
  * progress, one byte of plane 0 per band (200 px / 25 bands = 8 px each).
  * Drawn into the same self-erasing notice box; the outline is ecs_notice's. */
+/* Mainline interrupt-state sampler, fired per band from inside the quant.
+ * On the 68000 MOVE from SR is UNPRIVILEGED, so the mainline can read its
+ * own interrupt mask directly; INTENAR/INTREQR say whether VERTB is enabled
+ * and whether one is sitting PENDING while the mainline runs (a pending bit
+ * in most samples = the interrupt is being held off, not lost). */
+static long q_smp, q_ipl_max, q_vertb_off, q_master_off, q_vertb_pend;
+
 static void ecs_notice_progress(short band, short nbands)
 {
 	unsigned char *front = s_planes[s_front];
 	short y, w = (short)(((long)(band + 1) * 200) / nbands);
+
+	{
+		volatile UWORD *intenar = (volatile UWORD *)0xDFF01C;
+		volatile UWORD *intreqr = (volatile UWORD *)0xDFF01E;
+		UWORD ena = *intenar, req = *intreqr;
+
+		/* MOVE from SR is unprivileged ONLY on the 68000 (privileged on
+		 * 68010+, and this -m68000 binary also boots on 020 machines) —
+		 * the compile-time guard here HUNG two cross-check runs. */
+		{
+			extern struct ExecBase *SysBase;
+
+			if (!(SysBase->AttnFlags & AFF_68010)) {
+				UWORD sr;
+
+				__asm__ volatile ("move.w %%sr,%0" : "=d" (sr));
+				if (((sr >> 8) & 7) > q_ipl_max)
+					q_ipl_max = (sr >> 8) & 7;
+			}
+		}
+		q_smp++;
+		if (!(ena & 0x0020))
+			q_vertb_off++;
+		if (!(ena & 0x4000))
+			q_master_off++;
+		if (req & 0x0020)
+			q_vertb_pend++;
+	}
 
 	for (y = 112; y < 117; y++)
 		memset(front + (long)y * ECS_PITCH + (60 >> 3), 0xFF, (w + 7) >> 3);
@@ -867,8 +903,16 @@ static void ecs_reband(void)
 		quant_progress = (void (*)(short, short))0;
 		{
 			extern void plat_bard_stop(void);
+			extern void dbg_log_num(const char *, long);
 
 			plat_bard_stop();
+			dbg_log_num("q: progress samples    = ", q_smp);
+			dbg_log_num("q: mainline IPL max    = ", q_ipl_max);
+			dbg_log_num("q: VERTB disabled  smp = ", q_vertb_off);
+			dbg_log_num("q: INTEN master off smp= ", q_master_off);
+			dbg_log_num("q: VERTB pending   smp = ", q_vertb_pend);
+			q_smp = 0; q_ipl_max = 0;
+			q_vertb_off = 0; q_master_off = 0; q_vertb_pend = 0;
 		}
 		ecs_unify_border(1);    /* one COLOR00 for the whole border */
 		if (ecs_pal_cache && e_pc_blob != NULL && e_pc_n < EPC_MAX) {

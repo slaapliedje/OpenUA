@@ -232,7 +232,24 @@ static short        g_bard_vol;         /* pluck envelope, 64 -> 0           */
 static short        g_bard_atk;         /* attack ramp frames left           */
 static short        g_bass_step, g_bass_frames, g_bass_vol, g_bass_atk;
 static long         g_bard_calls;       /* bard_vbl invocations this window  */
+static long         g_bard_gap[6];      /* arrival-gap histogram, TOD ticks  */
+static long         g_bard_gapmax;      /* largest gap seen this window      */
+static long         g_bard_front0, g_bard_tail0;  /* chain-bracket snapshots */
+/* Handler-cost instrumentation (mainline-read): total beam lines spent inside
+ * plat_sound_vbl and the call count, so avg lines/call ~ handler cost. A PAL
+ * frame is 313 lines: an average NEAR 313 means the handler costs a whole
+ * frame and the starvation is SELF-inflicted. */
+static long g_vblprof_lines, g_vblprof_calls;
+
+static unsigned long vbl_beamline(void)
+{
+	unsigned long vp = *(volatile unsigned long *)0xDFF004UL;
+
+	return (((vp >> 16) & 1UL) << 8) + ((vp >> 8) & 0xFFUL);
+}
+
 static unsigned long g_bard_tod;         /* last CIA-A TOD reading            */
+static unsigned long g_bard_tod0;        /* window start, for WALL duration   */
 static unsigned long bard_tod(void);
 static UWORD        g_bard_vol0;        /* AUD0 volume to restore            */
 
@@ -316,6 +333,13 @@ void plat_bard_start(void)
 	CUSTOM->dmacon = (UWORD)(DMAF_SETCLR | DMAF_MASTER | DMAF_AUD1
 	                         | DMAF_AUD2 | DMAF_AUD3);
 	g_bard_tod    = bard_tod();
+	g_bard_tod0   = g_bard_tod;
+	{
+		extern long g_vbl_front_ticks, g_vbl_tail_ticks;
+
+		g_bard_front0 = g_vbl_front_ticks;
+		g_bard_tail0  = g_vbl_tail_ticks;
+	}
 	g_bard_step   = 0;
 	g_bass_step   = 0;
 	g_bass_frames = 0;
@@ -338,12 +362,52 @@ void plat_bard_stop(void)
 	 * 50/s, the VBL is being starved during the quant and the tune tables
 	 * are innocent. */
 	dbg_log_num("bard: vbl calls this window = ", g_bard_calls);
+	/* ★ WALL TIME, from hardware: every rate claim in this hunt so far divided
+	 * by an rl-clock duration, and the rl clock is driven by the very server
+	 * being starved. TOD ticks at 50 Hz off the power supply regardless, so
+	 * calls vs ticks is the true service ratio, and ticks/50 is the true
+	 * quant wall time -- the first uncorrupted duration measured this week. */
+	dbg_log_num("bard: window TOD ticks (50Hz)= ",
+	            (long)((bard_tod() - g_bard_tod0) & 0xFFFFFFUL));
+	dbg_log_num("bard: handler calls          = ", g_vblprof_calls);
+	dbg_log_num("bard: handler beam lines     = ", g_vblprof_lines);
+	{
+		short i;
+
+		for (i = 0; i < 6; i++) {
+			static const char *nm[6] = {
+				"bard: gap 0 ticks x ", "bard: gap 1 tick  x ",
+				"bard: gap 2 ticks x ", "bard: gap 3 ticks x ",
+				"bard: gap 4 ticks x ", "bard: gap >=5     x " };
+
+			dbg_log_num(nm[i], g_bard_gap[i]);
+			g_bard_gap[i] = 0;
+		}
+		dbg_log_num("bard: gap max     = ", g_bard_gapmax);
+		g_bard_gapmax = 0;
+	}
+	{
+		extern long g_vbl_front_ticks, g_vbl_tail_ticks;
+
+		dbg_log_num("bard: chain FRONT calls  = ",
+		            g_vbl_front_ticks - g_bard_front0);
+		dbg_log_num("bard: chain TAIL calls   = ",
+		            g_vbl_tail_ticks - g_bard_tail0);
+	}
+	g_vblprof_calls = 0; g_vblprof_lines = 0;
 	g_bard_calls = 0;
 	CUSTOM->dmacon = (UWORD)(DMAF_AUD1 | DMAF_AUD2 | DMAF_AUD3);
 	CUSTOM->aud[1].ac_vol = 0;
 	CUSTOM->aud[2].ac_vol = 0;
 	CUSTOM->aud[3].ac_vol = 0;
 	CUSTOM->aud[0].ac_vol = g_bard_vol0;    /* the engine ring returns */
+	/* the render skipped while muted: put the write cursor back half a ring
+	 * ahead of the play model, as init does, so the resumed synth writes
+	 * ahead of the DMA instead of into stale geometry */
+	g_ring_w = g_ring_play + RING_SAMPLES / 2;
+	if (g_ring_w >= RING_SAMPLES)
+		g_ring_w -= RING_SAMPLES;
+	g_quiet_run = 0;
 	g_bard_on = 0;
 }
 
@@ -379,6 +443,11 @@ static void bard_vbl(void)
 	tod = bard_tod();
 	elapsed = (tod - g_bard_tod) & 0xFFFFFFUL;
 	g_bard_tod = tod;
+	/* arrival shape: a steady every-3rd-frame beat shows as a spike at
+	 * gap=3; masked STRETCHES show as mostly gap=1 plus rare huge gaps. */
+	g_bard_gap[elapsed <= 4 ? elapsed : 5]++;
+	if ((long)elapsed > g_bard_gapmax)
+		g_bard_gapmax = (long)elapsed;
 	if (elapsed > 8)
 		elapsed = 8;            /* wild delta (first call, TOD wrap): clamp */
 	while (elapsed-- > 0)
@@ -550,14 +619,19 @@ void plat_sound_set_vbl_hook(void (*fn)(void))
  * pass can never starve the DMA. Memory writes only: interrupt-safe. */
 void plat_sound_vbl(void)
 {
+	unsigned long b0 = vbl_beamline();
+
 	bard_vbl();
 
 	void (*hook)(void);
 	long lead, todo;
 	int  audible;
 
-	if (!g_ring_live)
+	if (!g_ring_live) {
+		g_vblprof_calls++;
+		g_vblprof_lines += (long)((vbl_beamline() - b0 + 313UL) % 313UL);
 		return;
+	}
 
 	g_ring_play += FRAME_SAMPLES;
 	if (g_ring_play >= RING_SAMPLES)
@@ -590,6 +664,8 @@ void plat_sound_vbl(void)
 	g_quiet_run = 0;                        /* A/B arm: gate disabled */
 #endif
 	if (!audible && g_quiet_run >= RING_SAMPLES) {
+		g_vblprof_calls++;
+		g_vblprof_lines += (long)((vbl_beamline() - b0 + 313UL) % 313UL);
 		/* Hold the write point exactly half a ring ahead rather than
 		 * leaving it where it was. Letting it drift would make `lead`
 		 * wrap on the next audible frame, `todo` go negative, and the
@@ -623,6 +699,8 @@ void plat_sound_vbl(void)
 		hook();
 		g_amiga_in_int = 0;
 	}
+	g_vblprof_calls++;
+	g_vblprof_lines += (long)((vbl_beamline() - b0 + 313UL) % 313UL);
 }
 
 #endif /* FRUA_AMIGA */

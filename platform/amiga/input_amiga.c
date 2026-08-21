@@ -389,6 +389,17 @@ static UWORD          s_last_joy;
 static short          s_last_btn;
 
 static struct Interrupt s_vbl_int;
+
+/* Chain-bracket probes for the VERTB starvation hunt: identical counter
+ * servers at the FRONT (pri 127, before graphics/Intuition) and TAIL
+ * (pri -128) of the level-3 VERTB server chain. If the front count runs
+ * 3x ours during a long quant, a middle server aborts the chain; if the
+ * front is starved too, the interrupt itself is not being taken. */
+long g_vbl_front_ticks, g_vbl_tail_ticks;
+static struct Interrupt s_vbl_front, s_vbl_tail;
+
+static LONG vbl_probe_front(void) { g_vbl_front_ticks++; return 0; }
+static LONG vbl_probe_tail(void)  { g_vbl_tail_ticks++;  return 0; }
 static int              s_vbl_installed;
 
 /* Display backend's sprite-cursor tick (platform-internal, display_aga.c):
@@ -476,6 +487,16 @@ void plat_input_init(short screen_w, short screen_h)
 		s_vbl_int.is_Data         = NULL;
 		s_vbl_int.is_Code         = (VOID (*)())vbl_server;
 		AddIntServer(INTB_VERTB, &s_vbl_int);
+		s_vbl_front.is_Node.ln_Type = NT_INTERRUPT;
+		s_vbl_front.is_Node.ln_Pri  = 127;
+		s_vbl_front.is_Node.ln_Name = (char *)"OpenUA VBLprobeF";
+		s_vbl_front.is_Code         = (VOID (*)())vbl_probe_front;
+		AddIntServer(INTB_VERTB, &s_vbl_front);
+		s_vbl_tail.is_Node.ln_Type = NT_INTERRUPT;
+		s_vbl_tail.is_Node.ln_Pri  = -128;
+		s_vbl_tail.is_Node.ln_Name = (char *)"OpenUA VBLprobeT";
+		s_vbl_tail.is_Code          = (VOID (*)())vbl_probe_tail;
+		AddIntServer(INTB_VERTB, &s_vbl_tail);
 		s_vbl_installed = 1;
 	}
 	s_kb_head = s_kb_tail = 0;
@@ -487,6 +508,8 @@ void plat_input_shutdown(void)
 	kb_remove();
 	if (s_vbl_installed) {
 		RemIntServer(INTB_VERTB, &s_vbl_int);
+		RemIntServer(INTB_VERTB, &s_vbl_front);
+		RemIntServer(INTB_VERTB, &s_vbl_tail);
 		s_vbl_installed = 0;
 	}
 }
