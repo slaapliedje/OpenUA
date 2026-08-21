@@ -36,8 +36,12 @@
 #include <hardware/dmabits.h>
 #include <proto/exec.h>
 #include <proto/graphics.h>
+#include <stdio.h>
 #include <string.h>              /* memcmp/memcpy (was implicitly declared) */
 
+#if defined(FRUA_ECSTRACE) && !defined(FRUA_AMIGAPROF)
+#error "FRUA_ECSTRACE timestamps need amiga_prof_rl -- build with FRUA_AMIGAPROF too"
+#endif
 #ifdef FRUA_AMIGAPROF
 #define QUANT_PROF
 #define QUANT_PROF_T() amiga_prof_rl()
@@ -80,6 +84,11 @@ static unsigned char  s_clut[256 * 3];
 static unsigned char  s_band_pal[ECS_NBANDS * ECS_NCOL * 3];
 static unsigned char  s_band_remap[ECS_NBANDS * 256];
 static short          s_dirty;
+/* When an incremental present's changed rows carry heavy NEW INK — indices the
+ * current band palettes cannot show — render the frame properly NOW instead of
+ * painting it through the wrong palette. Runtime knob: video.cfg inkhold=off. */
+short ecs_ink_hold = 1;
+static short e_held_once;      /* one hold per burst — never two in a row */
 static short          s_have_pal;
 
 #ifdef FRUA_PLANAR
@@ -226,6 +235,32 @@ static int ecs_init(short want_w, short want_h)
 		return 1;
 	}
 	s_front = 0;
+
+	/* video.cfg, same contract as the ST/Nova backends: runtime knobs so an
+	 * A/B is one binary. The Amiga side never had a reader — the current
+	 * directory is the game dir (DH0:), same place DBG.LOG lands. */
+	{
+		FILE *cf = fopen("video.cfg", "r");
+
+		if (cf != NULL) {
+			char buf[256];
+			size_t n = fread(buf, 1, sizeof buf - 1, cf);
+			size_t i;
+
+			fclose(cf);
+			buf[n > 0 ? n : 0] = '\0';
+			for (i = 0; buf[i] != '\0'; i++)
+				if (buf[i] >= 'A' && buf[i] <= 'Z')
+					buf[i] = (char)(buf[i] + 32);
+			if (strstr(buf, "inkhold=off") != NULL) {
+				ecs_ink_hold = 0;
+				dbg_log("ecs: ink-hold DISABLED (video.cfg)");
+			} else if (strstr(buf, "inkhold=on") != NULL) {
+				ecs_ink_hold = 1;
+				dbg_log("ecs: ink-hold ENABLED (video.cfg)");
+			}
+		}
+	}
 	s_dirty = 1;                    /* first present builds the bands */
 	s_force_full = 1;
 #ifdef FRUA_PLANAR
@@ -707,6 +742,10 @@ static void ecs_render(void)
 	CopyMem(s_chunky, s_shadow, (ULONG)ECS_W * ECS_H);
 	cop_point_planes(back);
 	s_front ^= 1;
+#ifdef FRUA_ECSTRACE
+	dbg_log_num("et: FLIP to buffer      = ", (long)s_front);
+	dbg_log_num("et: flip at rl          = ", amiga_prof_rl());
+#endif
 	s_force_full = 0;
 }
 
@@ -853,7 +892,13 @@ static void ecs_present(void)
 	{ long ap_c0 = amiga_prof_rl();
 #endif
 	if (s_force_full || s_dirty) {
+#ifdef FRUA_ECSTRACE
+		dbg_log_num("et: FULL render start rl= ", amiga_prof_rl());
+#endif
 		ecs_render();
+#ifdef FRUA_ECSTRACE
+		dbg_log_num("et: FULL render end rl  = ", amiga_prof_rl());
+#endif
 		/* The flipped-in page was rebuilt whole and the shadow re-synced:
 		 * nothing is owed. (Matches the ST force-full's pend reset.) */
 		memset(e_pend, 0, sizeof e_pend);
@@ -863,6 +908,62 @@ static void ecs_present(void)
 		for (p = 0; p < ECS_DEPTH; p++)
 			planes[p] = front + (ULONG)p * ECS_PITCH * ECS_H;
 		ecs_pend_gather();
+
+		/* ★ DO NOT PAINT A SCREEN THE PALETTE CANNOT SHOW (the boot's
+		 * 70-second bar). The title sequence draws each screen's art and
+		 * presents BEFORE installing its palette, so this branch would
+		 * convert the new art through the PREVIOUS screen's bands — on a
+		 * real boot that rendered as black with one garbled strip, held for
+		 * the length of the following re-band.
+		 *
+		 * ★ AND RENDERING NOW IS ALSO WRONG — the first cut of this fix
+		 * re-banded and rendered in this present, reasoning that a held
+		 * frame with no follow-up present would stay stale forever. Measured
+		 * on the boot: the re-quant runs against the CLUT AS IT STANDS,
+		 * which is exactly what is stale — it painted the whole SSI screen
+		 * in well-quantised garbage colours and added a 9.5 s re-band per
+		 * title. No amount of quantising fixes indices whose CLUT entries
+		 * have not arrived.
+		 *
+		 * So: HOLD, once. Keep the announcements pending (e_pend survives —
+		 * it is only consumed per-row by conversion or wholesale by a full
+		 * render) and show the last complete frame. The title case gets its
+		 * palette install immediately after, which sets s_dirty and takes
+		 * the full-render path with the REAL palette — the garbage is never
+		 * painted. The legitimate case — new ink whose CLUT entries are
+		 * fine, an event portrait say — paints on the NEXT present via the
+		 * bucket fallback exactly as before, one modal-loop pass later,
+		 * because a second consecutive hold is not allowed.
+		 *
+		 * Threshold 8, not the scheduler's 4: a false fire here delays a
+		 * paint by one present, but chrome/glyph updates should never trip
+		 * it. One table lookup per pixel of the announced rows. */
+		if (ecs_ink_hold && s_have_pal && !e_held_once) {
+			long ink = 0;
+			short yy;
+
+			for (yy = 0; yy < ECS_H && ink < 8; yy++) {
+				const unsigned char *row;
+				short xx;
+
+				if (!e_pend[yy])
+					continue;
+				row = s_chunky + (long)yy * ECS_W;
+				for (xx = 0; xx < ECS_W; xx++)
+					if (!e_used_idx[row[xx]] && ++ink >= 8)
+						break;
+			}
+			if (ink >= 8) {
+#ifdef FRUA_ECSTRACE
+				dbg_log_num("et: INK-HOLD (skip paint), rl = ",
+				            amiga_prof_rl());
+#endif
+				e_held_once = 1;
+				return;
+			}
+		}
+		e_held_once = 0;
+
 		for (y = 0; y < ECS_H; y++) {
 			/* #63: only an announced row can have moved; the rest keep
 			 * their shadow and are skipped without being read. */
@@ -912,6 +1013,19 @@ static void ecs_present(void)
 			CopyMem(s_chunky + (long)y * ECS_W,
 			        s_shadow + (long)y * ECS_W, ECS_W);
 		}
+#ifdef FRUA_ECSTRACE
+		{
+			static long et_n;
+			short yy, lo = -1, hi = -1, nrows = 0;
+
+			/* recount from the shadow-sync we just did? cheaper: track in
+			 * the loop would touch shipping code; a coarse summary is
+			 * enough — log the pend gather result once per present. */
+			(void)yy; (void)lo; (void)hi; (void)nrows;
+			dbg_log_num("et: INCR present #      = ", ++et_n);
+			dbg_log_num("et: INCR at rl          = ", amiga_prof_rl());
+		}
+#endif
 	}
 #ifdef FRUA_AMIGAPROF
 	ap_conv_t += amiga_prof_rl() - ap_c0; }
@@ -937,6 +1051,9 @@ static void ecs_present(void)
 static void ecs_present_rect(short x, short y, short w, short h)
 {
 	unsigned char *front = s_planes[s_front];
+#ifdef FRUA_ECSTRACE
+	dbg_log_num("et: RECT y*1000+h at rl = ", (long)y * 1000 + h);
+#endif
 	unsigned char *planes[ECS_DEPTH];
 	short p, x1;
 
