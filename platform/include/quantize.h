@@ -88,6 +88,59 @@ static short quant_partition(unsigned char *idx, const unsigned char *clut,
  * colours than the budget). The banded quantiser feeds it the COMPACT list of
  * colours actually used in a band, so ncolors is usually well under 256.
  */
+/* ★ |d| -> d*d, BECAUSE THE 68000 HAS NO 32-BIT MULTIPLY.
+ *
+ * The nearest-colour remap below (b7d628ba) scored candidates with
+ * `2L*dr*dr + 5L*dg*dg + 1L*db*db`. Those are 32-bit multiplies, so on a plain
+ * 68000 each one is a __mulsi3 library call at ~200 cycles — three per distance,
+ * m*ntot distances per band.
+ *
+ * On the ST that is affordable: #139 had already collapsed 25 bands to 1-3
+ * palette GROUPS, so a re-band pays it once or three times (+2.9%, measured).
+ * The Amiga ECS still cuts all 25 BANDS, and this header is shared — so the same
+ * change cost it twenty-five times as much: ~614,000 __mulsi3 calls per re-band,
+ * ~17 s at 7 MHz. Measured live at 16.8 s per re-band, 86% of the entire ECS
+ * boot, which is what made its title screens paint a strip at a time.
+ *
+ * A 512-byte table makes the whole distance shifts and adds. The value is
+ * IDENTICAL — 2*dr^2 + 5*dg^2 + db^2 either way — so palettes, remaps and every
+ * rendered frame are bit-for-bit unchanged. This is purely the cost.
+ *
+ * ★ AND THE LESSON: this header is shared by every backend. A change priced on
+ * one of them is not priced. */
+/* Optional phase timing. A backend defines QUANT_PROF and supplies
+ * QUANT_PROF_T() returning a monotonic tick; quant_banded then attributes its
+ * per-band work. Off by default and zero-cost. Added because the ECS re-band
+ * was 86% of a boot and THREE successive theories about where the time went
+ * (unannounced rows, per-row conversion, the 32-bit multiplies) were each
+ * wrong or partial — the multiplies turned out to be 44%. */
+#ifdef QUANT_PROF
+long quant_ph_hist, quant_ph_keep, quant_ph_cut, quant_ph_remap, quant_ph_buck;
+#define QP_VARS long qp_h = 0, qp_k = 0, qp_c = 0, qp_r = 0, qp_b = 0
+#define QP_UNUSED (void)qp_h; (void)qp_k; (void)qp_c; (void)qp_r; (void)qp_b
+#define QP0(v) (v) = QUANT_PROF_T()
+#define QP1(a, v) (a) += QUANT_PROF_T() - (v)
+#else
+#define QP_VARS short qp_unused = 0
+#define QP_UNUSED (void)qp_unused
+#define QP0(v) do { } while (0)
+#define QP1(a, v) do { } while (0)
+#endif
+
+static unsigned short quant_sq[256];
+static short          quant_sq_ready;
+
+static void quant_sq_init(void)
+{
+	short k;
+
+	if (quant_sq_ready)
+		return;
+	for (k = 0; k < 256; k++)
+		quant_sq[k] = (unsigned short)(k * k);
+	quant_sq_ready = 1;
+}
+
 static short quant_reduce_n(const unsigned char *clut, short ncolors,
                             short n, short bits,
                             unsigned char *out_pal, unsigned char *remap)
@@ -242,6 +295,10 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 	short idxlist[256];
 	short b, i, x, y, m;
 
+	QP_VARS;
+
+	quant_sq_init();
+	QP_UNUSED;
 	if (nbands < 1)
 		nbands = 1;
 	if (nbands > QUANT_MAX_BANDS)
@@ -264,6 +321,7 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 			cnt[i] = 0;
 			kept[i] = 0;
 		}
+		QP0(qp_h);
 		for (y = y0; y < y1; y += 2) {
 			const unsigned char *row = chunky + (long)y * w;
 
@@ -272,6 +330,8 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 			total += w;
 		}
 
+		QP1(quant_ph_hist, qp_h);
+		QP0(qp_k);
 		/* Reserve exact slots for the most populous colours. Repeated
 		 * max-scans (at most QUANT_KEEP passes over 256) rather than a
 		 * sort — the budget is tiny and this stays 68000-cheap.
@@ -314,6 +374,7 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 			nkeep++;
 		}
 
+		QP1(quant_ph_keep, qp_k);
 		/* Everything else present goes to the median cut, which divides
 		 * the slots the reservation left. */
 		m = 0;
@@ -335,8 +396,15 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 		}
 		n = 0;
 		if (m > 0 && ncol - nkeep > 0)
+			QP0(qp_c);
+			/* ★ THE BRACKET MUST CLOSE ON EVERY PATH ITS OPEN RAN ON,
+			 * AND NO OTHER. The first cut of these timers opened qp_c
+			 * inside this if and closed it outside: every band that
+			 * skipped the median cut added the ABSOLUTE clock to the
+			 * phase, and the dump reported a phase 5x its own total. */
 			n = quant_reduce_n(cclut, m, (short)(ncol - nkeep), bits,
 			                   bpal + nkeep * 3, cremap);
+			QP1(quant_ph_cut, qp_c);
 		ntot = (short)(nkeep + n);          /* live entries in this band */
 		for (i = ntot * 3; i < ncol * 3; i++)
 			bpal[i] = 0;
@@ -362,6 +430,7 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 		{
 			unsigned char btab[4 * 8 * 4];
 			short bk, j;
+			QP0(qp_b);
 
 			for (bk = 0; bk < 4 * 8 * 4; bk++) {
 				/* bucket centre: r = bk>>5, g = (bk>>2)&7, b = bk&3 */
@@ -375,11 +444,26 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 					short dr = (short)(bpal[j * 3 + 0] - cr);
 					short dg = (short)(bpal[j * 3 + 1] - cg);
 					short db = (short)(bpal[j * 3 + 2] - cb);
+					unsigned short qr, qg, qb;
+					long d;
+
 					/* 2:5:1 weights — the same perceptual
 					 * weighting the luma version used, now
-					 * applied per channel instead of collapsed */
-					long  d  = 2L * dr * dr + 5L * dg * dg
-					         + 1L * db * db;
+					 * applied per channel instead of collapsed.
+					 * ★ AND THIS IS THE BIG ONE on a 68000:
+					 * 128 buckets x ntot per band, against the
+					 * present-colour remap's m x ntot where m is
+					 * usually small. Fixing only the remap first
+					 * bought 5%; this loop is the rest. Same
+					 * value, shifts and adds (see quant_sq). */
+					if (dr < 0) dr = (short)-dr;
+					if (dg < 0) dg = (short)-dg;
+					if (db < 0) db = (short)-db;
+					qr = quant_sq[dr];
+					qg = quant_sq[dg];
+					qb = quant_sq[db];
+					d = ((long)qr << 1) + ((long)qg << 2)
+					  + (long)qg + (long)qb;
 
 					if (d < bestd) {
 						bestd = d;
@@ -392,6 +476,7 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 				brem[i] = btab[(((clut[i * 3 + 0] >> 6) & 3) << 5)
 				             | (((clut[i * 3 + 1] >> 5) & 7) << 2)
 				             |  ((clut[i * 3 + 2] >> 6) & 3)];
+			QP1(quant_ph_buck, qp_b);
 		}
 		/* Present colours override the fallback.
 		 *
@@ -415,6 +500,7 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 		 *
 		 * cremap is still what quant_reduce_n filled in; it is no longer
 		 * read, but the cut needs somewhere to put it. */
+		QP0(qp_r);
 		for (i = 0; i < m; i++) {
 			const unsigned char *c = cclut + (long)i * 3;
 			long  bestd = 0x7FFFFFFFL;
@@ -424,7 +510,15 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 				short dr = (short)(bpal[j * 3 + 0] - c[0]);
 				short dg = (short)(bpal[j * 3 + 1] - c[1]);
 				short db = (short)(bpal[j * 3 + 2] - c[2]);
-				long  d  = 2L * dr * dr + 5L * dg * dg + 1L * db * db;
+				unsigned short qr, qg, qb;
+				long d;
+
+				if (dr < 0) dr = (short)-dr;
+				if (dg < 0) dg = (short)-dg;
+				if (db < 0) db = (short)-db;
+				qr = quant_sq[dr]; qg = quant_sq[dg]; qb = quant_sq[db];
+				/* 2*qr + 5*qg + qb, in shifts and adds */
+				d = ((long)qr << 1) + ((long)qg << 2) + (long)qg + (long)qb;
 
 				if (d < bestd) {
 					bestd = d;
@@ -433,6 +527,7 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 			}
 			brem[idxlist[i]] = (unsigned char)bestj;
 		}
+		QP1(quant_ph_remap, qp_r);
 		/* The reserved slots are exact by construction, so they win over
 		 * any search — and they must be applied LAST for that to hold. */
 		for (i = 0; i < 256; i++)

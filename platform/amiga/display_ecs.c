@@ -38,6 +38,10 @@
 #include <proto/graphics.h>
 #include <string.h>              /* memcmp/memcpy (was implicitly declared) */
 
+#ifdef FRUA_AMIGAPROF
+#define QUANT_PROF
+#define QUANT_PROF_T() amiga_prof_rl()
+#endif
 #include "quantize.h"            /* quant_banded — the banded median-cut reducer */
 #include "planar.h"              /* draw-time plane path (B4) — hook + puts */
 
@@ -658,6 +662,15 @@ static void ecs_reband(void)
 	s_force_full = 1;               /* every LUT moved: row diffing is void */
 }
 
+#ifdef FRUA_AMIGAPROF
+/* Declared HERE, above ecs_render, not with the other ap_* counters further
+ * down — ecs_render precedes them in the file. (Same ordering trap the ST's
+ * sp_vp_rearm hit; it costs a build and, if the rc is not checked, a whole run
+ * on the STALE binary that looks like a measurement.) */
+static long ap_quant_t, ap_quant_n;   /* ecs_reband alone (the 25 cuts)      */
+static long ap_remap_t, ap_c2pf_t;    /* whole-screen remap / c2p in render  */
+#endif
+
 /* Full render: (re-band if dirty), remap the whole surface, convert to the
  * back plane set, flip. */
 static void ecs_render(void)
@@ -666,12 +679,31 @@ static void ecs_render(void)
 	unsigned char *planes[ECS_DEPTH];
 	short p;
 
-	if (s_dirty)
+	if (s_dirty) {
+#ifdef FRUA_AMIGAPROF
+		long q0 = amiga_prof_rl();
+#endif
 		ecs_reband();
+#ifdef FRUA_AMIGAPROF
+		ap_quant_t += amiga_prof_rl() - q0; ap_quant_n++;
+#endif
+	}
+#ifdef FRUA_AMIGAPROF
+	{ long r0 = amiga_prof_rl();
+#endif
 	remap_rect(0, 0, ECS_W, ECS_H);
+#ifdef FRUA_AMIGAPROF
+	ap_remap_t += amiga_prof_rl() - r0; }
+#endif
 	for (p = 0; p < ECS_DEPTH; p++)
 		planes[p] = back + (ULONG)p * ECS_PITCH * ECS_H;
+#ifdef FRUA_AMIGAPROF
+	{ long p0 = amiga_prof_rl();
+#endif
 	c2p_amiga_n(s_remap_buf, planes, ECS_W, ECS_H, ECS_PITCH, ECS_DEPTH);
+#ifdef FRUA_AMIGAPROF
+	ap_c2pf_t += amiga_prof_rl() - p0; }
+#endif
 	CopyMem(s_chunky, s_shadow, (ULONG)ECS_W * ECS_H);
 	cop_point_planes(back);
 	s_front ^= 1;
@@ -755,6 +787,17 @@ static void ecs_prof_dump(void)
 	dbg_log_num("apecs:  of which conv= ", ap_conv_t);
 	dbg_log_num("apecs:  conv rows    = ", ap_conv_rows);
 	dbg_log_num("apecs:  rows SCANNED = ", ap_scanned_rows);
+	dbg_log_num("apecs:  REBANDS      = ", ap_quant_n);
+	dbg_log_num("apecs:  reband rl    = ", ap_quant_t);
+	{ extern long quant_ph_hist, quant_ph_keep, quant_ph_cut,
+	              quant_ph_remap, quant_ph_buck;
+	dbg_log_num("apecs:   q hist      = ", quant_ph_hist);
+	dbg_log_num("apecs:   q keep      = ", quant_ph_keep);
+	dbg_log_num("apecs:   q cut       = ", quant_ph_cut);
+	dbg_log_num("apecs:   q remap     = ", quant_ph_remap);
+	dbg_log_num("apecs:   q buckets   = ", quant_ph_buck); }
+	dbg_log_num("apecs:  full remap rl= ", ap_remap_t);
+	dbg_log_num("apecs:  full c2p rl  = ", ap_c2pf_t);
 #ifdef FRUA_DIRTYCHECK
 	dbg_log_num("apecs:  UNANNOUNCED  = ", g_ecs_dirtycheck_miss);
 #endif
@@ -883,6 +926,11 @@ static void ecs_present(void)
 #ifdef FRUA_AMIGAPROF
 	ap_full_t += amiga_prof_rl() - ap_t0;
 	ap_full_n++;
+	/* The dump also has to fire on FULL presents. It hung off the rect
+	 * path alone, and the boot/title sequence issues no rect presents — so the
+	 * UNANNOUNCED counter was compiled, incremented, and never printed. */
+	if ((ap_full_n & 7) == 0)
+		ecs_prof_dump();
 #endif
 }
 
