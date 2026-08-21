@@ -203,6 +203,128 @@ int plat_sound_init(void)
 	return 0;
 }
 
+
+/* --- the campfire bard (the first-load loading tune) ----------------------
+ *
+ * Plays while the palette quantiser runs — the "please wait" screen's music.
+ * The engine's own audio CANNOT cover this window: its notes come from the
+ * sequencer in the MAINLINE, which is busy doing the median cuts, so the VBL
+ * ring faithfully renders whatever chord was sounding when the cut began — a
+ * 20-second frozen drone ("something struggling to not die", as it was
+ * reported from the room it leaked into). So while the bard plays, AUD0 (the
+ * engine ring) is muted and AUD1/AUD2 — which the engine never uses; the
+ * whole Mac synth is software-mixed onto channel 0 — carry the tune.
+ *
+ * Entirely VBL-driven and DMA-fed, so it is immune to the very stall it
+ * decorates: Paula loops the waveforms by itself; the VBL only retunes
+ * ac_per and walks the pluck envelope down ac_vol. Zero mainline work.
+ *
+ * The instruments are SYNTHESIZED at start (32-byte triangle loop — chip-lute
+ * — in CHIP RAM), the melody is an ORIGINAL sixteen bars in D dorian over a
+ * fifth drone: nothing shipped, nothing licensed. Sparse on purpose: one
+ * melody voice, one drone, plucks left to ring. */
+#define BARD_WAVE_LEN 32
+static signed char *g_bard_wave;        /* CHIP: one triangle cycle          */
+static short        g_bard_on;
+static short        g_bard_step;        /* index into the tune               */
+static short        g_bard_frames;      /* frames left in the current step   */
+static short        g_bard_vol;         /* pluck envelope, 64 -> 0           */
+static UWORD        g_bard_vol0;        /* AUD0 volume to restore            */
+
+/* Paula period for a BARD_WAVE_LEN loop: 3546895 / (freq * 32), PAL.
+ * D dorian: D3 755  E3 672  F3 635  G3 566  A3 504  B3 449  C4 424  D4 377. */
+#define BN_D3 755
+#define BN_E3 672
+#define BN_F3 635
+#define BN_G3 566
+#define BN_A3 504
+#define BN_B3 449
+#define BN_C4 424
+#define BN_D4 377
+#define BN_REST 0                       /* no retrigger; the last pluck rings */
+
+/* {period, frames} — PAL frames, quarter ~= 33 (~90 bpm, campfire pace). */
+static const short g_bard_tune[][2] = {
+	{ BN_D4, 33 }, { BN_REST, 17 }, { BN_A3, 33 }, { BN_REST, 17 },
+	{ BN_F3, 25 }, { BN_G3, 25 },   { BN_A3, 50 }, { BN_REST, 25 },
+	{ BN_D4, 33 }, { BN_C4, 17 },   { BN_A3, 33 }, { BN_REST, 17 },
+	{ BN_B3, 25 }, { BN_A3, 25 },   { BN_G3, 50 }, { BN_REST, 25 },
+	{ BN_F3, 33 }, { BN_REST, 17 }, { BN_A3, 33 }, { BN_REST, 17 },
+	{ BN_G3, 25 }, { BN_F3, 25 },   { BN_E3, 50 }, { BN_REST, 25 },
+	{ BN_D3, 33 }, { BN_E3, 17 },   { BN_F3, 33 }, { BN_G3, 17 },
+	{ BN_E3, 50 }, { BN_D3, 66 },   { BN_REST, 50 },
+};
+#define BARD_STEPS (short)(sizeof g_bard_tune / sizeof g_bard_tune[0])
+
+void plat_bard_start(void)
+{
+	short i;
+
+	if (!g_inited || g_bard_on)
+		return;
+	if (g_bard_wave == NULL) {
+		g_bard_wave = AllocMem(BARD_WAVE_LEN, MEMF_CHIP);
+		if (g_bard_wave == NULL)
+			return;
+		/* one triangle cycle, -60..+60 and back: 120 across 16 samples
+		 * = 8 per step. (The first cut used *15, which peaks at 165 and
+		 * OVERFLOWS signed char — a pitch, but an aliased snarl.) */
+		for (i = 0; i < BARD_WAVE_LEN; i++)
+			g_bard_wave[i] = (signed char)
+			    (i < 16 ? i * 8 - 60 : 60 - (i - 16) * 8);
+	}
+	g_bard_vol0 = 64;
+	CUSTOM->aud[0].ac_vol = 0;              /* mute the frozen engine chord */
+	/* melody: AUD1.  drone: AUD2, a soft D3 that just loops. */
+	CUSTOM->dmacon = (UWORD)(DMAF_AUD1 | DMAF_AUD2);
+	CUSTOM->aud[1].ac_ptr = (UWORD *)g_bard_wave;
+	CUSTOM->aud[1].ac_len = BARD_WAVE_LEN / 2;
+	CUSTOM->aud[1].ac_per = BN_D4;
+	CUSTOM->aud[1].ac_vol = 0;
+	CUSTOM->aud[2].ac_ptr = (UWORD *)g_bard_wave;
+	CUSTOM->aud[2].ac_len = BARD_WAVE_LEN / 2;
+	CUSTOM->aud[2].ac_per = BN_D3;
+	CUSTOM->aud[2].ac_vol = 10;             /* the drone, well back */
+	CUSTOM->dmacon = (UWORD)(DMAF_SETCLR | DMAF_MASTER | DMAF_AUD1 | DMAF_AUD2);
+	g_bard_step   = 0;
+	g_bard_frames = 0;
+	g_bard_vol    = 0;
+	g_bard_on     = 1;
+}
+
+void plat_bard_stop(void)
+{
+	if (!g_bard_on)
+		return;
+	CUSTOM->dmacon = (UWORD)(DMAF_AUD1 | DMAF_AUD2);
+	CUSTOM->aud[1].ac_vol = 0;
+	CUSTOM->aud[2].ac_vol = 0;
+	CUSTOM->aud[0].ac_vol = g_bard_vol0;    /* the engine ring returns */
+	g_bard_on = 0;
+}
+
+/* Called from plat_sound_vbl every frame while the bard plays. */
+static void bard_vbl(void)
+{
+	if (!g_bard_on)
+		return;
+	if (g_bard_frames <= 0) {
+		short per = g_bard_tune[g_bard_step][0];
+
+		g_bard_frames = g_bard_tune[g_bard_step][1];
+		if (per != BN_REST) {
+			CUSTOM->aud[1].ac_per = (UWORD)per;
+			g_bard_vol = 64;                /* pluck */
+		}
+		g_bard_step = (short)((g_bard_step + 1) % BARD_STEPS);
+	}
+	g_bard_frames--;
+	if (g_bard_vol > 0) {
+		g_bard_vol--;                           /* the string rings down */
+		CUSTOM->aud[1].ac_vol = (UWORD)g_bard_vol;
+	}
+}
+
 void plat_sound_shutdown(void)
 {
 	if (!g_inited)
@@ -216,6 +338,10 @@ void plat_sound_shutdown(void)
 	if (g_ring) {
 		FreeMem(g_ring, RING_SAMPLES);
 		g_ring = NULL;
+	}
+	if (g_bard_wave) {
+		FreeMem(g_bard_wave, BARD_WAVE_LEN);
+		g_bard_wave = NULL;
 	}
 	g_inited = 0;
 }
@@ -316,6 +442,8 @@ void plat_sound_set_vbl_hook(void (*fn)(void))
  * pass can never starve the DMA. Memory writes only: interrupt-safe. */
 void plat_sound_vbl(void)
 {
+	bard_vbl();
+
 	void (*hook)(void);
 	long lead, todo;
 	int  audible;

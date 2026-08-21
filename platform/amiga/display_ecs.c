@@ -855,13 +855,21 @@ static void ecs_reband(void)
 #endif
 	} else {
 		if (ecs_pal_cache) {
+			extern void plat_bard_start(void);
+
 			ecs_notice("PLEASE WAIT... CONVERTING ART",
 			           "THIS ONLY HAPPENS ON THE FIRST LOAD");
 			quant_progress = ecs_notice_progress;
+			plat_bard_start();      /* the campfire bard, sound_paula.c */
 		}
 		quant_banded(s_chunky, ECS_W, ECS_H, s_clut,
 		             ECS_NBANDS, ECS_NCOL, ECS_BITS, s_band_pal, s_band_remap);
 		quant_progress = (void (*)(short, short))0;
+		{
+			extern void plat_bard_stop(void);
+
+			plat_bard_stop();
+		}
 		ecs_unify_border(1);    /* one COLOR00 for the whole border */
 		if (ecs_pal_cache && e_pc_blob != NULL && e_pc_n < EPC_MAX) {
 			unsigned char *bl = e_pc_blob + (long)e_pc_n * EPC_BLOB;
