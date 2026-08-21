@@ -5593,6 +5593,37 @@ re-arms: the incremental run copy through `s_runs` (this fix, hooked before the
 arm share it) and the force-full (#61's original). The composite's own writes are the
 repaint itself.
 
+**The ECS row of that table is CODE-DERIVED, not observed.** Six attempts to drive
+the ECS build to a dungeon walk in amiberry all failed before reaching it, every one
+a harness fault rather than a build fault — the ECS binary booted and rendered
+correctly each time. The faults, so nobody repeats them:
+
+- **`DBG.LOG` on the emulated DH0 mount LAGS.** AmigaOS buffers the write, so
+  host-side polling for `menu: modal up` reports "not yet" long after the menu is
+  up. (Hatari's GEMDOS mount does not do this, which is why the same pattern is fine
+  in `st_walkcap.sh`.) Poll the SCREEN, or read the log post-hoc once it has flushed.
+- **The ECS boot is much longer than the ~105 s in the old notes**, because #135 put
+  the engine's own `jt919` title sequence in front of the menu. A 230 s fixed wait
+  still landed on the SSI logo, and the keys then drove the title.
+- **The hall's character list drains keys while it builds**, exactly as the design
+  picker does. ST-sized 5 s settles leave the drive parked on ADD A CHARACTER with
+  the party half-seated — a plausible-looking screenshot of the wrong screen.
+- **amiberry drops keystrokes.** Attempt 5 seated the party and reached the hall;
+  attempt 6, same script, lost the Escape and sat on the add list while four `b`
+  retries went nowhere.
+- **★ CALIBRATE A FRAME DETECTOR AGAINST A REAL FRAME BEFORE TRUSTING IT.** Two of
+  the six failures were the detector, not the drive: the menu test looked for
+  `90<g<140` olive when the menu's olive is `(85,85,68)`, and the walk test wanted
+  the top-2 colours under 60% when a known-good ST walk frame measures **60.4%**. The
+  second would have rejected a genuine dungeon frame had the drive ever produced one.
+
+What the ECS row rests on instead: `grep -l planar_viewport_register platform/*.c
+platform/amiga/*.c` returns only `display_ste.c`, and the Amiga build does not link
+`display_ste.o` at all (it links `display_aga.o`, `display_ecs.o`, `display_rtg.o`).
+No separate viewport buffer exists there for an `s_dt` copy to erase. That is a
+strong argument and it is not an observation; if anyone gets a headless ECS walk
+frame, check rows 24..111 of the viewport and settle it.
+
 Minor, deliberate slack: `st_vp_touched` tests row overlap only, so a rect present
 whose span lies entirely to the RIGHT of the viewport (a clock update) re-arms a
 repaint it does not need. Measured at 5-7 extra composites per ~1500 presents, so
