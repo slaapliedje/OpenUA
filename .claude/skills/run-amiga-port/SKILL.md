@@ -142,7 +142,26 @@ chipmem_size=4          # 2 MB chip (ECS max)
 fastmem_size=4          # 4 MB fast
 cpu_speed=real
 filesystem2=rw,DH0:OpenUA:/home/jfergus/dev/OpenUA/data/work/amiga-mount,1
+gfx_linemode=none
+gfx_resolution=lores
+gfx_lores=true
+gfx_width=360
+gfx_height=284
+gfx_width_windowed=720
+gfx_height_windowed=568
 ```
+
+- **The `gfx_*` block is LOAD-BEARING, not cosmetic.** Without it amiberry falls
+  back to its own display defaults, and on a real desktop (2026-08-20) that
+  rendered the ECS build as a single bar with a grey smudge — no title screen at
+  all — which reads exactly like a broken port. The BUILD was fine; the config
+  was incomplete. 360x284 lores in a 720x568 window (2x, matching the AGA
+  window). For exact-pixel captures (colour counting) use `openua-ecs-exact.uae`
+  (1:1 window); for a comfortable human view, `openua-ecs-view.uae` (3x).
+- **If you ever see amiberry's own "First-time setup" GUI instead of a boot, the
+  launch is missing `-G`.** The driver passes it; a hand-rolled
+  `flatpak run … --config foo.uae` without `-G` opens the setup screen and never
+  emulates — two debugging sessions started from exactly that.
 
 - Verified boots to the main menu (2026-07-18). `DBG.LOG` shows the native
   path: `ecs: 320x200x5 32-colour, per-band copper palette up`.
