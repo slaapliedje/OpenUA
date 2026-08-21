@@ -88,6 +88,10 @@ static short          s_dirty;
  * current band palettes cannot show — render the frame properly NOW instead of
  * painting it through the wrong palette. Runtime knob: video.cfg inkhold=off. */
 short ecs_ink_hold = 1;
+/* Defined with the disk palette cache, below — the video.cfg parser in
+ * ecs_init runs first in the file. (The recurring ordering trap; see
+ * sp_vp_rearm on the ST.) */
+extern short ecs_pal_cache;
 static short e_held_once;      /* one hold per burst — never two in a row */
 static short          s_have_pal;
 
@@ -252,6 +256,12 @@ static int ecs_init(short want_w, short want_h)
 			for (i = 0; buf[i] != '\0'; i++)
 				if (buf[i] >= 'A' && buf[i] <= 'Z')
 					buf[i] = (char)(buf[i] + 32);
+			if (strstr(buf, "palcache=off") != NULL) {
+				ecs_pal_cache = 0;
+				dbg_log("ecs: disk palette cache DISABLED (video.cfg)");
+			} else if (strstr(buf, "palcache=on") != NULL) {
+				ecs_pal_cache = 1;
+			}
 			if (strstr(buf, "inkhold=off") != NULL) {
 				ecs_ink_hold = 0;
 				dbg_log("ecs: ink-hold DISABLED (video.cfg)");
@@ -623,13 +633,248 @@ static void remap_rect(short x, short y, short w, short h)
 
 /* Re-band: histogram + per-band reduce over the current surface, then patch the
  * copper's per-band COLOR words. */
+/* --- THE DISK PALETTE CACHE (the user's question, verbatim: "is that because
+ * you're doing a quantization every time you load the game rather than caching
+ * it on disk?" — yes, it was) --------------------------------------------
+ *
+ * A boot runs ~5 re-bands, each 25 median cuts + bucket tables on a 7 MHz
+ * 68000 — ~47 s of quantisation per boot computing IDENTICAL answers every
+ * time: same title art, same CLUTs, deterministic quantiser. So cache the
+ * results on disk, keyed on (CLUT hash, frame hash), and a warm boot replaces
+ * each re-band's cut with a file lookup and two memcpys.
+ *
+ * - The entry stores the POST-unify-border state, so a hit skips
+ *   ecs_unify_border too; everything downstream (used-set capture, slot reps,
+ *   the copper install) runs identically on both paths.
+ * - The hash is shift-add (djb2-style), NOT FNV: FNV's multiply is __mulsi3 on
+ *   a 68000 and hashing the 64000-byte frame would cost ~1.8 s — a tenth of
+ *   the re-band it is trying to save. Shift-add is ~0.1 s. Two independent
+ *   32-bit hashes (CLUT and frame) key an entry; a collision would install a
+ *   wrong palette, so the pairing matters and the file carries a VERSION to
+ *   invalidate wholesale if the quantiser ever changes.
+ * - PALCACHE.ECS lives in the game dir (DH0:, next to DBG.LOG). ~8.8 KB per
+ *   entry, 16 entries max. Deleting the file is always safe — it regenerates.
+ * - video.cfg `palcache=off` disables both read and write (one-binary A/B).
+ * - EPC_VERSION must be bumped with ANY change to quantize.h's output. The
+ *   cache stores that output verbatim; a stale file after a quantiser change
+ *   would silently pin the OLD palettes. */
+#define EPC_VERSION 1
+#define EPC_MAX     16
+#define EPC_BLOB    (ECS_NBANDS * ECS_NCOL * 3 + ECS_NBANDS * 256)
+struct epc_hdr { ULONG version; ULONG nent; };
+struct epc_key { ULONG clut_h; ULONG frm_h; };
+static struct epc_key  e_pc_key[EPC_MAX];
+static unsigned char  *e_pc_blob;               /* EPC_MAX * EPC_BLOB          */
+static short           e_pc_n;
+static short           e_pc_loaded;
+short                  ecs_pal_cache = 1;       /* video.cfg palcache=off; extern'd above */
+
+static ULONG epc_hash(const unsigned char *p, long n)
+{
+	ULONG h = 5381;
+
+	while (n-- > 0)
+		h = ((h << 5) + h) ^ *p++;              /* h*33 ^ b, no multiply */
+	return h;
+}
+
+static void epc_load(void)
+{
+	FILE *f;
+	struct epc_hdr hd;
+
+	e_pc_loaded = 1;
+	if (e_pc_blob == NULL)
+		e_pc_blob = AllocMem((ULONG)EPC_MAX * EPC_BLOB, MEMF_ANY);
+	if (e_pc_blob == NULL)
+		return;
+	f = fopen("PALCACHE.ECS", "rb");
+	if (f == NULL)
+		return;
+	if (fread(&hd, sizeof hd, 1, f) == 1 && hd.version == EPC_VERSION
+	    && hd.nent <= EPC_MAX) {
+		ULONG i;
+
+		for (i = 0; i < hd.nent; i++) {
+			if (fread(&e_pc_key[e_pc_n], sizeof(struct epc_key), 1, f) != 1)
+				break;
+			if (fread(e_pc_blob + (long)e_pc_n * EPC_BLOB, EPC_BLOB, 1, f) != 1)
+				break;
+			e_pc_n++;
+		}
+		dbg_log_num("ecs: palette cache entries loaded = ", (long)e_pc_n);
+	} else {
+		dbg_log("ecs: palette cache stale/foreign - ignored");
+	}
+	fclose(f);
+}
+
+static void epc_save(void)
+{
+	FILE *f = fopen("PALCACHE.ECS", "wb");
+	struct epc_hdr hd;
+	short i;
+
+	if (f == NULL)
+		return;
+	hd.version = EPC_VERSION;
+	hd.nent    = (ULONG)e_pc_n;
+	fwrite(&hd, sizeof hd, 1, f);
+	for (i = 0; i < e_pc_n; i++) {
+		fwrite(&e_pc_key[i], sizeof(struct epc_key), 1, f);
+		fwrite(e_pc_blob + (long)i * EPC_BLOB, EPC_BLOB, 1, f);
+	}
+	fclose(f);
+}
+
+/* --- the first-load notice ------------------------------------------------
+ *
+ * A COLD palette cache means the next ~10 s go into the median cuts, with the
+ * screen frozen on whatever was up (at boot: black). The user watching that has
+ * no way to tell "converting" from "hung" — so say so, straight onto the
+ * visible page, before the quant starts.
+ *
+ * Mechanics, chosen so the notice needs NO cleanup path at all:
+ *  - text renders in slot 31 (all planes set) on a box of slot 30 (planes 1-4),
+ *    drawn directly into the FRONT page — the one the copper is showing;
+ *  - the copper operands for slots 30/31 are forced black/white in every band,
+ *    so the notice is readable regardless of what palette is live;
+ *  - the re-band this notice precedes ends by installing the fresh palette over
+ *    every operand, and the full render that follows redraws every plane — so
+ *    both the pixels and the colours are cleaned up by the very work the notice
+ *    is announcing. Nothing to undo, nothing that can stick.
+ *
+ * Uses the shim's embedded 8x8 fallback font (compat/font_8x8.c), which is
+ * always linked. Only fires on a cache MISS: warm boots never see it, and a
+ * NEW DESIGN's art (new CLUTs -> misses) announces itself the same way. */
+extern const unsigned char qd_font_8x8[256][8];
+
+/* The DSOTS clause: the bar fills as the cut walks its 25 bands — real
+ * progress, one byte of plane 0 per band (200 px / 25 bands = 8 px each).
+ * Drawn into the same self-erasing notice box; the outline is ecs_notice's. */
+static void ecs_notice_progress(short band, short nbands)
+{
+	unsigned char *front = s_planes[s_front];
+	short y, w = (short)(((long)(band + 1) * 200) / nbands);
+
+	for (y = 112; y < 117; y++)
+		memset(front + (long)y * ECS_PITCH + (60 >> 3), 0xFF, (w + 7) >> 3);
+}
+
+static void ecs_notice(const char *l1, const char *l2)
+{
+	unsigned char *front = s_planes[s_front];
+	const char *ln[2];
+	short li, b, c;
+
+	ln[0] = l1; ln[1] = l2;
+	/* the box: rows 88..119, full width bar inset by 16px */
+	for (b = 0; b < ECS_DEPTH; b++) {
+		unsigned char *pl = front + (long)b * ECS_PITCH * ECS_H;
+		short y;
+
+		for (y = 88; y < 120; y++)
+			memset(pl + (long)y * ECS_PITCH + 2, b ? 0xFF : 0x00,
+			       ECS_PITCH - 4);
+	}
+	/* the progress bar's trough: rows 106..115, x 56..264 — plane 0 outline
+	 * (slot 31 = white) around a slot-30 interior the fill will paint. */
+	{
+		short y;
+
+		for (y = 110; y < 119; y++) {
+			unsigned char *r0 = front + (long)y * ECS_PITCH;
+
+			if (y == 110 || y == 118)
+				memset(r0 + (56 >> 3), 0xFF, (264 - 56) >> 3);
+			else {
+				r0[56 >> 3] |= 0x80;
+				r0[(264 >> 3) - 1] |= 0x01;
+			}
+		}
+	}
+	for (li = 0; li < 2; li++) {
+		short len = 0, x0, y0 = (short)(90 + li * 10);
+		const char *p2;
+
+		if (ln[li] == NULL)
+			continue;
+		for (p2 = ln[li]; *p2; p2++)
+			len++;
+		/* &~7: glyphs OR into single bytes, so x0 MUST be 8-aligned or
+		 * every glyph lands 4px early in the wrong bits (odd-length
+		 * strings centre to a multiple of 4). Slight left bias, no
+		 * misrender. */
+		x0 = (short)(((ECS_W - len * 8) / 2) & ~7);
+		for (c = 0; ln[li][c]; c++) {
+			const unsigned char *g =
+			    qd_font_8x8[(unsigned char)ln[li][c]];
+			short r;
+
+			for (r = 0; r < 8; r++)
+				/* plane 0 only: the box memset already set planes
+				 * 1..4, so box = slot 30 and box+text = slot 31 */
+				front[(long)(y0 + r) * ECS_PITCH
+				      + ((x0 + c * 8) >> 3)] |= g[r];
+		}
+	}
+	/* slots 30 (box) and 31 (text) forced readable in every band */
+	for (b = 0; b < ECS_NBANDS; b++) {
+		*s_cop_pal[b][30] = 0x0000;
+		*s_cop_pal[b][31] = 0x0FFF;
+	}
+}
+
 static void ecs_reband(void)
 {
 	short b, i;
+	ULONG ch = 0, fh = 0;
+	short hit = -1;
 
-	quant_banded(s_chunky, ECS_W, ECS_H, s_clut,
-	             ECS_NBANDS, ECS_NCOL, ECS_BITS, s_band_pal, s_band_remap);
-	ecs_unify_border(1);            /* one COLOR00 for the whole border */
+	if (ecs_pal_cache) {
+		short k;
+
+		if (!e_pc_loaded)
+			epc_load();
+		ch = epc_hash(s_clut, 768);
+		fh = epc_hash(s_chunky, (long)ECS_W * ECS_H);
+		for (k = 0; k < e_pc_n; k++)
+			if (e_pc_key[k].clut_h == ch && e_pc_key[k].frm_h == fh) {
+				hit = k;
+				break;
+			}
+	}
+	if (hit >= 0 && e_pc_blob != NULL) {
+		const unsigned char *bl = e_pc_blob + (long)hit * EPC_BLOB;
+
+		memcpy(s_band_pal, bl, ECS_NBANDS * ECS_NCOL * 3);
+		memcpy(s_band_remap, bl + ECS_NBANDS * ECS_NCOL * 3,
+		       (long)ECS_NBANDS * 256);
+#ifdef FRUA_ECSTRACE
+		dbg_log_num("et: reband CACHE HIT entry = ", (long)hit);
+#endif
+	} else {
+		if (ecs_pal_cache) {
+			ecs_notice("PLEASE WAIT... CONVERTING ART",
+			           "THIS ONLY HAPPENS ON THE FIRST LOAD");
+			quant_progress = ecs_notice_progress;
+		}
+		quant_banded(s_chunky, ECS_W, ECS_H, s_clut,
+		             ECS_NBANDS, ECS_NCOL, ECS_BITS, s_band_pal, s_band_remap);
+		quant_progress = (void (*)(short, short))0;
+		ecs_unify_border(1);    /* one COLOR00 for the whole border */
+		if (ecs_pal_cache && e_pc_blob != NULL && e_pc_n < EPC_MAX) {
+			unsigned char *bl = e_pc_blob + (long)e_pc_n * EPC_BLOB;
+
+			e_pc_key[e_pc_n].clut_h = ch;
+			e_pc_key[e_pc_n].frm_h  = fh;
+			memcpy(bl, s_band_pal, ECS_NBANDS * ECS_NCOL * 3);
+			memcpy(bl + ECS_NBANDS * ECS_NCOL * 3, s_band_remap,
+			       (long)ECS_NBANDS * 256);
+			e_pc_n++;
+			epc_save();
+		}
+	}
 	/* Capture what this quant saw: the global used set (the new-ink
 	 * detector's domain) and the per-band sets (the split-guard's). */
 	{

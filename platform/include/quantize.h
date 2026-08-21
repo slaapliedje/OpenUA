@@ -127,6 +127,13 @@ long quant_ph_hist, quant_ph_keep, quant_ph_cut, quant_ph_remap, quant_ph_buck;
 #define QP1(a, v) do { } while (0)
 #endif
 
+/* Optional per-band progress callback — a backend showing a "please wait"
+ * screen sets this to advance a progress bar as the cut walks its bands (the
+ * bands ARE the progress unit: ~0.4 s each on a 7 MHz 68000). Per-TU static,
+ * like everything else in this header; NULL (the default) costs one compare
+ * per band. */
+static void (*quant_progress)(short band, short nbands);
+
 static unsigned short quant_sq[256];
 static short          quant_sq_ready;
 
@@ -528,6 +535,8 @@ static void quant_banded(const unsigned char *chunky, short w, short h,
 			brem[idxlist[i]] = (unsigned char)bestj;
 		}
 		QP1(quant_ph_remap, qp_r);
+		if (quant_progress)
+			quant_progress(b, nbands);
 		/* The reserved slots are exact by construction, so they win over
 		 * any search — and they must be applied LAST for that to hold. */
 		for (i = 0; i < 256; i++)
