@@ -5564,3 +5564,37 @@ on the same side of it. Nothing has yet tested the ST with no scratch at all.
   (96,58) in the Hatari window at 2x, not (0,0); the Falcon's is (20,80). An
   early per-group difference table was computed at the wrong offset and reported
   error leaking into group 2 that does not exist.
+
+### #148 follow-up: is any other backend exposed to #61's hazard? No.
+
+The shape to look for is not "does it have a viewport" but **a display write whose
+content is not in the shared chunky surface** — because then any copy from the
+draw-time plane buffer erases it.
+
+| backend | draw-time buffer | a second, independent writer? | exposed |
+|---|---|---|---|
+| **ST/STE** | `s_dt` | **yes — the viewport composite**, which renders into its own scratch and never into `s_chunky` | **#148** |
+| TT | `t_dt` | no — `t_dt` and `tt_c2p_span` both derive from `g_chunky` | no |
+| Amiga ECS | `e_dt` | no — the cursor is a SOFTWARE cursor the shim composites into the chunky surface | no |
+| Amiga AGA | dt target | no — `plat_cursor_active()` returns 0 since #64 retired the sprite cursor, so same software path | no |
+| Falcon (VIDEL) | — | chunky-native, no intermediate buffer | no |
+| ST-High, Nova | — | no draw-time target registered | no |
+
+The reason the rest are safe is structural rather than lucky: ADR-0016's draw-time
+writers stamp planes AND record the chunky index in `idx`/`cov`, so `s_chunky` stays
+the single source of truth and the plane buffer is only a cache — a row can always be
+rebuilt from chunky. The ST viewport is the one thing in the port that renders
+somewhere else entirely, and `dsp_viewport_scratch` is registered by exactly one
+backend (`grep -l planar_viewport_register platform/*.c platform/amiga/*.c`).
+
+**And the ST's own coverage is complete.** Every copy from `s_dt` into a page now
+re-arms: the incremental run copy through `s_runs` (this fix, hooked before the
+`s_use_blt` branch so the BLiTTER arm `st_dt_blit_runs_super` and the CPU `memcpy`
+arm share it) and the force-full (#61's original). The composite's own writes are the
+repaint itself.
+
+Minor, deliberate slack: `st_vp_touched` tests row overlap only, so a rect present
+whose span lies entirely to the RIGHT of the viewport (a clock update) re-arms a
+repaint it does not need. Measured at 5-7 extra composites per ~1500 presents, so
+adding the column test would be optimising ~0.09%; the `st_dt` paths rebuild whole
+320px rows anyway, where a column test would always be true.
