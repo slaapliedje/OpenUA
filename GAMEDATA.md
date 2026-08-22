@@ -159,11 +159,15 @@ the GEMDOS drive: `hatari -d OPENUA --auto 'C:\frua.prg'` (add `--machine ste`
 + a TOS 2.06 image for the ST build).
 
 **Amiga** — put everything in one drawer. From a Shell: `cd` into the drawer
-and run `frua` (no icon is shipped yet). In **amiberry/WinUAE**, add the folder
+and run `frua`, or double-click its Workbench icon. In **amiberry/WinUAE**, add the folder
 as a directory hard drive and do the same from the Shell.
 
-> ⚠️ OpenUA is emulator-validated only and has never been run on real
-> hardware. If you try it on the real thing, please report what happens.
+> **Real-hardware status (2026-08-22):** a Falcon030 has played the game
+> through dungeon, map, events and camp; a Mega STe has run the ST/STE build;
+> an A1200 has had a brief test of the AGA build. The TT030, Amiga ECS and
+> Amiga RTG builds are emulator-validated only so far. Whatever you run it on,
+> please report what happens — every hardware session so far has found
+> something no emulator showed.
 
 ## Legal
 

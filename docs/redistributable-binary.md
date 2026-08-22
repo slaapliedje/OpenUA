@@ -64,4 +64,6 @@ from `frua.rsc`.
 - The Amiga build has the same knob (`make MACHINE=amiga NOEMBED=1`); the
   runtime replay path is shared engine code. A dedicated Amiga release target is
   future work.
-- Emulator-validated only — see the top-level README's hardware warning.
+- Hardware status: Falcon030 played, Mega STe run, A1200 briefly tested;
+  TT030 and both Amiga ECS/RTG builds emulator-validated only (see
+  `GAMEDATA.md` and `docs/milestone.md` §2a).

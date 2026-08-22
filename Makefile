@@ -851,7 +851,8 @@ frua.info: tools/make_amiga_icon.py tools/ua_icon.glyph
 # FRUA_CORRIDOR / FRUA_RAYCAST swap the renderer). Those must never ship, and
 # "we'll remember" is not a mechanism — see src/engine/release_guard.h.
 #
-# A real Falcon030 plays this; the TT, ST/STE and both Amigas are still
+# A real Falcon030 plays this, a Mega STe has run the ST/STE build and an A1200
+# has had a brief AGA test; the TT, Amiga ECS and Amiga RTG builds are still
 # emulator-validated only. Keep the release notes honest about which is which.
 #
 # ★ KEEP THIS DEFAULT CURRENT. `make release-all` without VERSION= uses it, and
@@ -876,7 +877,7 @@ VERSION ?= 0.9.7-beta
 define PKG_DIST
 	@mkdir -p dist/$(1)
 	@cp $(2) dist/$(1)/
-	@cp README.md GAMEDATA.md docs/enhancements.md dist/$(1)/ 2>/dev/null || true
+	@cp README.md GAMEDATA.md HARDWARE.md docs/enhancements.md dist/$(1)/ 2>/dev/null || true
 	@cp tools/art_convert.py dist/$(1)/
 	@cp docs/converter-howto.md dist/$(1)/CONVERTER.md
 	@# The game-data staging tools (Python 3, run on a PC): stage_dos.py turns

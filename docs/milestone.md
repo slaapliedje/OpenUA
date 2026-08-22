@@ -249,6 +249,13 @@ instead of six disks (`HARDWARE.md`).
 The lesson worth keeping: **an emulator agrees with your assumptions.** Three of
 those five were in code that had been "verified" repeatedly.
 
+**Hardware matrix as of 2026-08-22.** Falcon030: played through dungeon, map,
+events and camp (above). **Mega STe: the ST/STE build has run** (2026-08,
+via the Gotek media). **A1200: the AGA build has had a brief test.** TT030,
+Amiga ECS and Amiga RTG: emulator only. Gotek media for a full A1200 (AGA) and
+A500 (ECS — needs Kickstart 2.0+) install were cut 2026-08-22 from the
+v0.9.7-beta zips, so those two are next.
+
 ## 3. REMAINING — rewritten 2026-08-02, refreshed 2026-08-03
 
 The old table is gone. It had gone stale in a way that actively cost time: it

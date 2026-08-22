@@ -2,9 +2,10 @@
 
 **A real Falcon030 has now done this**, from a hard-disk install, on a VGA
 monitor, and played — so the Falcon route below is walked, not theoretical. The
-rest (TT, ST/STE, both Amigas) is still untested on real machines, and the
-floppy/Gotek media have been verified as filesystems rather than by booting a
-physical drive. If you get further than this document expects, or less far,
+ST/STE build has run on a Mega STe and the AGA build has had a brief test on
+an A1200 (both 2026-08); the TT, Amiga ECS and Amiga RTG builds are still
+untested on real machines, and the floppy/Gotek media have been verified as
+filesystems rather than by booting a physical drive. If you get further than this document expects, or less far,
 that is worth reporting either way.
 
 What the first real machine changed, so you know what to look for: the AREA map

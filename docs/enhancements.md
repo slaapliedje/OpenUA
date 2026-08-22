@@ -354,7 +354,9 @@ this section was stale until 2026-07-24 and is kept as a pointer to the proofs.
 
 ## ⚠️ Verification gap — read before tagging
 
-**Everything in this project has been verified in Hatari. Nothing has ever been
-run on real Falcon030 or TT030 hardware.** Emulator fidelity is good but not
-total (timing, VIDEL edge modes, real DMA sound, real disk). The release notes
-must say "emulator-validated" until someone boots it on iron.
+**Superseded 2026-08-22.** This section was written when everything had only
+ever run in Hatari. Since then a Falcon030 has played the game (2026-08-03,
+`docs/milestone.md` §2a — five bugs found that Hatari never showed), a Mega STe
+has run the ST/STE build, and an A1200 has had a brief AGA test. The TT030,
+Amiga ECS and Amiga RTG builds remain emulator-validated only; the release
+notes say which is which, per platform.
