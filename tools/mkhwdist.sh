@@ -174,10 +174,10 @@ amiga_img() {       # amiga_img <out.adf> <label> <srcdir> <file...>
 amiga_install_files() {   # amiga_install_files <variant: aga|ecs> <datadisks-default>
 	local variant="$1" ndata="${2:-6}"
 	cat > "$WORK/Install" <<'EOS'
-.KEY
-.BRA {
-.KET }
-; OpenUA Workbench installer launcher (run by IconX)
+; OpenUA Workbench installer launcher (run by IconX).
+; No .KEY line: the script takes no arguments, and a BARE .KEY is rejected
+; by the 3.1 (and earlier) script runner with "Illegal Key directive" —
+; seen on an A500 under WB 3.1, 2026-08-22. 3.2 tolerated it.
 IF EXISTS SYS:System/Installer
   SYS:System/Installer SCRIPT Install.script APPNAME OpenUA MINUSER NOVICE DEFUSER AVERAGE
 ELSE
