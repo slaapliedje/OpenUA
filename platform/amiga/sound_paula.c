@@ -57,6 +57,14 @@ extern volatile int g_amiga_in_int;
 #define FRAME_SAMPLES    454L
 #define RING_SAMPLES     (FRAME_SAMPLES * 8)    /* 3632 bytes, CHIP */
 
+static unsigned long bard_tod(void);
+/* Exact Paula consumption per vblank in 24.8 fixed point, at SYNTH_PER:
+ * PAL:  227.5 CCK/line x 312.5 lines / 156 = 455.729 -> x256 = 116667
+ * NTSC: 227.5 CCK/line x 262.5 lines / 156 = 382.812 -> x256 =  98000 */
+static unsigned long g_play_step = 116667UL;
+static unsigned long g_play_acc;
+static unsigned long g_play_tod;
+
 /* FTSoundRec field offsets (see plat_sound.h). */
 #define FT_RATE(v)      (2 + (v) * 8)
 #define FT_WAVE(v)      (34 + (v) * 4)
@@ -301,6 +309,13 @@ int plat_sound_init(void)
 	g_saved_led = (UBYTE)(CIAA->ciapra & CIAF_LED);
 	CIAA->ciapra |= CIAF_LED;
 
+	{
+		extern struct ExecBase *SysBase;
+
+		if (SysBase->VBlankFrequency == 60)
+			g_play_step = 98000UL;  /* NTSC (see the table above) */
+	}
+	g_play_tod  = bard_tod();
 	g_ring_live = 1;
 	g_inited    = 1;
 	return 0;
@@ -718,9 +733,18 @@ int plat_sound_playing(void)
 
 /* The engine's sound task (the Mac VBL task driving the sequencer). */
 static void (* volatile s_vbl_hook)(void);
+static short g_hook_acc;                /* 60 Hz Mac ticks vs real vblank    */
+static short g_vbl_hz = 50;             /* from ExecBase at install time     */
+
 
 void plat_sound_set_vbl_hook(void (*fn)(void))
 {
+	extern struct ExecBase *SysBase;
+
+	g_vbl_hz = (short)SysBase->VBlankFrequency;
+	if (g_vbl_hz < 50 || g_vbl_hz > 60)
+		g_vbl_hz = 50;                  /* PAL default on nonsense */
+	g_hook_acc = 0;
 	s_vbl_hook = fn;
 }
 
@@ -765,8 +789,29 @@ void plat_sound_vbl(void)
 		return;
 	}
 
-	g_ring_play += FRAME_SAMPLES;
-	if (g_ring_play >= RING_SAMPLES)
+	/* ★ THE NEEDLE BUMP. This line used to read
+	 *     g_ring_play += FRAME_SAMPLES;   (454 per call)
+	 * but real PAL Paula at period 156 consumes 71093.75/156 = 455.73
+	 * samples per frame (227.5 CCK/line x 312.5 lines). The model
+	 * under-advanced ~86 samples/s, the write head closed on the real
+	 * DMA read head, and when it lapped, Paula replayed ~80ms of stale
+	 * ring — an audible "vinyl needle bump" at a FIXED WALL TIME after
+	 * ring start (which is how the tempo fix moved it to a later point
+	 * in the tune: the bump never belonged to the music at all).
+	 * Advance in 24.8 fixed point at the exact rate, scaled by elapsed
+	 * TOD ticks so a missed vblank cannot skew the model either. */
+	{
+		unsigned long t = bard_tod();
+		long e = (long)((t - g_play_tod) & 0xFFFFFFUL);
+
+		g_play_tod = t;
+		if (e < 1) e = 1;
+		if (e > 4) e = 4;
+		g_play_acc  += (unsigned long)g_play_step * (unsigned long)e;
+		g_ring_play += (long)(g_play_acc >> 8);
+		g_play_acc  &= 0xFF;
+	}
+	while (g_ring_play >= RING_SAMPLES)
 		g_ring_play -= RING_SAMPLES;
 
 	lead = g_ring_w - g_ring_play;
@@ -843,8 +888,19 @@ void plat_sound_vbl(void)
 		unsigned long h0 = vbl_beamline();
 		unsigned long ht0 = bard_tod();
 
+		/* The Mac VBL task counts SIXTY ticks a second; a PAL vblank
+		 * delivers fifty, which played every tune 17% slow (the Mac
+		 * tempo was only ever correct on NTSC machines by accident).
+		 * Classic fix: accumulate 60 per vblank against the machine's
+		 * actual vblank rate — on PAL the sequencer ticks twice on
+		 * every 5th vblank (6 per 5), on NTSC exactly once, and the
+		 * tempo matches the Mac original everywhere. */
 		g_amiga_in_int = 1;     /* dbg sinks defer while engine code runs */
-		hook();
+		g_hook_acc += 60;
+		while (g_hook_acc >= g_vbl_hz) {
+			g_hook_acc -= g_vbl_hz;
+			hook();
+		}
 		g_amiga_in_int = 0;
 		g_prof_hook_calls++;
 		g_prof_hook_lines += (long)((bard_tod() - ht0) & 0xFFFFFFUL) * 313
