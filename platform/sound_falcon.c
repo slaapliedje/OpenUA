@@ -277,70 +277,168 @@ static int synth_audible(void)
 	return 0;
 }
 
-/* Render `n` samples of (4 wavetable voices + square tone + effect) into dst. */
+/* Render `n` samples of (4 wavetable voices + square tone + effect) into dst.
+ *
+ * Same rewrite as the Amiga backend (19239f7f, where the old shape measured
+ * ~770 cycles/sample on the 68000 and starved the VBL): active voices are
+ * COMPACTED once per call with phases in locals (no global read-modify-write
+ * per sample), wavetable bytes are summed UNSIGNED with the -128-per-voice
+ * bias folded into the final >>2, and the steady music case (no tone, no sfx)
+ * gets per-voice-count specializations with no clamp — after the bias and
+ * >>2 the result provably fits -128..127 (max 4*255-512 = 508 -> 127, min
+ * -512 -> -128). Tone/sfx frames keep the general path: same operation
+ * order, same single final clamp. Output is byte-identical to the old mixer.
+ * The 030's cache made the old shape affordable here, but the rewrite is
+ * strictly cheaper and keeps the two backends the same code shape. */
 static void synth_render(char *dst, long n)
 {
 	const unsigned char *rec = (const unsigned char *)g_ft_rec;
-	const unsigned char *wave[4];
-	unsigned long        inc[4];
-	int                  v, voiced = 0;
+	const unsigned char *wv[4];
+	unsigned long        iv[4], pv[4];
+	short                ix[4];
+	int                  v, nv = 0;
 	long                 i;
 
 	for (v = 0; v < 4; v++) {
-		unsigned long rate;
+		unsigned long rate, inc;
+		const unsigned char *w;
 
-		inc[v]  = 0;
-		wave[v] = NULL;
 		if (rec == NULL)
 			continue;
-		rate    = rd_be32_p(rec + FT_RATE(v));
-		wave[v] = (const unsigned char *)(uintptr_t)rd_be32_p(rec + FT_WAVE(v));
-		if (rate == 0 || wave[v] == NULL)
+		rate = rd_be32_p(rec + FT_RATE(v));
+		w    = (const unsigned char *)(uintptr_t)rd_be32_p(rec + FT_WAVE(v));
+		if (rate == 0 || w == NULL)
 			continue;
 		/* The Fixed rate steps the wave at the MAC's sample rate; we clock the
 		 * CODEC at SYNTH_HZ, so rescale the step or every note is transposed. */
-		inc[v] = (unsigned long)(((unsigned long long)rate
-		                          * (unsigned long long)MAC_SYNTH_HZ)
-		                         / (unsigned long long)SYNTH_HZ);
-		if (inc[v] != 0)
-			voiced = 1;
+		inc = (unsigned long)(((unsigned long long)rate
+		                       * (unsigned long long)MAC_SYNTH_HZ)
+		                      / (unsigned long long)SYNTH_HZ);
+		if (inc == 0)
+			continue;
+		wv[nv] = w;
+		iv[nv] = inc;
+		pv[nv] = g_ft_phase[v];
+		ix[nv] = (short)v;
+		nv++;
 	}
 
 #ifdef FRUA_SNDPROF
 	sp_snd_calls++;
-	if (voiced)                     sp_snd_voiced += n;
+	if (nv > 0)                     sp_snd_voiced += n;
 	if (g_tone_left > 0)            sp_snd_tone   += n;
 	if (g_sfx_pos < g_sfx_len)      sp_snd_sfx    += n;
-	if (!voiced && g_tone_left <= 0 && g_sfx_pos >= g_sfx_len)
+	if (nv == 0 && g_tone_left <= 0 && g_sfx_pos >= g_sfx_len)
 		sp_snd_silent += n;     /* rendered, inaudible, paid for anyway */
 #endif
 
-	for (i = 0; i < n; i++) {
-		long acc = 0;
+	if (g_tone_left <= 0 && g_sfx_pos >= g_sfx_len) {
+		/* music only — the case that runs for the length of every tune */
+		switch (nv) {
+		case 0:
+			for (i = 0; i < n; i++)
+				dst[i] = 0;
+			break;
+		case 1: {
+			const unsigned char *w0 = wv[0];
+			unsigned long p0 = pv[0], i0 = iv[0];
 
-		if (voiced) {
-			for (v = 0; v < 4; v++) {
-				if (inc[v] == 0)
-					continue;
-				g_ft_phase[v] += inc[v];
-				acc += (long)wave[v][(g_ft_phase[v] >> 16) & 0xff] - 128;
+			for (i = 0; i < n; i++) {
+				p0 += i0;
+				dst[i] = (char)
+				    (((long)w0[(p0 >> 16) & 0xff] - 128) >> 2);
 			}
-			acc >>= 2;              /* 4 voices summed -> back into 8-bit */
+			pv[0] = p0;
+			break;
 		}
-		if (g_tone_left > 0) {          /* swMode square wave */
-			g_tone_phase += g_tone_inc;
-			acc += ((g_tone_phase & 0x80000000UL) ? g_tone_amp : -g_tone_amp) >> 1;
-			g_tone_left--;
-		}
-		if (g_sfx_pos < g_sfx_len)      /* the effect rides on top */
-			acc += g_sfx_buf[g_sfx_pos++];
+		case 2: {
+			const unsigned char *w0 = wv[0], *w1 = wv[1];
+			unsigned long p0 = pv[0], i0 = iv[0];
+			unsigned long p1 = pv[1], i1 = iv[1];
 
-		if (acc > 127)
-			acc = 127;
-		else if (acc < -128)
-			acc = -128;
-		dst[i] = (char)acc;
+			for (i = 0; i < n; i++) {
+				long u;
+
+				p0 += i0; p1 += i1;
+				u  = (long)w0[(p0 >> 16) & 0xff]
+				   + (long)w1[(p1 >> 16) & 0xff];
+				dst[i] = (char)((u - 256) >> 2);
+			}
+			pv[0] = p0; pv[1] = p1;
+			break;
+		}
+		case 3: {
+			const unsigned char *w0 = wv[0], *w1 = wv[1], *w2 = wv[2];
+			unsigned long p0 = pv[0], i0 = iv[0];
+			unsigned long p1 = pv[1], i1 = iv[1];
+			unsigned long p2 = pv[2], i2 = iv[2];
+
+			for (i = 0; i < n; i++) {
+				long u;
+
+				p0 += i0; p1 += i1; p2 += i2;
+				u  = (long)w0[(p0 >> 16) & 0xff]
+				   + (long)w1[(p1 >> 16) & 0xff]
+				   + (long)w2[(p2 >> 16) & 0xff];
+				dst[i] = (char)((u - 384) >> 2);
+			}
+			pv[0] = p0; pv[1] = p1; pv[2] = p2;
+			break;
+		}
+		default: {
+			const unsigned char *w0 = wv[0], *w1 = wv[1];
+			const unsigned char *w2 = wv[2], *w3 = wv[3];
+			unsigned long p0 = pv[0], i0 = iv[0];
+			unsigned long p1 = pv[1], i1 = iv[1];
+			unsigned long p2 = pv[2], i2 = iv[2];
+			unsigned long p3 = pv[3], i3 = iv[3];
+
+			for (i = 0; i < n; i++) {
+				long u;
+
+				p0 += i0; p1 += i1; p2 += i2; p3 += i3;
+				u  = (long)w0[(p0 >> 16) & 0xff]
+				   + (long)w1[(p1 >> 16) & 0xff]
+				   + (long)w2[(p2 >> 16) & 0xff]
+				   + (long)w3[(p3 >> 16) & 0xff];
+				dst[i] = (char)((u - 512) >> 2);
+			}
+			pv[0] = p0; pv[1] = p1; pv[2] = p2; pv[3] = p3;
+			break;
+		}
+		}
+	} else {
+		/* tone and/or effect present — the general mix, same order and
+		 * single final clamp as the original */
+		for (i = 0; i < n; i++) {
+			long acc = 0;
+			int  k;
+
+			for (k = 0; k < nv; k++) {
+				pv[k] += iv[k];
+				acc += (long)wv[k][(pv[k] >> 16) & 0xff] - 128;
+			}
+			if (nv)
+				acc >>= 2;
+			if (g_tone_left > 0) {          /* swMode square wave */
+				g_tone_phase += g_tone_inc;
+				acc += ((g_tone_phase & 0x80000000UL)
+				        ? g_tone_amp : -g_tone_amp) >> 1;
+				g_tone_left--;
+			}
+			if (g_sfx_pos < g_sfx_len)      /* the effect rides on top */
+				acc += g_sfx_buf[g_sfx_pos++];
+
+			if (acc > 127)
+				acc = 127;
+			else if (acc < -128)
+				acc = -128;
+			dst[i] = (char)acc;
+		}
 	}
+
+	for (v = 0; v < nv; v++)
+		g_ft_phase[ix[v]] = pv[v];
 }
 
 void plat_sound_vbl(void)
