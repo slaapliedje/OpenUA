@@ -131,7 +131,11 @@ rm -f "$OUT"/openua-data-"$MACHINE"-*."$EXT"
 	-printf '%P\n' ) >> "$WORK/all"
 for d in "${DESIGNS[@]}"; do
 	[[ -d "$SRC/$d" ]] || { echo "no such design: $SRC/$d" >&2; exit 1; }
-	( cd "$SRC" && find "$d" -type f -printf '%p\n' ) >> "$WORK/all"
+	# SAVE/ is the player's own data (saved games, vault) — never part of a
+	# game-data set, and two levels deep, which the one-level .DSN stager
+	# below cannot place. A headless test session had left saves here and
+	# the set failed mid-write on disk 6.
+	( cd "$SRC" && find "$d" -type f ! -path '*/SAVE/*' -printf '%p\n' ) >> "$WORK/all"
 done
 case "$ART" in
 ctl) grep -v '\.TLB$'  "$WORK/all" > "$WORK/all.f" && mv "$WORK/all.f" "$WORK/all" ;;
