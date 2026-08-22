@@ -23338,6 +23338,13 @@ static void l2c60(short force_paint)
 		extern long g_bp_items, g_bp_t[24];
 		long i_;
 		dbg_log_num("bar: items painted = ", g_bp_items);
+#ifndef FRUA_NOPLATECACHE
+		{
+			extern long g_plate_hits, g_plate_misses;
+			dbg_log_num("bar: plate hits    = ", g_plate_hits);
+			dbg_log_num("bar: plate misses  = ", g_plate_misses);
+		}
+#endif
 		dbg_log_num("bar: ANCHOR l2c60  = ", (long)(uintptr_t)&l2c60);
 		{
 			extern long g_bp_pre[24];
@@ -42725,7 +42732,12 @@ static void jt85(short group)
 	if ((short)g_a5_word(-13040) < 0)
 		jt997((short)(jt1200() == 3 ? 51 : 52), "FRAME", (short)1);
 	if (jt1163() != 0 || jt1200() == 0)
+	{
+#ifdef FRUA_BAR28
+		dbg_log("jt993 caller: jt85");
+#endif
 		jt993(jt468((short)1), (short)0);
+	}
 	g_a5_word(-13040) = group;
 }
 
@@ -67505,7 +67517,12 @@ static void l1aea_c12(void) __attribute__((unused));
 static void l1aea_c12(void)
 {
 	if (jt1163() != 0 || jt1200() == 0)      /* 0x1aea-0x1af8 */
+	{
+#ifdef FRUA_BAR28
+		dbg_log("jt993 caller: l1aea_c12");
+#endif
 		jt993(jt468(0), 0);              /* 0x1afa-0x1b0a */
+	}
 	jt1130();                                /* 0x1b0c */
 }
 
@@ -77111,7 +77128,12 @@ static void jt357(short top, short left, short code, short sub)
 			jt124(g_a5_long(-27894 + (long)band * 4));
 		else if (((const unsigned char *)(uintptr_t)
 		          g_a5_long(-12300))[6] != 0)
+		{
+#ifdef FRUA_BAR28
+			dbg_log("jt993 caller: band>=2 site");
+#endif
 			jt993(jt1004(), (short)0);
+		}
 	}
 
 	if (qd_screen_pixels(&px, &pitch, &sw, &sh) && px != NULL)
@@ -80903,6 +80925,10 @@ static void jt993(long handle, short idx)
 	 * unchanged). */
 	if (start < 145)
 		g_clut_clobbered = 1;
+#ifdef FRUA_BAR28
+	dbg_log_num("jt993: start          = ", (long)start);
+	dbg_log_num("jt993: count          = ", (long)count);
+#endif
 }
 
 /* JT[1067] (CODE 5 + 0x7772) — GLIB palette colour CYCLING. For each range
@@ -95206,6 +95232,9 @@ static void l3eea(void *p)
 	pv  = *(short *)p;                          /* 3efe */
 	h   = jt468(pv);                            /* 3f04 group lookup */
 	idx = (short)(jt1017((void *)(uintptr_t)jt468(pv)) != 0);   /* 3f1c */
+#ifdef FRUA_BAR28
+	dbg_log_num("jt993 caller: l3eea pv= ", (long)pv);
+#endif
 	jt993(h, idx);                             /* 3f32 commit the palette */
 }
 
@@ -97693,6 +97722,105 @@ static void jt149(short v)
 	g_a5_byte(-12648) = (unsigned char)v;
 }
 
+/* --- the command-button PLATE CACHE (#138-#141 follow-up) ------------------
+ *
+ * jt137 msg 1 rebuilds a button plate from FRAME.CTL glyph pieces — left cap,
+ * rec[24] middles, right cap, then the label and its hotkey letter — through
+ * the per-pixel l309c -> l2d4e path. On the 68000 machines that is 8-16 ticks
+ * PER WORD, ~82 tk (1.4 s) STE / ~104 tk (1.7 s) ECS for the seven-word bar,
+ * against 3-5 tk on the 020s, and it runs after EVERY event modal because the
+ * modal legitimately resets the DLItem pool (#139) and the event picture
+ * legitimately wipes the CLUT (#141, traced: l3eea/jt993 start=32). The
+ * pixels it produces are identical every time (FRUA_BARDAMAGE: 0 px changed
+ * post-modal, three times).
+ *
+ * So: paint once, remember the bytes. A miss paints normally while unioning
+ * the rects l309c lands (g_lc_*), then captures that rect from the chunky
+ * surface — which both l2d4e and the text renderer write, so the capture is
+ * exactly what the paint produced, label and hotkey included (they sit inside
+ * the plate by design). A hit at the same (top,left) with the same label,
+ * width and paint-state bits replays the bytes and stamps them the way
+ * l309c's tail does (planar_viewport_overwrite + qd_planar_bridge_rect +
+ * qd_touch_rows), so the ST/ECS draw-time plane writers see the replay.
+ * Colour modes only; B&W keeps its own seed-bracket path untouched.
+ * -DFRUA_NOPLATECACHE is the A/B arm. */
+#ifndef FRUA_NOPLATECACHE
+#define PLATE_N      16
+#define PLATE_MAX_W  96
+#define PLATE_MAX_H  16
+struct plate_ent {
+	long  lbl;                      /* label pointer (rec+12)            */
+	short n, top, left, state;      /* rec+24, rec+16, rec+18, bits      */
+	short x0, y0, w, h;             /* landed rect, screen coords        */
+	unsigned char px[PLATE_MAX_W * PLATE_MAX_H];
+};
+static struct plate_ent g_plates[PLATE_N];
+static short g_plate_next;
+#ifdef FRUA_BARPROF
+long g_plate_hits, g_plate_misses;
+#endif
+
+static struct plate_ent *plate_find(long lbl, short n, short top, short left,
+                                    short state)
+{
+	short i;
+
+	for (i = 0; i < PLATE_N; i++) {
+		struct plate_ent *e = &g_plates[i];
+
+		if (e->w != 0 && e->lbl == lbl && e->n == n && e->top == top
+		 && e->left == left && e->state == state)
+			return e;
+	}
+	return NULL;
+}
+
+/* replay a cached plate into the screen chunky + stamp it for the planes */
+static void plate_replay(const struct plate_ent *e)
+{
+	unsigned char *px; short pitch, sw, sh, r;
+
+	if (!qd_screen_pixels_nomark(&px, &pitch, &sw, &sh) || px == NULL)
+		return;
+	for (r = 0; r < e->h; r++)
+		memcpy(px + (long)(e->y0 + r) * pitch + e->x0,
+		       e->px + (long)r * e->w, (size_t)e->w);
+	qd_touch_rows(e->y0, (short)(e->y0 + e->h));
+#ifdef FRUA_PLANAR
+	planar_viewport_overwrite(e->x0, e->y0, e->w, e->h);
+#ifndef FRUA_DIAG_NOBRIDGE
+	qd_planar_bridge_rect(e->x0, e->y0, (short)(e->x0 + e->w),
+	                      (short)(e->y0 + e->h));
+#endif
+#endif
+}
+
+/* capture the union rect of a fresh paint into a cache slot */
+static void plate_capture(long lbl, short n, short top, short left,
+                          short state, short x0, short y0, short x1, short y1)
+{
+	unsigned char *px; short pitch, sw, sh, r, w, h;
+	struct plate_ent *e;
+
+	if (x1 <= x0 || y1 <= y0)
+		return;
+	if (!qd_screen_pixels_nomark(&px, &pitch, &sw, &sh) || px == NULL)
+		return;
+	if (x0 < 0 || y0 < 0 || x1 > sw || y1 > sh)
+		return;
+	w = (short)(x1 - x0); h = (short)(y1 - y0);
+	if (w > PLATE_MAX_W || h > PLATE_MAX_H)
+		return;
+	e = &g_plates[g_plate_next];
+	g_plate_next = (short)((g_plate_next + 1) % PLATE_N);
+	e->lbl = lbl; e->n = n; e->top = top; e->left = left; e->state = state;
+	e->x0 = x0; e->y0 = y0; e->w = w; e->h = h;
+	for (r = 0; r < h; r++)
+		memcpy(e->px + (long)r * w, px + (long)(y0 + r) * pitch + x0,
+		       (size_t)w);
+}
+#endif /* !FRUA_NOPLATECACHE */
+
 /* JT[137] (CODE 7+0x1234, ~830B) — the COMMAND-BUTTON DLItem method
  * jt151 chains in FRONT of the shape-1 baseline (jt382, which jt151
  * saves at -12918 and jt137 delegates non-paint/hit messages to).
@@ -97825,15 +97953,54 @@ static short jt137(void *rec_v, short msg, ...)
 			}
 		}
 #endif
+#ifndef FRUA_NOPLATECACHE
+		{
+			long  pc_lbl  = *(long *)(void *)(rec + 12);
+			short pc_n    = *(short *)(void *)(rec + 24);
+			short pc_top  = *(short *)(void *)(rec + 16);
+			short pc_left = *(short *)(void *)(rec + 18);
+			short pc_st   = (short)((rec[28] & 0x69)
+			                        | ((jt1166() >= 300) ? 0x100 : 0));
+			short ux0 = 32767, uy0 = 32767, ux1 = -1, uy1 = -1;
+
+			if (jt1200() != 3) {
+				struct plate_ent *hit =
+				    plate_find(pc_lbl, pc_n, pc_top, pc_left, pc_st);
+
+				if (hit != NULL) {
+#ifdef FRUA_BARPROF
+					g_plate_hits++;
+#endif
+					plate_replay(hit);
+					return 0;
+				}
+#ifdef FRUA_BARPROF
+				g_plate_misses++;
+#endif
+			}
+#define PC_UNION() do { \
+			if (g_lc_x0 < ux0) ux0 = g_lc_x0; \
+			if (g_lc_y0 < uy0) uy0 = g_lc_y0; \
+			if ((short)(g_lc_x0 + g_lc_w) > ux1) ux1 = (short)(g_lc_x0 + g_lc_w); \
+			if ((short)(g_lc_y0 + g_lc_h) > uy1) uy1 = (short)(g_lc_y0 + g_lc_h); \
+		} while (0)
+#else
+#define PC_UNION() do { } while (0)
+#endif
 		jt448(y, *(short *)(void *)(rec + 18), (short)1,
 		      (short)(pal + 10));
-		for (i = 0; i < *(short *)(void *)(rec + 24); i++)
+		PC_UNION();
+		for (i = 0; i < *(short *)(void *)(rec + 24); i++) {
 			jt448(y,
 			      (short)(*(short *)(void *)(rec + 18) + i * 4),
 			      (short)1, (short)(pal + 11));
+			PC_UNION();
+		}
 		jt448(y,
 		      (short)(*(short *)(void *)(rec + 18) + (i - 1) * 4),
 		      (short)1, (short)(pal + 12));
+		PC_UNION();
+#undef PC_UNION
 #ifdef FRUA_BWMODE
 		if (br_on)              /* #159: end the seed bracket */
 			g_mono_seed_hold = 0;
@@ -97868,6 +98035,12 @@ static short jt137(void *rec_v, short msg, ...)
 			       ua_strs_at(0x2758) /* "%c" */,
 			       (int)(signed char)lbl[0]);
 		}
+#ifndef FRUA_NOPLATECACHE
+		if (jt1200() != 3)
+			plate_capture(pc_lbl, pc_n, pc_top, pc_left, pc_st,
+			              ux0, uy0, ux1, uy1);
+		}                       /* closes the plate-cache block */
+#endif
 		return 0;
 	}
 	if (msg == 2) {
