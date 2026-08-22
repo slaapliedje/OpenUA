@@ -623,6 +623,27 @@ void plat_sound_vbl(void)
 
 	bard_vbl();
 
+	/* While the bard plays (cold conversions only) skip the refill AND
+	 * the Mac VBL sound task. This is the fix for the "VBL starvation":
+	 * with title music audible, refill + hook cost ~2.4 FRAMES per call
+	 * on the 7 MHz 68000 (an earlier reading hid this by measuring beam
+	 * lines modulo one frame: 2.33 frames = 729 lines = 103 mod 313).
+	 * exec merges VERTB requests latched during an overrunning handler,
+	 * so servicing locked to a metronomic every-3rd frame — measured as
+	 * a clean gap-3 TOD histogram, nothing pending, the whole server
+	 * chain starved equally, and it would do the SAME on real silicon
+	 * (amiberry was innocent; issue #2288 retracted). Skipping the whole
+	 * handler here took the two big cold conversions from 2238+2565 TOD
+	 * ticks to 401+456 — the quant only ever needed ~1/5 of that wall
+	 * time. Engine audio is muted under the bard anyway, and freezing
+	 * the sequencer means the music RESUMES where it paused; the ring
+	 * resync in plat_bard_stop re-seats the write point. */
+	if (g_bard_on) {
+		g_vblprof_calls++;
+		g_vblprof_lines += (long)((vbl_beamline() - b0 + 313UL) % 313UL);
+		return;
+	}
+
 	void (*hook)(void);
 	long lead, todo;
 	int  audible;
