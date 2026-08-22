@@ -111,61 +111,164 @@ static int synth_audible(void)
 }
 
 /* Render `n` samples of (4 wavetable voices + square tone + effect) into
- * dst — the same mixer as the Falcon backend, at Paula's ring rate. */
+ * dst — the same mixer as the Falcon backend, at Paula's ring rate.
+ *
+ * ★ REWRITTEN FOR THE 68000 — measured at 773 beam lines = 2.47 FRAMES per
+ * 454-sample fill (~770 cycles/sample) in its Falcon-identical form, which
+ * is the entire "VBL starvation" (39551e5e): the per-sample loop did four
+ * read-modify-writes of g_ft_phase[] through absolute addresses, four
+ * inc==0 tests, and tone/sfx tests, every sample. The shape now:
+ *
+ *  - active voices COMPACTED once per call; phases live in locals for the
+ *    duration and write back at the end — no global traffic per sample;
+ *  - wavetable bytes summed UNSIGNED with the -128-per-voice bias folded
+ *    into the final shift: (sum - 128*nv) >> 2 == sum of (w-128) >> 2;
+ *  - the steady state (music, no tone, no sfx) gets per-voice-count
+ *    specializations with everything register-resident and NO clamp —
+ *    after the bias and >>2 the result provably fits -128..127
+ *    (max 4*255-512 = 508 -> 127; min -512 -> -128);
+ *  - tone/sfx frames take the general path, same order and single final
+ *    clamp as before — output is byte-identical to the old mixer. */
 static void synth_render(signed char *dst, long n)
 {
 	const unsigned char *rec = (const unsigned char *)g_ft_rec;
-	const unsigned char *wave[4];
-	unsigned long        inc[4];
-	int                  v, voiced = 0;
+	const unsigned char *wv[4];
+	unsigned long        iv[4], pv[4];
+	short                ix[4];
+	int                  v, nv = 0;
 	long                 i;
 
 	for (v = 0; v < 4; v++) {
-		unsigned long rate;
+		unsigned long rate, inc;
+		const unsigned char *w;
 
-		inc[v]  = 0;
-		wave[v] = NULL;
 		if (rec == NULL)
 			continue;
-		rate    = rd_be32_p(rec + FT_RATE(v));
-		wave[v] = (const unsigned char *)rd_be32_p(rec + FT_WAVE(v));
-		if (rate == 0 || wave[v] == NULL)
+		rate = rd_be32_p(rec + FT_RATE(v));
+		w    = (const unsigned char *)rd_be32_p(rec + FT_WAVE(v));
+		if (rate == 0 || w == NULL)
 			continue;
 		/* The Fixed rate steps the wave at the MAC's sample rate; the
 		 * ring clocks SYNTH_HZ, so rescale or every note transposes. */
-		inc[v] = (unsigned long)(((unsigned long long)rate
-		                          * (unsigned long long)MAC_SYNTH_HZ)
-		                         / (unsigned long long)SYNTH_HZ);
-		if (inc[v] != 0)
-			voiced = 1;
+		inc = (unsigned long)(((unsigned long long)rate
+		                       * (unsigned long long)MAC_SYNTH_HZ)
+		                      / (unsigned long long)SYNTH_HZ);
+		if (inc == 0)
+			continue;
+		wv[nv] = w;
+		iv[nv] = inc;
+		pv[nv] = g_ft_phase[v];
+		ix[nv] = (short)v;
+		nv++;
 	}
 
-	for (i = 0; i < n; i++) {
-		long acc = 0;
+	if (g_tone_left <= 0 && g_sfx_pos >= g_sfx_len) {
+		/* music only — the case that runs for the length of every tune */
+		switch (nv) {
+		case 0:
+			for (i = 0; i < n; i++)
+				dst[i] = 0;
+			break;
+		case 1: {
+			const unsigned char *w0 = wv[0];
+			unsigned long p0 = pv[0], i0 = iv[0];
 
-		if (voiced) {
-			for (v = 0; v < 4; v++) {
-				if (inc[v] == 0)
-					continue;
-				g_ft_phase[v] += inc[v];
-				acc += (long)wave[v][(g_ft_phase[v] >> 16) & 0xff] - 128;
+			for (i = 0; i < n; i++) {
+				p0 += i0;
+				dst[i] = (signed char)
+				    (((long)w0[(p0 >> 16) & 0xff] - 128) >> 2);
 			}
-			acc >>= 2;              /* 4 voices summed -> 8-bit */
+			pv[0] = p0;
+			break;
 		}
-		if (g_tone_left > 0) {          /* swMode square wave */
-			g_tone_phase += g_tone_inc;
-			acc += ((g_tone_phase & 0x80000000UL) ? g_tone_amp : -g_tone_amp) >> 1;
-			g_tone_left--;
-		}
-		if (g_sfx_pos < g_sfx_len)      /* the effect rides on top */
-			acc += g_sfx_buf[g_sfx_pos++];
+		case 2: {
+			const unsigned char *w0 = wv[0], *w1 = wv[1];
+			unsigned long p0 = pv[0], i0 = iv[0];
+			unsigned long p1 = pv[1], i1 = iv[1];
 
-		if (acc > 127)
-			acc = 127;
-		else if (acc < -128)
-			acc = -128;
-		dst[i] = (signed char)acc;
+			for (i = 0; i < n; i++) {
+				long u;
+
+				p0 += i0; p1 += i1;
+				u  = (long)w0[(p0 >> 16) & 0xff]
+				   + (long)w1[(p1 >> 16) & 0xff];
+				dst[i] = (signed char)((u - 256) >> 2);
+			}
+			pv[0] = p0; pv[1] = p1;
+			break;
+		}
+		case 3: {
+			const unsigned char *w0 = wv[0], *w1 = wv[1], *w2 = wv[2];
+			unsigned long p0 = pv[0], i0 = iv[0];
+			unsigned long p1 = pv[1], i1 = iv[1];
+			unsigned long p2 = pv[2], i2 = iv[2];
+
+			for (i = 0; i < n; i++) {
+				long u;
+
+				p0 += i0; p1 += i1; p2 += i2;
+				u  = (long)w0[(p0 >> 16) & 0xff]
+				   + (long)w1[(p1 >> 16) & 0xff]
+				   + (long)w2[(p2 >> 16) & 0xff];
+				dst[i] = (signed char)((u - 384) >> 2);
+			}
+			pv[0] = p0; pv[1] = p1; pv[2] = p2;
+			break;
+		}
+		default: {
+			const unsigned char *w0 = wv[0], *w1 = wv[1];
+			const unsigned char *w2 = wv[2], *w3 = wv[3];
+			unsigned long p0 = pv[0], i0 = iv[0];
+			unsigned long p1 = pv[1], i1 = iv[1];
+			unsigned long p2 = pv[2], i2 = iv[2];
+			unsigned long p3 = pv[3], i3 = iv[3];
+
+			for (i = 0; i < n; i++) {
+				long u;
+
+				p0 += i0; p1 += i1; p2 += i2; p3 += i3;
+				u  = (long)w0[(p0 >> 16) & 0xff]
+				   + (long)w1[(p1 >> 16) & 0xff]
+				   + (long)w2[(p2 >> 16) & 0xff]
+				   + (long)w3[(p3 >> 16) & 0xff];
+				dst[i] = (signed char)((u - 512) >> 2);
+			}
+			pv[0] = p0; pv[1] = p1; pv[2] = p2; pv[3] = p3;
+			break;
+		}
+		}
+	} else {
+		/* tone and/or effect present — the general mix, same order and
+		 * single final clamp as the original */
+		for (i = 0; i < n; i++) {
+			long acc = 0;
+			int  k;
+
+			for (k = 0; k < nv; k++) {
+				pv[k] += iv[k];
+				acc += (long)wv[k][(pv[k] >> 16) & 0xff] - 128;
+			}
+			if (nv)
+				acc >>= 2;
+			if (g_tone_left > 0) {          /* swMode square wave */
+				g_tone_phase += g_tone_inc;
+				acc += ((g_tone_phase & 0x80000000UL)
+				        ? g_tone_amp : -g_tone_amp) >> 1;
+				g_tone_left--;
+			}
+			if (g_sfx_pos < g_sfx_len)      /* the effect rides on top */
+				acc += g_sfx_buf[g_sfx_pos++];
+
+			if (acc > 127)
+				acc = 127;
+			else if (acc < -128)
+				acc = -128;
+			dst[i] = (signed char)acc;
+		}
 	}
+
+	for (v = 0; v < nv; v++)
+		g_ft_phase[ix[v]] = pv[v];
 }
 
 int plat_sound_init(void)
@@ -235,6 +338,8 @@ static long         g_bard_calls;       /* bard_vbl invocations this window  */
 static long         g_bard_gap[6];      /* arrival-gap histogram, TOD ticks  */
 static long         g_bard_gapmax;      /* largest gap seen this window      */
 static long         g_bard_front0, g_bard_tail0;  /* chain-bracket snapshots */
+static long         g_prof_fill_calls, g_prof_fill_lines;  /* refill cost   */
+static long         g_prof_hook_calls, g_prof_hook_lines;  /* sequencer cost*/
 /* Handler-cost instrumentation (mainline-read): total beam lines spent inside
  * plat_sound_vbl and the call count, so avg lines/call ~ handler cost. A PAL
  * frame is 313 lines: an average NEAR 313 means the handler costs a whole
@@ -371,6 +476,12 @@ void plat_bard_stop(void)
 	            (long)((bard_tod() - g_bard_tod0) & 0xFFFFFFUL));
 	dbg_log_num("bard: handler calls          = ", g_vblprof_calls);
 	dbg_log_num("bard: handler beam lines     = ", g_vblprof_lines);
+	dbg_log_num("bard: refill calls / lines   = ", g_prof_fill_calls);
+	dbg_log_num("bard:              lines     = ", g_prof_fill_lines);
+	dbg_log_num("bard: hook   calls / lines   = ", g_prof_hook_calls);
+	dbg_log_num("bard:              lines     = ", g_prof_hook_lines);
+	g_prof_fill_calls = 0; g_prof_fill_lines = 0;
+	g_prof_hook_calls = 0; g_prof_hook_lines = 0;
 	{
 		short i;
 
@@ -662,6 +773,10 @@ void plat_sound_vbl(void)
 	if (lead < 0)
 		lead += RING_SAMPLES;
 	todo = (RING_SAMPLES / 2) - lead;       /* stay half a ring ahead */
+	if (todo > FRAME_SAMPLES * 2)
+		todo = FRAME_SAMPLES * 2;       /* bound one vblank's render —
+		                                 * catch-up spreads over frames
+		                                 * instead of ballooning one */
 
 	/* #116: DO NOT SYNTHESISE SILENCE — the Falcon backend's #96 gate,
 	 * ported. Paula loops the ring forever, so this refill runs every
@@ -699,6 +814,9 @@ void plat_sound_vbl(void)
 		if (g_ring_w >= RING_SAMPLES)
 			g_ring_w -= RING_SAMPLES;
 	} else {
+		unsigned long f0 = vbl_beamline();
+		unsigned long ft0 = bard_tod();
+
 		while (todo > 0) {
 			long chunk = RING_SAMPLES - g_ring_w;
 
@@ -712,13 +830,25 @@ void plat_sound_vbl(void)
 				g_ring_w = 0;
 			todo -= chunk;
 		}
+		g_prof_fill_calls++;
+		/* TOD-qualified: ticks*313 + line remainder, so a multi-frame
+		 * fill cannot wrap mod one frame (the trap that hid 2.4 frames
+		 * as "103 lines" once already) */
+		g_prof_fill_lines += (long)((bard_tod() - ft0) & 0xFFFFFFUL) * 313
+		                   + (long)((vbl_beamline() - f0 + 313UL) % 313UL);
 	}
 
 	hook = s_vbl_hook;
 	if (hook != NULL) {
+		unsigned long h0 = vbl_beamline();
+		unsigned long ht0 = bard_tod();
+
 		g_amiga_in_int = 1;     /* dbg sinks defer while engine code runs */
 		hook();
 		g_amiga_in_int = 0;
+		g_prof_hook_calls++;
+		g_prof_hook_lines += (long)((bard_tod() - ht0) & 0xFFFFFFUL) * 313
+		                   + (long)((vbl_beamline() - h0 + 313UL) % 313UL);
 	}
 	g_vblprof_calls++;
 	g_vblprof_lines += (long)((vbl_beamline() - b0 + 313UL) % 313UL);
