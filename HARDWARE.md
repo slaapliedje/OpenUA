@@ -145,15 +145,33 @@ failure to launch.
 
 ## Installing
 
-1. Stage your game data on the PC (see `GAMEDATA.md`). You want `frua.rsc` and
-   at least one `*.DSN` design folder.
-2. Copy the data to the machine's hard disk / CF / SD.
-3. Copy the engine binary into the **same directory as the data** — it looks
-   for `frua.rsc` relative to where it runs.
-4. Run it: `FRUA.PRG` on Atari, `frua` on Amiga.
+There are two routes. Both end with the engine and the data in one directory,
+which is what the engine needs — it looks for `frua.rsc` relative to where it
+runs.
 
-`UAINST` (`UAINST.TTP` / `uainst`) is optional and installs DOS fan modules
-from their ZIP, converting the art in place.
+**From the disk set (no PC in the loop at install time).** Make the data disks
+on the PC once (`tools/mkdatadisks.sh`, see "The images"), then on the machine:
+
+- **Atari:** run `INSTDISK.PRG` from data disk 1 (a GEM window with a progress
+  bar: pick the destination folder in the file selector, feed the disks in
+  when the alerts ask, then the engine disk). `INSTDISK.TTP` is the same
+  installer on the console, for a path on the command line or drag-and-drop.
+- **Amiga, Workbench:** double-click the **Install** icon on the engine disk.
+  It runs the OS Installer (standard since 2.0 — the icon finds it in
+  `SYS:System` or `SYS:Utilities`), asks where to create the OpenUA drawer,
+  then asks for the engine disk(s) and the data disks by volume name. On the
+  ECS set it joins the two engine halves itself.
+- **Amiga, Shell:** run `instdisk` from data disk 1. It reads the DRIVE, not
+  the volume, so swapping disks just works and it notices the new disk by
+  itself; after the data it asks for the engine disk(s) and joins the halves.
+
+**From a staged folder.** Stage your game data on the PC (see `GAMEDATA.md`),
+copy the folder to the machine's hard disk / CF / SD, copy the engine binary
+(`FRUA.PRG` / `frua`, plus `frua.info` on the Amiga) into that same directory,
+and run it from there.
+
+`UAINST` (`UAINST.PRG` / `UAINST.TTP` / `uainst`) is optional and installs DOS
+fan modules from their ZIP, converting the art in place.
 
 ### Choosing the video mode (Falcon)
 

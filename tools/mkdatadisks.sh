@@ -65,11 +65,14 @@ DESIGNS=("$@")
 # assumed — see the note below.
 case "$MACHINE" in
 atari)     UNIT=512;  CAP=2840; ROOT=224; FMT=1440; EXT=st
-           INST="$REPO/instdisk.ttp";   INSTNAME=INSTDISK.TTP ;;
+           INST="$REPO/instdisk.ttp";   INSTNAME=INSTDISK.TTP
+           INST2="$REPO/instdisk.prg";  INST2NAME=INSTDISK.PRG ;;
 atari720)  UNIT=1024; CAP=709;  ROOT=112; FMT=720;  EXT=st
-           INST="$REPO/instdisk.ttp";   INSTNAME=INSTDISK.TTP ;;
+           INST="$REPO/instdisk.ttp";   INSTNAME=INSTDISK.TTP
+           INST2="$REPO/instdisk.prg";  INST2NAME=INSTDISK.PRG ;;
 amiga)     UNIT=512;  CAP=1740; ROOT=0;   FMT=;     EXT=adf
-           INST="$REPO/instdisk_amiga"; INSTNAME=instdisk ;;
+           INST="$REPO/instdisk_amiga"; INSTNAME=instdisk
+           INST2="";                    INST2NAME= ;;
 # ★ gotek — ONE image instead of six, on a FlashFloppy Gotek.
 #
 # A stock ST's WD1772 is stuck at 250 kbit/s, which is why the 1.44 MB and
@@ -86,7 +89,8 @@ amiga)     UNIT=512;  CAP=1740; ROOT=0;   FMT=;     EXT=adf
 # (comfortably under FAT12's 4085-cluster ceiling, so TOS still sees FAT12).
 gotek)     UNIT=4096; CAP=2289; ROOT=512; FMT=;     EXT=st
            MGEOM="-t 255 -h 2 -n 36"
-           INST="$REPO/instdisk.ttp";   INSTNAME=INSTDISK.TTP ;;
+           INST="$REPO/instdisk.ttp";   INSTNAME=INSTDISK.TTP
+           INST2="$REPO/instdisk.prg";  INST2NAME=INSTDISK.PRG ;;
 *)         echo "unknown machine: $MACHINE (atari|atari720|amiga|gotek)" >&2; exit 1 ;;
 esac
 MGEOM="${MGEOM:-}"
@@ -150,6 +154,10 @@ say "$(wc -l < "$WORK/all") files, $TOTBYTES bytes (ART=$ART)"
 # accounting for that packed disk 1 to the full cap and then failed at mcopy
 # time with a bare "Disk full", after the image was already written.
 INSTSZ=$(stat -c%s "$INST")
+if [[ -n "${INST2:-}" ]]; then
+	[[ -f "$INST2" ]] || { echo "installer not built: $INST2 (make instdisk)" >&2; exit 1; }
+	INSTSZ=$(( INSTSZ + $(stat -c%s "$INST2") ))
+fi
 python3 - "$SRC" "$WORK" "$CAP" "$INSTSZ" "$MACHINE" "$UNIT" "$ROOT" <<'PY'
 import os, sys
 src, work, capblocks = sys.argv[1], sys.argv[2], int(sys.argv[3])
@@ -221,6 +229,7 @@ for ((n = 1; n <= NDISKS; n++)); do
 	done < <(tail -n +2 "$WORK/disk$n.lst")
 	cp "$WORK/disk$n.lst" "$STAGE/DISK.LST"
 	[[ $n -eq 1 ]] && cp "$INST" "$STAGE/$INSTNAME"
+	[[ $n -eq 1 && -n "${INST2:-}" ]] && cp "$INST2" "$STAGE/$INST2NAME"
 
 	# Branch on the IMAGE FORMAT, not the machine name: `atari720` is an Atari
 	# target too, and matching == atari silently sent it down the Amiga path to
@@ -274,14 +283,19 @@ OpenUA game-data disks ($MACHINE) — $NDISKS disks
 
 *** THESE CONTAIN COPYRIGHTED GAME DATA. Do not redistribute them. ***
 
-Disk 1 carries $INSTNAME. Run it, give it a destination, and feed the
-disks in when asked:
+Disk 1 carries the installer${INST2NAME:+ ($INST2NAME for the desktop, $INSTNAME for the console)}${INST2NAME:-: $INSTNAME}.
+Run it, give it a destination, and feed the disks in when asked:
 
     Atari:  C:\\OPENUA
     Amiga:  DH0:OpenUA
 
-Then copy the engine (FRUA.PRG or frua) into that same directory and run
-it from there — it looks for frua.rsc relative to where it runs.
+When the data is in, it asks for the OpenUA ENGINE disk and installs the
+engine into the same directory (joining the two halves on the Amiga ECS set
+itself). Run the game from that directory — it looks for frua.rsc relative
+to where it runs.
+
+Amiga Workbench users can instead double-click the Install icon on the
+engine disk: it uses the OS Installer and asks for these disks by name.
 EOF
 say "done -> $OUT"
 ls -la "$OUT"

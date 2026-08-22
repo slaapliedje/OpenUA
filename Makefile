@@ -805,12 +805,17 @@ AMIGA_CROSS ?= $(HOME)/opt/amiga/bin/m68k-amigaos-
 # instdisk — the multi-disk DATA installer that ships on the data floppies
 # (tools/mkdatadisks.sh). Separate binary from uainst: uainst installs one fan
 # module from a ZIP, this walks a numbered disk set onto mass storage.
-instdisk: instdisk.ttp
-instdisk.prg: installer/instdisk.c
+# INSTDISK.PRG is the GEM build (selector, alerts, progress window —
+# installer/gem_atari.c); INSTDISK.TTP is the console build for the argument
+# form and drag-and-drop. Same manifest core.
+instdisk: instdisk.ttp instdisk.prg
+instdisk.ttp: installer/instdisk.c
 	$(CC) -m68000 -msoft-float -std=gnu99 -O2 -fomit-frame-pointer -o $@ $<
 	$(STRIP) $@
-instdisk.ttp: instdisk.prg
-	cp $< $@
+instdisk.prg: installer/instdisk.c installer/gem_atari.c
+	$(CC) -m68000 -msoft-float -std=gnu99 -O2 -fomit-frame-pointer \
+	    -DINSTDISK_GUI -o $@ installer/instdisk.c installer/gem_atari.c
+	$(STRIP) $@
 
 instdisk-amiga: instdisk_amiga
 instdisk_amiga: installer/instdisk.c

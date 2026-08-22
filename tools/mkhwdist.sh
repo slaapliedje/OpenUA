@@ -103,6 +103,10 @@ atari_img() {       # atari_img <out.st> <size-kb> <srcdir> <file...>
 
 say "Falcon030 / TT030 — 1.44 MB, runs straight off the disk"
 cp "$FAL/frua.prg" "$WORK/FRUA.PRG"
+# ENGINE.LST — instdisk's manifest for the engine step (same header as
+# DISK.LST, then "<src> <dest> [a]"). Raw-PRG disks only; the 720K disk
+# carries FRUA.ZIP and its README says "unzip on a PC".
+printf '1 1 OpenUA engine (Falcon/TT)\nFRUA.PRG FRUA.PRG\nUAINST.TTP UAINST.TTP\n' > "$WORK/ENGINE.LST"
 cp "$FAL/UAINST.TTP" "$WORK/UAINST.TTP"
 readme "$WORK/README.TXT" "Atari Falcon030 / TT030" \
 	"FRUA.PRG    the engine — double-click it." \
@@ -111,7 +115,7 @@ readme "$WORK/README.TXT" "Atari Falcon030 / TT030" \
 	"Copy both to your hard disk / CF and run from there; the game" \
 	"writes saves next to its data."
 atari_img "$OUT/openua-falcon-$VERSION.st" 1440 "$WORK" \
-	FRUA.PRG UAINST.TTP README.TXT
+	FRUA.PRG UAINST.TTP README.TXT ENGINE.LST
 rm -f "$WORK/FRUA.PRG"
 
 say "Mega ST / STE — 720 KB, compressed (the binary is 1.04 MB)"
@@ -133,6 +137,7 @@ say "Atari ST on a GOTEK — 1.44 MB at 150 rpm, binary raw"
 # WD1772 is locked to still yields 18 sectors per track. Verified in Hatari:
 # the ST binary autostarts from a 1.44 MB image on `--machine st`.
 cp "$ST/frua.prg" "$WORK/FRUA.PRG"
+printf '1 1 OpenUA engine (ST Gotek)\nFRUA.PRG FRUA.PRG\nUAINST.TTP UAINST.TTP\n' > "$WORK/ENGINE.LST"
 readme "$WORK/README.TXT" "Atari ST / STE / Mega ST — GOTEK IMAGE" \
 	"FRUA.PRG    the engine, ready to copy off — no unzip step." \
 	"UAINST.TTP  installs a DOS fan module from its ZIP." \
@@ -145,7 +150,7 @@ readme "$WORK/README.TXT" "Atari ST / STE / Mega ST — GOTEK IMAGE" \
 	"" \
 	"With a real drive, use the 720K disk instead."
 atari_img "$OUT/openua-st-gotek-$VERSION.st" 1440 "$WORK" \
-	FRUA.PRG UAINST.TTP README.TXT
+	FRUA.PRG UAINST.TTP README.TXT ENGINE.LST
 rm -f "$WORK/FRUA.PRG"
 
 # --- Amiga: FFS ADF -------------------------------------------------------
@@ -161,15 +166,90 @@ amiga_img() {       # amiga_img <out.adf> <label> <srcdir> <file...>
 	say "$(basename "$img")  880K  — $free"
 }
 
+# --- Amiga Workbench install: an IconX launcher that finds whichever
+# Installer the machine has and runs Install.script with it. Installer is
+# standard since Workbench 2.0 but lives in SYS:Utilities on 2.x/3.0/3.1
+# and SYS:System on 3.1.4/3.2 — neither is in the path, and IconX (in C:)
+# is. Nothing is shipped that is not ours.
+amiga_install_files() {   # amiga_install_files <variant: aga|ecs> <datadisks-default>
+	local variant="$1" ndata="${2:-6}"
+	cat > "$WORK/Install" <<'EOS'
+.KEY
+.BRA {
+.KET }
+; OpenUA Workbench installer launcher (run by IconX)
+IF EXISTS SYS:System/Installer
+  SYS:System/Installer SCRIPT Install.script APPNAME OpenUA MINUSER NOVICE DEFUSER AVERAGE
+ELSE
+  IF EXISTS SYS:Utilities/Installer
+    SYS:Utilities/Installer SCRIPT Install.script APPNAME OpenUA MINUSER NOVICE DEFUSER AVERAGE
+  ELSE
+    ECHO "Installer was not found in SYS:System or SYS:Utilities."
+    ECHO "From a Shell: Installer SCRIPT Install.script   (or use instdisk on data disk 1)"
+    WAIT 10
+  ENDIF
+ENDIF
+EOS
+	{
+		echo '; OpenUA install script for the AmigaOS Installer (2.0+)'
+		echo '; Installs the engine from this disk set and the game data disks.'
+		echo '(set @default-dest'
+		echo '  (askdir (prompt "Where should the OpenUA drawer be created?")'
+		echo '          (help "A drawer named OpenUA is created inside the drawer you pick. The game data (about 7 MB) and the engine go there.")'
+		echo '          (default "DH0:") (newpath)))'
+		echo '(set uadir (tackon @default-dest "OpenUA"))'
+		echo '(makedir uadir (infos))'
+		echo '(message "Installing the engine into " uadir)'
+		if [ "$variant" = aga ]; then
+			echo '(copyfiles (source "OpenUA-AGA:frua") (dest uadir) (infos))'
+			echo '(copyfiles (source "OpenUA-AGA:uainst") (dest uadir) (infos))'
+		else
+			echo '(copyfiles (source "OpenUA-ECS-1:frua.00") (dest uadir))'
+			echo '(copyfiles (source "OpenUA-ECS-1:uainst") (dest uadir) (infos))'
+			echo '(copyfiles (source "OpenUA-ECS-1:frua.info") (dest uadir))'
+			echo '(askdisk (prompt "Insert OpenUA engine disk 2 of 2") (help "The second half of the engine is on it.") (dest "OpenUA-ECS-2"))'
+			echo '(copyfiles (source "OpenUA-ECS-2:frua.01") (dest uadir))'
+			echo '(run (cat "Join " (tackon uadir "frua.00") " " (tackon uadir "frua.01") " AS " (tackon uadir "frua")))'
+			echo '(run (cat "Protect " (tackon uadir "frua") " +e"))'
+			echo '(delete (tackon uadir "frua.00"))'
+			echo '(delete (tackon uadir "frua.01"))'
+		fi
+		echo "(set ndisks (asknumber (prompt \"How many OpenUA DATA disks do you have?\")"
+		echo '  (help "The game data set is numbered OpenUA-Data-1, -2, ... The number is on the first line of DISK.LST on any of them.")'
+		echo "  (default $ndata)))"
+		echo '(set i 1)'
+		echo '(while (<= i ndisks)'
+		echo '  ('
+		echo '    (askdisk (prompt (cat "Insert OpenUA data disk " i " of " ndisks))'
+		echo '             (help "The numbered game-data disks made with mkdatadisks.")'
+		echo '             (dest (cat "OpenUA-Data-" i)))'
+		echo '    (copyfiles (source (cat "OpenUA-Data-" i ":")) (dest uadir) (pattern "~(DISK.LST|instdisk)"))'
+		echo '    (set i (+ i 1))'
+		echo '  )'
+		echo ')'
+		echo '(complete 100)'
+		echo '(exit "OpenUA is installed. Open the OpenUA drawer and double-click frua.")'
+	} > "$WORK/Install.script"
+	python3 "$REPO/tools/make_amiga_icon.py" --type project --default-tool "IconX" \
+	    --tooltype "WINDOW=CON:0/20/640/180/OpenUA install/CLOSE" \
+	    -o "$WORK/Install.info"
+}
+
 say "Amiga AGA (A1200/A4000) — 880 KB, binary raw"
 readme "$WORK/README" "Amiga AGA (A1200 / A4000)" \
 	"frua    the engine. Needs Kickstart 3.0+ and about 4 MB." \
 	"uainst  installs a DOS fan module from its ZIP." \
 	"" \
-	"Copy both to your hard disk / CF and run from there."
+	"TO INSTALL: double-click the Install icon (Workbench), or run" \
+	"instdisk from data disk 1 — it installs the data and then asks" \
+	"for this disk to install the engine."
+amiga_install_files aga 6
+printf '1 1 OpenUA engine (AGA)\nfrua frua\nfrua.info frua.info\nuainst uainst\nuainst.info uainst.info\n' > "$WORK/ENGINE.LST"
 amiga_img "$OUT/openua-amiga-aga-$VERSION.adf" "OpenUA-AGA" "$AGA" \
-	frua uainst uainst.info
-"$XDFTOOL" "$OUT/openua-amiga-aga-$VERSION.adf" write "$WORK/README" >/dev/null
+	frua frua.info uainst uainst.info
+for f in README ENGINE.LST Install Install.info Install.script; do
+	"$XDFTOOL" "$OUT/openua-amiga-aga-$VERSION.adf" write "$WORK/$f" >/dev/null
+done
 
 say "Amiga ECS/OCS (A500+/A600/A2000) — 993 KB binary, so a TWO-disk set"
 # ★ NO ARCHIVER. The obvious answer is LhA, but this host's `lha` is lhasa
@@ -193,17 +273,25 @@ readme "$WORK/README" "Amiga ECS / OCS — disk 1 of 2" \
 	"uainst installs a DOS fan module from its ZIP." \
 	"" \
 	"Needs Kickstart 2.0+ and 2 MB. Kickstart 1.3 will NOT work — it dies" \
-	"in the C startup before the program begins. Native 32-colour."
+	"in the C startup before the program begins. Native 32-colour." \
+	"" \
+	"TO INSTALL: double-click the Install icon (Workbench), or run" \
+	"instdisk from data disk 1 — it installs the data, then asks for" \
+	"this disk and disk 2 and joins the halves itself."
+amiga_install_files ecs 6
+printf '1 2 OpenUA engine (ECS)\nfrua.00 frua\nfrua.info frua.info\nuainst uainst\nuainst.info uainst.info\n' > "$WORK/ENGINE.LST"
 amiga_img "$OUT/openua-amiga-ecs-$VERSION-disk1.adf" "OpenUA-ECS-1" "$WORK" \
-	frua.00 README
-"$XDFTOOL" "$OUT/openua-amiga-ecs-$VERSION-disk1.adf" write "$ECS/uainst" >/dev/null
-"$XDFTOOL" "$OUT/openua-amiga-ecs-$VERSION-disk1.adf" write "$ECS/uainst.info" >/dev/null
+	frua.00 README ENGINE.LST Install Install.info Install.script
+for f in uainst uainst.info frua.info; do
+	"$XDFTOOL" "$OUT/openua-amiga-ecs-$VERSION-disk1.adf" write "$ECS/$f" >/dev/null
+done
 
 readme "$WORK/README" "Amiga ECS / OCS — disk 2 of 2" \
 	"frua.01 is the second half of the engine. See disk 1's README for the" \
 	"three-line Join recipe."
+printf '2 2 OpenUA engine (ECS)\nfrua.01 frua a\n' > "$WORK/ENGINE.LST"
 amiga_img "$OUT/openua-amiga-ecs-$VERSION-disk2.adf" "OpenUA-ECS-2" "$WORK" \
-	frua.01 README
+	frua.01 README ENGINE.LST
 
 # ---- the FlashFloppy geometry stanzas ------------------------------------
 # A Gotek reads a raw .img/.st by SIZE; anything that is not a standard floppy
