@@ -157,10 +157,15 @@ on the PC once (`tools/mkdatadisks.sh`, see "The images"), then on the machine:
   when the alerts ask, then the engine disk). `INSTDISK.TTP` is the same
   installer on the console, for a path on the command line or drag-and-drop.
 - **Amiga, Workbench:** double-click the **Install** icon on the engine disk.
-  It runs the OS Installer (standard since 2.0 — the icon finds it in
-  `SYS:System` or `SYS:Utilities`), asks where to create the OpenUA drawer,
-  then asks for the engine disk(s) and the data disks by volume name. On the
-  ECS set it joins the two engine halves itself.
+  If the machine has the AmigaOS Installer (the icon looks in `SYS:System`
+  and `SYS:Utilities`) it runs that: it asks where to create the OpenUA
+  drawer, then for the engine disk(s) and the data disks by volume name, and
+  on the ECS set joins the two engine halves itself. **Workbench 3.1 never
+  shipped Installer** (it was a separate developer package that vendors had
+  to license on paper, so we cannot bundle it either); on such a machine the
+  icon runs OpenUA's own `instdisk` from the engine disk in a window instead
+  — RETURN accepts the `DH0:OpenUA` default, and it notices disk swaps by
+  itself.
 - **Amiga, Shell:** run `instdisk` from data disk 1. It reads the DRIVE, not
   the volume, so swapping disks just works and it notices the new disk by
   itself; after the data it asks for the engine disk(s) and joins the halves.

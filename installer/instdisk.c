@@ -241,11 +241,14 @@ static FILE *open_manifest(const char *src, const char *lst, int *disk,
 	return f;
 }
 
-static void wait_return(void)
+/* Returns 0 on EOF: a closed stdin (a pipe, a redirected console) must end
+ * the install, not re-prompt forever — the host harness found it spinning. */
+static int wait_return(void)
 {
 	int c;
 	while ((c = getchar()) != '\n' && c != EOF)
 		;
+	return c != EOF;
 }
 
 /* Wait for the disk whose manifest `lst` carries number `want` to be in the
@@ -276,7 +279,10 @@ static void wait_for_disk(const char *src, const char *lst, int want,
 #ifdef __amigaos__
 			(void)amiga_wait_key_or_tick();
 #else
-			wait_return();
+			if (!wait_return()) {
+				printf("\nno input - giving up.\n");
+				exit(1);
+			}
 #endif
 		}
 		m = open_manifest(src, lst, &disk, &total, name, sizeof name);
@@ -345,18 +351,25 @@ int main(int argc, char **argv)
 	}
 #endif
 	if (dest[0] == 0) {
-		printf("Install the game data WHERE?\n");
-		printf("  (e.g. C:\\OPENUA on Atari, DH0:OpenUA on Amiga)\n");
-		printf("Destination: ");
+		/* RETURN on an empty line takes the default: this prompt is what
+		 * the Workbench Install icon falls back to on a machine with no
+		 * AmigaOS Installer (WB 3.1 never shipped one), and the person
+		 * double-clicking an icon should not have to know path syntax. */
+#ifdef __amigaos__
+		static const char def_dest[] = "DH0:OpenUA";
+#else
+		static const char def_dest[] = "C:\\OPENUA";
+#endif
+		printf("Install the game WHERE? (created if missing)\n");
+		printf("Destination [%s]: ", def_dest);
 		if (!fgets(dest, sizeof dest, stdin)) {
 			printf("\nno destination given - nothing done.\n");
 			return 1;
 		}
 		chomp(dest);
-		if (dest[0] == 0) {
-			printf("no destination given - nothing done.\n");
-			return 1;
-		}
+		if (dest[0] == 0)
+			snprintf(dest, sizeof dest, "%s", def_dest);
+		printf("-> %s\n", dest);
 	}
 
 	for (;;) {
@@ -364,8 +377,18 @@ int main(int argc, char **argv)
 		                        sizeof name);
 
 		if (!m) {
-			printf("\nNo DISK.LST found%s%s.\n",
-			       src[0] ? " in " : "", src[0] ? src : "");
+			/* Started from the ENGINE disk (the Workbench icon's
+			 * fallback path)? Say so rather than "no DISK.LST". */
+			FILE *e = open_manifest(src, "ENGINE.LST", &disk, &total,
+			                        name, sizeof name);
+			if (e) {
+				fclose(e);
+				printf("\nThis is the OpenUA engine disk - the engine"
+				       " is installed AFTER the data.\n");
+			} else {
+				printf("\nNo DISK.LST found%s%s.\n",
+				       src[0] ? " in " : "", src[0] ? src : "");
+			}
 #ifdef INSTDISK_GUI
 			if (g_gui) {
 				wait_for_disk(src, "DISK.LST", expect, "data disk");

@@ -172,8 +172,16 @@ amiga_img() {       # amiga_img <out.adf> <label> <srcdir> <file...>
 # and SYS:System on 3.1.4/3.2 — neither is in the path, and IconX (in C:)
 # is. Nothing is shipped that is not ours.
 amiga_install_files() {   # amiga_install_files <variant: aga|ecs> <datadisks-default>
-	local variant="$1" ndata="${2:-6}"
-	cat > "$WORK/Install" <<'EOS'
+	local variant="$1" ndata="${2:-6}" vol
+	[ "$variant" = aga ] && vol=OpenUA-AGA || vol=OpenUA-ECS-1
+	# ★ WB 3.1 NEVER SHIPPED Installer (it was a separate developer package
+	# that vendors bundled under a signed paper licence from AMIGA Technologies
+	# — not something we can do), so the icon falls back to OUR instdisk,
+	# which rides on this disk for exactly that case. Shipping the Aminet
+	# Installer-43_3 binary is NOT an option: clause B.10 of its licence.
+	[ -x "$REPO/instdisk_amiga" ] || { echo "mkhwdist: $REPO/instdisk_amiga missing — run: make instdisk-amiga" >&2; exit 1; }
+	cp "$REPO/instdisk_amiga" "$WORK/instdisk"
+	cat > "$WORK/Install" <<EOS
 ; OpenUA Workbench installer launcher (run by IconX).
 ; No .KEY line: the script takes no arguments, and a BARE .KEY is rejected
 ; by the 3.1 (and earlier) script runner with "Illegal Key directive" —
@@ -184,9 +192,11 @@ ELSE
   IF EXISTS SYS:Utilities/Installer
     SYS:Utilities/Installer SCRIPT Install.script APPNAME OpenUA MINUSER NOVICE DEFUSER AVERAGE
   ELSE
-    ECHO "Installer was not found in SYS:System or SYS:Utilities."
-    ECHO "From a Shell: Installer SCRIPT Install.script   (or use instdisk on data disk 1)"
-    WAIT 10
+    ECHO "This machine has no AmigaOS Installer (Workbench 3.1 never shipped one),"
+    ECHO "so OpenUA's own installer runs instead. Answer its questions in this window;"
+    ECHO "RETURN accepts the default. It notices disk swaps by itself."
+    ECHO ""
+    ${vol}:instdisk
   ENDIF
 ENDIF
 EOS
@@ -232,6 +242,7 @@ EOS
 	} > "$WORK/Install.script"
 	python3 "$REPO/tools/make_amiga_icon.py" --type project --default-tool "IconX" \
 	    --tooltype "WINDOW=CON:0/20/640/180/OpenUA install/CLOSE" \
+	    --tooltype "WAIT" \
 	    -o "$WORK/Install.info"
 }
 
@@ -240,14 +251,16 @@ readme "$WORK/README" "Amiga AGA (A1200 / A4000)" \
 	"frua    the engine. Needs Kickstart 3.0+ and about 4 MB." \
 	"uainst  installs a DOS fan module from its ZIP." \
 	"" \
-	"TO INSTALL: double-click the Install icon (Workbench), or run" \
-	"instdisk from data disk 1 — it installs the data and then asks" \
+	"TO INSTALL: double-click the Install icon (Workbench). It uses the" \
+	"AmigaOS Installer if the machine has one; Workbench 3.1 never shipped" \
+	"it, so there it runs OpenUA's own instdisk (on this disk) in a window." \
+	"Or run instdisk from data disk 1 — it installs the data and then asks" \
 	"for this disk to install the engine."
 amiga_install_files aga 6
 printf '1 1 OpenUA engine (AGA)\nfrua frua\nfrua.info frua.info\nuainst uainst\nuainst.info uainst.info\n' > "$WORK/ENGINE.LST"
 amiga_img "$OUT/openua-amiga-aga-$VERSION.adf" "OpenUA-AGA" "$AGA" \
 	frua frua.info uainst uainst.info
-for f in README ENGINE.LST Install Install.info Install.script; do
+for f in README ENGINE.LST Install Install.info Install.script instdisk; do
 	"$XDFTOOL" "$OUT/openua-amiga-aga-$VERSION.adf" write "$WORK/$f" >/dev/null
 done
 
@@ -275,13 +288,15 @@ readme "$WORK/README" "Amiga ECS / OCS — disk 1 of 2" \
 	"Needs Kickstart 2.0+ and 2 MB. Kickstart 1.3 will NOT work — it dies" \
 	"in the C startup before the program begins. Native 32-colour." \
 	"" \
-	"TO INSTALL: double-click the Install icon (Workbench), or run" \
-	"instdisk from data disk 1 — it installs the data, then asks for" \
+	"TO INSTALL: double-click the Install icon (Workbench). It uses the" \
+	"AmigaOS Installer if the machine has one; Workbench 3.1 never shipped" \
+	"it, so there it runs OpenUA's own instdisk (on this disk) in a window." \
+	"Or run instdisk from data disk 1 — it installs the data, then asks for" \
 	"this disk and disk 2 and joins the halves itself."
 amiga_install_files ecs 6
 printf '1 2 OpenUA engine (ECS)\nfrua.00 frua\nfrua.info frua.info\nuainst uainst\nuainst.info uainst.info\n' > "$WORK/ENGINE.LST"
 amiga_img "$OUT/openua-amiga-ecs-$VERSION-disk1.adf" "OpenUA-ECS-1" "$WORK" \
-	frua.00 README ENGINE.LST Install Install.info Install.script
+	frua.00 README ENGINE.LST Install Install.info Install.script instdisk
 for f in uainst uainst.info frua.info; do
 	"$XDFTOOL" "$OUT/openua-amiga-ecs-$VERSION-disk1.adf" write "$ECS/$f" >/dev/null
 done
