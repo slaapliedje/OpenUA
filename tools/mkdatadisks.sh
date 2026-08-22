@@ -278,12 +278,19 @@ done
 # README-DATA.txt meant whichever target ran last silently replaced the
 # instructions for the other two — and they differ (disk counts, installer
 # name, destination syntax).
+# ${X:-else} is NOT an else arm: when X is set it expands to X itself, which
+# appended a stray "INSTDISK.PRG" to the Atari READMEs. Build the phrase first.
+if [[ -n "${INST2NAME:-}" ]]; then
+	INSTDESC=" ($INST2NAME for the desktop, $INSTNAME for the console)"
+else
+	INSTDESC=": $INSTNAME"
+fi
 cat > "$OUT/README-DATA-$MACHINE.txt" <<EOF
 OpenUA game-data disks ($MACHINE) — $NDISKS disks
 
 *** THESE CONTAIN COPYRIGHTED GAME DATA. Do not redistribute them. ***
 
-Disk 1 carries the installer${INST2NAME:+ ($INST2NAME for the desktop, $INSTNAME for the console)}${INST2NAME:-: $INSTNAME}.
+Disk 1 carries the installer$INSTDESC.
 Run it, give it a destination, and feed the disks in when asked:
 
     Atari:  C:\\OPENUA
