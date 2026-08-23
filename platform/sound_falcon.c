@@ -677,6 +677,19 @@ int plat_sound_play_mono8(const signed char *samples, long count, int rate_hz)
 		                              * (unsigned long)SYNTH_HZ)
 		                             / (unsigned long)rate_hz);
 
+		/* Disarm the effect BEFORE overwriting its buffer. The resample
+		 * loop below takes tens of milliseconds on a 68000-class machine
+		 * (up to 24576 interpolated samples), and the sound VBL keeps
+		 * firing throughout: with the old effect still armed it mixed from
+		 * a buffer this loop was half-way through rewriting — a burst of
+		 * mismatched samples right before the new sound, i.e. the "weird
+		 * blips at the beginning" reported on the Mega STe. The Falcon030
+		 * fills fast enough that the window almost never hit. len is the
+		 * gate the mixer tests, so clearing it first makes the fill safe;
+		 * it is re-set (last) once the buffer is complete. */
+		g_sfx_len = 0;
+		g_sfx_pos = 0;
+
 		if (n > (long)sizeof g_sfx_buf)
 			n = (long)sizeof g_sfx_buf;
 		for (i = 0; i < n; i++) {

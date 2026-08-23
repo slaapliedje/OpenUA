@@ -697,6 +697,14 @@ int plat_sound_play_mono8(const signed char *samples, long count, int rate_hz)
 	               / (unsigned long)rate_hz);
 	if (n > (long)sizeof g_sfx_buf)
 		n = (long)sizeof g_sfx_buf;
+
+	/* Disarm before the fill (the Atari twin's fix, same race): the VBL
+	 * mixer keeps running through this loop, and on a 7 MHz 68000 the fill
+	 * is tens of milliseconds — with the old effect still armed it mixes
+	 * from a half-rewritten buffer, a garbage blip at the sound's start.
+	 * len gates the mixer, so clear it first, re-set it (last) below. */
+	g_sfx_len = 0;
+	g_sfx_pos = 0;
 	for (i = 0; i < n; i++) {
 		long idx  = (long)(spos >> 16);
 		long frac = (long)(spos & 0xffffUL);
