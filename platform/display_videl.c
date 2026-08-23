@@ -962,18 +962,21 @@ const dsp_backend_t *dsp_detect(void)
 
 	vdo = dsp_vdo_cookie() >> 16;
 
-	if (vdo == 2)                           /* TT shifter        */
-		return cached = dsp_backend_tt();
 #ifdef FRUA_NOVA
-	/* A Nova/NVDI graphics card leaves _VDO reading ST/STE (the card is not
-	 * the ST shifter), so it must be probed before the bitplane fallback. The
-	 * backend's init() confirms an 8bpp screen and returns non-zero — handing
-	 * back to the ST/STE backend — if the card isn't there or isn't paletted. */
-	if (vdo <= 1 || nova_forced()) {
+	/* A Nova/NVDI graphics card leaves _VDO reading the host machine (the
+	 * card is not the shifter), so it must be probed before the internal
+	 * backends. That includes the TT (field report: an ATW800/2 in a TT030
+	 * was never probed because the vdo==2 arm returned first). The probe
+	 * declines — handing back to the internal backend — when there is no
+	 * AES, the screen is not 8bpp, or the 8bpp screen is the TT's OWN
+	 * TT-Low (320x480 planar; the card's smallest mode is 640 wide). */
+	if (vdo <= 2 || nova_forced()) {
 		const dsp_backend_t *nb = dsp_backend_nova();
 		if (nb) return cached = nb;
 	}
 #endif
+	if (vdo == 2)                           /* TT shifter        */
+		return cached = dsp_backend_tt();
 	if (vdo <= 1) {                         /* 0 = ST, 1 = STE   */
 		/* A mono monitor boots the machine in ST High (rez 2): the
 		 * 640x400 1-bit backend — the Mac's own window size, and the

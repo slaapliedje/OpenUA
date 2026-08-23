@@ -667,6 +667,18 @@ const dsp_backend_t *dsp_backend_nova(void)
 	dbg_log_num("nova: card height = ", s_cardh);
 	dbg_log_num("nova: planes      = ", planes);
 
+	/* TT guard, load-bearing now that the TT probes Nova too: TT-Low is ALSO
+	 * 8 planes / 256 colours, but it is the TT's own 320x480 PLANAR shifter
+	 * mode — binding to it would write chunky bytes over interleaved
+	 * bitplanes. The card's smallest mode is 640 wide, so width tells them
+	 * apart. (The LUT read-back is no guard here: on a TT screen the probe
+	 * address lands in plain RAM and reads back fine.) */
+	if (planes == 8 && s_cardw < 640) {
+		dbg_log("nova: 8bpp but <640 wide = TT-Low shifter, not a card");
+		nova_close_ws();
+		return NULL;
+	}
+
 	if (planes != 8) {              /* not a 256-colour chunky screen */
 		/* The card IS present — vq_extnd answered — but the desktop is in
 		 * a mode we cannot render into: our present writes raw 8-bit
