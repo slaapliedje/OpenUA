@@ -653,7 +653,11 @@ static void remap_rect(short x, short y, short w, short h)
  *   32-bit hashes (CLUT and frame) key an entry; a collision would install a
  *   wrong palette, so the pairing matters and the file carries a VERSION to
  *   invalidate wholesale if the quantiser ever changes.
- * - PALCACHE.ECS lives in the game dir (DH0:, next to DBG.LOG). ~8.8 KB per
+ * - PROGDIR:PALCACHE.ECS lives in the game dir (next to DBG.LOG, which
+ *   also uses PROGDIR:). A bare relative path wrote/read it against the CWD,
+ *   which is NOT the game dir when frua is launched from a Workbench icon or a
+ *   Shell in another drawer — so the cache never persisted and every boot
+ *   re-quantised (A500, 2026-08-22). ~8.8 KB per
  *   entry, 16 entries max. Deleting the file is always safe — it regenerates.
  * - video.cfg `palcache=off` disables both read and write (one-binary A/B).
  * - EPC_VERSION must be bumped with ANY change to quantize.h's output. The
@@ -689,7 +693,7 @@ static void epc_load(void)
 		e_pc_blob = AllocMem((ULONG)EPC_MAX * EPC_BLOB, MEMF_ANY);
 	if (e_pc_blob == NULL)
 		return;
-	f = fopen("PALCACHE.ECS", "rb");
+	f = fopen("PROGDIR:PALCACHE.ECS", "rb");
 	if (f == NULL)
 		return;
 	if (fread(&hd, sizeof hd, 1, f) == 1 && hd.version == EPC_VERSION
@@ -712,7 +716,7 @@ static void epc_load(void)
 
 static void epc_save(void)
 {
-	FILE *f = fopen("PALCACHE.ECS", "wb");
+	FILE *f = fopen("PROGDIR:PALCACHE.ECS", "wb");
 	struct epc_hdr hd;
 	short i;
 
