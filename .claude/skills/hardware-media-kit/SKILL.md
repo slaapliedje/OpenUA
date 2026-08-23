@@ -27,6 +27,13 @@ amiga|gotek>` (DATA images — copyrighted, NEVER on GitHub).
   the `.tlb`, ~5 MB). Saves: only the authentic HEIRS Save A ships
   (`SAVE/SAVGAMA.CSV` + `VAULTA.DAT`).
 
+- **HD packages**: `mkhwdist` also emits `openua-amiga[-ecs]-<v>.lha` — a
+  ready Workbench drawer (frua+icons, uainst, uaconv, README; ECS frua ships
+  UNSPLIT) for hard-disk setups and launchers (iGame/AGS). Requires
+  `lha-make` (LHa for UNIX in ~/.local/bin; the distro `lha` is lhasa,
+  extract-only) and is skipped with a warning without it. WHDLoad is NOT the
+  vehicle (it runs with the OS killed; OpenUA is OS-friendly).
+
 ## The three install routes (all end with engine + data in one directory)
 
 1. **Atari `INSTDISK.PRG`** (GEM: file selector, progress bar, swap alerts;
