@@ -289,8 +289,18 @@ static int prompt_yes(const char *q)
 
 static int uaconv_main(int argc, char **argv)
 {
-	const char *dir = (argc >= 2) ? argv[1] : "";
-	int i;
+	const char *dir = "";
+	int i, del = 0;
+
+	/* uaconv [-d] <dir> : -d deletes the .tlb originals without asking
+	 * (for the AmigaOS Installer route, which has no interactive stdin;
+	 * the plain instdisk/Shell route asks). */
+	for (i = 1; i < argc; i++) {
+		if (argv[i][0] == '-' && (argv[i][1] == 'd' || argv[i][1] == 'D'))
+			del = 1;
+		else
+			dir = argv[i];
+	}
 
 	g_scratch = malloc(SCRATCH_CAP);
 	if (!g_scratch) {
@@ -313,8 +323,8 @@ static int uaconv_main(int argc, char **argv)
 	printf("\nConverted %d file(s) to .ctl.\n", g_ntlb);
 
 	/* Offer to reclaim the space: the engine reads the .ctl now, the .tlb
-	 * are dead weight. Default NO (a keypress that is not y keeps them). */
-	if (prompt_yes("Delete the original .tlb files")) {
+	 * are dead weight. -d deletes unprompted; otherwise ask (keep on EOF). */
+	if (del || prompt_yes("Delete the original .tlb files")) {
 		int removed = 0;
 		for (i = 0; i < g_ntlb; i++)
 			if (remove(g_tlb[i]) == 0)

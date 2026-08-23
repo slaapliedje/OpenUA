@@ -831,7 +831,7 @@ uaconv_amiga: installer/uaconv.c installer/asl_amiga.c src/convert/artconv.c src
 	    -fomit-frame-pointer -s -Iinstaller \
 	    -o $@ installer/uaconv.c installer/asl_amiga.c src/convert/artconv.c
 
-installer-amiga: uainst_amiga uainst.info frua.info
+installer-amiga: uainst_amiga uainst.info frua.info uaconv_amiga uaconv.info
 uainst_amiga: installer/main.c installer/asl_amiga.c installer/miniz.c src/convert/artconv.c src/convert/artconv.h installer/rsrc_from_dos.c installer/rsrc_from_dos.h installer/strs_map_dos12.h
 	$(AMIGA_CROSS)gcc -m68000 -msoft-float -noixemul -std=gnu99 -O2 \
 	    -fomit-frame-pointer -s \
@@ -848,6 +848,11 @@ uainst_amiga: installer/main.c installer/asl_amiga.c installer/miniz.c src/conve
 uainst.info: tools/make_amiga_icon.py
 	python3 tools/make_amiga_icon.py --type tool --stack 200000 \
 	    --tooltype 'STACK=200000' --x 12 --y 8 -o $@
+
+# Workbench icon for uaconv, the one-time DOS-art converter.
+uaconv.info: tools/make_amiga_icon.py
+	python3 tools/make_amiga_icon.py --type tool --stack 262144 \
+	    --tooltype 'STACK=262144' --x 12 --y 30 -o $@
 
 # Workbench icon for the ENGINE, so an Amiga hard-drive install is usable from
 # Workbench and not just the Shell. Verified rendering + opening on a real

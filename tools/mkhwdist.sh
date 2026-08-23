@@ -180,7 +180,11 @@ amiga_install_files() {   # amiga_install_files <variant: aga|ecs> <datadisks-de
 	# which rides on this disk for exactly that case. Shipping the Aminet
 	# Installer-43_3 binary is NOT an option: clause B.10 of its licence.
 	[ -x "$REPO/instdisk_amiga" ] || { echo "mkhwdist: $REPO/instdisk_amiga missing — run: make instdisk-amiga" >&2; exit 1; }
+	[ -x "$REPO/uaconv_amiga" ] || { echo "mkhwdist: $REPO/uaconv_amiga missing — run: make uaconv-amiga" >&2; exit 1; }
+	[ -f "$REPO/uaconv.info" ] || { echo "mkhwdist: $REPO/uaconv.info missing — run: make uaconv.info" >&2; exit 1; }
 	cp "$REPO/instdisk_amiga" "$WORK/instdisk"
+	cp "$REPO/uaconv_amiga" "$WORK/uaconv"
+	cp "$REPO/uaconv.info" "$WORK/uaconv.info"
 	cat > "$WORK/Install" <<EOS
 ; OpenUA Workbench installer launcher (run by IconX).
 ; No .KEY line: the script takes no arguments, and a BARE .KEY is rejected
@@ -213,9 +217,11 @@ EOS
 		if [ "$variant" = aga ]; then
 			echo '(copyfiles (source "OpenUA-AGA:frua") (dest uadir) (infos))'
 			echo '(copyfiles (source "OpenUA-AGA:uainst") (dest uadir) (infos))'
+			echo '(copyfiles (source "OpenUA-AGA:uaconv") (dest uadir) (infos))'
 		else
 			echo '(copyfiles (source "OpenUA-ECS-1:frua.00") (dest uadir))'
 			echo '(copyfiles (source "OpenUA-ECS-1:uainst") (dest uadir) (infos))'
+			echo '(copyfiles (source "OpenUA-ECS-1:uaconv") (dest uadir) (infos))'
 			echo '(copyfiles (source "OpenUA-ECS-1:frua.info") (dest uadir))'
 			echo '(askdisk (prompt "Insert OpenUA engine disk 2 of 2") (help "The second half of the engine is on it.") (dest "OpenUA-ECS-2"))'
 			echo '(copyfiles (source "OpenUA-ECS-2:frua.01") (dest uadir))'
@@ -237,6 +243,11 @@ EOS
 		echo '    (set i (+ i 1))'
 		echo '  )'
 		echo ')'
+		echo '(protect (tackon uadir "uaconv") "+e")'
+		echo '(message "The DOS art must be converted to Amiga format before it will play (the Amiga engine cannot convert it while running). This takes a little while — about half a minute on an 020, longer on a 68000.")'
+		echo '(if (askbool (prompt "Delete the original DOS art (.tlb) after converting?") (help "The converted .ctl art is what the game reads. Deleting the .tlb originals reclaims about 5 MB. Recommended.") (default 1))'
+		echo '  (run (cat (tackon uadir "uaconv") " -d " uadir))'
+		echo '  (run (cat (tackon uadir "uaconv") " " uadir)))'
 		echo '(complete 100)'
 		echo '(exit "OpenUA is installed. Open the OpenUA drawer and double-click frua.")'
 	} > "$WORK/Install.script"
@@ -257,9 +268,10 @@ readme "$WORK/README" "Amiga AGA (A1200 / A4000)" \
 	"Or run instdisk from data disk 1 — it installs the data and then asks" \
 	"for this disk to install the engine."
 amiga_install_files aga 6
-printf '1 1 OpenUA engine (AGA)\nfrua frua\nfrua.info frua.info\nuainst uainst\nuainst.info uainst.info\n' > "$WORK/ENGINE.LST"
+printf '1 1 OpenUA engine (AGA)\nfrua frua\nfrua.info frua.info\nuainst uainst\nuainst.info uainst.info\nuaconv uaconv\nuaconv.info uaconv.info\n' > "$WORK/ENGINE.LST"
+cp "$WORK/uaconv" "$AGA/uaconv"; cp "$WORK/uaconv.info" "$AGA/uaconv.info"
 amiga_img "$OUT/openua-amiga-aga-$VERSION.adf" "OpenUA-AGA" "$AGA" \
-	frua frua.info uainst uainst.info
+	frua frua.info uainst uainst.info uaconv uaconv.info
 for f in README ENGINE.LST Install Install.info Install.script instdisk; do
 	"$XDFTOOL" "$OUT/openua-amiga-aga-$VERSION.adf" write "$WORK/$f" >/dev/null
 done
@@ -294,10 +306,11 @@ readme "$WORK/README" "Amiga ECS / OCS — disk 1 of 2" \
 	"Or run instdisk from data disk 1 — it installs the data, then asks for" \
 	"this disk and disk 2 and joins the halves itself."
 amiga_install_files ecs 6
-printf '1 2 OpenUA engine (ECS)\nfrua.00 frua\nfrua.info frua.info\nuainst uainst\nuainst.info uainst.info\n' > "$WORK/ENGINE.LST"
+printf '1 2 OpenUA engine (ECS)\nfrua.00 frua\nfrua.info frua.info\nuainst uainst\nuainst.info uainst.info\nuaconv uaconv\nuaconv.info uaconv.info\n' > "$WORK/ENGINE.LST"
 amiga_img "$OUT/openua-amiga-ecs-$VERSION-disk1.adf" "OpenUA-ECS-1" "$WORK" \
 	frua.00 README ENGINE.LST Install Install.info Install.script instdisk
-for f in uainst uainst.info frua.info; do
+cp "$WORK/uaconv" "$ECS/uaconv"; cp "$WORK/uaconv.info" "$ECS/uaconv.info"
+for f in uainst uainst.info frua.info uaconv uaconv.info; do
 	"$XDFTOOL" "$OUT/openua-amiga-ecs-$VERSION-disk1.adf" write "$ECS/$f" >/dev/null
 done
 

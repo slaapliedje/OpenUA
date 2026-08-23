@@ -61,10 +61,11 @@ MACHINE="${1:?usage: mkdatadisks.sh <atari|atari720|amiga|gotek> [gamedata-dir] 
 #   then the cold disk-swap dialog — the A500 "Please insert disk" seen
 #   2026-08-22). Amiga therefore defaults to `ctl` (ship the converted libs);
 #   Atari keeps `tlb`. Override either with ART= on the command line.
-case "$MACHINE" in
-amiga) ART="${ART:-ctl}" ;;
-*)     ART="${ART:-tlb}" ;;
-esac
+# Every target now ships DOS .tlb. Atari converts on first touch (cached);
+# Amiga converts once at install via uaconv (installer/uaconv.c) — the engine
+# there cannot convert (ADR-0015). ART=ctl still ships pre-converted libs if
+# you would rather skip the install-time conversion.
+ART="${ART:-tlb}"
 case "$ART" in tlb|ctl|both) ;; *) echo "ART must be tlb, ctl or both" >&2; exit 1 ;; esac
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="${2:-$REPO/data/work/gamedata}"
@@ -148,11 +149,15 @@ rm -f "$OUT"/openua-data-"$MACHINE"-*."$EXT"
 	-printf '%P\n' ) >> "$WORK/all"
 for d in "${DESIGNS[@]}"; do
 	[[ -d "$SRC/$d" ]] || { echo "no such design: $SRC/$d" >&2; exit 1; }
-	# SAVE/ is the player's own data (saved games, vault) — never part of a
-	# game-data set, and two levels deep, which the one-level .DSN stager
-	# below cannot place. A headless test session had left saves here and
-	# the set failed mid-write on disk 6.
-	( cd "$SRC" && find "$d" -type f ! -path '*/SAVE/*' -printf '%p\n' ) >> "$WORK/all"
+	# Saved games are the player's own data, EXCEPT the one that ships on the
+	# original HEIRS disks: Save A. Drop every savgam*/vault* wherever it sits
+	# (the .DSN root held headless-test cruft; SAVE/ held B/H/I test saves),
+	# then re-add ONLY SAVE/SAVGAMA.CSV + SAVE/VAULTA.DAT — the authentic Save A.
+	( cd "$SRC" && find "$d" -type f \
+		! -iname 'savgam*' ! -iname 'vault*' ! -name '*.CCH' \
+		-printf '%p\n' ) >> "$WORK/all"
+	[[ -f "$SRC/$d/SAVE/SAVGAMA.CSV" ]] && echo "$d/SAVE/SAVGAMA.CSV" >> "$WORK/all"
+	[[ -f "$SRC/$d/SAVE/VAULTA.DAT"  ]] && echo "$d/SAVE/VAULTA.DAT"  >> "$WORK/all"
 done
 case "$ART" in
 ctl) grep -v '\.TLB$'  "$WORK/all" > "$WORK/all.f" && mv "$WORK/all.f" "$WORK/all" ;;
@@ -269,19 +274,22 @@ for ((n = 1; n <= NDISKS; n++)); do
 		# ★ Check every write. Swallowing xdftool's status left the run
 		# dying mid-set with no message and a half-written image on disk
 		# — the same silent-failure shape the Atari cap bug had.
-		( cd "$STAGE" && for e in *; do
-			if [[ -d "$e" ]]; then
-				"$XDFTOOL" "$IMG" makedir "$e" >/dev/null \
-					|| { echo "  makedir FAILED: $e" >&2; exit 1; }
-				for g in "$e"/*; do
-					"$XDFTOOL" "$IMG" write "$g" "$e" >/dev/null \
+		( cd "$STAGE"
+			# dirs shallowest-first (HEIRS.DSN before HEIRS.DSN/SAVE)
+			find . -mindepth 1 -type d | sed 's|^\./||' | sort | while read -r d; do
+				"$XDFTOOL" "$IMG" makedir "$d" >/dev/null \
+					|| { echo "  makedir FAILED: $d" >&2; exit 1; }
+			done
+			find . -type f | sed 's|^\./||' | while read -r g; do
+				gd=$(dirname "$g")
+				if [[ "$gd" == "." ]]; then
+					"$XDFTOOL" "$IMG" write "$g" >/dev/null \
 						|| { echo "  write FAILED: $g" >&2; exit 1; }
-				done
-			else
-				"$XDFTOOL" "$IMG" write "$e" >/dev/null \
-					|| { echo "  write FAILED: $e" >&2; exit 1; }
-			fi
-		done )
+				else
+					"$XDFTOOL" "$IMG" write "$g" "$gd" >/dev/null \
+						|| { echo "  write FAILED: $g" >&2; exit 1; }
+				fi
+			done )
 		free=$("$XDFTOOL" "$IMG" info | awk '/^free:/ {print $3" free"}')
 	fi
 	say "$(basename "$IMG")  $(tail -n +2 "$WORK/disk$n.lst" | wc -l) files —$free"
