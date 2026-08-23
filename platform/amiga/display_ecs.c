@@ -858,149 +858,16 @@ static void epc_append(ULONG ch, ULONG fh)
 	fclose(f);
 }
 
-/* --- the first-load notice ------------------------------------------------
- *
- * A COLD palette cache means the next ~10 s go into the median cuts, with the
- * screen frozen on whatever was up (at boot: black). The user watching that has
- * no way to tell "converting" from "hung" — so say so, straight onto the
- * visible page, before the quant starts.
- *
- * Mechanics, chosen so the notice needs NO cleanup path at all:
- *  - text renders in slot 31 (all planes set) on a box of slot 30 (planes 1-4),
- *    drawn directly into the FRONT page — the one the copper is showing;
- *  - the copper operands for slots 30/31 are forced black/white in every band,
- *    so the notice is readable regardless of what palette is live;
- *  - the re-band this notice precedes ends by installing the fresh palette over
- *    every operand, and the full render that follows redraws every plane — so
- *    both the pixels and the colours are cleaned up by the very work the notice
- *    is announcing. Nothing to undo, nothing that can stick.
- *
- * Uses the shim's embedded 8x8 fallback font (compat/font_8x8.c), which is
- * always linked. Only fires on a cache MISS: warm boots never see it, and a
- * NEW DESIGN's art (new CLUTs -> misses) announces itself the same way. */
-extern const unsigned char qd_font_8x8[256][8];
-
-/* The DSOTS clause: the bar fills as the cut walks its 25 bands — real
- * progress, one byte of plane 0 per band (200 px / 25 bands = 8 px each).
- * Drawn into the same self-erasing notice box; the outline is ecs_notice's. */
-/* Mainline interrupt-state sampler, fired per band from inside the quant.
- * On the 68000 MOVE from SR is UNPRIVILEGED, so the mainline can read its
- * own interrupt mask directly; INTENAR/INTREQR say whether VERTB is enabled
- * and whether one is sitting PENDING while the mainline runs (a pending bit
- * in most samples = the interrupt is being held off, not lost). */
-static long q_smp, q_ipl_max, q_vertb_off, q_master_off, q_vertb_pend;
-
-static void ecs_notice_progress(short band, short nbands)
-{
-	unsigned char *front = s_planes[s_front];
-	short y, w = (short)(((long)(band + 1) * 200) / nbands);
-
-	{
-		volatile UWORD *intenar = (volatile UWORD *)0xDFF01C;
-		volatile UWORD *intreqr = (volatile UWORD *)0xDFF01E;
-		UWORD ena = *intenar, req = *intreqr;
-
-		/* MOVE from SR is unprivileged ONLY on the 68000 (privileged on
-		 * 68010+, and this -m68000 binary also boots on 020 machines) —
-		 * the compile-time guard here HUNG two cross-check runs. */
-		{
-			extern struct ExecBase *SysBase;
-
-			if (!(SysBase->AttnFlags & AFF_68010)) {
-				UWORD sr;
-
-				__asm__ volatile ("move.w %%sr,%0" : "=d" (sr));
-				if (((sr >> 8) & 7) > q_ipl_max)
-					q_ipl_max = (sr >> 8) & 7;
-			}
-		}
-		q_smp++;
-		if (!(ena & 0x0020))
-			q_vertb_off++;
-		if (!(ena & 0x4000))
-			q_master_off++;
-		if (req & 0x0020)
-			q_vertb_pend++;
-	}
-
-	for (y = 112; y < 117; y++)
-		memset(front + (long)y * ECS_PITCH + (60 >> 3), 0xFF, (w + 7) >> 3);
-}
-
-static void ecs_notice(const char *l1, const char *l2)
-{
-	unsigned char *front = s_planes[s_front];
-	const char *ln[2];
-	short li, b, c;
-
-	ln[0] = l1; ln[1] = l2;
-	/* the box: rows 88..119, full width bar inset by 16px */
-	for (b = 0; b < ECS_DEPTH; b++) {
-		unsigned char *pl = front + (long)b * ECS_PITCH * ECS_H;
-		short y;
-
-		for (y = 88; y < 120; y++)
-			memset(pl + (long)y * ECS_PITCH + 2, b ? 0xFF : 0x00,
-			       ECS_PITCH - 4);
-	}
-	/* the progress bar's trough: rows 106..115, x 56..264 — plane 0 outline
-	 * (slot 31 = white) around a slot-30 interior the fill will paint. */
-	{
-		short y;
-
-		for (y = 110; y < 119; y++) {
-			unsigned char *r0 = front + (long)y * ECS_PITCH;
-
-			if (y == 110 || y == 118)
-				memset(r0 + (56 >> 3), 0xFF, (264 - 56) >> 3);
-			else {
-				r0[56 >> 3] |= 0x80;
-				r0[(264 >> 3) - 1] |= 0x01;
-			}
-		}
-	}
-	for (li = 0; li < 2; li++) {
-		short len = 0, x0, y0 = (short)(90 + li * 10);
-		const char *p2;
-
-		if (ln[li] == NULL)
-			continue;
-		for (p2 = ln[li]; *p2; p2++)
-			len++;
-		/* &~7: glyphs OR into single bytes, so x0 MUST be 8-aligned or
-		 * every glyph lands 4px early in the wrong bits (odd-length
-		 * strings centre to a multiple of 4). Slight left bias, no
-		 * misrender. */
-		x0 = (short)(((ECS_W - len * 8) / 2) & ~7);
-		for (c = 0; ln[li][c]; c++) {
-			const unsigned char *g =
-			    qd_font_8x8[(unsigned char)ln[li][c]];
-			short r;
-
-			for (r = 0; r < 8; r++)
-				/* plane 0 only: the box memset already set planes
-				 * 1..4, so box = slot 30 and box+text = slot 31 */
-				front[(long)(y0 + r) * ECS_PITCH
-				      + ((x0 + c * 8) >> 3)] |= g[r];
-		}
-	}
-	/* slots 30 (box) and 31 (text) forced readable in every band */
-	for (b = 0; b < ECS_NBANDS; b++) {
-		*s_cop_pal[b][30] = 0x0000;
-		*s_cop_pal[b][31] = 0x0FFF;
-	}
-}
-
-/* Progress adapter for the grouped path: three 1-band cuts, one bar step
- * each. e_gp_cur is which group is running. */
-static short e_gp_cur;
-static void (*e_gp_inner)(short band, short nbands);
-static void ecs_group_progress(short band, short nbands)
-{
-	(void)band; (void)nbands;
-	if (e_gp_inner)
-		e_gp_inner(e_gp_cur, 3);
-}
+/* The first-load "PLEASE WAIT... CONVERTING ART" notice, its progress bar,
+ * the per-quant campfire bard, and the bar-driven interrupt sampler were
+ * REMOVED (2026-08-23, on the A500 verdict). They earned their keep when a
+ * cold quant froze the screen for ~17 s with no way to tell "converting"
+ * from "hung"; with the disk cache (once per scene, ever) and the viewport
+ * groups (~1 s on the walk), the ceremony itself — a black box painted over
+ * the art, a music start/stop, several pops on ONE title screen — outweighed
+ * the wait it announced. The quant now just runs; the git history has the
+ * notice if a future 10-s-class conversion ever needs it back.
+ */
 
 static void ecs_reband(void)
 {
@@ -1026,14 +893,6 @@ static void ecs_reband(void)
 		dbg_log_num("et: reband CACHE HIT entry = ", (long)hit);
 #endif
 	} else {
-		if (ecs_pal_cache) {
-			extern void plat_bard_start(void);
-
-			ecs_notice("PLEASE WAIT... CONVERTING ART",
-			           "THIS ONLY HAPPENS ON THE FIRST LOAD");
-			quant_progress = ecs_notice_progress;
-			plat_bard_start();      /* the campfire bard, sound_paula.c */
-		}
 		{
 			short ngrp = 0, gb0[4];
 
@@ -1061,14 +920,11 @@ static void ecs_reband(void)
 				long g0 = amiga_prof_rl();
 #endif
 
-				e_gp_inner = quant_progress;
-				quant_progress = ecs_group_progress;
 				for (g = 0; g < 3; g++) {
 					short r0   = (short)(gb0[g] * ECS_RPB);
 					short rows = (short)((gb0[g + 1] - gb0[g])
 					                     * ECS_RPB);
 
-					e_gp_cur = g;
 					quant_banded(s_chunky + (long)r0 * ECS_W,
 					             ECS_W, rows, s_clut,
 					             1, ECS_NCOL, ECS_BITS,
@@ -1081,7 +937,6 @@ static void ecs_reband(void)
 						       + (long)band * 256, grem, 256);
 					}
 				}
-				e_gp_inner = (void (*)(short, short))0;
 				dbg_log_num("ecs: reband GROUPED bands t*100+b = ",
 				            (long)gb0[1] * 100 + gb0[2]);
 #ifdef FRUA_AMIGAPROF
@@ -1093,20 +948,6 @@ static void ecs_reband(void)
 				             ECS_NBANDS, ECS_NCOL, ECS_BITS,
 				             s_band_pal, s_band_remap);
 			}
-		}
-		quant_progress = (void (*)(short, short))0;
-		{
-			extern void plat_bard_stop(void);
-			extern void dbg_log_num(const char *, long);
-
-			plat_bard_stop();
-			dbg_log_num("q: progress samples    = ", q_smp);
-			dbg_log_num("q: mainline IPL max    = ", q_ipl_max);
-			dbg_log_num("q: VERTB disabled  smp = ", q_vertb_off);
-			dbg_log_num("q: INTEN master off smp= ", q_master_off);
-			dbg_log_num("q: VERTB pending   smp = ", q_vertb_pend);
-			q_smp = 0; q_ipl_max = 0;
-			q_vertb_off = 0; q_master_off = 0; q_vertb_pend = 0;
 		}
 		ecs_unify_border(1);    /* one COLOR00 for the whole border */
 		if (ecs_pal_cache)
