@@ -327,6 +327,77 @@ printf '2 2 OpenUA engine (ECS)\nfrua.01 frua a\n' > "$WORK/ENGINE.LST"
 amiga_img "$OUT/openua-amiga-ecs-$VERSION-disk2.adf" "OpenUA-ECS-2" "$WORK" \
 	frua.01 README ENGINE.LST
 
+# ---- Amiga hard-drive packages (.lha) ------------------------------------
+# For hard-disk/CF setups and launchers (iGame, AGS): a ready-to-extract
+# Workbench drawer — engine + icons + the two optional tools + a README that
+# says "drop your FRUA data files in here". .lha because that is the one
+# format every Amiga HD setup extracts natively (it is the Aminet standard).
+# Built with `lha-make` (LHa for UNIX built from jca02266/lha — the distro
+# `lha` is lhasa, which EXTRACTS but cannot create); skipped with a warning
+# when absent so floppy-image builds still work anywhere.
+LHAMK="$(command -v lha-make || true)"
+if [ -z "$LHAMK" ]; then
+	echo "mkhwdist: lha-make not found - skipping the .lha HD packages" >&2
+else
+	for variant in aga ecs; do
+		case $variant in
+		aga) SRCD="$AGA"; LOUT="$OUT/openua-amiga-$VERSION.lha"
+		     LREQ="an AGA machine (A1200/A4000) or RTG (Picasso96/CyberGraphX,"
+		     LREQ2="incl. Vampire/SAGA setups). Kickstart 3.0+ and about 4 MB." ;;
+		ecs) SRCD="$ECS"; LOUT="$OUT/openua-amiga-ecs-$VERSION.lha"
+		     LREQ="an ECS or OCS Amiga (A500+/A600/A2000/A3000) with a hard"
+		     LREQ2="disk or CF. Kickstart 2.0+ and 2 MB. Native 32-colour." ;;
+		esac
+		HD="$WORK/hd-$variant"; rm -rf "$HD"; mkdir -p "$HD/OpenUA"
+		cp "$SRCD/frua" "$SRCD/frua.info" "$SRCD/uainst" "$SRCD/uainst.info" "$HD/OpenUA/"
+		cp "$WORK/uaconv" "$WORK/uaconv.info" "$HD/OpenUA/"
+		[ -f "$SRCD/RELEASE.TXT" ] && cp "$SRCD/RELEASE.TXT" "$HD/OpenUA/"
+		python3 "$REPO/tools/make_amiga_icon.py" --type drawer -o "$HD/OpenUA.info" >/dev/null
+		python3 "$REPO/tools/make_amiga_icon.py" --type project \
+		    --default-tool "SYS:Utilities/MultiView" -o "$HD/OpenUA/README.info" >/dev/null
+		cat > "$HD/OpenUA/README" <<TXT
+OpenUA $VERSION — hard-drive package
+====================================
+
+An open reimplementation of SSI's Unlimited Adventures engine.
+This variant needs $LREQ
+$LREQ2
+
+This package contains NO game data. You supply the files from your own
+legally-obtained copy of Unlimited Adventures — the DOS release's files
+work AS THEY ARE (the engine converts the DOS art itself, the first time
+each file is used), and the Mac release works too (see the project README
+for building frua.rsc from it).
+
+TO SET UP
+---------
+1. Extract this archive where your games live. You get this OpenUA drawer.
+2. Copy your FRUA data files INTO the drawer (everything from the DOS
+   FRUA directory: frua.rsc or the DOS files, the .TLB art, GAME.*,
+   *.DSN design folders, XMI music, ...).
+3. Double-click frua. That is all — first visits to screens convert
+   their art once, then never again.
+
+LAUNCHERS (iGame and friends)
+-----------------------------
+Point your launcher at this drawer; frua is the tool to run. The drawer
+and tool icons are standard, so directory scanners index it as-is.
+
+ALSO IN THE DRAWER
+------------------
+uainst  — installs a DOS FAN MODULE from its .zip, converting its art.
+uaconv  — OPTIONAL: pre-convert all DOS art in one pass and reclaim
+          ~5 MB (uaconv -d <this drawer>). Never required.
+
+Project: https://github.com/slaapliedje/OpenUA (GPL-2.0, no SSI data).
+TXT
+		rm -f "$LOUT"
+		( cd "$HD" && find OpenUA.info OpenUA -type f | sort \
+		    | xargs "$LHAMK" aq2 "$LOUT" )
+		say "$(basename "$LOUT")  $(stat -c%s "$LOUT") bytes  ($(find "$HD" -type f | wc -l) files)"
+	done
+fi
+
 # ---- the FlashFloppy geometry stanzas ------------------------------------
 # A Gotek reads a raw .img/.st by SIZE; anything that is not a standard floppy
 # size needs its geometry declared. Copy this file to the root of the Gotek's
