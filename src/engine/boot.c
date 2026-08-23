@@ -690,7 +690,15 @@ static short jt398(const char *path, short flags)
 	l45d6(buf, path);
 	status = l328e(buf, 0, flags);
 
-#if !defined(FRUA_ARTCONV_OFF) && !defined(FRUA_AMIGA)  /* ADR-0015: off on Amiga */
+#if !defined(FRUA_ARTCONV_OFF)
+	/* ADR-0019 (supersedes ADR-0015): the on-load converter is back ON for
+	 * the Amiga. ADR-0015 compiled it out over an intermittent art-loader
+	 * hang bisected 2026-07-18 — BEFORE the engine moved onto the big
+	 * StackSwap stack (plat_run_big_stack), which is the prime suspect the
+	 * ADR itself names ("raising the stack moved the stall"). Re-tested on
+	 * the current engine: repeated .tlb-only walk entries on AGA and ECS
+	 * load every library, converting on first touch. FRUA_ARTCONV_OFF
+	 * remains the bisect hatch. */
 	/* ADR-0014: DOS fan-module art converts in-engine on first touch.
 	 * (a) A `.tlb` that opens but holds DOS HLIB bytes is a MISS — the
 	 *     mono build falls back to base art instead of reading garbage
@@ -84228,14 +84236,8 @@ static short l17e2(short kind, const char *name, short mode, void *cbp)
 		 * re-read the same bytes. An unmodified design ships no such
 		 * file and falls through to the identical root open. */
 		if (
-#if defined(FRUA_ARTCONV_OFF) || defined(FRUA_AMIGA)
-		    /* ADR-0015: the on-load DOS-art converter is OFF on the
-		     * Amiga. Its extra per-load design-folder opens destabilise
-		     * the AmigaOS art-load recursion (an intermittent hang, root
-		     * cause still open — see docs/fan-module-hacks.md); the Amiga
-		     * path to DOS modules is the uainst installer, which converts
-		     * up front. Falcon/ST keep the on-load path (tested). */
-		    0 &&
+#if defined(FRUA_ARTCONV_OFF)
+		    0 &&                /* bisect hatch (ADR-0015/0019 history) */
 #endif
 		    mode == 0
 		    && (ua_ext_is(name, "ctl") || ua_ext_is(name, "tlb"))) {

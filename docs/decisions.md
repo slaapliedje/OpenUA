@@ -1333,3 +1333,41 @@ So the pass runs only on frames where a re-quantise is coming (measured: 6 of 8
 renders skipped it). The prediction over-predicts on purpose, and a wrong
 prediction is COUNTED (`s_rb_stale`, logged once, shipped compiled in) rather
 than silently quantising the previous frame's walls.
+
+---
+
+## ADR-0019 — The on-load DOS-art converter is back ON for the Amiga; installers stop converting
+
+**Status:** ratified 2026-08-23. Supersedes ADR-0015.
+
+**Context.** ADR-0015 (2026-07-18) compiled the on-load `.tlb`→`.ctl`
+converter out on the Amiga over an intermittent art-loader hang — bisected to
+the conversion hooks, root cause left open, with the ADR itself noting that
+raising the stack "moved the stall but did not remove it". That predates the
+engine moving onto a big StackSwap'd stack (`plat_run_big_stack`), which
+resolved the same corruption signature elsewhere (the wedged ECS adventure
+screen). The install-time replacement (`uaconv`, run by the installers with a
+"conversion will happen / delete the originals?" exchange) worked on the real
+A500 but added a step and two prompts to every install — friction the first
+hardware sessions called out.
+
+**Re-test (2026-08-23).** Guards flipped, five cold `.tlb`-only autoplay
+runs — three AGA, two ECS — each forcing every touched library through the
+on-load converter during boot and the walk (the exact scenario ADR-0015's
+hang lived in). All five reached the menu, converted (11 libraries on the
+coldest run), completed the script, and wrote back `.ctl` files bit-exact to
+`make gamedata-dos`'s output. No stall in any run.
+
+**Decision.** The converter is ON for the Amiga (the `!defined(FRUA_AMIGA)`
+arms are gone; `FRUA_ARTCONV_OFF` remains the bisect hatch). The installers
+copy files and nothing else: `instdisk` no longer runs `uaconv` or announces
+a conversion, and the Workbench Install script drops its convert step and
+delete-question. `uaconv` still ships on the engine disks as an OPTIONAL
+tool — converting everything up front and reclaiming the `.tlb` space
+(~5 MB) is still worth offering, just never required or prompted.
+
+**Consequence.** A fresh install plays immediately; each art library converts
+silently the first time the engine opens it (48 ms–2.4 s class, once ever —
+the `.ctl` is written back beside the `.tlb`). If the ADR-0015 hang ever
+resurfaces on real hardware, `FRUA_ARTCONV_OFF` plus `uaconv` restores the
+ADR-0015 world without further code.
