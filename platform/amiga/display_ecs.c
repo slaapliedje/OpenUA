@@ -312,6 +312,24 @@ static int ecs_init(short want_w, short want_h)
 	WaitTOF();
 	CUSTOM->cop1lc  = (ULONG)s_cop;
 	CUSTOM->copjmp1 = 0;
+	/* ★ KILL THE SPRITES (A1200 real-hardware find, 2026-08-23). The old
+	 * write below only SET raster+copper DMA — sprite DMA stayed however
+	 * Workbench left it (ON), and BPLCON2=0 is sprite PRIORITY, not sprite
+	 * off. Result on real silicon: the Intuition pointer floating over the
+	 * title before any menu, and dangling sprite fetches drawing a garbage
+	 * column at the left edge. Emulated runs never showed either. The ECS
+	 * cursor is software, so: clear sprite DMA, then disarm every channel
+	 * (an armed sprite keeps DISPLAYING its last data even with DMA off —
+	 * writing SPRxCTL disarms it until the next SPRxPOS). */
+	CUSTOM->dmacon  = DMAF_SPRITE;              /* clear (no SETCLR) */
+	{
+		short sp;
+		for (sp = 0; sp < 8; sp++) {
+			CUSTOM->spr[sp].ctl = 0;
+			CUSTOM->spr[sp].dataa = 0;
+			CUSTOM->spr[sp].datab = 0;
+		}
+	}
 	CUSTOM->dmacon  = (UWORD)(DMAF_SETCLR | DMAF_MASTER
 	                          | DMAF_RASTER | DMAF_COPPER);
 	dbg_log("ecs: 320x200x5 32-colour, per-band copper palette up");
@@ -339,6 +357,7 @@ static void ecs_shutdown_partial(void)
 static void ecs_shutdown(void)
 {
 	if (GfxBase != NULL && s_oldview != NULL) {
+		CUSTOM->dmacon = (UWORD)(DMAF_SETCLR | DMAF_SPRITE);
 		LoadView(s_oldview);
 		WaitTOF();
 		WaitTOF();
