@@ -1133,6 +1133,35 @@ static unsigned char s_used_idx[256];
  * re-quant instead. Threshold 512 (squared RGB): the documented collapse case
  * is a 28-unit red gap (784), comfortably above; genuine same-colour aliases
  * sit near 0. */
+/* Has the CLUT been REPLACED (a scene committing its own palette) rather
+ * than nudged (cycling, brightness, the walk's alternation)? Compared
+ * against the CLUT the current bands were cut under: count entries that
+ * moved by a clearly-different-colour margin. A title/BigPic commit moves
+ * most of the 256; the repalette shortcut is only sound when the cut's
+ * colour assignments still describe the palette on the glass. */
+static int st_clut_major_change(void)
+{
+	short i, moved = 0;
+
+	for (i = 0; i < 256; i++) {
+		short d = (short)(
+		    (s_clut[i * 3 + 0] > s_clut_banded[i * 3 + 0]
+		     ? s_clut[i * 3 + 0] - s_clut_banded[i * 3 + 0]
+		     : s_clut_banded[i * 3 + 0] - s_clut[i * 3 + 0])
+		  + (s_clut[i * 3 + 1] > s_clut_banded[i * 3 + 1]
+		     ? s_clut[i * 3 + 1] - s_clut_banded[i * 3 + 1]
+		     : s_clut_banded[i * 3 + 1] - s_clut[i * 3 + 1])
+		  + (s_clut[i * 3 + 2] > s_clut_banded[i * 3 + 2]
+		     ? s_clut[i * 3 + 2] - s_clut_banded[i * 3 + 2]
+		     : s_clut_banded[i * 3 + 2] - s_clut[i * 3 + 2]));
+		if (d >= 48) {
+			if (++moved >= 64)
+				return 1;
+		}
+	}
+	return 0;
+}
+
 static int st_remap_split(void)
 {
 	short anchor[ST_NCOL];
@@ -4015,10 +4044,27 @@ static void st_present(void)
 			 * EVERY dirty present, not just the ones that reband. */
 			int content_same = s_banded_valid && !s_vp_active &&
 			    !st_buf_differs(s_chunky, s_shadow, (long)ST_W * ST_H) &&
-			    !st_remap_split();  /* a CLUT load that SPLITS a merged
+			    !st_remap_split() && /* a CLUT load that SPLITS a merged
 			                         * slot invalidates the remap even
 			                         * with content unchanged (the
 			                         * grey-on-grey HUD-text family) */
+			    !st_clut_major_change();
+			                        /* ...and a WHOLESALE CLUT replacement
+			                         * (a title/BigPic committing its own
+			                         * palette) invalidates every remap at
+			                         * once — the split heuristic cannot see
+			                         * it because EVERYTHING moved. This was
+			                         * the v0.9.7 title regression: the
+			                         * draw-time planar writers had already
+			                         * shown (and shadowed) the finished
+			                         * image, so the present after jt124's
+			                         * commit saw content_same and took the
+			                         * registers-only repalette, keeping the
+			                         * previous screen's cut for seconds.
+			                         * A big change re-quants (the palette
+			                         * cache still absorbs the walk's CLUT
+			                         * alternation, which is why this does
+			                         * not give back the #63 win). */
 #ifdef FRUA_STPROF
 			{
 				short yy, ci;
@@ -4474,6 +4520,21 @@ static void st_set_palette(const dsp_color_t *colors, short first, short count)
 	 * cycle slots are the future fix, see the plan doc). */
 	if (count >= 32 || !s_have_pal)
 		s_dirty = 1;                     /* re-band at next full present */
+
+	/* A WHOLESALE replacement (a title/BigPic committing its own palette)
+	 * re-quantises EAGERLY, not at the next present: the draw-time planar
+	 * writers stamp the visible planes with the CURRENT remap the moment
+	 * the engine blits, so deferring the cut leaves everything drawn
+	 * between this install and the next present in the PREVIOUS scene's
+	 * colours (the v0.9.7 title regression's last leg — the credits in
+	 * wizard gold). Same total cost: the present's CLUT-unchanged guard
+	 * skips the re-band this replaces. Small installs (cycling) and the
+	 * walk's CLUT alternation never trip st_clut_major_change; when they
+	 * do, the palette cache still absorbs the cut. */
+	if (s_dirty && s_have_pal && s_banded_valid && st_clut_major_change()) {
+		st_reband();
+		s_dirty = 0;
+	}
 #ifdef FRUA_PALTRACE
 	/* #141: the speckle is the RGB/luma fallback showing, so trace every event
 	 * that can move the remap and diff a GOOD run against a BAD one. Per

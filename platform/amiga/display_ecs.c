@@ -415,6 +415,35 @@ static long e_coldist(const unsigned char *a, const unsigned char *b)
 	return dr * dr + dg * dg + db * db;
 }
 
+/* The Atari twin's st_clut_major_change: a CLUT REPLACED (a title/BigPic
+ * committing its own palette) invalidates every remap at once, and the
+ * split heuristic below cannot see it because everything moved. Without
+ * this the present after the commit takes the repalette shortcut and the
+ * screen keeps the PREVIOUS scene's cut — the v0.9.7 title regression
+ * ("title screens in multiple passes / wrong colours", A500 field report). */
+static int ecs_clut_major_change(void)
+{
+	short i, moved = 0;
+
+	for (i = 0; i < 256; i++) {
+		short d = (short)(
+		    (s_clut[i * 3 + 0] > e_clut_quant[i * 3 + 0]
+		     ? s_clut[i * 3 + 0] - e_clut_quant[i * 3 + 0]
+		     : e_clut_quant[i * 3 + 0] - s_clut[i * 3 + 0])
+		  + (s_clut[i * 3 + 1] > e_clut_quant[i * 3 + 1]
+		     ? s_clut[i * 3 + 1] - e_clut_quant[i * 3 + 1]
+		     : e_clut_quant[i * 3 + 1] - s_clut[i * 3 + 1])
+		  + (s_clut[i * 3 + 2] > e_clut_quant[i * 3 + 2]
+		     ? s_clut[i * 3 + 2] - e_clut_quant[i * 3 + 2]
+		     : e_clut_quant[i * 3 + 2] - s_clut[i * 3 + 2]));
+		if (d >= 48) {
+			if (++moved >= 64)
+				return 1;
+		}
+	}
+	return 0;
+}
+
 static int ecs_remap_split(void)
 {
 	short b, i;
@@ -1222,7 +1251,8 @@ static void ecs_present(void)
 		} else if (!s_force_full
 		           && !ecs_row_differs(s_chunky, s_shadow,
 		                               (long)ECS_W * ECS_H)
-		           && !ecs_remap_split()) {
+		           && !ecs_remap_split()
+		           && !ecs_clut_major_change()) {
 			/* Content unchanged: remaps stay valid, only slot->RGB
 			 * moved — copper reload, no re-quant, no re-render. */
 			dbg_log("ecs: repalette (content unchanged)");
@@ -1471,6 +1501,19 @@ static void ecs_set_palette(const dsp_color_t *colors, short first, short count)
 	 * full present, when the surface is completely drawn. */
 	if (count >= 32 || !s_have_pal)
 		s_dirty = 1;
+
+	/* The Atari twin's eager re-quant on a WHOLESALE replacement (see
+	 * st_set_palette): the draw-time planar writers stamp the visible
+	 * planes with the current remap as the engine blits, so a title/BigPic
+	 * committing its own palette must re-cut NOW or everything drawn until
+	 * the next present wears the previous scene's colours (the A500
+	 * "titles in multiple passes / wrong colours" report). Same total
+	 * cost — the present's CLUT-unchanged guard then skips — and the disk
+	 * palette cache still serves repeat scenes. */
+	if (s_dirty && s_have_pal && e_quant_valid && ecs_clut_major_change()) {
+		ecs_reband();
+		s_dirty = 0;
+	}
 }
 
 static const dsp_backend_t ecs_backend = {

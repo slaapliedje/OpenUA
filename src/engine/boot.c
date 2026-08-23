@@ -2437,6 +2437,7 @@ static int   jt315(void);
 static void  jt215(void);       /* jt315's head — primes the automap stride */
 static void  load_menu_ui(void);         /* UI palette (g_menu_pal/-state)   */
 int          port_autoload_armed(void);  /* port-local, defined near jt582   */
+static void  port_cursor_reveal(void);   /* one-shot ShowCursor at the menu  */
 
 /* Intra-CODE-6 helpers, still to lift. */
 static void  l0444(void);       /* CODE 6 + 0x0444 — start.dat design-name
@@ -2885,6 +2886,7 @@ int ua_main(short arg1, long arg2)
 		for (;;) {
 			if (skip_menu) {
 				skip_menu = 0;
+				port_cursor_reveal();   /* no menu pass to do it */
 				/* jt315's own head: primes the automap cell stride
 				 * g_a5_-12272 (an editor entry divides by it). */
 				jt215();
@@ -30070,6 +30072,7 @@ static short menu_run(const menu_item_t *items, short n, void *proc,
 	jt117();
 	qd_present();
 
+	port_cursor_reveal();                /* first mouse-driven screen */
 	dbg_log("menu: modal up");           /* harness readiness marker */
 #ifdef FRUA_DIVPROF
 	/* #125: the boot window ends exactly here, so this is the dump that
@@ -43033,6 +43036,21 @@ static int port_autoload_path(char *out)
 	}
 	(void)FSClose(ref);
 	return slot;
+}
+
+/* One-shot cursor reveal. main() boots with the arrow HIDDEN (the loading
+ * screen and jt919 title roll run pointerless, like the DOS release and this
+ * port's own pre-jt919 intro); the first screen that takes mouse input —
+ * the main menu, or the autoload play entry that skips it — releases the
+ * hide exactly once. Idempotent, so both sites may call it. */
+static void port_cursor_reveal(void)
+{
+	static int done;
+
+	if (!done) {
+		done = 1;
+		ShowCursor();
+	}
 }
 
 /* Armed = opted in, the slot exists, and it has not fired yet. */
@@ -67498,25 +67516,51 @@ static void l19d4(const char *name, short arg2, short a3, short a4)
 
 	(void)a3; (void)a4;                      /* fp@14/fp@16 pushed by jt919, unused here */
 
+	/* Hold presents while each title composes. On the Mac this whole body
+	 * ran between visible frames: the blits landed, jt124 committed the
+	 * picture's palette, and jt117 showed the finished screen. Our pipeline
+	 * presents MID-COMPOSITION (piece blits, cursor refresh, idle flushes),
+	 * and on a paletted backend those early frames show the new picture
+	 * quantised under the PREVIOUS screen's colours — the yellow wizard /
+	 * candy-striped credits of the v0.9.7 title regression (the v0.9.6 port
+	 * intro pre-installed palettes, so it never showed this). The hold
+	 * discards the intermediates; each jt117 below, with the hold released
+	 * and the palette already committed, shows a complete correct frame —
+	 * matching both the Mac (instant CLUT) and the DOS release (title
+	 * screens arrive whole, verified in DOSBox at 0.35 s sampling). */
+	qd_present_hold(1);
 	jt384(buf, name);                                /* 0x19dc */
 	jt404(buf, "1");                                 /* 0x19ea append "1" */
 	jt110(&handle, 0, 1, 1, buf);                    /* 0x19fa load "<name>1" -> handle */
+	/* PORT: commit the palette BEFORE the blits (the Mac does it after, at
+	 * 0x1a30 — kept below). On the Mac this whole body runs inside a frame,
+	 * so blit-then-commit is invisible; the planar backends stamp the
+	 * visible planes AS the blit runs (seconds at 8 MHz), so the original
+	 * order shows each title quantised under the PREVIOUS screen's palette
+	 * until the commit lands — the yellow wizard / candy-stripe credits.
+	 * Committing first reproduces the Mac's NET frame; the original tail
+	 * commits re-install an identical CLUT and skip via the CLUT guard. */
+	jt124(handle);
 	jt108(0);                                        /* 0x1a14 */
 	l3880(0, 0, 1, (void *)(uintptr_t)handle);       /* 0x1a1c blit frame 1 */
 	jt124(handle);                                   /* 0x1a30 */
 	jt115(&handle);                                  /* 0x1a3a dispose */
 
 	jt110(&handle, 0, 1, mode, buf);                 /* 0x1a44 reload with the mode */
+	jt124(handle);                                   /* PORT: palette first, as above */
 	if (jt1200() != 3) {                             /* 0x1a62 */
 		if (mode == 5)                           /* 0x1a6c */
 			jt103(1, 1, 38, 22);             /* 0x1a78 frame rect */
 		l3880(0, 0, 1, (void *)(uintptr_t)handle);   /* 0x1a8e */
+		qd_present_hold(0);                      /* composed + palette in */
 		jt117();                                 /* 0x1a98 */
 		jt108(1);                                /* 0x1a9c */
+		qd_present_hold(1);                      /* re-hold for the tail */
 	}
 	l3880(0, 0, 1, (void *)(uintptr_t)handle);       /* 0x1aa6 frame 1 */
 	l3880(0, 0, 2, (void *)(uintptr_t)handle);       /* 0x1aba frame 2 */
 	jt124(handle);                                   /* 0x1ace */
+	qd_present_hold(0);                              /* balanced with entry */
 	jt117();                                         /* 0x1ad8 */
 	jt115(&handle);                                  /* 0x1adc dispose */
 }
