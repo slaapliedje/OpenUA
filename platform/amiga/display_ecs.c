@@ -663,15 +663,27 @@ static void remap_rect(short x, short y, short w, short h)
  * - EPC_VERSION must be bumped with ANY change to quantize.h's output. The
  *   cache stores that output verbatim; a stale file after a quantiser change
  *   would silently pin the OLD palettes. */
+/* ★ DISK-BACKED CACHE (2026-08-22). It used to hold EPC_MAX=16 blobs in RAM
+ * and STOP caching once full — every distinct frame past the 16th re-quantised
+ * on EVERY view, forever (a dungeon has far more than 16 scenes, so most of the
+ * game re-converted per screen: the A500 "converting every screen" misery).
+ * Now the KEYS live in RAM (8 bytes each, cheap) and the 8.8 KB blobs live on
+ * disk in PALCACHE.ECS; a hit reads its blob back, a miss appends a new one.
+ * Unbounded in practice (EPC_CAP keys), and it saves ~141 KB of RAM. The file
+ * layout is unchanged (hdr + nent*(key+blob)), so v1 files still load. */
 #define EPC_VERSION 1
-#define EPC_MAX     16
-#define EPC_BLOB    (ECS_NBANDS * ECS_NCOL * 3 + ECS_NBANDS * 256)
+#define EPC_CAP     2048                        /* keys in RAM: 16 KB          */
+#define EPC_PAL     (ECS_NBANDS * ECS_NCOL * 3) /* 2400                        */
+#define EPC_REMAP   (ECS_NBANDS * 256)          /* 6400                        */
+#define EPC_BLOB    (EPC_PAL + EPC_REMAP)       /* 8800                        */
+#define EPC_FILE    "PROGDIR:PALCACHE.ECS"
 struct epc_hdr { ULONG version; ULONG nent; };
 struct epc_key { ULONG clut_h; ULONG frm_h; };
-static struct epc_key  e_pc_key[EPC_MAX];
-static unsigned char  *e_pc_blob;               /* EPC_MAX * EPC_BLOB          */
+#define EPC_ENTRY   ((long)sizeof(struct epc_key) + EPC_BLOB)
+static struct epc_key  e_pc_key[EPC_CAP];
 static short           e_pc_n;
 static short           e_pc_loaded;
+static short           e_pc_last = -1;          /* index whose blob is live in s_band_* */
 short                  ecs_pal_cache = 1;       /* video.cfg palcache=off; extern'd above */
 
 static ULONG epc_hash(const unsigned char *p, long n)
@@ -688,46 +700,87 @@ static void epc_load(void)
 	FILE *f;
 	struct epc_hdr hd;
 
-	e_pc_loaded = 1;
-	if (e_pc_blob == NULL)
-		e_pc_blob = AllocMem((ULONG)EPC_MAX * EPC_BLOB, MEMF_ANY);
-	if (e_pc_blob == NULL)
-		return;
-	f = fopen("PROGDIR:PALCACHE.ECS", "rb");
-	if (f == NULL)
-		return;
-	if (fread(&hd, sizeof hd, 1, f) == 1 && hd.version == EPC_VERSION
-	    && hd.nent <= EPC_MAX) {
-		ULONG i;
+	long size, nent, i;
 
-		for (i = 0; i < hd.nent; i++) {
-			if (fread(&e_pc_key[e_pc_n], sizeof(struct epc_key), 1, f) != 1)
-				break;
-			if (fread(e_pc_blob + (long)e_pc_n * EPC_BLOB, EPC_BLOB, 1, f) != 1)
-				break;
-			e_pc_n++;
+	e_pc_loaded = 1;
+	e_pc_last = -1;
+	f = fopen(EPC_FILE, "rb");
+	if (f == NULL) {                        /* first run: create with a header */
+		f = fopen(EPC_FILE, "wb");
+		if (f != NULL) {
+			hd.version = EPC_VERSION;
+			hd.nent    = 0;                 /* informational; count is by size */
+			fwrite(&hd, sizeof hd, 1, f);
+			fclose(f);
 		}
-		dbg_log_num("ecs: palette cache entries loaded = ", (long)e_pc_n);
-	} else {
-		dbg_log("ecs: palette cache stale/foreign - ignored");
+		return;
 	}
+	if (fread(&hd, sizeof hd, 1, f) != 1 || hd.version != EPC_VERSION) {
+		dbg_log("ecs: palette cache stale/foreign - ignored");
+		fclose(f);
+		return;
+	}
+	/* The authoritative count is the file SIZE, not the header field — append
+	 * (below) never rewrites the header, which is what an in-place "r+b" update
+	 * needs and the Amiga ncrt0 stdio would not do reliably. */
+	fseek(f, 0, SEEK_END);
+	size = ftell(f);
+	nent = (size - (long)sizeof(struct epc_hdr)) / EPC_ENTRY;
+	fseek(f, (long)sizeof(struct epc_hdr), SEEK_SET);
+	for (i = 0; i < nent && e_pc_n < EPC_CAP; i++) {
+		if (fread(&e_pc_key[e_pc_n], sizeof(struct epc_key), 1, f) != 1)
+			break;
+		if (fseek(f, EPC_BLOB, SEEK_CUR) != 0)   /* blob stays on disk */
+			break;
+		e_pc_n++;
+	}
+	dbg_log_num("ecs: palette cache entries loaded = ", (long)e_pc_n);
 	fclose(f);
 }
 
-static void epc_save(void)
+/* Load entry k's blob from disk into the live band buffers. e_pc_last skips
+ * the read when the wanted blob is already live (repeated same-frame presents). */
+static int epc_read_blob(short k)
 {
-	FILE *f = fopen("PROGDIR:PALCACHE.ECS", "wb");
-	struct epc_hdr hd;
-	short i;
+	FILE *f;
+	int ok = 0;
 
+	if (k == e_pc_last)
+		return 1;
+	f = fopen(EPC_FILE, "rb");
+	if (f == NULL)
+		return 0;
+	if (fseek(f, (long)sizeof(struct epc_hdr) + (long)k * EPC_ENTRY
+	             + (long)sizeof(struct epc_key), SEEK_SET) == 0
+	    && fread(s_band_pal,   EPC_PAL,   1, f) == 1
+	    && fread(s_band_remap, EPC_REMAP, 1, f) == 1) {
+		e_pc_last = k;
+		ok = 1;
+	}
+	fclose(f);
+	return ok;
+}
+
+static void epc_append(ULONG ch, ULONG fh)
+{
+	struct epc_key key;
+	FILE *f;
+
+	if (e_pc_n >= EPC_CAP)
+		return;
+	key.clut_h = ch;
+	key.frm_h  = fh;
+	/* epc_load guarantees the file + header exist, so a plain append at EOF
+	 * adds the entry; the count comes from the file size on the next load. */
+	f = fopen(EPC_FILE, "ab");
 	if (f == NULL)
 		return;
-	hd.version = EPC_VERSION;
-	hd.nent    = (ULONG)e_pc_n;
-	fwrite(&hd, sizeof hd, 1, f);
-	for (i = 0; i < e_pc_n; i++) {
-		fwrite(&e_pc_key[i], sizeof(struct epc_key), 1, f);
-		fwrite(e_pc_blob + (long)i * EPC_BLOB, EPC_BLOB, 1, f);
+	if (fwrite(&key,         sizeof key, 1, f) == 1
+	    && fwrite(s_band_pal,   EPC_PAL,   1, f) == 1
+	    && fwrite(s_band_remap, EPC_REMAP, 1, f) == 1) {
+		e_pc_key[e_pc_n] = key;
+		e_pc_last = e_pc_n;
+		e_pc_n++;
 	}
 	fclose(f);
 }
@@ -884,12 +937,7 @@ static void ecs_reband(void)
 				break;
 			}
 	}
-	if (hit >= 0 && e_pc_blob != NULL) {
-		const unsigned char *bl = e_pc_blob + (long)hit * EPC_BLOB;
-
-		memcpy(s_band_pal, bl, ECS_NBANDS * ECS_NCOL * 3);
-		memcpy(s_band_remap, bl + ECS_NBANDS * ECS_NCOL * 3,
-		       (long)ECS_NBANDS * 256);
+	if (hit >= 0 && epc_read_blob(hit)) {
 #ifdef FRUA_ECSTRACE
 		dbg_log_num("et: reband CACHE HIT entry = ", (long)hit);
 #endif
@@ -919,17 +967,8 @@ static void ecs_reband(void)
 			q_vertb_off = 0; q_master_off = 0; q_vertb_pend = 0;
 		}
 		ecs_unify_border(1);    /* one COLOR00 for the whole border */
-		if (ecs_pal_cache && e_pc_blob != NULL && e_pc_n < EPC_MAX) {
-			unsigned char *bl = e_pc_blob + (long)e_pc_n * EPC_BLOB;
-
-			e_pc_key[e_pc_n].clut_h = ch;
-			e_pc_key[e_pc_n].frm_h  = fh;
-			memcpy(bl, s_band_pal, ECS_NBANDS * ECS_NCOL * 3);
-			memcpy(bl + ECS_NBANDS * ECS_NCOL * 3, s_band_remap,
-			       (long)ECS_NBANDS * 256);
-			e_pc_n++;
-			epc_save();
-		}
+		if (ecs_pal_cache)
+			epc_append(ch, fh);     /* -> disk (unbounded) */
 	}
 	/* Capture what this quant saw: the global used set (the new-ink
 	 * detector's domain) and the per-band sets (the split-guard's). */
