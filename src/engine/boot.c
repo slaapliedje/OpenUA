@@ -97756,6 +97756,11 @@ static void jt149(short v)
 #define PLATE_MAX_H  16
 struct plate_ent {
 	long  lbl;                      /* label pointer (rec+12)            */
+	unsigned long lblh;             /* hash of the label TEXT — the ptr
+	                                 * alone is a POOL SLOT that gets new
+	                                 * text on a re-layout (the treasure
+	                                 * bar drew POOL over EXIT: same slot,
+	                                 * same spot, different word)         */
 	short n, top, left, state;      /* rec+24, rec+16, rec+18, bits      */
 	short x0, y0, w, h;             /* landed rect, screen coords        */
 	unsigned char px[PLATE_MAX_W * PLATE_MAX_H];
@@ -97766,15 +97771,31 @@ static short g_plate_next;
 long g_plate_hits, g_plate_misses;
 #endif
 
-static struct plate_ent *plate_find(long lbl, short n, short top, short left,
-                                    short state)
+/* djb2 over the label C string (capped: labels are short words). NULL and
+ * empty hash differently from any text. */
+static unsigned long plate_lbl_hash(long lbl)
+{
+	const char   *t = (const char *)(uintptr_t)lbl;
+	unsigned long h = 5381;
+	short         i;
+
+	if (t == NULL)
+		return 0;
+	for (i = 0; t[i] != 0 && i < 32; i++)
+		h = ((h << 5) + h) ^ (unsigned char)t[i];
+	return h;
+}
+
+static struct plate_ent *plate_find(long lbl, unsigned long lblh, short n,
+                                    short top, short left, short state)
 {
 	short i;
 
 	for (i = 0; i < PLATE_N; i++) {
 		struct plate_ent *e = &g_plates[i];
 
-		if (e->w != 0 && e->lbl == lbl && e->n == n && e->top == top
+		if (e->w != 0 && e->lbl == lbl && e->lblh == lblh
+		 && e->n == n && e->top == top
 		 && e->left == left && e->state == state)
 			return e;
 	}
@@ -97802,8 +97823,9 @@ static void plate_replay(const struct plate_ent *e)
 }
 
 /* capture the union rect of a fresh paint into a cache slot */
-static void plate_capture(long lbl, short n, short top, short left,
-                          short state, short x0, short y0, short x1, short y1)
+static void plate_capture(long lbl, unsigned long lblh, short n, short top,
+                          short left, short state,
+                          short x0, short y0, short x1, short y1)
 {
 	unsigned char *px; short pitch, sw, sh, r, w, h;
 	struct plate_ent *e;
@@ -97819,7 +97841,7 @@ static void plate_capture(long lbl, short n, short top, short left,
 		return;
 	e = &g_plates[g_plate_next];
 	g_plate_next = (short)((g_plate_next + 1) % PLATE_N);
-	e->lbl = lbl; e->n = n; e->top = top; e->left = left; e->state = state;
+	e->lbl = lbl; e->lblh = lblh; e->n = n; e->top = top; e->left = left; e->state = state;
 	e->x0 = x0; e->y0 = y0; e->w = w; e->h = h;
 	for (r = 0; r < h; r++)
 		memcpy(e->px + (long)r * w, px + (long)(y0 + r) * pitch + x0,
@@ -97962,6 +97984,7 @@ static short jt137(void *rec_v, short msg, ...)
 #ifndef FRUA_NOPLATECACHE
 		{
 			long  pc_lbl  = *(long *)(void *)(rec + 12);
+			unsigned long pc_lblh = plate_lbl_hash(pc_lbl);
 			short pc_n    = *(short *)(void *)(rec + 24);
 			short pc_top  = *(short *)(void *)(rec + 16);
 			short pc_left = *(short *)(void *)(rec + 18);
@@ -97971,7 +97994,8 @@ static short jt137(void *rec_v, short msg, ...)
 
 			if (jt1200() != 3) {
 				struct plate_ent *hit =
-				    plate_find(pc_lbl, pc_n, pc_top, pc_left, pc_st);
+				    plate_find(pc_lbl, pc_lblh, pc_n, pc_top,
+				               pc_left, pc_st);
 
 				if (hit != NULL) {
 #ifdef FRUA_BARPROF
@@ -98043,7 +98067,7 @@ static short jt137(void *rec_v, short msg, ...)
 		}
 #ifndef FRUA_NOPLATECACHE
 		if (jt1200() != 3)
-			plate_capture(pc_lbl, pc_n, pc_top, pc_left, pc_st,
+			plate_capture(pc_lbl, pc_lblh, pc_n, pc_top, pc_left, pc_st,
 			              ux0, uy0, ux1, uy1);
 		}                       /* closes the plate-cache block */
 #endif
