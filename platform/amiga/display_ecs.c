@@ -48,6 +48,7 @@
 #define QUANT_PROF_T() amiga_prof_rl()
 #endif
 #include "quantize.h"            /* quant_banded — the banded median-cut reducer */
+#include "planar.h"             /* planar_viewport_register (#139 group rect) */
 #include "planar.h"              /* draw-time plane path (B4) — hook + puts */
 
 #define CUSTOM ((volatile struct Custom *)0xDFF000)
@@ -93,6 +94,9 @@ short ecs_ink_hold = 1;
  * ecs_init runs first in the file. (The recurring ordering trap; see
  * sp_vp_rearm on the ST.) */
 extern short ecs_pal_cache;
+/* #139 viewport palette groups — defined mid-file, used by ecs_init. */
+extern short ecs_vp_groups;
+static void  ecs_vp_note(short x, short y, short w, short h);
 static short e_held_once;      /* one hold per burst — never two in a row */
 static short          s_have_pal;
 
@@ -270,8 +274,18 @@ static int ecs_init(short want_w, short want_h)
 				ecs_ink_hold = 1;
 				dbg_log("ecs: ink-hold ENABLED (video.cfg)");
 			}
+			if (strstr(buf, "vpgroups=off") != NULL) {
+				ecs_vp_groups = 0;
+				dbg_log("ecs: viewport palette groups DISABLED (video.cfg)");
+			} else if (strstr(buf, "vpgroups=on") != NULL) {
+				ecs_vp_groups = 1;
+			}
 		}
 	}
+	/* #139 groups: listen for the engine's viewport announce (the commit
+	 * hook never fires on a backend with no scratch — learned the hard
+	 * way: the first cut registered it and grouping never engaged). */
+	planar_viewport_note_register(ecs_vp_note);
 	s_dirty = 1;                    /* first present builds the bands */
 	s_force_full = 1;
 #ifdef FRUA_PLANAR
@@ -663,6 +677,65 @@ static void remap_rect(short x, short y, short w, short h)
  * - EPC_VERSION must be bumped with ANY change to quantize.h's output. The
  *   cache stores that output verbatim; a stale file after a quantiser change
  *   would silently pin the OLD palettes. */
+/* --- #139 PORT: VIEWPORT PALETTE GROUPS (2026-08-23) ----------------------
+ *
+ * The re-band used to run the median cut PER BAND — 25 cuts a frame — and the
+ * phase profile put cut+buckets at 86% of a ~9.5 s re-band on the 7 MHz 68000.
+ * The ST solved this in #139: split at the two lines where the content really
+ * changes (the first-person viewport's top and bottom edges) and run ONE cut
+ * per group. Ported here for the WALK SCREEN ONLY: with a committed viewport
+ * the frame cuts as 3 groups (chrome above / viewport / chrome below), 32
+ * colours each — 96 slots for a walk frame whose whole colour count is ~63,
+ * so fidelity holds while the cut cost drops ~8x. Screens with no viewport
+ * (title, menus, event pictures) keep the full 25 per-band cuts: they are
+ * one-time work (the disk cache replays them forever) and per-band fidelity
+ * on big pictures is worth keeping — and their existing cache entries stay
+ * bit-valid because that path is untouched.
+ *
+ * The rect comes from the engine itself: dsp_viewport_commit fires after
+ * every 3D render even when the backend supplies no scratch (the ST needs
+ * the scratch; we only record the rect). e_vp_commit is cleared at the end
+ * of EVERY present, so a re-band groups only when the frame being quantised
+ * is the one whose render just committed the viewport — a re-band on any
+ * later frame (a menu, a picture) falls back to the 25-band path rather
+ * than splitting a picture on a stale boundary (the #40 seam hazard).
+ * video.cfg `vpgroups=off` restores the old path wholesale (one-binary A/B;
+ * the runtime-switch discipline that #91 taught). */
+short        ecs_vp_groups = 1;         /* video.cfg vpgroups=off */
+static short e_vp_x, e_vp_y, e_vp_ww, e_vp_hh;  /* last announced viewport   */
+static short e_vp_commit;               /* sticky; invalidated by content    */
+static unsigned char e_vp_sig[16];      /* fingerprint of the rendered vp    */
+
+/* Sample 16 spread pixels of the viewport region of s_chunky. The announce
+ * fires at the end of a 3D render, when the viewport's pixels are final; a
+ * re-band later re-samples the same offsets. Anything that legitimately
+ * replaces the viewport (an event picture, a menu — always full-screen
+ * draws) changes them; HUD/clock/bar updates outside the rect do not. This
+ * is what makes the sticky flag safe: grouping engages only while the frame
+ * being quantised still CONTAINS the rendered viewport, with no dependence
+ * on the order of presents between render and re-band (the first cut
+ * cleared the flag per present and most walk re-bands missed it). */
+static void ecs_vp_sample(unsigned char *out)
+{
+	short i;
+
+	for (i = 0; i < 16; i++) {
+		short yy = (short)(e_vp_y + ((long)e_vp_hh * (2 * i + 1)) / 32);
+		short xx = (short)(e_vp_x + ((long)e_vp_ww * (2 * i + 1)) / 32);
+
+		out[i] = s_chunky[(long)yy * ECS_W + xx];
+	}
+}
+
+static void ecs_vp_note(short x, short y, short w, short h)
+{
+	if (w <= 0 || h <= 0)
+		return;
+	e_vp_x = x; e_vp_y = y; e_vp_ww = w; e_vp_hh = h;
+	ecs_vp_sample(e_vp_sig);
+	e_vp_commit = 1;
+}
+
 /* ★ DISK-BACKED CACHE (2026-08-22). It used to hold EPC_MAX=16 blobs in RAM
  * and STOP caching once full — every distinct frame past the 16th re-quantised
  * on EVERY view, forever (a dungeon has far more than 16 scenes, so most of the
@@ -918,6 +991,17 @@ static void ecs_notice(const char *l1, const char *l2)
 	}
 }
 
+/* Progress adapter for the grouped path: three 1-band cuts, one bar step
+ * each. e_gp_cur is which group is running. */
+static short e_gp_cur;
+static void (*e_gp_inner)(short band, short nbands);
+static void ecs_group_progress(short band, short nbands)
+{
+	(void)band; (void)nbands;
+	if (e_gp_inner)
+		e_gp_inner(e_gp_cur, 3);
+}
+
 static void ecs_reband(void)
 {
 	short b, i;
@@ -950,8 +1034,66 @@ static void ecs_reband(void)
 			quant_progress = ecs_notice_progress;
 			plat_bard_start();      /* the campfire bard, sound_paula.c */
 		}
-		quant_banded(s_chunky, ECS_W, ECS_H, s_clut,
-		             ECS_NBANDS, ECS_NCOL, ECS_BITS, s_band_pal, s_band_remap);
+		{
+			short ngrp = 0, gb0[4];
+
+			if (ecs_vp_groups && e_vp_commit && e_vp_hh > 0) {
+				unsigned char now[16];
+
+				ecs_vp_sample(now);
+				if (memcmp(now, e_vp_sig, 16) != 0) {
+					e_vp_commit = 0;   /* vp overdrawn: stale */
+				} else {
+					short t = (short)(e_vp_y / ECS_RPB);
+					short b = (short)((e_vp_y + e_vp_hh
+					                   + ECS_RPB - 1) / ECS_RPB);
+					if (t > 0 && b < ECS_NBANDS && b > t) {
+						ngrp = 3;
+						gb0[0] = 0; gb0[1] = t;
+						gb0[2] = b; gb0[3] = ECS_NBANDS;
+					}
+				}
+			}
+			if (ngrp == 3) {
+				unsigned char gpal[ECS_NCOL * 3], grem[256];
+				short g, band;
+#ifdef FRUA_AMIGAPROF
+				long g0 = amiga_prof_rl();
+#endif
+
+				e_gp_inner = quant_progress;
+				quant_progress = ecs_group_progress;
+				for (g = 0; g < 3; g++) {
+					short r0   = (short)(gb0[g] * ECS_RPB);
+					short rows = (short)((gb0[g + 1] - gb0[g])
+					                     * ECS_RPB);
+
+					e_gp_cur = g;
+					quant_banded(s_chunky + (long)r0 * ECS_W,
+					             ECS_W, rows, s_clut,
+					             1, ECS_NCOL, ECS_BITS,
+					             gpal, grem);
+					for (band = gb0[g]; band < gb0[g + 1]; band++) {
+						memcpy(s_band_pal
+						       + (long)band * ECS_NCOL * 3,
+						       gpal, ECS_NCOL * 3);
+						memcpy(s_band_remap
+						       + (long)band * 256, grem, 256);
+					}
+				}
+				e_gp_inner = (void (*)(short, short))0;
+				dbg_log_num("ecs: reband GROUPED bands t*100+b = ",
+				            (long)gb0[1] * 100 + gb0[2]);
+#ifdef FRUA_AMIGAPROF
+				dbg_log_num("ecs: GROUPED cut rl = ",
+				            amiga_prof_rl() - g0);
+#endif
+			} else {
+				quant_banded(s_chunky, ECS_W, ECS_H, s_clut,
+				             ECS_NBANDS, ECS_NCOL, ECS_BITS,
+				             s_band_pal, s_band_remap);
+			}
+		}
 		quant_progress = (void (*)(short, short))0;
 		{
 			extern void plat_bard_stop(void);

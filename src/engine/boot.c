@@ -16027,6 +16027,10 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 #endif
 	g_a5_3054 = sav_ct; g_a5_3050 = sav_cb;   /* restore play-screen clip rect */
 	g_a5_3056 = sav_cl; g_a5_3052 = sav_cr;
+	/* #139 groups: announce the rect UNCONDITIONALLY — the commit below is
+	 * gated on the scratch existing, and the ECS supplies none yet still
+	 * needs the rect for its palette-group boundaries. */
+	dsp_viewport_note(VL, VT, (short)(VR - VL), (short)(VB - VT));
 	/* Hand the rendered viewport rect to the backend for the planar composite
 	 * (ADR-0016 B2). No-op when vtgt == px (chunky backends). */
 	if (vp)

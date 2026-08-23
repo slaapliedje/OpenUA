@@ -135,6 +135,10 @@ void planar_viewport_planes_register(unsigned char *(*planes)(short *pitch),
 void planar_reband_query_register(int (*pending)(void),
                                   void (*chunky_valid)(short));
 
+/* #139 groups: announce the rendered viewport rect (see planar.c). */
+void planar_viewport_note_register(void (*fn)(short x, short y, short w, short h));
+void dsp_viewport_note(short x, short y, short w, short h);
+
 void planar_viewport_overwrite_register(void (*fn)(short x, short y,
                                                    short w, short h));
 void planar_viewport_overwrite(short x, short y, short w, short h);

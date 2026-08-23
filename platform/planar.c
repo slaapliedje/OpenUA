@@ -82,6 +82,25 @@ void dsp_viewport_chunky_valid(short valid)
 		s_rb_valid_fn(valid);
 }
 
+/* Viewport ANNOUNCE (#139 groups): the engine tells whichever backend cares
+ * where the 3D viewport it just rendered sits, on EVERY 3D render — including
+ * backends that supply no scratch (the ECS renders straight into the engine
+ * surface, so dsp_viewport_commit never fires there; its re-band still needs
+ * the rect to place palette-group boundaries on the viewport's edges). Pure
+ * information: no registered listener, no effect. */
+static void (*s_vp_note_fn)(short x, short y, short w, short h);
+
+void planar_viewport_note_register(void (*fn)(short, short, short, short))
+{
+	s_vp_note_fn = fn;
+}
+
+void dsp_viewport_note(short x, short y, short w, short h)
+{
+	if (s_vp_note_fn)
+		s_vp_note_fn(x, y, w, h);
+}
+
 /* Committed-viewport invalidation — see the long note in planar.h. */
 static void (*s_vp_overwrite_fn)(short x, short y, short w, short h);
 
