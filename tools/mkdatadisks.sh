@@ -51,7 +51,20 @@ MACHINE="${1:?usage: mkdatadisks.sh <atari|atari720|amiga|gotek> [gamedata-dir] 
 #   ART=both is the old behaviour and doubles the disks. Use it to revive the
 #   MONO build, which treats an HLIB `.tlb` as a deliberate miss (41-53 s per
 #   wall master is installer work, not first-touch work).
-ART="${ART:-tlb}"
+#
+# ★ THE DEFAULT IS MACHINE-DEPENDENT. Everything above about .tlb converting on
+#   first touch is the ATARI engine — its ua_open_art root fallback runs the
+#   converter (boot.c, guarded `!defined(FRUA_AMIGA)`). The AMIGA engine does
+#   NOT: ADR-0015 compiled the on-the-fly conversion OUT (art is install-time
+#   work there), and instdisk copies verbatim — so a .tlb-only Amiga install has
+#   no path to the .ctl the engine loads (ALWAYS.CTL fails first: "Bad Lib",
+#   then the cold disk-swap dialog — the A500 "Please insert disk" seen
+#   2026-08-22). Amiga therefore defaults to `ctl` (ship the converted libs);
+#   Atari keeps `tlb`. Override either with ART= on the command line.
+case "$MACHINE" in
+amiga) ART="${ART:-ctl}" ;;
+*)     ART="${ART:-tlb}" ;;
+esac
 case "$ART" in tlb|ctl|both) ;; *) echo "ART must be tlb, ctl or both" >&2; exit 1 ;; esac
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="${2:-$REPO/data/work/gamedata}"

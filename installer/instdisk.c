@@ -60,6 +60,30 @@
 #include <dos/dosextens.h>
 #include <proto/dos.h>
 #include <proto/exec.h>
+#include "drawer_icon.h"
+
+/* Write a drawer icon so the OpenUA drawer shows on Workbench. The Installer
+ * script route makes one via (makedir (infos)); the plain instdisk route (a
+ * machine with no AmigaOS Installer, e.g. WB 3.1) did not — reported on the
+ * A500, 2026-08-22. dest is "DH0:OpenUA"; its icon is the sibling file
+ * "DH0:OpenUA.info". Skip if one already exists. */
+static void amiga_write_drawer_icon(const char *dest)
+{
+	char ipath[MAXPATH];
+	BPTR fh;
+	size_t n = strlen(dest);
+	if (n + 6 >= sizeof ipath)
+		return;
+	memcpy(ipath, dest, n);
+	memcpy(ipath + n, ".info", 6);
+	fh = Open((CONST_STRPTR)ipath, MODE_OLDFILE);	/* already there? */
+	if (fh) { Close(fh); return; }
+	fh = Open((CONST_STRPTR)ipath, MODE_NEWFILE);
+	if (!fh)
+		return;
+	Write(fh, (APTR)g_drawer_info, (LONG)sizeof g_drawer_info);
+	Close(fh);
+}
 
 /* The DEVICE name ("DF0:") of the current directory's volume: the volume
  * lock's handler task is the same MsgPort the device entry carries, so walk
@@ -99,14 +123,14 @@ static int amiga_wait_key_or_tick(void)
 {
 	BPTR in = Input();
 
-	if (in && WaitForChar(in, 1000000L)) {
+	if (in && WaitForChar(in, 2000000L)) {	/* 2 s between polls */
 		int c;
 		while ((c = getchar()) != '\n' && c != EOF)
 			;
 		return 1;
 	}
 	if (!in)
-		Delay(50);
+		Delay(100);
 	return 0;
 }
 #endif
@@ -331,6 +355,15 @@ int main(int argc, char **argv)
 	if (argc >= 3)
 		snprintf(src, sizeof src, "%s", argv[2]);
 #ifdef __amigaos__
+	/* ★ A500 (2026-08-22): every poll of an EMPTY drive raised the system
+	 * "Please insert a disk in DF0" requester — the installer looked as
+	 * if it were nagging once a second. pr_WindowPtr = -1 turns the DOS
+	 * requesters off for this process; a missing disk then comes back as
+	 * a plain open failure, which the poll already treats as "not yet". */
+	{
+		struct Process *pr = (struct Process *)FindTask(NULL);
+		pr->pr_WindowPtr = (APTR)-1L;
+	}
 	if (src[0] == 0) {
 		amiga_source_device(src, sizeof src);
 		printf("Reading disks from %s\n", src);
@@ -664,6 +697,10 @@ int main(int argc, char **argv)
 #endif
 	}
 
+#ifdef __amigaos__
+	if (!failed)
+		amiga_write_drawer_icon(dest);
+#endif
 	if (failed)
 		return 1;
 	printf("\nDone. Run the game from %s.\n", dest);
