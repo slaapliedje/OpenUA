@@ -62,6 +62,10 @@ build.err
 instdisk.prg
 instdisk.ttp
 instdisk_amiga
+
+# uaconv build output (DOS-art converter, built by `make uaconv-amiga`)
+uaconv_amiga
+uaconv.info
 frua.info
 /installer/strs_map_dos12.h
 FRUA.PRG
