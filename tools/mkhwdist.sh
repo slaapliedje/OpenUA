@@ -244,10 +244,6 @@ EOS
 		echo '  )'
 		echo ')'
 		echo '(protect (tackon uadir "uaconv") "+e")'
-		echo '(message "The DOS art must be converted to Amiga format before it will play (the Amiga engine cannot convert it while running). This takes a little while — about half a minute on an 020, longer on a 68000.")'
-		echo '(if (askbool (prompt "Delete the original DOS art (.tlb) after converting?") (help "The converted .ctl art is what the game reads. Deleting the .tlb originals reclaims about 5 MB. Recommended.") (default 1))'
-		echo '  (run (cat (tackon uadir "uaconv") " -d " uadir))'
-		echo '  (run (cat (tackon uadir "uaconv") " " uadir)))'
 		echo '(complete 100)'
 		echo '(exit "OpenUA is installed. Open the OpenUA drawer and double-click frua.")'
 	} > "$WORK/Install.script"
@@ -261,6 +257,7 @@ say "Amiga AGA (A1200/A4000) — 880 KB, binary raw"
 readme "$WORK/README" "Amiga AGA (A1200 / A4000)" \
 	"frua    the engine. Needs Kickstart 3.0+ and about 4 MB." \
 	"uainst  installs a DOS fan module from its ZIP." \
+	"uaconv  (optional) pre-converts all DOS art + reclaims ~5 MB (-d)." \
 	"" \
 	"TO INSTALL: double-click the Install icon (Workbench). It uses the" \
 	"AmigaOS Installer if the machine has one; Workbench 3.1 never shipped" \

@@ -681,27 +681,6 @@ int main(int argc, char **argv)
 		else
 			printf("\nEngine installed (%ld file(s)).\n", efiles);
 
-#ifdef __amigaos__
-		/* Convert the DOS art we just installed. The Amiga engine cannot
-		 * convert at runtime (ADR-0015), so uaconv (installed alongside the
-		 * engine) does it once, here. It reads its own stdin for the
-		 * delete-originals prompt; SystemTags inherits our console. */
-		if (!skipped && !failed) {
-			char up[MAXPATH], cmd[MAXPATH * 2 + 8];
-			BPTR l;
-			path_join(up, sizeof up, dest, "uaconv");
-			l = Lock((CONST_STRPTR)up, ACCESS_READ);
-			if (l) {
-				UnLock(l);
-				snprintf(cmd, sizeof cmd, "%s %s", up, dest);
-				printf("\nConverting the art for the Amiga (one time)...\n");
-				SystemTags((CONST_STRPTR)cmd, TAG_DONE);
-			} else {
-				printf("\nNOTE: uaconv not found in %s — run it there to"
-				       " convert the art before playing.\n", dest);
-			}
-		}
-#endif
 #ifdef INSTDISK_GUI
 		if (g_gui) {
 			char t[128];

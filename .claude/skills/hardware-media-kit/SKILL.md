@@ -20,10 +20,11 @@ amiga|gotek>` (DATA images — copyrighted, NEVER on GitHub).
 - Verify media by EXTRACTING the binaries back out (`mcopy -n`,
   `tools/.venv/bin/xdftool` — not on PATH) and `cmp` against the release zips.
   A zero from an integrity check is only meaningful if the tool actually ran.
-- ART policy: Atari data disks ship DOS `.tlb` (the Atari engine converts on
-  first touch); Amiga disks ship `.tlb` + `uaconv` converts ONCE at install
-  (ADR-0015: the Amiga engine cannot convert at runtime — a .tlb-only install
-  dies at ALWAYS.CTL). Saves: only the authentic HEIRS Save A ships
+- ART policy: every target ships DOS `.tlb`; the engine converts each library
+  silently on first touch, once ever (ADR-0019 re-enabled this on the Amiga —
+  ADR-0015's hang died with the big-stack overhaul). `uaconv` ships on the
+  engine disks as an OPTIONAL bulk converter / space reclaimer (`-d` deletes
+  the `.tlb`, ~5 MB). Saves: only the authentic HEIRS Save A ships
   (`SAVE/SAVGAMA.CSV` + `VAULTA.DAT`).
 
 ## The three install routes (all end with engine + data in one directory)
@@ -43,9 +44,9 @@ amiga|gotek>` (DATA images — copyrighted, NEVER on GitHub).
    ENGINE.LST, `a`=append joins the ECS engine halves), reads the DRIVE not
    the volume on Amiga (DosList device walk — the A1200 disk-2 loop),
    auto-detects swaps with `pr_WindowPtr = -1` (else AmigaDOS requesters nag
-   per poll), RETURN accepts the default destination, writes the drawer icon
-   (embedded `installer/drawer_icon.h`), then runs `uaconv` and offers to
-   delete the `.tlb` originals.
+   per poll), RETURN accepts the default destination, and writes the drawer icon
+   (embedded `installer/drawer_icon.h`). No conversion step: the engine
+   converts on first touch (ADR-0019).
 
 ## Sticks and releases
 
