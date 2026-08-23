@@ -190,17 +190,28 @@ amiga_install_files() {   # amiga_install_files <variant: aga|ecs> <datadisks-de
 ; No .KEY line: the script takes no arguments, and a BARE .KEY is rejected
 ; by the 3.1 (and earlier) script runner with "Illegal Key directive" —
 ; seen on an A500 under WB 3.1, 2026-08-22. 3.2 tolerated it.
+;
+; CD OFF THE FLOPPY FIRST. This script's current directory is the engine
+; disk's VOLUME, and when the Installer (or instdisk) hands control back the
+; shell re-validates that directory for the next line — "Please insert
+; volume ${vol}" at the very END of a successful install, with this window
+; stuck open (A1200, WB 3.2 Installer 47.19, 2026-08-23). Every path below
+; is absolute for the same reason; instdisk finds the drive via PROGDIR:.
+CD RAM:
 IF EXISTS SYS:System/Installer
-  SYS:System/Installer SCRIPT Install.script APPNAME OpenUA MINUSER NOVICE DEFUSER AVERAGE
+  SYS:System/Installer SCRIPT ${vol}:Install.script APPNAME OpenUA MINUSER NOVICE DEFUSER AVERAGE
 ELSE
   IF EXISTS SYS:Utilities/Installer
-    SYS:Utilities/Installer SCRIPT Install.script APPNAME OpenUA MINUSER NOVICE DEFUSER AVERAGE
+    SYS:Utilities/Installer SCRIPT ${vol}:Install.script APPNAME OpenUA MINUSER NOVICE DEFUSER AVERAGE
   ELSE
     ECHO "This machine has no AmigaOS Installer (Workbench 3.1 never shipped one),"
     ECHO "so OpenUA's own installer runs instead. Answer its questions in this window;"
     ECHO "RETURN accepts the default. It notices disk swaps by itself."
     ECHO ""
     ${vol}:instdisk
+    ECHO ""
+    ECHO "Press RETURN to close this window."
+    ASK "" >NIL:
   ENDIF
 ENDIF
 EOS
@@ -243,13 +254,11 @@ EOS
 		echo '    (set i (+ i 1))'
 		echo '  )'
 		echo ')'
-		echo '(protect (tackon uadir "uaconv") "+e")'
 		echo '(complete 100)'
 		echo '(exit "OpenUA is installed. Open the OpenUA drawer and double-click frua.")'
 	} > "$WORK/Install.script"
 	python3 "$REPO/tools/make_amiga_icon.py" --type project --default-tool "IconX" \
 	    --tooltype "WINDOW=CON:0/20/640/180/OpenUA install/CLOSE" \
-	    --tooltype "WAIT" \
 	    -o "$WORK/Install.info"
 }
 

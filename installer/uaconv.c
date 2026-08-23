@@ -1,16 +1,14 @@
-/* uaconv — OpenUA one-time DOS-art converter (Amiga).
+/* uaconv — OpenUA bulk DOS-art converter (Amiga). OPTIONAL since ADR-0019.
  *
- * The Amiga engine does NOT convert DOS art on the fly (ADR-0015): art is
- * install-time work. The Atari build converts each .tlb->.ctl on first touch
- * and caches it; the Amiga cannot, so a .tlb-only Amiga install fails to load
- * (ALWAYS.CTL "Bad Lib"). This tool does that conversion ONCE, up front:
- * it scans the OpenUA folder (and its .DSN design sub-folders) for DOS `HLIB`
- * .tlb art, writes the Mac `GLIB` .ctl twin the engine loads, and then offers
- * to delete the now-redundant .tlb originals to reclaim the space.
+ * The engine converts each DOS `HLIB` .tlb library to the Mac `GLIB` .ctl it
+ * loads on FIRST TOUCH, once ever (ADR-0019 re-enabled that on the Amiga;
+ * ADR-0015 had barred it). So nothing needs this tool. What it offers: do
+ * ALL of the conversion up front in one pass, and reclaim the ~5 MB the
+ * now-redundant .tlb originals occupy (`-d`, or answer the prompt). It scans
+ * the OpenUA folder and its .DSN design sub-folders.
  *
- * Run it after installing the .tlb data set:  uaconv DH0:OpenUA
- * (instdisk and the Workbench Install both run it for you; you can also run it
- * by hand on any folder of DOS art.)
+ *   uaconv DH0:OpenUA          convert everything, ask about deleting
+ *   uaconv -d DH0:OpenUA       convert and delete the .tlb without asking
  *
  * Portable C over stdio + the artconv core (src/convert/artconv.c). The only
  * platform split is the directory scan: dos.library Examine/ExNext on the

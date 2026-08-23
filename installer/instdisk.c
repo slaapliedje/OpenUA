@@ -90,7 +90,14 @@ static void amiga_write_drawer_icon(const char *dest)
  * the device list for it. Falls back to DF0: if anything is missing. */
 static void amiga_source_device(char *out, size_t cap)
 {
-	BPTR lock = Lock((CONST_STRPTR) "", ACCESS_READ);
+	/* PROGDIR: (where this program was loaded from — the floppy), NOT the
+	 * current directory: the Workbench launcher now does `CD RAM:` before
+	 * running us (so the shell never re-validates a floppy CD at exit —
+	 * the "insert ECS-1 again" requester), and a Shell user may be sitting
+	 * anywhere. PROGDIR: falls back to the CD if the OS did not set it. */
+	BPTR lock = Lock((CONST_STRPTR) "PROGDIR:", ACCESS_READ);
+	if (!lock)
+		lock = Lock((CONST_STRPTR) "", ACCESS_READ);
 	struct FileLock *fl;
 	struct DosList  *dl;
 	int found = 0;
