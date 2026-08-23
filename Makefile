@@ -878,7 +878,7 @@ frua.info: tools/make_amiga_icon.py tools/ua_icon.glyph
 # it sat at 0.3.1-beta through nine releases — a no-argument run would have
 # built and named artifacts eight versions in the past. The release recipe
 # passes VERSION explicitly (see docs/release.md), so nothing caught it.
-VERSION ?= 0.9.13-beta
+VERSION ?= 0.9.14-beta
 
 # Every release binary is REDISTRIBUTABLE: NOEMBED=1 stubs the copyrighted DATA
 # pool (rebuilt at runtime from the user's frua.rsc), the link is stripped, and
