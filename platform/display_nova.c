@@ -93,6 +93,17 @@ static unsigned char            s_lut_set[256]; /* ...and which we have set     
 static unsigned short           s_lut_save[256];/* the DESKTOP's palette, for exit */
 static short                    s_lut_saved;
 
+/* Row-diffed full present (the ST backend's pass-1, ported). A full
+ * qd_present used to rewrite all 512,000 card bytes over the VME bus with
+ * per-byte writes — which is why TEXT was slow on the card while normal ST
+ * mode was fine: every glyph update triggers a full present, and the whole
+ * screen crossed the bus each time. The shadow mirrors what the card was
+ * last given; a full present writes only the rows whose surface bytes
+ * changed, and the comparisons run in fast local RAM. `novadiff=off` in
+ * video.cfg restores the rewrite-everything behaviour for A/B. */
+static unsigned char s_shadow[(long)NOVA_SURF_W * NOVA_CONTENT_H];
+static short         s_row_diff = 1;
+
 static short nova_open_ws(short *work_out)
 {
 	short i, phys;
@@ -231,6 +242,7 @@ static int nova_init(short want_w, short want_h)
 	/* Clear the whole card framebuffer to index 0. */
 	n = (long)s_pitch * s_cardh;
 	for (i = 0; i < n; i++) s_vram[i] = 0;
+	memset(s_shadow, 0, sizeof s_shadow);   /* shadow == cleared card */
 
 	s_surf.width  = NOVA_SURF_W;
 	s_surf.height = NOVA_SURF_H;
@@ -263,6 +275,43 @@ static dsp_surface_t *nova_surface(void) { return &s_surf; }
  * = exactly 2x 320x200 — the "doubling".) The per-row loop still lets a padded
  * card pitch be a one-constant change; a later pass hands this to the card's 2D
  * blitter. TODO: only the top NOVA_CONTENT_H rows carry the FRUA screen. */
+/* Stamp one doubled span onto the card and mirror it into the shadow. The
+ * write side is the VME bus, where every access is a full bus transaction:
+ * the old per-pixel byte stores cost four transactions per source pixel.
+ * A doubled pixel is two identical bytes = one word, and two source pixels
+ * make an aligned long, so the steady state is one LONG write per two
+ * pixels per row — a quarter of the bus traffic. d0 is always word-aligned
+ * (x*2 is even; the card base and pitch are even) and long-aligned when x
+ * is even, which the head/tail words below arrange. */
+static void nova_stamp_span(short x, short y, short w)
+{
+	const unsigned char *src = s_chunky + (long)y * NOVA_SURF_W + x;
+	unsigned char       *d0  = s_vram + (long)(y * 2) * s_pitch + (long)x * 2;
+	unsigned char       *d1  = d0 + s_pitch;
+	short n = w;
+
+	memcpy(s_shadow + (long)y * NOVA_SURF_W + x, src, (size_t)w);
+
+	if ((x & 1) && n > 0) {                 /* head word: align to a long */
+		unsigned short vv = (unsigned short)(*src * 0x0101u);
+		*(unsigned short *)(void *)d0 = vv;
+		*(unsigned short *)(void *)d1 = vv;
+		src++; d0 += 2; d1 += 2; n--;
+	}
+	while (n >= 2) {
+		unsigned long vv = ((unsigned long)src[0] * 0x01010000UL)
+		                 | ((unsigned long)src[1] * 0x0101UL);
+		*(unsigned long *)(void *)d0 = vv;
+		*(unsigned long *)(void *)d1 = vv;
+		src += 2; d0 += 4; d1 += 4; n -= 2;
+	}
+	if (n > 0) {                            /* tail word */
+		unsigned short vv = (unsigned short)(*src * 0x0101u);
+		*(unsigned short *)(void *)d0 = vv;
+		*(unsigned short *)(void *)d1 = vv;
+	}
+}
+
 static void nova_present_rect(short x, short y, short w, short h)
 {
 	short row;
@@ -271,18 +320,8 @@ static void nova_present_rect(short x, short y, short w, short h)
 	if (x + w > NOVA_SURF_W)    w = NOVA_SURF_W - x;
 	if (y + h > NOVA_CONTENT_H) h = NOVA_CONTENT_H - y;
 	if (w <= 0 || h <= 0) return;
-	for (row = 0; row < h; row++) {
-		const unsigned char *src = s_chunky + (long)(y + row) * NOVA_SURF_W + x;
-		unsigned char       *d0  = s_vram + (long)((y + row) * 2) * s_pitch + (long)x * 2;
-		unsigned char       *d1  = d0 + s_pitch;
-		short n = w;
-		while (n--) {
-			unsigned char v = *src++;
-			d0[0] = v; d0[1] = v;
-			d1[0] = v; d1[1] = v;
-			d0 += 2; d1 += 2;
-		}
-	}
+	for (row = 0; row < h; row++)
+		nova_stamp_span(x, (short)(y + row), w);
 }
 
 static void nova_present(void)
@@ -294,7 +333,23 @@ static void nova_present(void)
 	 * would otherwise leave the hotkey letters wrong until the next palette
 	 * install. 256 word writes against a 512,000-byte present is free. */
 	nova_lut_assert();
-	nova_present_rect(0, 0, NOVA_SURF_W, NOVA_CONTENT_H);
+	if (!s_row_diff) {
+		nova_present_rect(0, 0, NOVA_SURF_W, NOVA_CONTENT_H);
+		return;
+	}
+	/* Row-diffed: write only the rows whose bytes changed since the card
+	 * was last given them. The compares run in local RAM; an unchanged
+	 * screen costs zero VME traffic. Rect presents stamp through the same
+	 * shadow, so a row they already delivered compares clean here. */
+	{
+		short y;
+		for (y = 0; y < NOVA_CONTENT_H; y++) {
+			const unsigned char *src = s_chunky + (long)y * NOVA_SURF_W;
+			if (memcmp(s_shadow + (long)y * NOVA_SURF_W, src,
+			           NOVA_SURF_W) != 0)
+				nova_stamp_span(0, y, NOVA_SURF_W);
+		}
+	}
 }
 
 /* VDI reserves the first 16 pens and does NOT map pen p to hardware CLUT slot p
@@ -430,6 +485,10 @@ static void nova_lut_bind(void)
 			for (i = 0; buf[i] != '\0'; i++)
 				if (buf[i] >= 'A' && buf[i] <= 'Z')
 					buf[i] = (char)(buf[i] + 32);
+			if (strstr(buf, "novadiff=off") != NULL) {
+				s_row_diff = 0;
+				dbg_log("nova: row-diff present disabled (video.cfg)");
+			}
 			if (strstr(buf, "novalut=off") != NULL) {
 				dbg_log("nova: direct LUT disabled (video.cfg)");
 				return;
@@ -609,7 +668,18 @@ const dsp_backend_t *dsp_backend_nova(void)
 	dbg_log_num("nova: planes      = ", planes);
 
 	if (planes != 8) {              /* not a 256-colour chunky screen */
-		dbg_log("nova: not 8bpp - handing back to the ST backend");
+		/* The card IS present — vq_extnd answered — but the desktop is in
+		 * a mode we cannot render into: our present writes raw 8-bit
+		 * INDICES, which only mean anything on an 8bpp LUT screen. At 16bpp+
+		 * the framebuffer holds real pixels and there is no palette to
+		 * index. Say so explicitly (field report: "detects the GPU only in
+		 * 8bpp" looked like a probe failure — it is a depth mismatch). */
+		if (planes > 8)
+			dbg_log_num("nova: card found but not in 8bpp - set the "
+			            "desktop to 256 colours to use it; planes = ",
+			            planes);
+		else
+			dbg_log("nova: not 8bpp - handing back to the ST backend");
 		nova_close_ws();
 		return NULL;
 	}
