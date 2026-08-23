@@ -486,7 +486,16 @@ static int frua_main_body(void)
 	qd_set_present_rect(dsp->present_rect);   /* NULL-safe: falls back */
 	qd_set_present_pages(dsp->pages);         /* #151: 1 single-buffer, 2 videl */
 	plat_input_init(surf->width, surf->height);
-	InitCursor();                             /* arrow, visible; drawn in qd_present */
+	InitCursor();                             /* arrow; drawn in qd_present */
+	/* Boot with the cursor HIDDEN. On the Mac the system arrow is simply
+	 * always there, but every other original keeps the pointer off until
+	 * the main menu — and so did this port until the jt919 title-sequence
+	 * switch (87251793) exposed the loading/title phase to cursor
+	 * composites (field report: sword over the black loading screen).
+	 * jt315 reveals it when the menu comes up (port_cursor_reveal), the
+	 * autoload path likewise. Balanced: this is the ONLY unpaired
+	 * HideCursor, released exactly once there. */
+	HideCursor();
 	if (plat_sound_init() == 0)
 		dbg_log("main: sound chip locked");
 	else
