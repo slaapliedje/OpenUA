@@ -254,6 +254,17 @@ EOS
 		echo '    (set i (+ i 1))'
 		echo '  )'
 		echo ')'
+		# Ask for the ENGINE disk back before exiting: the Workbench
+		# launcher's remaining IF/ENDIF lines stream from that disk's
+		# `Install` file, and exiting with a data disk inserted makes the
+		# shell demand the volume back — or, on a bad re-read, error with
+		# "ENDIF/ELSE missing" (A500 field report, 2026-08-23). Installer's
+		# own askdisk is the well-tested way to get it back in the drive.
+		if [ "$variant" = aga ]; then
+			echo '(askdisk (prompt "Put the OpenUA engine disk (OpenUA-AGA) back in the drive.") (help "The install window needs its script disk back to close cleanly.") (dest "OpenUA-AGA"))'
+		else
+			echo '(askdisk (prompt "Put OpenUA engine disk 1 (OpenUA-ECS-1) back in the drive.") (help "The install window needs its script disk back to close cleanly.") (dest "OpenUA-ECS-1"))'
+		fi
 		echo '(complete 100)'
 		echo '(exit "OpenUA is installed. Open the OpenUA drawer and double-click frua.")'
 	} > "$WORK/Install.script"

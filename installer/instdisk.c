@@ -711,6 +711,23 @@ int main(int argc, char **argv)
 #endif
 	if (failed)
 		return 1;
+#ifdef __amigaos__
+	/* The Workbench launcher's remaining lines stream from the ENGINE
+	 * disk's `Install` script file — AmigaDOS shell scripts are read line
+	 * by line as they execute. If we exit with a data disk still in the
+	 * drive, the shell demands the engine volume back ("Please insert...")
+	 * and, if that read goes wrong, loses its IF nesting ("ENDIF/ELSE
+	 * missing" — A500 field report, 2026-08-23). Ask for the disk back
+	 * BEFORE exiting, so every remaining launcher line reads cleanly.
+	 * Floppy sources only — a hard-disk source never left the drive. */
+	if (strncmp(src, "DF", 2) == 0 || strncmp(src, "df", 2) == 0) {
+		printf("\nPut the OpenUA ENGINE disk back in %s,\n"
+		       "then press RETURN.\n", src);
+		fflush(stdout);
+		while (getchar() != '\n' && !feof(stdin))
+			;
+	}
+#endif
 	printf("\nDone. Run the game from %s.\n", dest);
 	return 0;
 }
