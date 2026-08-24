@@ -102,6 +102,7 @@ short ecs_sprite_disarm = 1;   /* video.cfg sprites=on  */
  * ecs_init runs first in the file. (The recurring ordering trap; see
  * sp_vp_rearm on the ST.) */
 extern short ecs_pal_cache;
+extern short ecs_clut_cache;   /* CLUT-keyed RAM cache, defined beside it */
 /* #139 viewport palette groups — defined mid-file, used by ecs_init. */
 extern short ecs_vp_groups;
 static void  ecs_vp_note(short x, short y, short w, short h);
@@ -274,6 +275,12 @@ static int ecs_init(short want_w, short want_h)
 				dbg_log("ecs: disk palette cache DISABLED (video.cfg)");
 			} else if (strstr(buf, "palcache=on") != NULL) {
 				ecs_pal_cache = 1;
+			}
+			if (strstr(buf, "clutcache=off") != NULL) {
+				ecs_clut_cache = 0;
+				dbg_log("ecs: CLUT-keyed RAM cache DISABLED (video.cfg)");
+			} else if (strstr(buf, "clutcache=on") != NULL) {
+				ecs_clut_cache = 1;
 			}
 			if (strstr(buf, "inkhold=off") != NULL) {
 				ecs_ink_hold = 0;
@@ -836,6 +843,37 @@ static short           e_pc_loaded;
 static short           e_pc_last = -1;          /* index whose blob is live in s_band_* */
 short                  ecs_pal_cache = 1;       /* video.cfg palcache=off; extern'd above */
 
+/* --- CLUT-keyed RAM palette cache (the ST's st_pcache, ported) -----------
+ *
+ * The disk cache above keys on clut hash + FRAME hash — exact, but useless
+ * mid-walk: every step is a new frame, so the town streets (whose wall-set
+ * CLUTs alternate between a handful of palettes) re-CUT on every step —
+ * measured 7 full re-bands in 16 moves, each dragging a full re-render
+ * behind it. On a 7 MHz A500 that is the "CLUT unloading/loading every
+ * step" field report. This cache keys on the CLUT alone: a walk step whose
+ * install brings back a palette already cut reuses that cut. Two guards
+ * carried over from the ST implementation:
+ *   - indices the cached cut never saw (`used`) are re-pointed at their
+ *     nearest slot in each band's palette, so new-to-this-frame art cannot
+ *     fall through the cut's absent-colour bucketing;
+ *   - when the restored remaps equal the live ones, the planes on screen
+ *     are still VALID — no force-full, no epoch reset, just the copper
+ *     palette words (the alternation's common case: same content classes,
+ *     different RGB). */
+#define ERC_N 6
+struct erc_ent {
+	ULONG         clut_h;
+	short         valid;
+	unsigned char clut[768];        /* verified, never trusted raw */
+	unsigned char pal[EPC_PAL];
+	unsigned char rem[EPC_REMAP];
+	unsigned char used[256];        /* what the cut actually saw   */
+};
+static struct erc_ent s_erc[ERC_N];
+static short          s_erc_mru[ERC_N];
+static short          s_erc_n;
+short                 ecs_clut_cache = 1;       /* video.cfg clutcache=off */
+
 static ULONG epc_hash(const unsigned char *p, long n)
 {
 	ULONG h = 5381;
@@ -951,13 +989,16 @@ static void ecs_reband(void)
 	short b, i;
 	ULONG ch = 0, fh = 0;
 	short hit = -1;
+	short rhit = -1;                /* CLUT-keyed RAM cache entry, or -1 */
+	short remap_same = 0;           /* rhit's remaps == the live remaps  */
 
+	if (ecs_pal_cache || ecs_clut_cache)
+		ch = epc_hash(s_clut, 768);
 	if (ecs_pal_cache) {
 		short k;
 
 		if (!e_pc_loaded)
 			epc_load();
-		ch = epc_hash(s_clut, 768);
 		fh = epc_hash(s_chunky, (long)ECS_W * ECS_H);
 		for (k = 0; k < e_pc_n; k++)
 			if (e_pc_key[k].clut_h == ch && e_pc_key[k].frm_h == fh) {
@@ -965,10 +1006,40 @@ static void ecs_reband(void)
 				break;
 			}
 	}
+	if (hit < 0 && ecs_clut_cache) {
+		short k;
+
+		for (k = 0; k < s_erc_n; k++) {
+			struct erc_ent *e = &s_erc[s_erc_mru[k]];
+
+			if (e->valid && e->clut_h == ch
+			    && memcmp(e->clut, s_clut, 768) == 0) {
+				rhit = s_erc_mru[k];
+				if (k) {        /* promote to MRU */
+					short v = s_erc_mru[k];
+					for (; k > 0; k--)
+						s_erc_mru[k] = s_erc_mru[k - 1];
+					s_erc_mru[0] = v;
+				}
+				break;
+			}
+		}
+	}
 	if (hit >= 0 && epc_read_blob(hit)) {
 #ifdef FRUA_ECSTRACE
 		dbg_log_num("et: reband CACHE HIT entry = ", (long)hit);
 #endif
+	} else if (rhit >= 0) {
+		struct erc_ent *e = &s_erc[rhit];
+
+		/* Compare BEFORE the copy: "same remaps" means the slots on the
+		 * glass keep their meaning and only the RGB behind them moves. */
+		remap_same = e_quant_valid
+		    && memcmp(s_band_remap, e->rem, EPC_REMAP) == 0;
+		memcpy(s_band_pal,   e->pal, EPC_PAL);
+		memcpy(s_band_remap, e->rem, EPC_REMAP);
+		dbg_log_num("ecs: reband CLUT-cache hit, remap_same = ",
+		            (long)remap_same);
 	} else {
 		{
 			short ngrp = 0, gb0[4];
@@ -1048,6 +1119,61 @@ static void ecs_reband(void)
 			}
 		}
 	}
+	/* RAM-cache hit: indices THIS frame uses that the cached cut never saw
+	 * would resolve through the cut's absent-colour bucketing (the ST's
+	 * grey-glyph family). Re-point each at its nearest slot per band.
+	 * Any patch moves a remap, so the palettes-only shortcut is off. */
+	if (rhit >= 0) {
+		const struct erc_ent *e = &s_erc[rhit];
+		short c;
+
+		for (c = 0; c < 256; c++) {
+			short bnd;
+
+			if (!e_used_idx[c] || e->used[c])
+				continue;
+			for (bnd = 0; bnd < ECS_NBANDS; bnd++) {
+				const unsigned char *bpal =
+				    s_band_pal + (long)bnd * ECS_NCOL * 3;
+				short s, bs = 0;
+				long  bd = 0x7fffffffL;
+
+				for (s = 0; s < ECS_NCOL; s++) {
+					long d = e_coldist(s_clut + (long)c * 3,
+					                   bpal + (long)s * 3);
+					if (d < bd) { bd = d; bs = s; }
+				}
+				s_band_remap[(long)bnd * 256 + c] = (unsigned char)bs;
+			}
+			remap_same = 0;
+		}
+	}
+	/* Remember this cut for the next time its CLUT comes around (the walk
+	 * alternation). Fresh cuts and exact disk hits both store; a RAM hit
+	 * is already stored. */
+	if (ecs_clut_cache && rhit < 0) {
+		short slot, k;
+		struct erc_ent *e;
+
+		if (s_erc_n < ERC_N) {
+			slot = s_erc_n++;
+		} else {
+			slot = s_erc_mru[ERC_N - 1];    /* evict the LRU */
+		}
+		e = &s_erc[slot];
+		e->clut_h = ch;
+		e->valid  = 1;
+		memcpy(e->clut, s_clut, 768);
+		memcpy(e->pal,  s_band_pal, EPC_PAL);
+		memcpy(e->rem,  s_band_remap, EPC_REMAP);
+		memcpy(e->used, e_used_idx, 256);
+		for (k = 0; k < s_erc_n; k++)   /* promote to MRU */
+			if (s_erc_mru[k] == slot) break;
+		if (k >= s_erc_n) k = (short)(s_erc_n - 1);
+		for (; k > 0; k--)
+			s_erc_mru[k] = s_erc_mru[k - 1];
+		s_erc_mru[0] = slot;
+	}
 	/* Per-band slot representatives (the repalette's map): for each used
 	 * index, keep the one whose CLUT colour sits nearest its slot's reduced
 	 * RGB. One distance per used index — cheap next to the quant itself. */
@@ -1081,9 +1207,6 @@ static void ecs_reband(void)
 	}
 	memcpy(e_clut_quant, s_clut, sizeof e_clut_quant);
 	e_quant_valid = 1;
-#ifdef FRUA_PLANAR
-	ecs_dt_epoch_reset();            /* slots renumbered: stamps are stale */
-#endif
 	for (b = 0; b < ECS_NBANDS; b++) {
 		const unsigned char *bp = s_band_pal + (long)b * ECS_NCOL * 3;
 
@@ -1094,7 +1217,20 @@ static void ecs_reband(void)
 	}
 	s_dirty = 0;
 	s_have_pal = 1;
-	s_force_full = 1;               /* every LUT moved: row diffing is void */
+	if (remap_same) {
+		/* The restored cut assigns every index the SAME slot the live one
+		 * did — the planes (and the draw-time stamps) on screen are still
+		 * right, only the RGB behind the slots moved, and the copper words
+		 * above already carry it. No force-full, no epoch reset: this is
+		 * what makes the walk's palette alternation cost a copper reload
+		 * instead of a full re-render. */
+		dbg_log("ecs: reband -> palettes only (remaps unchanged)");
+	} else {
+#ifdef FRUA_PLANAR
+		ecs_dt_epoch_reset();   /* slots renumbered: stamps are stale */
+#endif
+		s_force_full = 1;       /* every LUT moved: row diffing is void */
+	}
 }
 
 #ifdef FRUA_AMIGAPROF
