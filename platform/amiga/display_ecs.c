@@ -90,6 +90,14 @@ static short          s_dirty;
  * current band palettes cannot show — render the frame properly NOW instead of
  * painting it through the wrong palette. Runtime knob: video.cfg inkhold=off. */
 short ecs_ink_hold = 1;
+/* A500 walk-speckle A/B set (see the video.cfg parser in ecs_init).
+ * ecs_eagerq defaults OFF: the eager re-quant-at-install is unverified on
+ * real silicon and is the prime suspect for the accumulating speckle in
+ * the 2026-08-23 field video; the veto half (ecs_majq) runs inside the
+ * present flow with a full render behind it and stays on. */
+short ecs_majq          = 1;   /* video.cfg majq=off    */
+short ecs_eagerq        = 0;   /* video.cfg eagerq=on   */
+short ecs_sprite_disarm = 1;   /* video.cfg sprites=on  */
 /* Defined with the disk palette cache, below — the video.cfg parser in
  * ecs_init runs first in the file. (The recurring ordering trap; see
  * sp_vp_rearm on the ST.) */
@@ -280,6 +288,25 @@ static int ecs_init(short want_w, short want_h)
 			} else if (strstr(buf, "vpgroups=on") != NULL) {
 				ecs_vp_groups = 1;
 			}
+			/* A500 walk-speckle A/B set (2026-08-23, field video):
+			 * one binary, three levers. majq gates BOTH halves of the
+			 * major-CLUT-change work (the repalette veto and the eager
+			 * re-quant); eagerq gates just the eager half (default OFF
+			 * here — unverified on silicon, the prime suspect);
+			 * sprites=on skips the 0.9.13 takeover sprite disarm
+			 * (diagnostic: brings the pointer-over-title bug back). */
+			if (strstr(buf, "majq=off") != NULL) {
+				ecs_majq = 0;
+				dbg_log("ecs: major-CLUT-change handling DISABLED (video.cfg)");
+			}
+			if (strstr(buf, "eagerq=on") != NULL) {
+				ecs_eagerq = 1;
+				dbg_log("ecs: eager re-quant ENABLED (video.cfg)");
+			}
+			if (strstr(buf, "sprites=on") != NULL) {
+				ecs_sprite_disarm = 0;
+				dbg_log("ecs: sprite disarm SKIPPED (video.cfg)");
+			}
 		}
 	}
 	/* #139 groups: listen for the engine's viewport announce (the commit
@@ -321,9 +348,10 @@ static int ecs_init(short want_w, short want_h)
 	 * cursor is software, so: clear sprite DMA, then disarm every channel
 	 * (an armed sprite keeps DISPLAYING its last data even with DMA off —
 	 * writing SPRxCTL disarms it until the next SPRxPOS). */
-	CUSTOM->dmacon  = DMAF_SPRITE;              /* clear (no SETCLR) */
-	{
+	if (ecs_sprite_disarm) {
 		short sp;
+
+		CUSTOM->dmacon = DMAF_SPRITE;       /* clear (no SETCLR) */
 		for (sp = 0; sp < 8; sp++) {
 			CUSTOM->spr[sp].ctl = 0;
 			CUSTOM->spr[sp].dataa = 0;
@@ -436,12 +464,13 @@ static int ecs_clut_major_change(void)
 		  + (s_clut[i * 3 + 2] > e_clut_quant[i * 3 + 2]
 		     ? s_clut[i * 3 + 2] - e_clut_quant[i * 3 + 2]
 		     : e_clut_quant[i * 3 + 2] - s_clut[i * 3 + 2]));
-		if (d >= 48) {
-			if (++moved >= 64)
-				return 1;
-		}
+		if (d >= 48)
+			moved++;
 	}
-	return 0;
+#ifdef FRUA_MAJDIAG
+	dbg_log_num("ecsmaj: entries moved = ", (long)moved);
+#endif
+	return moved >= 64;
 }
 
 static int ecs_remap_split(void)
@@ -1252,7 +1281,7 @@ static void ecs_present(void)
 		           && !ecs_row_differs(s_chunky, s_shadow,
 		                               (long)ECS_W * ECS_H)
 		           && !ecs_remap_split()
-		           && !ecs_clut_major_change()) {
+		           && !(ecs_majq && ecs_clut_major_change())) {
 			/* Content unchanged: remaps stay valid, only slot->RGB
 			 * moved — copper reload, no re-quant, no re-render. */
 			dbg_log("ecs: repalette (content unchanged)");
@@ -1510,7 +1539,10 @@ static void ecs_set_palette(const dsp_color_t *colors, short first, short count)
 	 * "titles in multiple passes / wrong colours" report). Same total
 	 * cost — the present's CLUT-unchanged guard then skips — and the disk
 	 * palette cache still serves repeat scenes. */
-	if (s_dirty && s_have_pal && e_quant_valid && ecs_clut_major_change()) {
+	if (ecs_majq && ecs_eagerq
+	    && s_dirty && s_have_pal && e_quant_valid
+	    && ecs_clut_major_change()) {
+		dbg_log("ecs: EAGER reband (clut replaced)");
 		ecs_reband();
 		s_dirty = 0;
 	}

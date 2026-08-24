@@ -1154,12 +1154,13 @@ static int st_clut_major_change(void)
 		  + (s_clut[i * 3 + 2] > s_clut_banded[i * 3 + 2]
 		     ? s_clut[i * 3 + 2] - s_clut_banded[i * 3 + 2]
 		     : s_clut_banded[i * 3 + 2] - s_clut[i * 3 + 2]));
-		if (d >= 48) {
-			if (++moved >= 64)
-				return 1;
-		}
+		if (d >= 48)
+			moved++;
 	}
-	return 0;
+#ifdef FRUA_MAJDIAG
+	dbg_file_num("stmaj: entries moved = ", (long)moved);
+#endif
+	return moved >= 64;
 }
 
 static int st_remap_split(void)
@@ -1334,6 +1335,11 @@ static short           s_pc_n;                   /* live entries             */
 /* Runtime, like st_vp_bands and for the same reason: an A/B that needs two
  * binaries is an A/B of two binaries. video.cfg `palcache=off`. */
 short                  st_pal_cache = 1;
+/* Major-CLUT-change handling (the title-regression fix) — runtime-gated
+ * like everything else here, one binary per A/B. ST defaults: both ON
+ * (verified in emulation, titles + walk + menu). */
+short                  st_majq   = 1;   /* video.cfg majq=off   */
+short                  st_eagerq = 1;   /* video.cfg eagerq=off */
 
 /* Long-wise, because memcmp costs 93 cycles/byte on this target and this runs
  * on every re-band (see st_row_differs for the same substitution). */
@@ -3072,6 +3078,17 @@ static int st_init(short want_w, short want_h)
 					st_pal_cache = 1;
 					dbg_log("ste: palette cache ENABLED (video.cfg)");
 				}
+				/* Major-CLUT-change A/B (the ECS twin's set):
+				 * majq=off disables the repalette veto AND the
+				 * eager re-quant; eagerq=off just the eager. */
+				if (strstr(buf, "majq=off") != NULL) {
+					st_majq = 0;
+					dbg_log("ste: major-CLUT-change handling DISABLED (video.cfg)");
+				}
+				if (strstr(buf, "eagerq=off") != NULL) {
+					st_eagerq = 0;
+					dbg_log("ste: eager re-quant DISABLED (video.cfg)");
+				}
 			}
 		}
 	}
@@ -4048,7 +4065,7 @@ static void st_present(void)
 			                         * slot invalidates the remap even
 			                         * with content unchanged (the
 			                         * grey-on-grey HUD-text family) */
-			    !st_clut_major_change();
+			    !(st_majq && st_clut_major_change());
 			                        /* ...and a WHOLESALE CLUT replacement
 			                         * (a title/BigPic committing its own
 			                         * palette) invalidates every remap at
@@ -4531,7 +4548,9 @@ static void st_set_palette(const dsp_color_t *colors, short first, short count)
 	 * skips the re-band this replaces. Small installs (cycling) and the
 	 * walk's CLUT alternation never trip st_clut_major_change; when they
 	 * do, the palette cache still absorbs the cut. */
-	if (s_dirty && s_have_pal && s_banded_valid && st_clut_major_change()) {
+	if (st_majq && st_eagerq
+	    && s_dirty && s_have_pal && s_banded_valid
+	    && st_clut_major_change()) {
 		st_reband();
 		s_dirty = 0;
 	}
