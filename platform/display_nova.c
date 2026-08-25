@@ -474,10 +474,30 @@ static unsigned short nova_rgb565(unsigned char r, unsigned char g,
 	                      |  (unsigned)(b >> 3));
 }
 
-/* Bind + VERIFY (write / read back / restore). No speculative access: the offset
- * comes from Logbase(), which the present already writes every frame from user
- * mode, so the window is known-good. `novalut=off` disables the direct path (back
- * to vs_color only); `novalut=4mb` selects the 4MB offset. */
+/* The memory-mapped LUT is an ATW800/2 FPGA feature, NOT an ET4000 one — a
+ * classic Nova/ET4000 card's DAC is I/O-port-only and its 1MB memory window
+ * ends well before base+0x1FF000, so the probe write below BUS-ERRORS there
+ * (found by running the classic NOVA-VDI driver on the hatari-et4000
+ * emulated card). The ATW800/2 always ships with xVDI, so its cookie is the
+ * gate; anything without it stays on vs_color. */
+static long xvdi_cookie_super(void)
+{
+	long *jar = *(long **)0x5A0UL;          /* protected low RAM */
+
+	if (jar == NULL)
+		return 0;
+	for (; jar[0] != 0; jar += 2)
+		if (jar[0] == 0x78564449L)      /* 'xVDI' */
+			return 1;
+	return 0;
+}
+
+/* Bind + VERIFY (write / read back / restore). The probe only runs on an
+ * ATW800/2 (xVDI cookie — see above); there the offset comes from Logbase(),
+ * which the present already writes every frame from user mode, so the window
+ * is known-good. `novalut=off` disables the direct path (back to vs_color
+ * only); `novalut=on` forces the probe without the cookie; `novalut=4mb`
+ * selects the 4MB offset (and implies the probe). */
 static void nova_lut_bind(void)
 {
 	volatile unsigned short *lut;
@@ -487,6 +507,7 @@ static void nova_lut_bind(void)
 	short                    fh;
 	long                     n;
 	int                      i;
+	short                    force = 0;
 
 	if (s_vram == NULL)
 		return;
@@ -507,9 +528,18 @@ static void nova_lut_bind(void)
 				dbg_log("nova: direct LUT disabled (video.cfg)");
 				return;
 			}
-			if (strstr(buf, "novalut=4mb") != NULL)
-				off = NOVA_LUT_OFF_4MB;
+			if (strstr(buf, "novalut=on") != NULL)
+				force = 1;
+			if (strstr(buf, "novalut=4mb") != NULL) {
+				off   = NOVA_LUT_OFF_4MB;
+				force = 1;
+			}
 		}
+	}
+
+	if (!force && !Supexec(xvdi_cookie_super)) {
+		dbg_log("nova: no xVDI cookie - classic card, vs_color path");
+		return;
 	}
 
 	lut  = (volatile unsigned short *)(void *)
