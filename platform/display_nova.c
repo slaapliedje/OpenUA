@@ -201,6 +201,7 @@ static void nova_paltest(void)
  * The screen is already open (dsp_backend_nova confirmed 8bpp and left the
  * workstation open). init() only allocates the render surface + binds VRAM. */
 static void nova_lut_bind(void);        /* hardware LUT (RGB565) — defined below */
+static void nova_res_restore(void);     /* undo the auto mode switch — below     */
 static void nova_lut_assert(void);      /* re-stamp our palette onto the card    */
 
 static int nova_init(short want_w, short want_h)
@@ -257,6 +258,11 @@ static int nova_init(short want_w, short want_h)
 static void nova_shutdown(void)
 {
 	nova_close_ws();
+
+	/* Put the DESKTOP's video mode back before its colours: if we switched
+	 * the card to 640x400 for the game, the driver's own p_chres returns it
+	 * to whatever the user booted in. */
+	nova_res_restore();
 
 	/* Hand the desktop its colours back. AFTER closing the workstation, so a
 	 * re-emit on the way out cannot land on top of the restore — and the restore
@@ -488,8 +494,25 @@ static long xvdi_cookie_super(void)
 		return 0;
 	for (; jar[0] != 0; jar += 2)
 		if (jar[0] == 0x78564449L)      /* 'xVDI' */
-			return 1;
+			return jar[1];          /* -> the driver's XCB block */
 	return 0;
+}
+
+static long nova_cookie_super(void)
+{
+	long *jar = *(long **)0x5A0UL;
+
+	if (jar == NULL)
+		return 0;
+	for (; jar[0] != 0; jar += 2)
+		if (jar[0] == 0x4E4F5641L)      /* 'NOVA' (classic drivers) */
+			return jar[1];
+	return 0;
+}
+
+static long bootdev_super(void)
+{
+	return *(volatile unsigned short *)0x446UL;   /* _bootdev */
 }
 
 /* Bind + VERIFY (write / read back / restore). The probe only runs on an
@@ -675,6 +698,168 @@ static const dsp_backend_t nova_backend = {
  * plane count, and return the backend only for a 256-colour (8-plane) chunky
  * screen — leaving the workstation OPEN for init()/shutdown(). Anything else
  * (no AES, or a paletted-16/planar ST screen) closes up and returns NULL. */
+
+/* --------------------------------------------- automatic card-mode switching
+ * Run the game at the card's native 640x400x256 and hand the desktop back
+ * whatever mode it booted in (user request). The sanctioned interface is the
+ * driver's XCB block, published through the 'xVDI' cookie (ATW800/2) or the
+ * 'NOVA' cookie (classic cards): XCB+4 is the current index into the .BIB
+ * resolution file and XCB+8 is p_chres(RESOLUTION *, ULONG fll_ofst=0) — the
+ * very call XVDIMENU / MENU.PRG make (ATW800/2 Programmer's Manual pp.14-16).
+ * RESOLUTION entries are 86 bytes; we match on the colour mode byte (+35,
+ * 2 = 256 colours) and the HDI/VDI display-size words (+60/+68). The .BIB is
+ * read from the BOOT drive's AUTO folder (the game's cwd is the data drive).
+ * video.cfg `novares=off` opts out. */
+#define XCB_RES_IDX	4
+#define XCB_P_CHRES	8
+#define RES_SIZE	86
+#define RES_MODE_OFF	35
+#define RES_HDI_OFF	60
+#define RES_VDI_OFF	68
+#define RES_MODE_256	2
+
+static unsigned char s_res_old[RES_SIZE];       /* entry to restore at exit */
+static long          s_res_xcb;                 /* XCB while switched       */
+static short         s_res_switched;
+static short         s_res_new_h;               /* height of the mode we set */
+
+static unsigned short res_word(const unsigned char *r, int off)
+{
+	return (unsigned short)((r[off] << 8) | r[off + 1]);
+}
+
+static void nova_chres(long xcb, unsigned char *res)
+{
+	long fn = *(volatile long *)(uintptr_t)(xcb + XCB_P_CHRES);
+
+	if (fn == 0)
+		return;
+	/* Register ABI, NOT C: XVDIMENU calls p_chres with the RESOLUTION in A0
+	 * and fll_ofst in D0 (measured: `moveq #0,d0; lea res,a0; jsr ([xcb+8])`).
+	 * A stack call leaves A0 as caller garbage and the card gets a junk mode. */
+	{
+		register long d0 __asm__("d0") = 0;             /* fll_ofst */
+		register long a0 __asm__("a0") = (long)(uintptr_t)res;
+		register long a1 __asm__("a1") = fn;
+		__asm__ volatile ("jsr (%%a1)"
+		                  : "+d"(d0), "+a"(a0), "+a"(a1)
+		                  :
+		                  : "d1", "d2", "a2", "memory", "cc");
+	}
+}
+
+static int nova_res_cfg_off(void)
+{
+	char buf[128];
+	short fh;
+	long  n;
+	int   i;
+
+	fh = (short)Fopen("video.cfg", 0);
+	if (fh < 0)
+		return 0;
+	n = Fread(fh, (long)sizeof buf - 1, buf);
+	Fclose(fh);
+	if (n <= 0)
+		return 0;
+	buf[n] = '\0';
+	for (i = 0; buf[i] != '\0'; i++)
+		if (buf[i] >= 'A' && buf[i] <= 'Z')
+			buf[i] = (char)(buf[i] + 32);
+	return strstr(buf, "novares=off") != NULL;
+}
+
+/* Try to switch the card to 640x400x256 (640x480x256 as fallback). Returns 1
+ * when p_chres was called — the caller re-queries the screen either way. */
+static int nova_res_switch(void)
+{
+	static unsigned char bib[40 * RES_SIZE];
+	char  path[24];
+	short fh;
+	long  xcb, n, nres, i;
+	long  pick = -1, cur = -1;
+	unsigned char idx;
+
+	if (nova_res_cfg_off())
+		return 0;
+
+	xcb = Supexec(xvdi_cookie_super);
+	if (xcb != 0) {
+		strcpy(path, "C:\\AUTO\\XVDI.BIB");
+	} else {
+		xcb = Supexec(nova_cookie_super);
+		if (xcb == 0)
+			return 0;
+		strcpy(path, "C:\\AUTO\\STA_VDI.BIB");
+	}
+	path[0] = (char)('A' + Supexec(bootdev_super));
+
+	fh = (short)Fopen(path, 0);
+	if (fh < 0) {
+		dbg_log("nova: no .BIB on the boot drive - keeping desktop mode");
+		return 0;
+	}
+	n = Fread(fh, (long)sizeof bib, bib);
+	Fclose(fh);
+	nres = n / RES_SIZE;
+	if (nres <= 0)
+		return 0;
+
+	/* the mode to play in: 640x400x256, else 640x480x256 */
+	for (i = 0; i < nres; i++)
+		if (bib[i * RES_SIZE + RES_MODE_OFF] == RES_MODE_256
+		    && res_word(bib + i * RES_SIZE, RES_HDI_OFF) == 640) {
+			if (res_word(bib + i * RES_SIZE, RES_VDI_OFF) == 400) {
+				pick = i;
+				break;
+			}
+			if (pick < 0 && res_word(bib + i * RES_SIZE, RES_VDI_OFF) == 480)
+				pick = i;
+		}
+	if (pick < 0) {
+		dbg_log("nova: no 640x256c entry in the .BIB - keeping desktop mode");
+		return 0;
+	}
+
+	/* the mode to come back to: the XCB's current index — verified against
+	 * the live screen size, with a scan fallback (the menu can re-sort). */
+	idx = *(volatile unsigned char *)(uintptr_t)(xcb + XCB_RES_IDX);
+	if (idx < nres
+	    && res_word(bib + (long)idx * RES_SIZE, RES_HDI_OFF) == s_cardw
+	    && res_word(bib + (long)idx * RES_SIZE, RES_VDI_OFF) == s_cardh)
+		cur = idx;
+	else
+		for (i = 0; i < nres; i++)
+			if (res_word(bib + i * RES_SIZE, RES_HDI_OFF) == s_cardw
+			    && res_word(bib + i * RES_SIZE, RES_VDI_OFF) == s_cardh) {
+				cur = i;
+				break;
+			}
+	if (cur < 0) {
+		dbg_log("nova: current mode not in the .BIB - keeping desktop mode");
+		return 0;
+	}
+	if (cur == pick)
+		return 0;               /* already exactly where we want to be */
+
+	memcpy(s_res_old, bib + cur * RES_SIZE, RES_SIZE);
+	s_res_new_h = (short)res_word(bib + pick * RES_SIZE, RES_VDI_OFF);
+	dbg_log_num("nova: switching card mode for the game, .BIB entry = ", pick);
+	nova_chres(xcb, bib + pick * RES_SIZE);
+	s_res_xcb = xcb;
+	s_res_switched = 1;
+	return 1;
+}
+
+static void nova_res_restore(void)
+{
+	if (!s_res_switched)
+		return;
+	s_res_switched = 0;
+	dbg_log("nova: restoring the desktop's card mode");
+	nova_chres(s_res_xcb, s_res_old);
+}
+
 const dsp_backend_t *dsp_backend_nova(void)
 {
 	short work_out[57];
@@ -710,6 +895,21 @@ const dsp_backend_t *dsp_backend_nova(void)
 	dbg_log_num("nova: card width  = ", s_cardw);
 	dbg_log_num("nova: card height = ", s_cardh);
 	dbg_log_num("nova: planes      = ", planes);
+
+	/* Not the game's native 640x400x256 (a big desktop, a 640x480 boot mode,
+	 * or a TrueColor desktop where planes > 8)? Ask the driver to switch.
+	 * vq_extnd would still answer with the PRE-switch caps (the VDI's device
+	 * info is not rebuilt at runtime), so on success the truth is the mode we
+	 * just set: 640 wide, mode-2 = 8 planes, height from the .BIB entry. The
+	 * TT-Low guard below is untouched — a TT shifter mode has no xVDI/NOVA
+	 * cookie, so the switch can never fire there. */
+	if (!(planes == 8 && s_cardw == 640 && s_cardh == 400)
+	    && nova_res_switch()) {
+		s_cardw = 640;
+		s_cardh = s_res_new_h;
+		planes  = 8;
+		dbg_log_num("nova: card switched for the game, h = ", s_cardh);
+	}
 
 	/* TT guard, load-bearing now that the TT probes Nova too: TT-Low is ALSO
 	 * 8 planes / 256 colours, but it is the TT's own 320x480 PLANAR shifter
