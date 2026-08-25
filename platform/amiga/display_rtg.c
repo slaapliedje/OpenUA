@@ -37,6 +37,9 @@
 #include <proto/exec.h>
 #include <proto/graphics.h>
 #include <proto/intuition.h>
+#include <stdio.h>              /* fopen — the video.cfg knob reader */
+#include <string.h>             /* memcmp/memcpy — the row diff */
+#include "amiga_prof.h"         /* FRUA_AMIGAPROF: aprtg census */
 
 #define RTG_W  320
 #define RTG_H  200
@@ -47,6 +50,30 @@ struct IntuitionBase *IntuitionBase;
 static struct Screen *s_screen;
 static unsigned char *s_chunky;
 static dsp_surface_t  s_surface;
+
+/* Row-diffed full present (the Nova backend's shadow diff, ported — see
+ * platform/display_nova.c). A full present used to push all 64,000 bytes
+ * through WriteChunkyPixels every time; the shadow mirrors what the screen
+ * last received, so a full present writes only the row runs whose bytes
+ * changed, and the comparisons run in fast RAM. On a palette-only change
+ * (the qd blanket after set_palette) every row now diffs clean and the
+ * present costs zero blits — LoadRGB32 already recoloured the screen.
+ * video.cfg `rtgdiff=off` restores the push-everything behaviour. */
+static unsigned char *s_shadow;
+static short          s_row_diff = 1;
+
+#ifdef FRUA_AMIGAPROF
+/* aprtg census — full-present row accounting, dumped every 32 fulls. */
+static long rp_full_n, rp_rows_written, rp_rows_skipped, rp_blits;
+static void rtg_prof_dump(void)
+{
+	dbg_log_num("aprtg: full presents = ", rp_full_n);
+	dbg_log_num("aprtg: rows written  = ", rp_rows_written);
+	dbg_log_num("aprtg: rows skipped  = ", rp_rows_skipped);
+	dbg_log_num("aprtg: blit calls    = ", rp_blits);
+	rp_full_n = rp_rows_written = rp_rows_skipped = rp_blits = 0;
+}
+#endif
 
 static int rtg_init(short want_w, short want_h)
 {
@@ -98,6 +125,29 @@ static int rtg_init(short want_w, short want_h)
 		return 1;
 	}
 
+	/* Shadow for the row diff. Fresh screens display pen 0 everywhere and
+	 * the shadow starts zeroed to match. Allocation failure just disables
+	 * the diff — the backend still works push-everything. */
+	s_shadow = AllocMem((ULONG)RTG_W * RTG_H, MEMF_ANY | MEMF_CLEAR);
+
+	/* video.cfg, same contract as the ECS/AGA/Nova backends: runtime knobs
+	 * so an A/B is one binary. cwd is the game dir (SYS:). */
+	{
+		FILE *cf = fopen("video.cfg", "r");
+
+		if (cf != NULL) {
+			char buf[256];
+			size_t n = fread(buf, 1, sizeof buf - 1, cf);
+
+			fclose(cf);
+			buf[n] = '\0';
+			if (strstr(buf, "rtgdiff=off") != NULL) {
+				s_row_diff = 0;
+				dbg_log("rtg: row-diff present DISABLED (video.cfg)");
+			}
+		}
+	}
+
 	s_screen = OpenScreenTags(NULL,
 	                          SA_DisplayID, modeid,
 	                          SA_Width,     RTG_W,
@@ -147,6 +197,10 @@ static void rtg_shutdown(void)
 		FreeMem(s_chunky, (ULONG)RTG_W * RTG_H);
 		s_chunky = NULL;
 	}
+	if (s_shadow != NULL) {
+		FreeMem(s_shadow, (ULONG)RTG_W * RTG_H);
+		s_shadow = NULL;
+	}
 	if (IntuitionBase != NULL) {
 		CloseLibrary((struct Library *)IntuitionBase);
 		IntuitionBase = NULL;
@@ -174,11 +228,61 @@ static void rtg_present_rect(short x, short y, short w, short h)
 	WriteChunkyPixels(&s_screen->RastPort,
 	                  x, y, (short)(x + w - 1), (short)(y + h - 1),
 	                  s_chunky + (long)y * RTG_W + x, RTG_W);
+
+	/* Keep the shadow honest: what just went to the screen is now the
+	 * baseline the next full present diffs against. */
+	if (s_shadow != NULL) {
+		short r;
+
+		for (r = 0; r < h; r++)
+			memcpy(s_shadow + (long)(y + r) * RTG_W + x,
+			       s_chunky + (long)(y + r) * RTG_W + x, (size_t)w);
+	}
 }
 
 static void rtg_present(void)
 {
-	rtg_present_rect(0, 0, RTG_W, RTG_H);
+	short y, y0;
+
+	if (s_screen == NULL)
+		return;
+	if (!s_row_diff || s_shadow == NULL) {
+		rtg_present_rect(0, 0, RTG_W, RTG_H);
+		return;
+	}
+
+	/* Row-diffed full present: push only the runs of changed rows. The
+	 * memcmp runs in fast RAM; each run costs one WriteChunkyPixels. */
+	for (y = 0; y < RTG_H; ) {
+		if (memcmp(s_chunky + (long)y * RTG_W,
+		           s_shadow + (long)y * RTG_W, RTG_W) == 0) {
+#ifdef FRUA_AMIGAPROF
+			rp_rows_skipped++;
+#endif
+			y++;
+			continue;
+		}
+		y0 = y;
+		do
+			y++;
+		while (y < RTG_H
+		       && memcmp(s_chunky + (long)y * RTG_W,
+		                 s_shadow + (long)y * RTG_W, RTG_W) != 0);
+
+		WriteChunkyPixels(&s_screen->RastPort,
+		                  0, y0, RTG_W - 1, (short)(y - 1),
+		                  s_chunky + (long)y0 * RTG_W, RTG_W);
+		memcpy(s_shadow + (long)y0 * RTG_W,
+		       s_chunky + (long)y0 * RTG_W, (size_t)(y - y0) * RTG_W);
+#ifdef FRUA_AMIGAPROF
+		rp_rows_written += y - y0;
+		rp_blits++;
+#endif
+	}
+#ifdef FRUA_AMIGAPROF
+	if ((++rp_full_n & 31) == 0)
+		rtg_prof_dump();
+#endif
 }
 
 static void rtg_set_palette(const dsp_color_t *colors, short first, short count)
