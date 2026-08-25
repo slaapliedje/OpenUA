@@ -94,6 +94,55 @@ static unsigned char            s_lut_set[256]; /* ...and which we have set     
 static unsigned short           s_lut_save[256];/* the DESKTOP's palette, for exit */
 static short                    s_lut_saved;
 
+/* ATW800/2 blitter present offload. The Seurat 2D engine copies CARD
+ * memory to card memory (regs at VidMem top - 0x700 = LUT + 0x900, model
+ * measured against xVDI 20260730 on the hatari-et4000 emulation:
+ * word regs src.l/dst.l/sstride/dstride/width-bytes/rows/cmd; cmd 0x0003
+ * copy, 0x0005 single-row fill, poll the cmd word to 0). It cannot read
+ * Atari RAM, so the CPU still crosses the VME bus once per doubled pixel
+ * — but the 2x row DUPLICATION moves to the card: the CPU writes each
+ * doubled row once (not twice) and one blit per run copies the even rows
+ * to the odd rows, halving the present's CPU bus traffic. The init clear
+ * (512,000 CPU byte writes) becomes one fill blit from a zero row parked
+ * just past the visible screen. Gated on the LUT bind (same xVDI-cookie
+ * hardware as the LUT — a classic card bus-errors up here) and on
+ * video.cfg `novablit=off`; a bounded poll falls back to CPU presents for
+ * the session if the engine ever fails to go idle. */
+static volatile unsigned short *s_blit;         /* word regs at LUT + 0x900 */
+static short                    s_use_blit;
+static short                    s_blit_cfg = 1; /* video.cfg novablit=off  */
+
+static int nova_blit_wait(void)
+{
+	long n = 500000L;
+
+	while (s_blit[8] != 0)
+		if (--n <= 0) {
+			s_use_blit = 0;
+			dbg_log("nova: blitter never went idle - CPU presents from here");
+			return 0;
+		}
+	return 1;
+}
+
+/* Program one operation and wait it out. src/dst are CARD offsets. */
+static int nova_blit_op(unsigned short cmd, long src, long dst,
+                        short sstride, short dstride, short wbytes, short rows)
+{
+	if (!nova_blit_wait())
+		return 0;
+	s_blit[0] = (unsigned short)((unsigned long)src >> 16);
+	s_blit[1] = (unsigned short)src;
+	s_blit[2] = (unsigned short)((unsigned long)dst >> 16);
+	s_blit[3] = (unsigned short)dst;
+	s_blit[4] = (unsigned short)sstride;
+	s_blit[5] = (unsigned short)dstride;
+	s_blit[6] = (unsigned short)wbytes;
+	s_blit[7] = (unsigned short)rows;
+	s_blit[8] = cmd;
+	return nova_blit_wait();
+}
+
 /* Row-diffed full present (the ST backend's pass-1, ported). A full
  * qd_present used to rewrite all 512,000 card bytes over the VME bus with
  * per-byte writes — which is why TEXT was slow on the card while normal ST
@@ -241,9 +290,24 @@ static int nova_init(short want_w, short want_h)
 	 * was the static band at the bottom of the first centred render). */
 	for (i = 0; i < (long)NOVA_SURF_W * NOVA_SURF_H; i++) s_chunky[i] = 0;
 
-	/* Clear the whole card framebuffer to index 0. */
+	/* Clear the whole card framebuffer to index 0. With the blitter armed
+	 * this is one fill blit from a zero row parked just past the visible
+	 * screen (xVDI's own desktop-fill idiom: cmd 0x0005, source stride 0)
+	 * instead of 512,000 CPU byte writes over the VME bus. */
 	n = (long)s_pitch * s_cardh;
-	for (i = 0; i < n; i++) s_vram[i] = 0;
+	{
+		int cleared = 0;
+
+		if (s_use_blit) {
+			for (i = 0; i < s_pitch; i++)
+				s_vram[n + i] = 0;
+			cleared = nova_blit_op(0x0005, n, 0, 0,
+			                       (short)s_pitch, (short)s_pitch,
+			                       (short)s_cardh);
+		}
+		if (!cleared)
+			for (i = 0; i < n; i++) s_vram[i] = 0;
+	}
 	memset(s_shadow, 0, sizeof s_shadow);   /* shadow == cleared card */
 
 	s_surf.width  = NOVA_SURF_W;
@@ -290,7 +354,7 @@ static dsp_surface_t *nova_surface(void) { return &s_surf; }
  * pixels per row — a quarter of the bus traffic. d0 is always word-aligned
  * (x*2 is even; the card base and pitch are even) and long-aligned when x
  * is even, which the head/tail words below arrange. */
-static void nova_stamp_span(short x, short y, short w)
+static void nova_stamp_worker(short x, short y, short w, int both)
 {
 	const unsigned char *src = s_chunky + (long)y * NOVA_SURF_W + x;
 	unsigned char       *d0  = s_vram + (long)(y * 2) * s_pitch + (long)x * 2;
@@ -302,21 +366,26 @@ static void nova_stamp_span(short x, short y, short w)
 	if ((x & 1) && n > 0) {                 /* head word: align to a long */
 		unsigned short vv = (unsigned short)(*src * 0x0101u);
 		*(unsigned short *)(void *)d0 = vv;
-		*(unsigned short *)(void *)d1 = vv;
+		if (both) *(unsigned short *)(void *)d1 = vv;
 		src++; d0 += 2; d1 += 2; n--;
 	}
 	while (n >= 2) {
 		unsigned long vv = ((unsigned long)src[0] * 0x01010000UL)
 		                 | ((unsigned long)src[1] * 0x0101UL);
 		*(unsigned long *)(void *)d0 = vv;
-		*(unsigned long *)(void *)d1 = vv;
+		if (both) *(unsigned long *)(void *)d1 = vv;
 		src += 2; d0 += 4; d1 += 4; n -= 2;
 	}
 	if (n > 0) {                            /* tail word */
 		unsigned short vv = (unsigned short)(*src * 0x0101u);
 		*(unsigned short *)(void *)d0 = vv;
-		*(unsigned short *)(void *)d1 = vv;
+		if (both) *(unsigned short *)(void *)d1 = vv;
 	}
+}
+
+static void nova_stamp_span(short x, short y, short w)
+{
+	nova_stamp_worker(x, y, w, 1);
 }
 
 static void nova_present_rect(short x, short y, short w, short h)
@@ -360,14 +429,41 @@ static void nova_present(void)
 		int   all = planar_dirty_rows(&drows);
 		short y;
 
-		for (y = 0; y < NOVA_CONTENT_H; y++) {
+		for (y = 0; y < NOVA_CONTENT_H; ) {
 			const unsigned char *src = s_chunky + (long)y * NOVA_SURF_W;
+			short y0;
 
-			if (!all && !drows[y])
+			if ((!all && !drows[y])
+			    || memcmp(s_shadow + (long)y * NOVA_SURF_W, src,
+			              NOVA_SURF_W) == 0) {
+				y++;
 				continue;
-			if (memcmp(s_shadow + (long)y * NOVA_SURF_W, src,
-			           NOVA_SURF_W) != 0)
-				nova_stamp_span(0, y, NOVA_SURF_W);
+			}
+			/* A run of changed rows. With the blitter armed the CPU
+			 * writes each doubled row ONCE (the even card row) and a
+			 * single card-side blit copies the run's even rows down
+			 * to the odd rows — half the CPU bus traffic. */
+			y0 = y;
+			do {
+				nova_stamp_worker(0, y, NOVA_SURF_W, !s_use_blit);
+				y++;
+				src = s_chunky + (long)y * NOVA_SURF_W;
+			} while (y < NOVA_CONTENT_H
+			         && (all || drows[y])
+			         && memcmp(s_shadow + (long)y * NOVA_SURF_W, src,
+			                   NOVA_SURF_W) != 0);
+			if (s_use_blit
+			    && !nova_blit_op(0x0003,
+			                     (long)(y0 * 2) * s_pitch,
+			                     (long)(y0 * 2 + 1) * s_pitch,
+			                     (short)(2 * s_pitch), (short)(2 * s_pitch),
+			                     (short)(2 * NOVA_SURF_W), (short)(y - y0))) {
+				short r;
+				/* Blitter fell over mid-session: the odd rows of this
+				 * run were never written — restamp it by CPU. */
+				for (r = y0; r < y; r++)
+					nova_stamp_span(0, r, NOVA_SURF_W);
+			}
 		}
 	}
 }
@@ -551,6 +647,10 @@ static void nova_lut_bind(void)
 				dbg_log("nova: direct LUT disabled (video.cfg)");
 				return;
 			}
+			if (strstr(buf, "novablit=off") != NULL) {
+				s_blit_cfg = 0;
+				dbg_log("nova: blitter presents disabled (video.cfg)");
+			}
 			if (strstr(buf, "novalut=on") != NULL)
 				force = 1;
 			if (strstr(buf, "novalut=4mb") != NULL) {
@@ -590,6 +690,14 @@ static void nova_lut_bind(void)
 		s_lut_saved = 1;
 	}
 	dbg_log_num("nova: hardware LUT bound (RGB565) at ", (long)(uintptr_t)lut);
+
+	/* Same FPGA, same gate: the 2D engine's registers sit at LUT + 0x900
+	 * (VidMem top - 0x700) whatever the memory size. */
+	if (s_blit_cfg) {
+		s_blit = (volatile unsigned short *)(void *)((char *)lut + 0x900);
+		s_use_blit = 1;
+		dbg_log("nova: blitter presents armed (ATW800/2)");
+	}
 }
 
 static void nova_set_palette(const dsp_color_t *c, short first, short count)
