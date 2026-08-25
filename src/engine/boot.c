@@ -67539,15 +67539,21 @@ static void l19d4(const char *name, short arg2, short a3, short a4)
 	 * order shows each title quantised under the PREVIOUS screen's palette
 	 * until the commit lands — the yellow wizard / candy-stripe credits.
 	 * Committing first reproduces the Mac's NET frame; the original tail
-	 * commits re-install an identical CLUT and skip via the CLUT guard. */
-	jt124(handle);
+	 * commits re-install an identical CLUT and skip via the CLUT guard.
+	 * QUANTISING backends only: on a hardware-palette screen (Nova/TT/AGA)
+	 * the same pre-commit instantly recolours the OLD frame — a visible
+	 * whole-screen CLUT flash (Nova field report) — and the Mac order is
+	 * already invisible there, exactly as it was on the Mac. */
+	if (!qd_palette_is_hw())
+		jt124(handle);
 	jt108(0);                                        /* 0x1a14 */
 	l3880(0, 0, 1, (void *)(uintptr_t)handle);       /* 0x1a1c blit frame 1 */
 	jt124(handle);                                   /* 0x1a30 */
 	jt115(&handle);                                  /* 0x1a3a dispose */
 
 	jt110(&handle, 0, 1, mode, buf);                 /* 0x1a44 reload with the mode */
-	jt124(handle);                                   /* PORT: palette first, as above */
+	if (!qd_palette_is_hw())
+		jt124(handle);                           /* PORT: palette first, as above */
 	if (jt1200() != 3) {                             /* 0x1a62 */
 		if (mode == 5)                           /* 0x1a6c */
 			jt103(1, 1, 38, 22);             /* 0x1a78 frame rect */

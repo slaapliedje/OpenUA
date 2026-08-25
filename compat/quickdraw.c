@@ -468,6 +468,20 @@ void qd_present_suppress(int on)
  * still executes IN FULL: collapsing it to one would leave a videl page
  * stale (a black frame around the view on the first movement). Balanced:
  * every hold(1) has a hold(0), released before the explicit present. */
+/* Does the active backend hold the INDEX on screen with a hardware palette
+ * (TT, Nova, AGA identity)? The engine's title path asks: on a QUANTISING
+ * backend each picture's palette must commit BEFORE the blits (the planar
+ * writers convert as they draw), but on a hardware-palette screen that same
+ * pre-commit instantly recolours the OLD frame — a visible whole-screen CLUT
+ * flash the Mac's own blit-then-commit order never showed (Nova field
+ * report). One question, answered by the backend's own declaration. */
+int qd_palette_is_hw(void)
+{
+	const dsp_backend_t *d = dsp_detect();
+
+	return d != NULL && d->hw_palette;
+}
+
 void qd_present_hold(int on)
 {
 	if (on) {

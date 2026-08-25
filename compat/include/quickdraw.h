@@ -401,6 +401,7 @@ void          qd_present_suppress(int on);
  * port_draw_play_frame + view + HUD so the single-buffered ST-High backend
  * never shows the grey-fill-as-white half-frame (the mono walk HUD flicker). */
 void          qd_present_hold(int on);
+int           qd_palette_is_hw(void);   /* backend keeps INDEX + hw palette */
 
 /* Present only a dirty rect, when the backend supports it (else falls
  * back to a full present). Lets the dungeon view skip converting the

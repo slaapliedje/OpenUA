@@ -32,6 +32,7 @@
 #include <mint/osbind.h>        /* Getrez, Logbase, Physbase */
 #include "display.h"
 #include "dbglog.h"
+#include "planar.h"           /* planar_dirty_rows (announced-row narrowing) */
 
 /* ------------------------------------------------- minimal AES + VDI (trap #2)
  * Self-contained on purpose (a gated scaffold pulls in no shared state). The
@@ -340,11 +341,24 @@ static void nova_present(void)
 	/* Row-diffed: write only the rows whose bytes changed since the card
 	 * was last given them. The compares run in local RAM; an unchanged
 	 * screen costs zero VME traffic. Rect presents stamp through the same
-	 * shadow, so a row they already delivered compares clean here. */
+	 * shadow, so a row they already delivered compares clean here.
+	 *
+	 * Narrowed to the ANNOUNCED rows (the TT's model, #63): a text update
+	 * announces its ~16 rows, and scanning the other 184 every present is
+	 * what kept card text slow even after the byte-writes fix — the engine
+	 * presents per burst, so the whole-screen memcmp dominated. When the
+	 * shim says "scan everything" (a palette change, boot), every row is
+	 * checked exactly as before. */
 	{
+		const unsigned char *drows;
+		int   all = planar_dirty_rows(&drows);
 		short y;
+
 		for (y = 0; y < NOVA_CONTENT_H; y++) {
 			const unsigned char *src = s_chunky + (long)y * NOVA_SURF_W;
+
+			if (!all && !drows[y])
+				continue;
 			if (memcmp(s_shadow + (long)y * NOVA_SURF_W, src,
 			           NOVA_SURF_W) != 0)
 				nova_stamp_span(0, y, NOVA_SURF_W);
