@@ -42,6 +42,7 @@
 #include <hardware/dmabits.h>
 #include <proto/exec.h>
 #include <proto/graphics.h>
+#include <stdio.h>               /* fopen — the video.cfg knob reader */
 #include <string.h>              /* memcmp/memset/memcpy — the draw-time row
                                   * compare. display_ecs.c:38 carries the same
                                   * include with the same note: without it GCC
@@ -78,6 +79,9 @@ extern void c2p_amiga_rect(const unsigned char *chunky, short chunky_pitch,
 
 struct GfxBase *GfxBase;                        /* opened here, v39+ (KS 3.0) */
 
+static dsp_backend_t  aga_backend;              /* defined at the bottom; the
+                                                 * video.cfg reader in aga_init
+                                                 * flips its hw_palette field  */
 static unsigned char *s_chunky;                 /* the engine's 8bpp buffer   */
 static unsigned char *s_planes[2];              /* double-buffered plane sets */
 static int            s_front;                  /* which set is on screen     */
@@ -313,6 +317,26 @@ static void aga_shutdown_partial(void);
 
 static int aga_init(short want_w, short want_h)
 {
+	/* video.cfg, same contract as the ECS/ST/Nova backends: runtime knobs
+	 * so an A/B is one binary. cwd is the game dir (DH0:). */
+	{
+		FILE *cf = fopen("video.cfg", "r");
+
+		if (cf != NULL) {
+			char buf[256];
+			size_t n = fread(buf, 1, sizeof buf - 1, cf);
+
+			fclose(cf);
+			buf[n] = '\0';
+			if (strstr(buf, "agahwpal=off") != NULL) {
+				aga_backend.hw_palette = 0;
+				dbg_log("aga: hw_palette DISABLED (video.cfg)");
+			} else if (strstr(buf, "agahwpal=on") != NULL) {
+				aga_backend.hw_palette = 1;
+			}
+		}
+	}
+
 	(void)want_w; (void)want_h;    /* fixed 320x200 like the VIDEL backend */
 
 	/* Kickstart 3.0+ (v39) — the OS level every AGA machine ships. */
@@ -566,6 +590,14 @@ static void aga_prof_dump(void)
 	long wall = (ap_wall0 < 0) ? 0 : now - ap_wall0;
 
 	ap_wall0 = now;
+	{
+		/* The qd-side counters answer the agahwpal A/B directly:
+		 * qdt3 = palette-write touch_alls (the thing hw_palette removes),
+		 * qdt6 = presents skipped clean (the thing it should unlock). */
+		extern long g_qdt_hits[8];
+		dbg_log_num("apaga: qdt3 palette  = ", g_qdt_hits[3]);
+		dbg_log_num("apaga: qdt6 cleanskip= ", g_qdt_hits[6]);
+	}
 	dbg_log_num("apaga: rect presents = ", ap_rect_n);
 	dbg_log_num("apaga: rect rl       = ", ap_rect_t);
 	dbg_log_num("apaga: full presents = ", ap_full_n);
@@ -618,7 +650,8 @@ static void aga_present(void)
 		s_front ^= 1;
 #ifdef FRUA_AMIGAPROF
 		ap_full_t += amiga_prof_rl() - ap_t0;
-		ap_full_n++;
+		if ((++ap_full_n & 7) == 0)
+			aga_prof_dump();
 #endif
 		return;
 	}
@@ -637,7 +670,8 @@ static void aga_present(void)
 	s_front ^= 1;
 #ifdef FRUA_AMIGAPROF
 	ap_full_t += amiga_prof_rl() - ap_t0;
-	ap_full_n++;
+	if ((++ap_full_n & 7) == 0)
+		aga_prof_dump();
 #endif
 }
 
@@ -735,7 +769,7 @@ static void aga_set_palette(const dsp_color_t *colors, short first, short count)
 		cursor_pal_reassert();
 }
 
-static const dsp_backend_t aga_backend = {
+static dsp_backend_t aga_backend = {   /* non-const: agahwpal A/B */
 	"amiga-aga",
 	aga_init,
 	aga_shutdown,
@@ -750,6 +784,13 @@ static const dsp_backend_t aga_backend = {
 	                         * only the shown page; the walk's 3D view + roster/
 	                         * command-bar text, drawn after the recompose, then
 	                         * vanished on the next flip. */
+	1,                      /* hw_palette (#99 identity, measured here 2026-08-25):
+	                         * 8 planes hold the palette INDEX and aga_set_palette
+	                         * is pure copper colour-register writes over an
+	                         * identity remap — a palette change never invalidates
+	                         * a pixel, so the blanket qd_touch_all is pure waste
+	                         * (the TT's pre-#99 disease). video.cfg agahwpal=off
+	                         * restores the old behaviour for A/B. */
 };
 
 const dsp_backend_t *dsp_backend_rtg(void);      /* display_rtg.c */

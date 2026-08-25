@@ -88,9 +88,18 @@ typedef struct dsp_backend {
 	 * Conservative by construction: every backend initialiser is a positional
 	 * literal that stops before this field, so they all get 0 = "a palette
 	 * change DOES invalidate my pixels", which is the old behaviour. Only a
-	 * backend that has proven the identity should set it. AGA looks eligible on
-	 * the same argument but has NOT been measured or verified here, so it is
-	 * deliberately left at 0. */
+	 * backend that has proven the identity should set it.
+	 *
+	 * AGA: MEASURED 2026-08-25 (FRUA_AMIGAPROF, deterministic HEIRS walk,
+	 * A/B via video.cfg agahwpal). The identity holds (8 planes hold the
+	 * index, aga_set_palette is pure copper colour-register writes) and the
+	 * flag removes every palette-write touch_all (60 -> 0 over the run).
+	 * The WALK profile is unchanged — its full presents are grab-driven and
+	 * each palette blanket coincided with a real redraw — so the win is in
+	 * palette-only phases (palette animation, title/area installs), which
+	 * previously paid a full 200-row present per pure palette write. Titles
+	 * verified clean under the hw-palette (Mac blit-then-commit) ordering.
+	 * Set to 1; video.cfg agahwpal=off restores the blanket for field A/B. */
 	short hw_palette;
 
 	/* #63(Amiga): 1 = a palette change on this backend needs NO chunky row
