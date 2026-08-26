@@ -106,3 +106,13 @@ Readings on the real card:
   not bytes, or a per-mode pitch that is not 640).
 - info ascii shows the real FPGA version — behaviour may differ from
   the v0106 the manual describes.
+
+## Second real-card run (2026-08-25 night, xVDI 20260730 in AUTO)
+
+Identical results byte-for-byte: fill 128/128 correct, copy moved
+exactly ONE byte (`11` at dst head), every register reads 0x0000 after
+write, status never asserts. The installed xVDI generation does not
+change any of it — the anomaly is V0205 FPGA behaviour, not a
+driver-side programming difference. Any future blit model must satisfy
+the same discriminator (fill-perfect + copy-one-byte) regardless of
+which xVDI is resident.
