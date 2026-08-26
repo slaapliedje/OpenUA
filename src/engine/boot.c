@@ -18068,6 +18068,30 @@ static void jt297(void *rec_v, short key, long cb)
 		 * (docs/play-vs-edit-audit.md, "GAP-1" flag). */
 		short special;
 
+		special = jt201((short)(signed char)g_a5_byte(-12288),
+		                (short)(signed char)g_a5_byte(-12287));
+		g_a5_byte(-18483) = (unsigned char)special;
+
+#ifndef FRUA_NO2REDRAW
+		/* #163 (Mega STe field report, 2026-08-25): render the STEP
+		 * before its event. l1908's own jt312 was skipped under
+		 * g_walk_render_deferred (#90), and l63c0's re-render only runs
+		 * after this whole block returns — so a text event printed
+		 * BEFORE the 3D view showed the move ('The Weary Wanderer.'
+		 * landing while the view still faced the caravan square; glaring
+		 * on the ATW800/2, where a full present is ~0.5 s of VME
+		 * writes). The Mac order is move-render-then-event (jt955's arm
+		 * renders, THEN L41b2 dispatches). Flush the deferred render
+		 * here, exactly when this step will do more than move — an event
+		 * will dispatch, or the sticky text box is about to clear — so
+		 * ordinary steps keep the #90 single-render path and only event
+		 * steps pay the second render. The view cell still holds the NEW
+		 * party cell at this point, so jt312 draws the landed frame. */
+		if (g_walk_render_deferred
+		    && (special != 0 || g_sticky_text_ev != NULL))
+			jt312((unsigned char *)rec_v);
+#endif
+
 		if (g_sticky_text_ev != NULL) {
 			/* left a text square: the DOS box empties. The per-step
 			 * re-render only touches the 3D view, so clear it here. */
@@ -18125,9 +18149,8 @@ static void jt297(void *rec_v, short key, long cb)
 			jt938();
 		}
 
-		special = jt201((short)(signed char)g_a5_byte(-12288),
-		                (short)(signed char)g_a5_byte(-12287));
-		g_a5_byte(-18483) = (unsigned char)special;
+		/* (special was read above, before the pre-event render flush —
+		 * nothing between there and here touches the party cell.) */
 #ifdef FRUA_CELLSCAN
 		/* Navigation aid: a design may hide the coordinate box (a faithful
 		 * per-level flag, ds[7] bit 0 — POR does), so log the cell we land
