@@ -1371,3 +1371,43 @@ silently the first time the engine opens it (48 ms–2.4 s class, once ever —
 the `.ctl` is written back beside the `.tlb`). If the ADR-0015 hang ever
 resurfaces on real hardware, `FRUA_ARTCONV_OFF` plus `uaconv` restores the
 ADR-0015 world without further code.
+
+## ADR-0020 — Offline art pre-quantization to platform-native palettes
+
+**Status:** ratified 2026-08-26 (user direction, repeated across several
+sessions and confirmed after the first real-A500 test of v0.9.18-beta).
+
+**Context.** The bitplane machines carry a 256-colour art corpus that the
+engine reduces at runtime: a banded quantizer, re-band heuristics, palette
+caches, raster splits — all CPU spent per boot and per screen change on a
+7–16 MHz 68000, and all of it approximating offline work. The user's
+verdict from hardware: the 16 MHz Mega STe is "pretty decent", but the
+Amiga ECS — even bumped to 14 MHz — "is just that much slower". Precedent
+is established on both sides: the community shipped EGA converters for the
+DOS game's art, and SSI's own Curse of the Azure Bonds ST port used TWO
+hand-authored 16-colour palettes with authoring-time dithering — no
+runtime quantization at all (see the CAB-ST analysis). User: "if we make a
+converter to work based on the greatest strengths of each platform, I
+think we'll definitely have happier users", and separately: fewer-but-
+stable colours beat more-but-noisy.
+
+**Decision.** Build an OFFLINE converter — a separate workstream from the
+engine — that rewrites an installed art set (base game or fan module,
+`.tlb`/`.ctl` libraries) into palette-reduced art native to each target:
+16 colours for ST/STE, 32 for Amiga ECS, with selective error-diffusion /
+ordered dithering of gradient art while exact-match chrome stays crisp
+(the quantsim.py strategy set). The converted set remains VALID art in the
+existing formats, so the current engine plays it unchanged — the runtime
+quantizer simply finds art already inside its budget and settles into a
+stable palette with nothing to re-band. Engine-side fast paths (skipping
+the quantizer entirely when the art declares itself pre-quantized) are a
+later, optional optimization — not part of this decision.
+
+**Consequence.** The heavy colour work runs once, on the PC (Python 3,
+beside art_convert.py) or optionally on-machine via the uaconv route; the
+weak machines render stable palettes with no quantizer churn. An
+"EGA-nostalgia" preset (the community converters' look) becomes possible
+for free. A module's converted art lives in its `.DSN` per ADR-0011 and
+never overwrites the base game; the base game's converted set installs
+beside the originals the same way `.ctl` conversion already does. ABC
+(Leonard's GPU quantizer) serves as the quality oracle.

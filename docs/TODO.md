@@ -239,6 +239,34 @@ list of what the real machine found — and what it is still owed — is
    audio to the desktop — mute with SDL_AUDIODRIVER=dummy; that does NOT
    explain the on-hardware report.
 
+12. **ECS pixel leftovers** (field report 2026-08-26, real A500): "pixel
+   left overs in some places" during play. Location/screens not yet
+   pinned — get specifics (which screens, walk vs menus) on the next
+   pass. Candidate suspects: quantizer stray pixels (the old A500
+   left-edge note in the colour-budget memory), or an incremental-copy
+   hazard like #148's s_dt run copy on the ST.
+
+13. **ECS titles: half-draw + CLUT churn + corruption** (same report):
+   the ECS titles show the SAME "half buffer, then load more, with
+   corruption" pattern the STe titles had before they were fixed. This
+   is the known pattern of Atari-side fixes not being ported to the
+   Amiga backend (the #96→#116 silence gate all over again). Sweep the
+   title-path fixes the ST got — present-hold across the title
+   composition (l19d4), the composite one-shot hazard (#61), the s_dt
+   run-copy hazard (#148) — and check which are missing from
+   display_ecs/amiga. NB the hw-palette blackout (53c67d7d) is NOT the
+   fix here: ECS is a quantiser backend (no hw_palette), so the
+   blackout no-ops by design; ECS needs the ST-style present ordering
+   instead. Emulator-checkable (amiberry ECS config, 68000).
+
+14. **ECS perf: slower than the 16MHz STe even at 14MHz** (same
+   report): user compared their 14MHz-bumped ECS machine against the
+   Mega STe at 16MHz; ECS is "just that much slower". The offline art
+   pre-quant (ADR-0020) is the strategic answer (kills runtime
+   quantization); before that, check which Atari perf wins are still
+   unported to the Amiga present path (the silence-gate memory says
+   there may be more).
+
 ## Play-screen HUD polish (future work)
 
 Observed in the faithful play-screen render (jt948 → jt953); cosmetic, tackle
