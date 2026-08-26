@@ -166,7 +166,15 @@ list of what the real machine found — and what it is still owed — is
    take ~30 s to paint, which reads exactly like a dropped click and invites
    crediting whatever you tried second.
 
-7. **Sticky-square text prints BEFORE the step's view redraw** (Mega STe
+7. ~~**Sticky-square text prints BEFORE the step's view redraw**~~ **FIXED
+   (10bad796)** — #90's deferred render skipped l1908's Mac-order jt312 and
+   the replacement re-render ran only after the dispatch, but GAP-1 fires
+   the square's event INSIDE the dispatch: text drew before any view
+   render. Fix: flush the deferred render (jt312 presents) right before an
+   event dispatch or sticky-box clear; ordinary steps keep the single
+   render. Verified with an authored STICKY.DSN and on HEIRS's real Weary
+   Wanderer square (text prints with the view already moved). Await the
+   user's hardware confirm on the ATW. (original report: Mega STe
    ATW800/2 field report, 2026-08-25, 0.9.17-diag2). Old behaviour: step in,
    text starts printing, stalls 1-2 s mid-print, finishes (that stall is
    likely gone with the jt1066 cycle-range fix — the wipe/re-install churn is
@@ -186,8 +194,14 @@ list of what the real machine found — and what it is still owed — is
    it lands as ONE present (blackout is wrong here — it is a content change,
    not a palette one).
 
-9. **Movement-arrow cursor is not confined to the 3D view** (same report).
-   **DOS ORACLE VERIFIED 2026-08-25 (screenshots in the session log):** in
+9. ~~**Movement-arrow cursor is not confined to the 3D view**~~ **CORE
+   FIXED (f8a8e308)** — the pad was the faithful Mac 136x160 screen-origin
+   rects; now walk_pad_regions_install() retiles the four regions to the
+   88x88 viewport hole (24,24)-(112,112); re-sweep lands every boundary
+   exactly, click-to-move regression-checked. REMAINING (cosmetic): DOS
+   shows the SWORD over the roster where we always show the shield, and
+   the cursor ART size vs the Mac is unchecked.
+   (history) **DOS ORACLE VERIFIED 2026-08-25 (screenshots in the session log):** in
    DOSBox the arrows exist STRICTLY inside the 3D view — one pixel out and
    the cursor is the SWORD over the roster, the SHIELD over the text pane.
    **Port measured the same day (Falcon/Hatari, xdotool mousemove probes):**
@@ -213,6 +227,17 @@ list of what the real machine found — and what it is still owed — is
    ~57 s and five screens x 1050-tick holds is ~90 s, so the music runs out
    around screen 4 on the original too. Verify against DOS/Mini vMac before
    touching anything; the user explicitly ranks this minor.
+
+11. **Menu accelerators beep on the Mega STe** (field report 2026-08-26):
+   [P]lay / [L]oad / [B]egin each WORK but beep every time — "don't recall
+   it doing that before". Check the DOS oracle (drive p/l/<slot>/b in
+   DOSBox with a pulse audio capture: does DOS beep on accelerators?),
+   then find which path beeps — jt1080 fired by an unclaimed-key fall-
+   through AFTER the accelerator was consumed is the likely shape (l2d3e
+   Phase-5 "ph5 unclaimed -> jt1080"). NB the beeping heard during the
+   2026-08-26 session was ALSO partly my own headless Hatari leaking SDL
+   audio to the desktop — mute with SDL_AUDIODRIVER=dummy; that does NOT
+   explain the on-hardware report.
 
 ## Play-screen HUD polish (future work)
 
