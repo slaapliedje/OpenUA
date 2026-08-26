@@ -62,6 +62,39 @@ seurat: fill final status = 0
 seurat: fill dst bytes correct (of 128) = 128
 ```
 
+## Real card (Mega STe ATW800/2, FPGA "V0205 build 20251025", 2026-08-25)
+
+First hardware run of the diag, diffed against the baseline:
+
+```
+seurat: info ascii = V0205 build 20251025 (c) cpm 202
+seurat: vtg+00 = 0002 x8            (VTG reads are NOT the registers)
+seurat: blit idle+00 = 0002 x8      (register window is write-only-ish)
+seurat: cpld version reg = 65530    (= 0xFFFA: high byte floats, low = 0xFA?)
+seurat: regs after write = 0000 x9  (readback does NOT return written values)
+seurat: status right after go = 0   (so v0.9.17's poll always saw "done")
+seurat: copy dst bytes correct (of 64) = 1     <-- cmd 0x0003 moved ONE byte
+seurat: copy dst head = 11 00 00 00 00 00 00 00
+seurat: fill poll iterations = 0
+seurat: fill dst bytes correct (of 128) = 128  <-- cmd 0x0005 fill is CORRECT
+seurat: fill dst head = 55 55 55 55 55 55 55 55
+```
+
+Conclusions so far:
+
+- The `" cpm"` identity longword matches on BOTH generations — on V0205 it
+  is the `(c) cpm` of the copyright string; the layout pins it at +24
+  either way, which is why xVDI's own compare is portable. The gate holds.
+- The register window does not read back (0x0000 after programming,
+  0x0002 later) — completion CANNOT be detected by polling the command
+  word on this firmware. Blind-fire only worked by accident.
+- cmd 0x0005 fill: byte-perfect with our register model — the init-clear
+  half of the blit model is CORRECT on real hardware.
+- cmd 0x0003 with (w=64, rows=1): exactly one byte moved, at the correct
+  src/dst — the width/row registers (or the command) mean something else
+  on V0205. The driver generation matched to this firmware is the
+  Sep 2025 xVDI; the model here was traced from the Jul 2026 xVDI.
+
 Readings on the real card:
 
 - `regs after write` differing from what was written → the register
