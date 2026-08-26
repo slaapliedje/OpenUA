@@ -621,6 +621,207 @@ static long bootdev_super(void)
 	return *(volatile unsigned short *)0x446UL;   /* _bootdev */
 }
 
+/* ---- Seurat hardware diagnostic (video.cfg `novadiag=on`) --------------
+ *
+ * Everything below writes to DBG.LOG only (dbg_file_str), so a hardware
+ * run needs no console: boot once with novadiag=on, read C:\OPENUA\DBG.LOG.
+ *
+ * Purpose: the blitter-present register model was derived from tracing
+ * xVDI against our own emulation of the card, and the real Seurat
+ * rejected it (v0.9.17 field report). This dump captures what the REAL
+ * FPGA holds — info block (version string), VTG mode registers, the 2D
+ * engine's register window — and then runs a fully-logged self-test in
+ * OFFSCREEN VRAM: write the op registers and read them back (a shifted,
+ * word-swapped or write-only window shows up right here), then one
+ * 1-row copy (cmd 0x0003) and one 4-row fill (cmd 0x0005), each with
+ * poll counts, status snapshots and byte-level verification of the
+ * destination. Worst case is garbage in scratch VRAM past the visible
+ * screen, never a trashed display. */
+
+static void diag_hex(char *dst, unsigned long v, int digits)
+{
+	static const char h[] = "0123456789ABCDEF";
+	int i;
+
+	for (i = digits - 1; i >= 0; i--) {
+		dst[i] = h[v & 15];
+		v >>= 4;
+	}
+	dst[digits] = '\0';
+}
+
+static void diag_words(const char *label, const volatile unsigned short *p,
+                       int n)
+{
+	char line[80];
+	int  i, o = 0;
+
+	for (i = 0; i < n && o < 70; i++) {
+		diag_hex(line + o, p[i], 4);
+		o += 4;
+		line[o++] = ' ';
+	}
+	line[o] = '\0';
+	dbg_file_str(label, line);
+}
+
+static void diag_bytes(const char *label, const volatile unsigned char *p,
+                       int n)
+{
+	char line[80];
+	int  i, o = 0;
+
+	for (i = 0; i < n && o < 70; i++) {
+		diag_hex(line + o, p[i], 2);
+		o += 2;
+		line[o++] = ' ';
+	}
+	line[o] = '\0';
+	dbg_file_str(label, line);
+}
+
+static long mch_cookie_super(void)
+{
+	long *jar = *(long **)0x5A0UL;
+
+	if (jar == NULL)
+		return -1;
+	for (; jar[0] != 0; jar += 2)
+		if (jar[0] == 0x5F4D4348L)      /* '_MCH' */
+			return jar[1];
+	return -1;
+}
+
+static long cpld_version_super(void)
+{
+	/* MegaSTE A16 aux block; the caller has verified _MCH first. The
+	 * version proper is the ODD byte (reg 0x99) — return the whole word. */
+	return *(volatile unsigned short *)0xDFFA98UL;
+}
+
+static void nova_seurat_diag(volatile unsigned short *lut)
+{
+	volatile unsigned char  *info = (volatile unsigned char *)
+	                                ((volatile char *)lut + 0x200);
+	volatile unsigned short *vtg  = (volatile unsigned short *)
+	                                ((volatile char *)lut + 0x800);
+	volatile unsigned short *bl   = (volatile unsigned short *)
+	                                ((volatile char *)lut + 0x900);
+	unsigned char *scr;             /* offscreen scratch */
+	long           t, mch;
+	char           line[40];
+	short          k, ok;
+
+	dbg_file_str("seurat: ---- novadiag dump ----", "");
+	dbg_file_num("seurat: vram base = ", (long)(uintptr_t)s_vram);
+	dbg_file_num("seurat: lut  base = ", (long)(uintptr_t)lut);
+	dbg_file_num("seurat: cardw = ", s_cardw);
+	dbg_file_num("seurat: cardh = ", s_cardh);
+	dbg_file_num("seurat: pitch = ", s_pitch);
+
+	/* Info block: 32 bytes, "Seurat vNNNN ..." + the " cpm" ID at +24. */
+	diag_bytes("seurat: info+00 = ", info, 16);
+	diag_bytes("seurat: info+16 = ", info + 16, 16);
+	for (k = 0; k < 32; k++)
+		line[k] = (char)((info[k] >= 32 && info[k] < 127) ? info[k]
+		                                                  : '.');
+	line[32] = '\0';
+	dbg_file_str("seurat: info ascii = ", line);
+
+	diag_words("seurat: vtg+00 = ", vtg, 8);
+	diag_words("seurat: vtg+10 = ", vtg + 8, 8);
+	diag_words("seurat: lut[0..7]    = ", lut, 8);
+	diag_words("seurat: lut[248..255]= ", lut + 248, 8);
+	diag_words("seurat: blit idle+00 = ", bl, 8);
+	diag_words("seurat: blit idle+10 = ", bl + 8, 8);
+
+	mch = Supexec(mch_cookie_super);
+	dbg_file_num("seurat: _MCH = ", mch);
+	if ((mch >> 16) == 1)           /* (Mega) STE family only */
+		dbg_file_num("seurat: cpld version reg = ",
+		             Supexec(cpld_version_super));
+
+	/* ---- offscreen self-test ---- */
+	scr = s_vram + (long)s_pitch * s_cardh + (long)s_pitch * 8;
+	for (k = 0; k < 64; k++) {
+		scr[k]           = (unsigned char)(0x11 * ((k & 7) + 1));
+		scr[s_pitch + k] = 0;
+	}
+	ok = 1;
+	for (k = 0; k < 64; k++)
+		if (scr[k] != (unsigned char)(0x11 * ((k & 7) + 1)))
+			ok = 0;
+	dbg_file_num("seurat: scratch cpu readback ok = ", ok);
+
+	/* Register write -> readback, no GO yet. */
+	{
+		long src = (long)(scr - s_vram);
+		long dst = src + s_pitch;
+
+		bl[0] = (unsigned short)((unsigned long)src >> 16);
+		bl[1] = (unsigned short)src;
+		bl[2] = (unsigned short)((unsigned long)dst >> 16);
+		bl[3] = (unsigned short)dst;
+		bl[4] = (unsigned short)s_pitch;
+		bl[5] = (unsigned short)s_pitch;
+		bl[6] = 64;
+		bl[7] = 1;
+		diag_words("seurat: regs after write = ", bl, 9);
+
+		/* GO: cmd 0x0003 copy, 1 row, and log how it completes. */
+		bl[8] = 0x0003;
+		dbg_file_num("seurat: status right after go = ", bl[8]);
+		for (t = 0; t < 500000L && bl[8] != 0; t++)
+			;
+		dbg_file_num("seurat: copy poll iterations = ", t);
+		dbg_file_num("seurat: copy final status = ", bl[8]);
+		diag_words("seurat: regs after copy = ", bl, 9);
+
+		ok = 0;
+		for (k = 0; k < 64; k++)
+			if (scr[s_pitch + k] ==
+			    (unsigned char)(0x11 * ((k & 7) + 1)))
+				ok++;
+		dbg_file_num("seurat: copy dst bytes correct (of 64) = ", ok);
+		diag_bytes("seurat: copy dst head = ", scr + s_pitch, 8);
+	}
+
+	/* Fill test: cmd 0x0005 from a 0x55 source row, 2 rows down. */
+	{
+		long src = (long)(scr - s_vram) + 2 * s_pitch;
+		long dst = (long)(scr - s_vram) + 3 * s_pitch;
+
+		for (k = 0; k < 64; k++) {
+			scr[2 * s_pitch + k] = 0x55;
+			scr[3 * s_pitch + k] = 0;
+			scr[4 * s_pitch + k] = 0;
+		}
+		bl[0] = (unsigned short)((unsigned long)src >> 16);
+		bl[1] = (unsigned short)src;
+		bl[2] = (unsigned short)((unsigned long)dst >> 16);
+		bl[3] = (unsigned short)dst;
+		bl[4] = 0;
+		bl[5] = (unsigned short)s_pitch;
+		bl[6] = 64;
+		bl[7] = 2;
+		bl[8] = 0x0005;
+		for (t = 0; t < 500000L && bl[8] != 0; t++)
+			;
+		dbg_file_num("seurat: fill poll iterations = ", t);
+		dbg_file_num("seurat: fill final status = ", bl[8]);
+		ok = 0;
+		for (k = 0; k < 64; k++) {
+			if (scr[3 * s_pitch + k] == 0x55)
+				ok++;
+			if (scr[4 * s_pitch + k] == 0x55)
+				ok++;
+		}
+		dbg_file_num("seurat: fill dst bytes correct (of 128) = ", ok);
+		diag_bytes("seurat: fill dst head = ", scr + 3 * s_pitch, 8);
+	}
+	dbg_file_str("seurat: ---- dump done ----", "");
+}
+
 /* Bind + VERIFY (write / read back / restore). The probe only runs on an
  * ATW800/2 (xVDI cookie — see above); there the offset comes from Logbase(),
  * which the present already writes every frame from user mode, so the window
@@ -637,6 +838,7 @@ static void nova_lut_bind(void)
 	long                     n;
 	int                      i;
 	short                    force = 0;
+	short                    diag  = 0;
 
 	if (s_vram == NULL)
 		return;
@@ -667,6 +869,8 @@ static void nova_lut_bind(void)
 				off   = NOVA_LUT_OFF_4MB;
 				force = 1;
 			}
+			if (strstr(buf, "novadiag=on") != NULL)
+				diag = 1;
 		}
 	}
 
@@ -677,6 +881,27 @@ static void nova_lut_bind(void)
 
 	lut  = (volatile unsigned short *)(void *)
 	       ((char *)s_vram + off);
+
+	/* Identity: the Seurat's info block sits at LUT+0x200 and carries the
+	 * " cpm" ID longword at +24 — the same compare xVDI's own detection
+	 * runs (verified on the real ATW800/2). The xVDI COOKIE is not enough:
+	 * xVDI also drives ET4000-family cards (VMG-4000), where this address
+	 * is plain framebuffer RAM — the LUT write/read probe below would
+	 * "pass" against RAM and we would scribble on pixels thinking we own
+	 * a palette. No ID -> stay on vs_color (novalut=on still overrides). */
+	{
+		unsigned long id = *(volatile unsigned long *)
+		                   ((volatile char *)lut + 0x200 + 24);
+
+		dbg_file_num("nova: fpga id longword = ", (long)id);
+		if (diag)
+			nova_seurat_diag(lut);
+		if (!force && id != 0x2063706DUL) {     /* " cpm" */
+			dbg_log("nova: no Seurat id - vs_color path");
+			return;
+		}
+	}
+
 	save = lut[255];
 	lut[255] = 0x1234;
 	got      = lut[255];
