@@ -18791,7 +18791,14 @@ static void play_screen_relayout(unsigned char *rec)
  * re-install (faithful entry layout: next-due = now + period - 3, then
  * [flags,period,base,count]) whenever a slot's cycle is missing from -3258. The
  * -3394 work buffer keeps its colours across the clobber, so jt1067's rotation
- * simply resumes. Called from l63c0 right before jt1067. */
+ * simply resumes. Called from l63c0 right before jt1067.
+ *
+ * NB (2026-08-25): the BIGGEST clobberer was jt1066's reversed Phase A
+ * copy, which wiped every jt1069-flagged range at the next commit — this
+ * re-install is why the walk kept cycling while the jt919 title roll (no
+ * such guard) lost its logo animation. That copy is fixed (save-to-backup,
+ * per the Mac asm); this survives as the guard for Phase 3a's LEGITIMATE
+ * frees (event pictures taking CLUT[32..255]), and is idempotent. */
 static void dungeon_cycle_ensure(void)
 {
 	unsigned char *rng = (unsigned char *)&g_a5_byte(-3258);
@@ -67474,6 +67481,17 @@ static unsigned char l192c(short duration)
 	start = jt100();                                 /* 0x1934 */
 	end = duration + start;                          /* 0x193e-0x1946 */
 
+#ifdef FRUA_CYCTRACE
+	{
+		static short once;
+		if (!once) {
+			once = 1;
+			dbg_file_num("cyc: l192c jt1163=", jt1163());
+			dbg_file_num("cyc: l192c jt1200=", jt1200());
+		}
+	}
+#endif
+
 	for (;;) {                                       /* wait loop (L1968) */
 		if (jt1085() == 0 && jt100() < end) {    /* 0x1968-0x1980 still waiting */
 			if (jt1163() != 0 || jt1200() == 0)   /* L1954 animate unless (1163==0 && 1200!=0) */
@@ -80837,6 +80855,16 @@ static void jt1069(short start, short count, unsigned char *src,
 			                                     * lift had these reversed -> the
 			                                     * range stayed base/count 0). */
 		g_a5_byte(-3162 + j) = 1;                   /* 7576 flag */
+#ifdef FRUA_CYCTRACE
+		if (destp != NULL) {
+			dbg_file_num("cyc: 1069 install slot=", j);
+			dbg_file_num("cyc: 1069   base=", destp[2]);
+			dbg_file_num("cyc: 1069   count=", destp[3]);
+			dbg_file_num("cyc: 1069   period=", destp[1]);
+			dbg_file_num("cyc: 1069   due=", val);
+			dbg_file_num("cyc: 1069   now=", jt1134());
+		}
+#endif
 		if (destp != NULL)
 			destp += 4;                         /* 7586 */
 	}
@@ -80844,8 +80872,9 @@ static void jt1069(short start, short count, unsigned char *src,
 
 /* JT[1066] (CODE 5 + 0x759a) — GLIB palette COMPACT + COMMIT. Pure data over
  * the A5 tables plus the one l6e58 hardware write. Faithful 1:1 lift of L759a,
- * asm offsets in comments. Phase A restores flagged ranges from the -3354
- * backup; phase B walks the -3386 used-slot bitmap (whole-empty byte -> skip 8,
+ * asm offsets in comments. Phase A SAVES each flagged range to the -3354
+ * backup (see the direction note at the call); phase B walks the -3386
+ * used-slot bitmap (whole-empty byte -> skip 8,
  * whole-full byte -> copy 8 colours, else bit-by-bit), promoting each used
  * slot's staged colour LIVE(-3390) -> WORK(-3394) and tracking the touched span
  * [min,max]; the tail commits WORK[min..max] to the CLUT via l6e58 and raises
@@ -80878,11 +80907,23 @@ static void jt1066(void)
 		return;
 	g_a5_byte(-3150) = 0;                       /* 75b0 clear dirty */
 
-	/* Phase A (L75ba): restore each flagged range from its backup. */
+	/* Phase A (L75ba): SAVE each flagged range to its backup slot.
+	 * ★ jt406 arg-order FIX (the third in this subsystem, after jt1067's
+	 * rotate and jt1069's 0x756e install): the Mac pushes at 0x75e2-0x75ea
+	 * are len 8, pea -3354+i*8 (backup), pea -3258+i*8 (live) — and by the
+	 * convention the 0x756e fix pinned (the push NEAREST the jsr is the
+	 * SRC), this is BlockMove(live, backup): the commit backs up the ranges
+	 * jt1069 just (re)allocated. The lift had it REVERSED — restoring the
+	 * backup over the live table. Since jt1068 seeds the backup to 12
+	 * empty sentinels and nothing else writes it, every commit wiped every
+	 * fresh cycle range: jt993 installed the title screens' cycle records
+	 * (SSI stars, MicroMagic shimmer) and the very next jt1066 erased them
+	 * before jt1067 ever saw one come due — the dead title-logo animation
+	 * (v0.9.7, when jt919 replaced the port intro that cycled by hand). */
 	for (i = 0; i < 12; i++) {                   /* 7600 */
 		if (g_a5_byte(-3162 + i) == 0)      /* 75c2 */
 			continue;
-		jt406(rng + i * 8, bak + i * 8, 8); /* 75ea -3354 -> -3258 */
+		jt406(bak + i * 8, rng + i * 8, 8); /* 75ea -3258 -> -3354 */
 		g_a5_byte(-3162 + i) = 0;           /* 75fa */
 	}
 
@@ -80971,6 +81012,11 @@ static void jt993(long handle, short idx)
 	if (ncopy > 64)                          /* PORT: rembuf guard */
 		ncopy = 64;
 
+#ifdef FRUA_CYCTRACE
+	dbg_file_num("cyc: jt993 start=", start);
+	dbg_file_num("cyc: jt993 ncopy=", ncopy);
+#endif
+
 	/* PORT lazy init: ensure the -3390/-3394 buffers exist before jt1069. */
 	if ((void *)(uintptr_t)g_a5_long(-3390) == NULL)
 		jt1068();
@@ -81011,6 +81057,27 @@ static void jt1067(void)
 	unsigned char  mode = 1;
 
 	PROBE("jt1067");
+#ifdef FRUA_CYCTRACE
+	{
+		static long calls;
+		calls++;
+		if (calls <= 3 || (calls & 1023) == 0) {
+			short ci;
+			unsigned char *ce = (unsigned char *)&g_a5_byte(-3258);
+			dbg_file_num("cyc: 1067 call#", calls);
+			dbg_file_num("cyc: 1067 g3150=", g_a5_byte(-3150));
+			dbg_file_num("cyc: 1067 g2347=", g_a5_byte(-2347));
+			dbg_file_num("cyc: 1067 work=", (long)(uintptr_t)work);
+			dbg_file_num("cyc: 1067 tick=", jt1134());
+			for (ci = 0; ci < 12; ci++, ce += 8)
+				if (*(long *)ce != 0x7fffffffL) {
+					dbg_file_num("cyc: 1067 live slot", ci);
+					dbg_file_num("cyc: 1067   due=", *(long *)ce);
+					dbg_file_num("cyc: 1067   base=", ce[6]);
+				}
+		}
+	}
+#endif
 	if (g_a5_byte(-3150) == 0)                  /* 7780 no palette */
 		return;
 	if (g_a5_byte(-2347) == 0)                  /* 7788 mode gate */
@@ -81069,6 +81136,15 @@ static void jt1067(void)
 	}
 
 	if (max > min) {                            /* 79a8 */
+#ifdef FRUA_CYCTRACE
+		{
+			static long commits;
+			if (++commits <= 50) {
+				dbg_file_num("cyc: 1067 COMMIT min=", min);
+				dbg_file_num("cyc: 1067 COMMIT max=", max);
+			}
+		}
+#endif
 		l6e58(min, (short)(max - min + 1), mode, work + min * 3);  /* 79d4 */
 		g_cyc_commit_epoch++;   /* 16bpp port: see port_cycle_present */
 	}
