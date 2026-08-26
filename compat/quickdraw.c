@@ -1972,6 +1972,43 @@ void PenPat(const Pattern *pat)
  */
 static dsp_color_t g_palette[256];
 
+/* Palette BLACKOUT (hardware-palette backends only). On a screen whose
+ * planes/bytes hold the INDEX and whose palette is hardware (TT / AGA /
+ * Nova — qd_palette_is_hw), a CLUT write recolours the frame INSTANTLY
+ * while a present can take visible time (an ATW800/2 full present is
+ * ~0.5 s of VME byte writes). Any ordering of "install palette" and
+ * "write pixels" therefore shows a seam: commit-first recolours the OLD
+ * frame, commit-after crawls the new frame in under the OLD palette —
+ * the title roll's pink/wrong-colour flashes on the real Mega STe card.
+ *
+ * Blackout is the classic sequencing fix: on -> push all-black to the
+ * hardware (instant, screen fades out) and LATCH further qd_set_palette
+ * forwards (the logical g_palette still updates); compose + present at
+ * leisure (rows land invisibly); off -> push the accumulated palette
+ * (instant, the finished frame pops in whole). Nests. A no-op on
+ * quantising backends, whose presents bake the logical palette anyway. */
+static int s_pal_blackout;
+
+void qd_palette_blackout(int on)
+{
+	const dsp_backend_t *d = dsp_detect();
+	short i;
+
+	if (d == NULL || !d->hw_palette || d->set_palette == NULL)
+		return;
+	if (on) {
+		if (s_pal_blackout++ == 0) {
+			dsp_color_t black[256];
+
+			for (i = 0; i < 256; i++)
+				black[i].r = black[i].g = black[i].b = 0;
+			d->set_palette(black, 0, 256);
+		}
+	} else if (s_pal_blackout > 0 && --s_pal_blackout == 0) {
+		d->set_palette(g_palette, 0, 256);
+	}
+}
+
 /* #142: pending CLUT range whose effect on the baked colour cursor has not been
  * applied yet; -1 = nothing pending. qd_set_palette only records the range and
  * qd_bake_sync() (called from cursor_composite, the sole consumer of the baked
@@ -2066,7 +2103,8 @@ void qd_set_palette(const RGBColor *colors, short first, short count)
 		g_palette[first + i] = tmp[i];
 	}
 	dsp = dsp_detect();
-	if (dsp != NULL && dsp->set_palette != NULL)
+	if (dsp != NULL && dsp->set_palette != NULL
+	    && !(s_pal_blackout && dsp->hw_palette))   /* latched: see blackout */
 		dsp->set_palette(tmp, first, count);
 	/* #152: on most backends the mapping change re-renders pixels, so the whole
 	 * frame must be reconverted. #99: NOT on a backend whose screen holds the

@@ -67547,6 +67547,17 @@ static void l19d4(const char *name, short arg2, short a3, short a4)
 	 * matching both the Mac (instant CLUT) and the DOS release (title
 	 * screens arrive whole, verified in DOSBox at 0.35 s sampling). */
 	qd_present_hold(1);
+	/* HW-palette backends additionally BLACK the CLUT for the whole
+	 * composition (no-op on quantisers). Field report (Mega STe ATW800/2,
+	 * 2026-08-25): a hardware CLUT write is instant but a full present is
+	 * ~0.5 s of VME writes, so the two-pass compose below showed every
+	 * seam — the previous screen recoloured by the incoming master
+	 * palette, the base image crawling in before its set palette landed
+	 * (magenta 'defer' slots on screen = the pink frames), the overlay
+	 * piece arriving as a second visible crawl. Blacked out, the rows
+	 * land invisibly and the release pops each finished title in whole —
+	 * the DOS/Mac presentation, with a short fade-to-black between. */
+	qd_palette_blackout(1);
 	jt384(buf, name);                                /* 0x19dc */
 	jt404(buf, "1");                                 /* 0x19ea append "1" */
 	jt110(&handle, 0, 1, 1, buf);                    /* 0x19fa load "<name>1" -> handle */
@@ -67576,16 +67587,24 @@ static void l19d4(const char *name, short arg2, short a3, short a4)
 		if (mode == 5)                           /* 0x1a6c */
 			jt103(1, 1, 38, 22);             /* 0x1a78 frame rect */
 		l3880(0, 0, 1, (void *)(uintptr_t)handle);   /* 0x1a8e */
-		qd_present_hold(0);                      /* composed + palette in */
-		jt117();                                 /* 0x1a98 */
+		/* HW-palette: skip this MID-BODY present — under blackout it
+		 * would only spend another slow full present on an invisible
+		 * intermediate (base image without the overlay piece). The
+		 * quantisers keep the Mac's two-present cadence. */
+		if (!qd_palette_is_hw()) {
+			qd_present_hold(0);              /* composed + palette in */
+			jt117();                         /* 0x1a98 */
+		}
 		jt108(1);                                /* 0x1a9c */
-		qd_present_hold(1);                      /* re-hold for the tail */
+		if (!qd_palette_is_hw())
+			qd_present_hold(1);              /* re-hold for the tail */
 	}
 	l3880(0, 0, 1, (void *)(uintptr_t)handle);       /* 0x1aa6 frame 1 */
 	l3880(0, 0, 2, (void *)(uintptr_t)handle);       /* 0x1aba frame 2 */
 	jt124(handle);                                   /* 0x1ace */
 	qd_present_hold(0);                              /* balanced with entry */
 	jt117();                                         /* 0x1ad8 */
+	qd_palette_blackout(0);                          /* pop the finished title */
 	jt115(&handle);                                  /* 0x1adc dispose */
 }
 

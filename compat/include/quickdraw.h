@@ -403,6 +403,14 @@ void          qd_present_suppress(int on);
 void          qd_present_hold(int on);
 int           qd_palette_is_hw(void);   /* backend keeps INDEX + hw palette */
 
+/* Hardware-palette backends only (no-op elsewhere): on=1 pushes an
+ * all-black CLUT and latches further qd_set_palette forwards; on=0
+ * pushes the accumulated logical palette — the composed frame pops in
+ * whole. Kills the CLUT-swap flashes a slow present makes visible
+ * (titles on the ATW800/2, where a full present is ~0.5s of VME
+ * writes). Nests like qd_present_hold. */
+void          qd_palette_blackout(int on);
+
 /* Present only a dirty rect, when the backend supports it (else falls
  * back to a full present). Lets the dungeon view skip converting the
  * static parts of the screen each frame. */
