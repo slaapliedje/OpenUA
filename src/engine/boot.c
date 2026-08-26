@@ -18757,6 +18757,36 @@ static void port_draw_compass(void)
 	}
 }
 
+/* walk_pad_regions_install — the walk's four shape-5 hover/click regions
+ * (turn-left / forward / turn-right / about-face), ONE definition for the
+ * three sites that used to inline identical jt452 calls (jt240's walk
+ * build, play_screen_relayout's post-event rebuild, jt164's modal).
+ *
+ * The Mac rects (CODE 7 + 0x2ff4..0x3076) are (8000,8000,50,20) /
+ * (8000,8020,50,28) / (8000,8048,50,20) / (8050,8000,30,68): under
+ * jt1139's scale-2 mapping that is a 136x160 px pad anchored at the
+ * SCREEN ORIGIN — the MAC view's own geometry. The port's first-person
+ * view is the 88x88 FRAME.CTL hole at (24,24)-(112,112)
+ * (render_3d_faithful's VL/VT/VR/VB), so the faithful rects overhung it
+ * on every side: turn arrows over the left frame border, the roster edge
+ * and far below the pane (#164, Mega STe field report + hover-tag sweep;
+ * the DOS oracle clamps the arrows EXACTLY at the view edge). Same
+ * left/middle/right/bottom split, retiled to the hole: x 24/50/86/112 px,
+ * strips down to 80 px, about-face band 80..112 — units are px/2 above
+ * 8000. */
+static void walk_pad_regions_install(void)
+{
+	jt452((long)5, (long)8012, (long)8012, (long)28, (long)13,
+	      (long)41, (long)22, (long)20,
+	      (long)5, (long)8012, (long)8025, (long)28, (long)18,
+	      (long)41, (long)11, (long)20,
+	      (long)5, (long)8012, (long)8043, (long)28, (long)13,
+	      (long)41, (long)21, (long)20,
+	      (long)5, (long)8040, (long)8012, (long)16, (long)44,
+	      (long)41, (long)23, (long)20,
+	      (long)0);
+}
+
 /* Re-establish the play-screen DLItems after an event modal. An event's
  * "Press [Return]" modal (l1806) opens through the shared DLItem pool, which
  * resets it (jt447: pool base <- seeded, count 0) and fills it with the modal's
@@ -18793,17 +18823,8 @@ static void play_screen_relayout(unsigned char *rec)
 	 * pad frame (gating them out entirely dropped the play arrows — 97cc42f).
 	 * But on the top-down AREA map they surface as three stray editor plates
 	 * across the top of the view, so draw them only in the 3D leg (-12290==0). */
-	if (g_a5_12911 != 0 && g_a5_12290 == 0) {
-		jt452((long)5, (long)8000, (long)8000, (long)50, (long)20,
-		      (long)41, (long)22, (long)20,
-		      (long)5, (long)8000, (long)8020, (long)50, (long)28,
-		      (long)41, (long)11, (long)20,
-		      (long)5, (long)8000, (long)8048, (long)50, (long)20,
-		      (long)41, (long)21, (long)20,
-		      (long)5, (long)8050, (long)8000, (long)30, (long)68,
-		      (long)41, (long)23, (long)20,
-		      (long)0);
-	}
+	if (g_a5_12911 != 0 && g_a5_12290 == 0)
+		walk_pad_regions_install();
 }
 
 /* dungeon_cycle_ensure (Card B.1b) — re-establish the wall colour-cycle ranges
@@ -21272,17 +21293,8 @@ static short jt240(short cmd, long *flagsp, unsigned char *rec)
 		l1f3e((short)g_a5_19172, (short)g_a5_19174);
 		/* Shape-5 command-bar/pad frames — 3D leg only; on the AREA map they
 		 * showed as three stray editor plates across the top (see jt240). */
-		if (g_a5_12911 != 0 && g_a5_12290 == 0) {
-			jt452((long)5, (long)8000, (long)8000, (long)50, (long)20,
-			      (long)41, (long)22, (long)20,
-			      (long)5, (long)8000, (long)8020, (long)50, (long)28,
-			      (long)41, (long)11, (long)20,
-			      (long)5, (long)8000, (long)8048, (long)50, (long)20,
-			      (long)41, (long)21, (long)20,
-			      (long)5, (long)8050, (long)8000, (long)30, (long)68,
-			      (long)41, (long)23, (long)20,
-			      (long)0);
-		}
+		if (g_a5_12911 != 0 && g_a5_12290 == 0)
+			walk_pad_regions_install();
 	}
 	jt449(1);
 	/* L5126 is the GEO EDITOR's status header (design name / DUNGEON nn / WD/HT /
@@ -28587,6 +28599,23 @@ static short l2d3e(void)
 				break;
 			rec += DLITEM_BYTES;
 		}
+#ifdef FRUA_CURTRACE
+		/* TODO-9 sweep aid: log the hovered item's tag whenever it
+		 * changes, with the pointer position that crossed the edge —
+		 * maps the real hover-region boundaries in one mouse sweep. */
+		{
+			static short ct_last = -2;
+			short tag = (i < count) ? *(short *)(rec + 20) : (short)-1;
+
+			if (tag != ct_last) {
+				ct_last = tag;
+				/* tag+2 keeps the composite positive (tag -1 = no hit) */
+				dbg_file_num("curtrace: (tag+2)*100000+v*400+h = ",
+				             (long)(tag + 2) * 100000L
+				             + (long)lv * 400L + lh);
+			}
+		}
+#endif
 	}
 
 	/* Phase 4 — selection navigation. Pick the next move based on
@@ -69089,20 +69118,11 @@ static short jt164(long prompt, long cmdstring, short arg3, short arg4)
 	l2858((short)1);
 	l206e(cmdstring, buf, (const char *)(uintptr_t)prompt, &arg3_lo);
 	l1f3e((short)g_a5_19172, (short)g_a5_19174);
-	if (g_a5_12911 != 0) {
-		/* The bar's four bevel-frame DLItems — shape 5 (rec[16]=y,
-		 * rec[18]=x, rec[22], rec[24]) + cmd 41 setter + cmd 20 set-bit,
-		 * faithful to CODE 7 + 0x2ff4..0x3076 (read in JT[452] order). */
-		jt452((long)5, (long)8000, (long)8000, (long)50, (long)20,
-		      (long)41, (long)22, (long)20,
-		      (long)5, (long)8000, (long)8020, (long)50, (long)28,
-		      (long)41, (long)11, (long)20,
-		      (long)5, (long)8000, (long)8048, (long)50, (long)20,
-		      (long)41, (long)21, (long)20,
-		      (long)5, (long)8050, (long)8000, (long)30, (long)68,
-		      (long)41, (long)23, (long)20,
-		      (long)0);
-	}
+	if (g_a5_12911 != 0)
+		/* The walk pad's four hover/click regions — see
+		 * walk_pad_regions_install (#164: retiled from the Mac view's
+		 * geometry to the port's 88x88 viewport hole). */
+		walk_pad_regions_install();
 	tmp = l23b4((short)(signed char)(arg4 & 0xff));
 	return l25b6(tmp, buf, &g_a5_24139);
 }
