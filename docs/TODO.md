@@ -166,6 +166,39 @@ list of what the real machine found — and what it is still owed — is
    take ~30 s to paint, which reads exactly like a dropped click and invites
    crediting whatever you tried second.
 
+7. **Sticky-square text prints BEFORE the step's view redraw** (Mega STe
+   ATW800/2 field report, 2026-08-25, 0.9.17-diag2). Old behaviour: step in,
+   text starts printing, stalls 1-2 s mid-print, finishes (that stall is
+   likely gone with the jt1066 cycle-range fix — the wipe/re-install churn is
+   dead). New behaviour: the text lands at the bottom of the screen before
+   the 3D view draws the move ('The Weary Wanderer.' after the caravan
+   event). Present-granularity ordering on a slow-present card: the text
+   rows likely go out via a small early present (the jt1134 idle concession?)
+   while the view redraw arrives in the big frame commit. Check what order
+   the Mac/DOS shows (DOS oracle, fine sampling), then either hold presents
+   across the step+text compose or reorder.
+
+8. **Big-pic teardown is visible on slow presents** — closing a picture
+   event shows the pic "unloading" (draining out of the view square) before
+   the view redraws (same field report). Same disease the titles had: a
+   multi-step clear+recompose presented piecemeal over ~0.5 s VME writes.
+   Candidate fix: qd_present_hold around the event-close teardown+restore so
+   it lands as ONE present (blackout is wrong here — it is a content change,
+   not a palette one).
+
+9. **Movement-arrow cursor is not confined to the 3D view** (same report).
+   User: on the Mac the arrow cursors stay inside the view window; our port
+   keeps showing the arrow far outside it. Also check cursor SIZE/art — the
+   port ships the colourful DOS cursor set; Mac art may differ and the user
+   suspects a size difference too. Verify against DOSBox (where does the
+   DOS release clip/switch the arrow?) and Mini vMac if needed, then clamp.
+
+10. **Title song vs credits timing** (same report, LOW): the tune ends right
+   before the credits screen appears. Probably FAITHFUL: the Mac song is
+   ~57 s and five screens x 1050-tick holds is ~90 s, so the music runs out
+   around screen 4 on the original too. Verify against DOS/Mini vMac before
+   touching anything; the user explicitly ranks this minor.
+
 ## Play-screen HUD polish (future work)
 
 Observed in the faithful play-screen render (jt948 → jt953); cosmetic, tackle
