@@ -106,11 +106,21 @@ static short                    s_lut_saved;
  * (512,000 CPU byte writes) becomes one fill blit from a zero row parked
  * just past the visible screen. Gated on the LUT bind (same xVDI-cookie
  * hardware as the LUT — a classic card bus-errors up here) and on
- * video.cfg `novablit=off`; a bounded poll falls back to CPU presents for
- * the session if the engine ever fails to go idle. */
+ * video.cfg `novablit=on` (OPT-IN); a bounded poll falls back to CPU
+ * presents for the session if the engine ever fails to go idle.
+ *
+ * ⚠ DEFAULT OFF (2026-08-25): the register model above was derived from
+ * tracing xVDI against OUR OWN Hatari emulation of the card — circular
+ * evidence — and the first run on the real Mega STe ATW800/2 FAILED:
+ * title pixels crammed into the top rows, then a black menu the mouse
+ * cursor "paints" back in (rect presents are CPU and fine; every FULL
+ * present went through the blit and drew nothing/garbage). The real
+ * Seurat evidently disagrees with the emulation-derived model (register
+ * semantics, completion, or per-mode pitch). Re-enable only after the
+ * model is validated ON HARDWARE. */
 static volatile unsigned short *s_blit;         /* word regs at LUT + 0x900 */
 static short                    s_use_blit;
-static short                    s_blit_cfg = 1; /* video.cfg novablit=off  */
+static short                    s_blit_cfg;     /* video.cfg novablit=on   */
 
 static int nova_blit_wait(void)
 {
@@ -647,9 +657,9 @@ static void nova_lut_bind(void)
 				dbg_log("nova: direct LUT disabled (video.cfg)");
 				return;
 			}
-			if (strstr(buf, "novablit=off") != NULL) {
-				s_blit_cfg = 0;
-				dbg_log("nova: blitter presents disabled (video.cfg)");
+			if (strstr(buf, "novablit=on") != NULL) {
+				s_blit_cfg = 1;
+				dbg_log("nova: blitter presents ENABLED (video.cfg)");
 			}
 			if (strstr(buf, "novalut=on") != NULL)
 				force = 1;
