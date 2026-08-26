@@ -187,11 +187,26 @@ list of what the real machine found — and what it is still owed — is
    not a palette one).
 
 9. **Movement-arrow cursor is not confined to the 3D view** (same report).
-   User: on the Mac the arrow cursors stay inside the view window; our port
-   keeps showing the arrow far outside it. Also check cursor SIZE/art — the
-   port ships the colourful DOS cursor set; Mac art may differ and the user
-   suspects a size difference too. Verify against DOSBox (where does the
-   DOS release clip/switch the arrow?) and Mini vMac if needed, then clamp.
+   **DOS ORACLE VERIFIED 2026-08-25 (screenshots in the session log):** in
+   DOSBox the arrows exist STRICTLY inside the 3D view — one pixel out and
+   the cursor is the SWORD over the roster, the SHIELD over the text pane.
+   **Port measured the same day (Falcon/Hatari, xdotool mousemove probes):**
+   arrows are right IN the view (forward arrow matches), but the zones
+   overhang the frame — turn-right shows over the roster border, the
+   U-turn below the frame — before eventually flipping to shield. Second
+   delta: our out-of-view cursor is always the shield; DOS uses the sword
+   over the roster.
+   Code map for the fix: the four walk regions are jt164's JT[452] install
+   (boot.c ~69073, tags 22/11/21/23, faithful Mac rects in 8000-space);
+   hover shape comes from l2d3e's Phase-3 live hit-test (~28557) running
+   jt378 cmd 2 -> jt1139 (8000-space origin via jt1135, scale 2, grid
+   bounds rec[22]/rec[24]). NOTE: a first-pass decode of those rects
+   PREDICTS the wrong flip points (the text-pane probe should have been
+   inside the bottom band but showed shield) — do an EMPIRICAL sweep first
+   (probe grid + log the hovered tag) before trusting any arithmetic; then
+   either fix the transform or clamp the region hit-test to the live
+   viewport rect. Cursor art size vs Mac still unchecked (we ship the DOS
+   colourful set; Mac is 16x16 B&W).
 
 10. **Title song vs credits timing** (same report, LOW): the tune ends right
    before the credits screen appears. Probably FAITHFUL: the Mac song is
