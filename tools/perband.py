@@ -53,6 +53,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import prequant  # noqa: E402  (container + type-8 palette parsing)
+import art_convert  # noqa: E402  (HLIB <-> GLIB, for DOS-format art)
 
 GLIB = b"GLIB"
 
@@ -345,6 +346,71 @@ def convert_file(data, budget, rows_per_band, screen_y, stats):
     return bytes(buf)
 
 
+def convert_any(data, budget, rows_per_band, screen_y, stats):
+    """Convert either container format.
+
+    The shipping data disks carry SSI's DOS `.TLB` (HLIB) art and the engine
+    derives the Mac `.ctl` (GLIB) twin on first touch (ADR-0014/0019), so the
+    converter has to reach the DOS files or the per-band palettes never get
+    to the machine.
+
+    An HLIB palette entry holds the SAME RGB payload at the same +8 offset as
+    its GLIB twin — only the container endianness and the header word order
+    differ, and `_convert_entry` passes colour tables through verbatim. So:
+    convert to GLIB IN MEMORY, do the whole analysis with the decoders that
+    are already proven there, and then write the merged triples back into the
+    ORIGINAL bytes. Entry order and count are preserved by the conversion, so
+    a palette found at (item i, sub j) in the GLIB view is at (item i, sub j)
+    in the HLIB source, and the RGB bytes land at the same offset within it.
+    """
+    if data[:4] == prequant.GLIB:
+        return convert_file(data, budget, rows_per_band, screen_y, stats)
+    if data[:4] != b"HLIB":
+        return data
+    try:
+        glib = art_convert.convert(data, to=prequant.GLIB)
+    except Exception as e:                     # unreadable/odd container
+        stats["skipped"] += 1
+        stats["reasons"].setdefault("hlib: %s" % e, 0)
+        stats["reasons"]["hlib: %s" % e] += 1
+        return data
+    newglib = convert_file(glib, budget, rows_per_band, screen_y, stats)
+    if newglib == glib:
+        return data                            # nothing changed
+    # Map every rewritten palette back onto the HLIB source by position.
+    out = bytearray(data)
+    gtop, htop = prequant.parse_glib(glib), art_convert.parse(data)
+    if gtop is None:
+        return data
+    gcnt, goffs = gtop
+    hoffs = htop["offsets"]
+    if htop["count"] != gcnt:
+        return data
+    for i in range(gcnt):
+        gitem = glib[goffs[i]:goffs[i + 1]]
+        nitem = newglib[goffs[i]:goffs[i + 1]]
+        if gitem == nitem or gitem[:4] != prequant.GLIB:
+            continue
+        gsub = prequant.parse_glib(gitem)
+        hsub = art_convert.parse(data[hoffs[i]:hoffs[i + 1]])
+        if gsub is None or hsub["count"] != gsub[0]:
+            continue
+        scnt, soffs = gsub
+        hsoffs = hsub["offsets"]
+        for j in range(scnt):
+            ge = gitem[soffs[j]:soffs[j + 1]]
+            ne = nitem[soffs[j]:soffs[j + 1]]
+            if ge == ne:
+                continue
+            w = prequant.pal_window(ge)
+            if w is None:                      # only palettes may differ
+                continue
+            _start, count, _n = w
+            src = hoffs[i] + hsoffs[j] + 8
+            out[src:src + count * 3] = ne[8:8 + count * 3]
+    return bytes(out)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("src", help="gamedata directory or a single .ctl")
@@ -366,7 +432,7 @@ def main():
              "overfull_before": 0, "overfull_after": 0}
     for path in files:
         data = open(path, "rb").read()
-        new = convert_file(data, args.budget, args.rows, args.screen_y, stats)
+        new = convert_any(data, args.budget, args.rows, args.screen_y, stats)
         if args.out and not args.report:
             rel = (os.path.relpath(path, args.src) if os.path.isdir(args.src)
                    else os.path.basename(path))

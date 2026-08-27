@@ -67,6 +67,38 @@ MACHINE="${1:?usage: mkdatadisks.sh <atari|atari720|amiga|gotek> [gamedata-dir] 
 # you would rather skip the install-time conversion.
 ART="${ART:-tlb}"
 case "$ART" in tlb|ctl|both) ;; *) echo "ART must be tlb, ctl or both" >&2; exit 1 ;; esac
+
+# PERBAND=<colours> — pre-reduce the art to the PER-BAND colour budget
+# (ADR-0020 v2, tools/perband.py) before packing. OFF by default.
+#
+# What it buys: on a 16/32-colour bitplane machine the runtime quantiser cuts
+# every scene on the fly, which is where the per-band seams, the stray
+# wrong-slot pixels and the re-band CPU all come from. Art that already fits
+# the hardware's per-band budget quantises EXACTLY — measured on the ECS
+# tavern picture, the remaining band artefacts went 3 rows to ZERO — and the
+# quantiser has nothing left to do.
+#
+# Suggested budgets (leave headroom below the hardware's per-band maximum for
+# the frame chrome, roster and text box that share every band):
+#     24   Amiga ECS   (32 colours per copper band)
+#     12   Atari ST/STE (16 colours)
+#
+# ★ WHY THIS IS OPT-IN AND NOT A DEFAULT. One set of data disks serves a whole
+#   family: the `atari` disks feed the ST *and* the Falcon/TT, the `amiga`
+#   disks feed ECS *and* AGA. Reducing the art helps the machine that has to
+#   quantise and very slightly flattens the one that does not (Falcon, AGA and
+#   the graphics cards are 256-colour and want SSI's palettes untouched). So
+#   converting is a deliberate choice made when you are building media for a
+#   specific low-colour machine, not something done to everyone's art by
+#   default. Build a second set with PERBAND= set for the ST or the A500.
+#
+# Works with ART=tlb: the converter reads SSI's DOS .TLB directly (the palette
+# payload is identical to its .ctl twin), so the engine's on-first-touch
+# conversion carries the reduced palettes through unchanged.
+PERBAND="${PERBAND:-}"
+if [[ -n "$PERBAND" ]] && ! [[ "$PERBAND" =~ ^[0-9]+$ ]]; then
+	echo "PERBAND must be a colour count (e.g. PERBAND=24)" >&2; exit 1
+fi
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="${2:-$REPO/data/work/gamedata}"
 OUT="${3:-$REPO/data/work/diskimages}"
@@ -147,6 +179,16 @@ rm -f "$OUT"/openua-data-"$MACHINE"-*."$EXT"
 ( cd "$SRC" && find . -maxdepth 1 -type f ! -name '*.EXE' ! -name 'DBG.LOG' \
 	! -name 'frua.prg' ! -name 'frua' ! -name '*.CHR' ! -name '*.CCH' \
 	-printf '%P\n' ) >> "$WORK/all"
+if [[ -n "$PERBAND" ]]; then
+	# Convert a COPY, never the user's staged tree.
+	say "per-band art conversion, budget $PERBAND colours ..."
+	PBSRC="$WORK/perband-src"
+	cp -a "$SRC" "$PBSRC"
+	python3 "$REPO/tools/perband.py" "$PBSRC" --out "$PBSRC" \
+		--budget "$PERBAND" | sed 's/^/  /'
+	SRC="$PBSRC"
+fi
+
 for d in "${DESIGNS[@]}"; do
 	[[ -d "$SRC/$d" ]] || { echo "no such design: $SRC/$d" >&2; exit 1; }
 	# Saved games are the player's own data, EXCEPT the one that ships on the
