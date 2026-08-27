@@ -32,6 +32,30 @@ converted twin is written back beside the original. `ART=ctl` ships the
 converted art instead — one disk fewer, no first-touch pause. `ART=both` keeps
 both, which you want only to revive the monochrome build.)
 
+**Building disks for a 16- or 32-colour machine? Consider `PERBAND=`.** An
+Atari ST/STE or an Amiga ECS cannot show SSI's 256-colour art directly, so
+the engine reduces every scene as it draws it — and that runtime reduction is
+where the band seams, the stray wrong-coloured pixels and a good share of the
+CPU cost come from. `PERBAND=<colours>` pre-reduces the art on the PC, where
+there is unlimited time to do it properly, so the art already fits what the
+hardware can show and the engine has nothing left to cut:
+
+```sh
+PERBAND=24 tools/mkdatadisks.sh amiga    # Amiga ECS  (32 colours per band)
+PERBAND=12 tools/mkdatadisks.sh atari    # Atari ST/STE (16 colours)
+```
+
+Measured on an A500: the band artefacts in a full-screen picture went from
+three visible rows to none, with the picture's shading intact. It works with
+the default `ART=tlb` — the converter reads SSI's DOS files directly, so the
+engine's first-touch conversion carries the reduced palettes through.
+
+It is **off by default on purpose**: one set of disks serves a whole family.
+The Atari set feeds the ST *and* the Falcon/TT; the Amiga set feeds ECS *and*
+AGA. Reducing the art helps the machine that has to quantise and very
+slightly flattens the one that does not, so build a second, converted set for
+the low-colour machine rather than converting everybody's.
+
 So **every one of these machines needs a hard disk, CF or SD card** — unless
 you have a **Gotek running FlashFloppy**, which changes the arithmetic
 completely and is covered in its own section below: the whole data set fits on
