@@ -98,6 +98,16 @@ short ecs_ink_hold = 1;
 short ecs_majq          = 1;   /* video.cfg majq=off    */
 short ecs_eagerq        = 0;   /* video.cfg eagerq=on   */
 short ecs_sprite_disarm = 1;   /* video.cfg sprites=on  */
+/* #165 tear-free threshold: at or above this many changed rows, a full
+ * present rebuilds the whole page and flips instead of converting rows into
+ * the page the copper is showing (see the full present). 50 of 200 rows = a
+ * quarter of the screen — comfortably above any HUD/glyph/command-bar update
+ * and below a scene change. video.cfg `tearfree=<rows>`; 0 restores the
+ * pre-#165 always-direct behaviour for A/B. Declared here, NOT beside its
+ * use: the video.cfg parser in ecs_init runs first in the file (the
+ * recurring ordering trap noted just below). */
+#define ECS_TEARFREE_DEFAULT 50
+short ecs_tearfree      = ECS_TEARFREE_DEFAULT;
 /* Defined with the disk palette cache, below — the video.cfg parser in
  * ecs_init runs first in the file. (The recurring ordering trap; see
  * sp_vp_rearm on the ST.) */
@@ -313,6 +323,22 @@ static int ecs_init(short want_w, short want_h)
 			if (strstr(buf, "sprites=on") != NULL) {
 				ecs_sprite_disarm = 0;
 				dbg_log("ecs: sprite disarm SKIPPED (video.cfg)");
+			}
+			/* #165 A/B: tearfree=<rows>, 0 = always write the
+			 * visible page (the pre-#165 behaviour). */
+			{
+				const char *tf = strstr(buf, "tearfree=");
+
+				if (tf != NULL) {
+					short v = 0;
+
+					tf += 9;
+					while (*tf >= '0' && *tf <= '9')
+						v = (short)(v * 10 + (*tf++ - '0'));
+					ecs_tearfree = v;
+					dbg_log_num("ecs: tear-free threshold rows = ",
+					            (long)v);
+				}
 			}
 		}
 	}
@@ -984,9 +1010,29 @@ static void epc_append(ULONG ch, ULONG fh)
  * notice if a future 10-s-class conversion ever needs it back.
  */
 
-static void ecs_reband(void)
+/* #165: the copper palette words, staged. Writing them is a separate act
+ * from computing them so a full render can install the new palette AT THE
+ * FLIP rather than 12 seconds ahead of the planes it belongs to (see the
+ * comment at the end of ecs_reband). */
+static short e_cop_pending;
+
+static void ecs_cop_pal_commit(void)
 {
 	short b, i;
+
+	for (b = 0; b < ECS_NBANDS; b++) {
+		const unsigned char *bp = s_band_pal + (long)b * ECS_NCOL * 3;
+
+		for (i = 0; i < ECS_NCOL; i++)
+			*s_cop_pal[b][i] = (UWORD)(((bp[i * 3 + 0] >> 4) << 8)
+			                          | ((bp[i * 3 + 1] >> 4) << 4)
+			                          | (bp[i * 3 + 2] >> 4));
+	}
+	e_cop_pending = 0;
+}
+
+static void ecs_reband(short defer)
+{
 	ULONG ch = 0, fh = 0;
 	short hit = -1;
 	short rhit = -1;                /* CLUT-keyed RAM cache entry, or -1 */
@@ -1207,14 +1253,33 @@ static void ecs_reband(void)
 	}
 	memcpy(e_clut_quant, s_clut, sizeof e_clut_quant);
 	e_quant_valid = 1;
-	for (b = 0; b < ECS_NBANDS; b++) {
-		const unsigned char *bp = s_band_pal + (long)b * ECS_NCOL * 3;
-
-		for (i = 0; i < ECS_NCOL; i++)
-			*s_cop_pal[b][i] = (UWORD)(((bp[i * 3 + 0] >> 4) << 8)
-			                          | ((bp[i * 3 + 1] >> 4) << 4)
-			                          | (bp[i * 3 + 2] >> 4));
-	}
+	/* ★ #165: DO NOT show a new palette over the old planes. This used to
+	 * write the copper words right here — but when the caller is
+	 * ecs_render(), the planes this palette describes do not exist yet:
+	 * the whole-screen remap + c2p that build them take ~12 SECONDS on a
+	 * 7 MHz 68000 (measured, FRUA_ECSTRACE: render start rl 446597 -> end
+	 * 637848), and the copper spends every one of them showing the
+	 * OUTGOING screen's pixels under the INCOMING screen's per-band
+	 * palettes. That is the A500 title corruption exactly: the old image
+	 * in wrong colours, sliced horizontally because the bands ARE the
+	 * copper's palette regions, resolving only when the flip finally
+	 * lands.
+	 *
+	 * So when a flip is coming, stage the words and let ecs_render commit
+	 * them WITH the plane switch. The content-same (remap_same) arm still
+	 * writes immediately and must: there the planes on screen are already
+	 * correct and only the RGB behind the slots moved — that is the
+	 * repalette shortcut, and deferring it would be the #140 bug (a
+	 * palette install must not wait for a present).
+	 *
+	 * The ST never showed this because its full present draws the hidden
+	 * page and flips (dsp pages == 1), so its palette and planes have
+	 * always changed together — which is why the same build shows clean
+	 * STe titles and corrupt ECS titles. */
+	if (defer && !remap_same)
+		e_cop_pending = 1;
+	else
+		ecs_cop_pal_commit();
 	s_dirty = 0;
 	s_have_pal = 1;
 	if (remap_same) {
@@ -1254,7 +1319,7 @@ static void ecs_render(void)
 #ifdef FRUA_AMIGAPROF
 		long q0 = amiga_prof_rl();
 #endif
-		ecs_reband();
+		ecs_reband(1);            /* #165: palette lands at the flip */
 #ifdef FRUA_AMIGAPROF
 		ap_quant_t += amiga_prof_rl() - q0; ap_quant_n++;
 #endif
@@ -1276,6 +1341,11 @@ static void ecs_render(void)
 	ap_c2pf_t += amiga_prof_rl() - p0; }
 #endif
 	CopyMem(s_chunky, s_shadow, (ULONG)ECS_W * ECS_H);
+	/* #165: planes and palette change together — the staged words go in
+	 * beside the new plane pointers, so no frame ever shows one screen's
+	 * pixels under another screen's colours. */
+	if (e_cop_pending)
+		ecs_cop_pal_commit();
 	cop_point_planes(back);
 	s_front ^= 1;
 #ifdef FRUA_ECSTRACE
@@ -1314,6 +1384,13 @@ static void ecs_render(void)
  * stale forever), which is what FRUA_DIRTYCHECK below polices. */
 static unsigned char e_pend[ECS_H];
 static short         e_pend_init;
+
+/* #165: rows the counting pass found actually changed (see the tear-free
+ * comment in the full present). Separate from e_pend so the diff runs once. */
+static unsigned char e_chg[ECS_H];
+
+extern short ecs_tearfree;      /* declared with the other video.cfg flags */
+#define ECS_TEARFREE_ROWS (ecs_tearfree > 0 ? ecs_tearfree : ECS_H + 1)
 #ifdef FRUA_DIRTYCHECK
 long g_ecs_dirtycheck_miss;
 #endif
@@ -1501,28 +1578,79 @@ static void ecs_present(void)
 		}
 		e_held_once = 0;
 
-		for (y = 0; y < ECS_H; y++) {
-			/* #63: only an announced row can have moved; the rest keep
-			 * their shadow and are skipped without being read. */
-			int changed = 0;
+		/* ★ #165 SCENE CHANGES GO THROUGH THE FLIP, NOT THE VISIBLE PAGE.
+		 * This loop converts changed rows STRAIGHT INTO s_planes[s_front]
+		 * — the page the copper is showing. At 7 MHz a screen's worth of
+		 * rows takes seconds to convert, so a scene change is watched
+		 * arriving band by band over the outgoing screen, and the rows
+		 * still to come are the OLD image under the NEW palette (the
+		 * palette commits before the blits on a quantiser). That is the
+		 * A500 field report verbatim: "it loads half, then runs out of
+		 * buffer, then loads the other half, with various mixing in of
+		 * CLUT swapping" — captured in amiberry as the AD&D screen
+		 * banding in over the SSI screen.
+		 *
+		 * The ST never showed this because it double-buffers INTERNALLY
+		 * (dsp pages == 1: every full present draws the hidden page and
+		 * flips), which is why the user reports the STe titles clean and
+		 * the ECS titles corrupt on the same build.
+		 *
+		 * Per-row direct writes stay for SMALL updates — a HUD line, a
+		 * glyph box — where the tear is one row of one frame and the
+		 * alternative (a whole-page rebuild) costs far more than it
+		 * saves. Above the threshold, hand the frame to ecs_render(),
+		 * which rebuilds the whole page in the BACK buffer and flips it
+		 * in atomically. A change that big was going to convert most of
+		 * the screen anyway, so the extra work is bounded by design.
+		 *
+		 * Counting first (into e_chg) rather than deciding mid-loop keeps
+		 * the diff work single-pass: the rows we counted are exactly the
+		 * rows the conversion loop below consumes. */
+		{
+			short nchg = 0;
 
-			if (e_pend[y]) {
-				e_pend[y] = 0;
+			for (y = 0; y < ECS_H; y++) {
+				e_chg[y] = 0;
+				if (!e_pend[y])
+					continue;
 #ifdef FRUA_AMIGAPROF
 				ap_scanned_rows++;
 #endif
-				changed = ecs_row_differs(s_chunky + (long)y * ECS_W,
-				                          s_shadow + (long)y * ECS_W,
-				                          ECS_W);
+				if (ecs_row_differs(s_chunky + (long)y * ECS_W,
+				                    s_shadow + (long)y * ECS_W,
+				                    ECS_W)) {
+					e_chg[y] = 1;
+					nchg++;
+				}
+				e_pend[y] = 0;
 			}
+			if (nchg >= ECS_TEARFREE_ROWS) {
+#ifdef FRUA_ECSTRACE
+				dbg_log_num("et: TEAR-FREE full render, rows = ",
+				            (long)nchg);
+#endif
+				ecs_render();           /* whole page + flip */
+				memset(e_pend, 0, sizeof e_pend);
+				e_pend_init = 1;
+				return;
+			}
+		}
+
+		for (y = 0; y < ECS_H; y++) {
+			/* #63: only an announced row can have moved; the rest keep
+			 * their shadow and are skipped without being read. */
+			int changed = e_chg[y];
+
 #ifdef FRUA_DIRTYCHECK
 			/* THE POLICE (the ST's, ported): re-run the OLD unconditional
-			 * diff on the rows the set said to skip. Any hit is a writer
-			 * that changed a row without announcing it — which would leave
-			 * that row stale on screen forever. Must read ZERO over a full
-			 * drive before anyone trusts the narrowed scan. */
-			else if (ecs_row_differs(s_chunky + (long)y * ECS_W,
-			                         s_shadow + (long)y * ECS_W, ECS_W)) {
+			 * diff on the rows the counting pass skipped (unannounced).
+			 * Any hit is a writer that changed a row without announcing
+			 * it — which would leave that row stale on screen forever.
+			 * Must read ZERO over a full drive before anyone trusts the
+			 * narrowed scan. */
+			if (!changed
+			 && ecs_row_differs(s_chunky + (long)y * ECS_W,
+			                    s_shadow + (long)y * ECS_W, ECS_W)) {
 				g_ecs_dirtycheck_miss++;
 				dbg_log_num("apecs MISS unannounced row = ", (long)y);
 				changed = 1;             /* self-heal, then report */
@@ -1679,7 +1807,7 @@ static void ecs_set_palette(const dsp_color_t *colors, short first, short count)
 	    && s_dirty && s_have_pal && e_quant_valid
 	    && ecs_clut_major_change()) {
 		dbg_log("ecs: EAGER reband (clut replaced)");
-		ecs_reband();
+		ecs_reband(0);            /* no flip pending: install now */
 		s_dirty = 0;
 	}
 }

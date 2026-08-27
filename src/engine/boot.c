@@ -67639,17 +67639,32 @@ static void l19d4(const char *name, short arg2, short a3, short a4)
 		if (mode == 5)                           /* 0x1a6c */
 			jt103(1, 1, 38, 22);             /* 0x1a78 frame rect */
 		l3880(0, 0, 1, (void *)(uintptr_t)handle);   /* 0x1a8e */
-		/* HW-palette: skip this MID-BODY present — under blackout it
-		 * would only spend another slow full present on an invisible
-		 * intermediate (base image without the overlay piece). The
-		 * quantisers keep the Mac's two-present cadence. */
-		if (!qd_palette_is_hw()) {
-			qd_present_hold(0);              /* composed + palette in */
-			jt117();                         /* 0x1a98 */
-		}
+		/* ★ #165: SKIP THE MID-BODY PRESENT EVERYWHERE.
+		 *
+		 * This present shows the base image WITHOUT the overlay piece —
+		 * a deliberately half-composed title. On the Mac that was free
+		 * (the whole body ran between frames); here every present is a
+		 * real screen-building pass, so the intermediate is not a
+		 * cadence detail, it is a visible half-drawn screen held for as
+		 * long as the next pass takes.
+		 *
+		 * HW-palette backends already skipped it (the composition runs
+		 * under a blacked-out CLUT, so this would spend a slow present
+		 * on something invisible). The A500 field report — "the
+		 * Forgotten Realms logo only draws about half the screen, then
+		 * the other half" — is the SAME present seen on a quantiser,
+		 * where nothing hides it: at 7 MHz a full render measures ~12 s
+		 * (FRUA_ECSTRACE), so the half-composed frame is what the
+		 * machine shows for most of the title's life. Reproduced in
+		 * amiberry, both the ECS half-draws and the wrong-colour
+		 * banding, before this and #165's palette-defer.
+		 *
+		 * Dropping it composes each title fully and presents ONCE —
+		 * which is what the DOS release does (title screens arrive
+		 * whole, verified in DOSBox at 0.35 s sampling) and what the
+		 * Mac's net frame looked like. The tail present below is
+		 * unchanged and still balanced with the entry hold. */
 		jt108(1);                                /* 0x1a9c */
-		if (!qd_palette_is_hw())
-			qd_present_hold(1);              /* re-hold for the tail */
 	}
 	l3880(0, 0, 1, (void *)(uintptr_t)handle);       /* 0x1aa6 frame 1 */
 	l3880(0, 0, 2, (void *)(uintptr_t)handle);       /* 0x1aba frame 2 */
