@@ -415,6 +415,11 @@ void          qd_palette_blackout(int on);
  * back to a full present). Lets the dungeon view skip converting the
  * static parts of the screen each frame. */
 typedef void (*qd_present_rect_fn)(short x, short y, short w, short h);
+/* Width of the attached screen surface, in pixels (0 if none). For callers
+ * that want to present a full-width row span without hardcoding a machine's
+ * geometry — the typewriter's per-glyph rect present (l435a) is the first. */
+short         qd_surface_width(void);
+
 void          qd_set_present_rect(qd_present_rect_fn fn);
 void          qd_present_rect(short x, short y, short w, short h);
 

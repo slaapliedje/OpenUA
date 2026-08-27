@@ -28949,6 +28949,8 @@ static void l435a(void)
 	{
 		static long s_text_present = -1;
 		long        now = TickCount();
+		const unsigned char *drows = NULL;
+		int                  scan_all;
 
 		/* ★ FLUSH FIRST. The glyph is drawn before l435a is called, but
 		 * its rows are not ANNOUNCED until the pending InvalRect is
@@ -28960,7 +28962,56 @@ static void l435a(void)
 
 		if ((now - s_text_present >= 1 || now < s_text_present)
 		    && qd_dirty_any()) {
-			qd_present();
+			/* ★ PRESENT THE TEXT ROWS, NOT THE WHOLE SCREEN.
+			 *
+			 * A typewriter glyph dirties one line of one box, but
+			 * this used to spend a FULL present on it. On a machine
+			 * where a full present is expensive — a 7 MHz ECS, or
+			 * the ATW800/2 whose VME full present measures ~0.5 s —
+			 * that costs far more than the glyph interval the pacer
+			 * was willing to give away, so the machine immediately
+			 * FALLS BEHIND. The fell-behind arm above then returns
+			 * before ever reaching here, so the presents stop
+			 * altogether and the remaining glyphs are drawn
+			 * INVISIBLY until something else presents.
+			 *
+			 * What the player sees is not a typewriter: it is a
+			 * fragment, a pause, then the rest arriving at once —
+			 * "it'll say 'The weary wande', pause for one or one
+			 * and a half seconds, then finish" (Mega STe + ATW,
+			 * 2026-08-26). Reproduced headlessly on ECS: two
+			 * consecutive frames read THE WEARY WANDERER and then
+			 * THE WEARY WANDERER., the whole difference being the
+			 * final character.
+			 *
+			 * Narrowing the present to the announced rows makes the
+			 * per-glyph cost proportional to what actually changed
+			 * (one text line, not 200 rows), which keeps the pacer
+			 * ahead and the typewriter smooth. Falls back to a full
+			 * present when the announcement says "scan everything"
+			 * (a writer that did not narrow) or when no row span can
+			 * be derived — the conservative direction, and identical
+			 * to the old behaviour. */
+			scan_all = qd_dirty_rows(&drows);
+			if (!scan_all && drows != NULL) {
+				short y0 = -1, y1 = -1, y;
+
+				for (y = 0; y < PLANAR_DIRTY_MAX; y++) {
+					if (!drows[y])
+						continue;
+					if (y0 < 0)
+						y0 = y;
+					y1 = y;
+				}
+				if (y0 >= 0)
+					qd_present_rect((short)0, y0,
+					                qd_surface_width(),
+					                (short)(y1 - y0 + 1));
+				else
+					qd_present();
+			} else {
+				qd_present();
+			}
 			s_text_present = now;
 		}
 	}

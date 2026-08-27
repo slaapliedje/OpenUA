@@ -637,6 +637,15 @@ short qd_present_pages(void)
 }
 
 /* Dirty-rect present hook — see quickdraw.h. */
+short qd_surface_width(void)
+{
+	PixMapHandle pm = g_screen_port.portPixMap;
+
+	if (pm == NULL || *pm == NULL)
+		return 0;
+	return (short)((*pm)->bounds.right - (*pm)->bounds.left);
+}
+
 static qd_present_rect_fn g_present_rect_hook;
 
 void qd_set_present_rect(qd_present_rect_fn fn)
