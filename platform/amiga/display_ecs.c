@@ -196,11 +196,40 @@ static void cop_build(void)
 		s_cop_pal[0][c] = cl + 1;
 		cl = cop_move(cl, (UWORD)(R_COLOR00 + c * 2), 0);
 	}
-	/* Bands 1..N-1: reload at the band's first scanline. */
+	/* Bands 1..N-1: reload during the PRECEDING line's blanking.
+	 *
+	 * ★ #167. This used to wait for the band's OWN first scanline at
+	 * hpos 0 and then issue the 32 COLOR moves. That does not fit: a
+	 * copper MOVE costs 2 copper cycles = 4 colour clocks, so 32 of them
+	 * need 128 CCK, and the display window opens at DIWSTRT hpos 0x81 =
+	 * 129 CCK. One colour clock of margin — before the four memory-refresh
+	 * slots at the top of every scanline are subtracted, and before any
+	 * blitter contention. So the tail of the palette load lands INSIDE the
+	 * visible line, or slips a whole line, and that scanline is displayed
+	 * with the previous band's colours for the registers that had not been
+	 * rewritten yet.
+	 *
+	 * On screen that is a thin wrong-coloured line at every band boundary —
+	 * DASHED, because only the pixels whose slots differ between the two
+	 * bands' palettes look wrong. Reported from the real A500 as "the
+	 * bigpics all had leftover pixels"; measured here, every artefact row
+	 * sat at an exact multiple of ECS_RPB (game rows 32, 48, 56, 72, 80,
+	 * 96 — mod 8 == 0), and the same rows appeared on two different
+	 * pictures, which is what proved it positional rather than content.
+	 * The Falcon renders the same picture from the same save with no
+	 * artefacts at all: no copper, no band palettes.
+	 *
+	 * Waiting on (line - 1, late hpos) instead gives the load the tail of
+	 * the previous line plus the whole horizontal blank — comfortably more
+	 * than the 128 CCK it needs — so every register is in place before the
+	 * band's first pixel. hpos 0x64 = CCK 200, past DIWSTOP's 0xC1 = 193,
+	 * so nothing is written while the previous line is still displaying.
+	 * b starts at 1, so line - 1 >= 0x2C + ECS_RPB - 1 and the wait can
+	 * never precede the display window's first line. */
 	for (b = 1; b < ECS_NBANDS; b++) {
 		short line = (short)(0x2C + b * ECS_RPB);
 
-		cl = cop_wait(cl, line, 0);
+		cl = cop_wait(cl, (short)(line - 1), 0x64);
 		for (c = 0; c < ECS_NCOL; c++) {
 			s_cop_pal[b][c] = cl + 1;
 			cl = cop_move(cl, (UWORD)(R_COLOR00 + c * 2), 0);
