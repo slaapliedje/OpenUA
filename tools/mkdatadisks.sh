@@ -68,8 +68,9 @@ MACHINE="${1:?usage: mkdatadisks.sh <atari|atari720|amiga|gotek> [gamedata-dir] 
 ART="${ART:-tlb}"
 case "$ART" in tlb|ctl|both) ;; *) echo "ART must be tlb, ctl or both" >&2; exit 1 ;; esac
 
-# PERBAND=<colours> — pre-reduce the art to the PER-BAND colour budget
-# (ADR-0020 v2, tools/perband.py) before packing. OFF by default.
+# PERBAND=<colours>|auto|off — pre-reduce the art to the PER-BAND colour
+# budget (ADR-0020 v2, tools/perband.py) before packing. DEFAULT: auto,
+# which converts, choosing the budget from the target machine.
 #
 # What it buys: on a 16/32-colour bitplane machine the runtime quantiser cuts
 # every scene on the fly, which is where the per-band seams, the stray
@@ -83,21 +84,31 @@ case "$ART" in tlb|ctl|both) ;; *) echo "ART must be tlb, ctl or both" >&2; exit
 #     24   Amiga ECS   (32 colours per copper band)
 #     12   Atari ST/STE (16 colours)
 #
-# ★ WHY THIS IS OPT-IN AND NOT A DEFAULT. One set of data disks serves a whole
-#   family: the `atari` disks feed the ST *and* the Falcon/TT, the `amiga`
-#   disks feed ECS *and* AGA. Reducing the art helps the machine that has to
-#   quantise and very slightly flattens the one that does not (Falcon, AGA and
-#   the graphics cards are 256-colour and want SSI's palettes untouched). So
-#   converting is a deliberate choice made when you are building media for a
-#   specific low-colour machine, not something done to everyone's art by
-#   default. Build a second set with PERBAND= set for the ST or the A500.
+# ★ ONE SET OF DISKS SERVES A WHOLE FAMILY, so know what the default costs.
+#   The `atari` disks feed the ST *and* the Falcon/TT; the `amiga` disks feed
+#   ECS *and* AGA. Converting is right for the bitplane member (it is the one
+#   that would otherwise reduce the art on the fly, badly) and slightly
+#   flattens the 256-colour member, which wanted SSI's palettes untouched.
+#   Measured palette rms error: 9.3 at budget 24, 14.5 at 12 — against 26.3
+#   for a global 32-colour cut and 34.6 for global 16, i.e. even the ST budget
+#   is far closer to the original than what the runtime quantiser produces on
+#   the machine it is for.
+#
+#   USE `PERBAND=off` when the media is for a 256-colour machine only — a
+#   Falcon, a TT, an A1200, or any graphics card. Those want the art as SSI
+#   drew it.
 #
 # Works with ART=tlb: the converter reads SSI's DOS .TLB directly (the palette
 # payload is identical to its .ctl twin), so the engine's on-first-touch
 # conversion carries the reduced palettes through unchanged.
-PERBAND="${PERBAND:-}"
-if [[ -n "$PERBAND" ]] && ! [[ "$PERBAND" =~ ^[0-9]+$ ]]; then
-	echo "PERBAND must be a colour count (e.g. PERBAND=24)" >&2; exit 1
+PERBAND="${PERBAND:-auto}"
+case "$PERBAND" in
+auto|off|0|[1-9]*) ;;
+*) echo "PERBAND must be a colour count, 'auto' or 'off'" >&2; exit 1 ;;
+esac
+if [[ "$PERBAND" != auto && "$PERBAND" != off ]] \
+   && ! [[ "$PERBAND" =~ ^[0-9]+$ ]]; then
+	echo "PERBAND must be a colour count, 'auto' or 'off'" >&2; exit 1
 fi
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="${2:-$REPO/data/work/gamedata}"
@@ -140,6 +151,19 @@ gotek)     UNIT=4096; CAP=2289; ROOT=512; FMT=;     EXT=st
 *)         echo "unknown machine: $MACHINE (atari|atari720|amiga|gotek)" >&2; exit 1 ;;
 esac
 MGEOM="${MGEOM:-}"
+
+# PERBAND=auto (the default): pick the budget from the machine the disks are
+# for. Every target these disks serve has a bitplane member that must reduce
+# 256-colour art at runtime, and that reduction is what produces the band
+# seams and the stray pixels — so converting is the right default and `off`
+# is the escape.
+if [[ "$PERBAND" == auto ]]; then
+	case "$MACHINE" in
+	amiga)              PERBAND=24 ;;   # ECS: 32 colours per copper band
+	atari|atari720|gotek) PERBAND=12 ;; # ST/STE: 16
+	esac
+fi
+[[ "$PERBAND" == off || "$PERBAND" == 0 ]] && PERBAND=""
 # ★ PACK BY BLOCKS, NOT BYTES. A byte budget with a flat overhead subtracted
 # looks right and silently overflows on a disk with MANY files: each file costs
 # a rounded-up block regardless of size, and on FFS an extra header block plus

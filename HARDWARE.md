@@ -32,29 +32,36 @@ converted twin is written back beside the original. `ART=ctl` ships the
 converted art instead — one disk fewer, no first-touch pause. `ART=both` keeps
 both, which you want only to revive the monochrome build.)
 
-**Building disks for a 16- or 32-colour machine? Consider `PERBAND=`.** An
-Atari ST/STE or an Amiga ECS cannot show SSI's 256-colour art directly, so
-the engine reduces every scene as it draws it — and that runtime reduction is
-where the band seams, the stray wrong-coloured pixels and a good share of the
-CPU cost come from. `PERBAND=<colours>` pre-reduces the art on the PC, where
-there is unlimited time to do it properly, so the art already fits what the
-hardware can show and the engine has nothing left to cut:
-
-```sh
-PERBAND=24 tools/mkdatadisks.sh amiga    # Amiga ECS  (32 colours per band)
-PERBAND=12 tools/mkdatadisks.sh atari    # Atari ST/STE (16 colours)
-```
+**The art is pre-reduced for you by default.** An Atari ST/STE or an Amiga
+ECS cannot show SSI's 256-colour art directly, so the engine has to reduce
+every scene as it draws it — and that runtime reduction is where the band
+seams, the stray wrong-coloured pixels and a good share of the CPU cost come
+from. `mkdatadisks.sh` now does that work on the PC instead, where there is
+unlimited time to do it properly, so the art already fits what the hardware
+can show and the engine has nothing left to cut. The budget comes from the
+target: 24 colours per band for the Amiga set, 12 for the Atari set.
 
 Measured on an A500: the band artefacts in a full-screen picture went from
 three visible rows to none, with the picture's shading intact. It works with
 the default `ART=tlb` — the converter reads SSI's DOS files directly, so the
 engine's first-touch conversion carries the reduced palettes through.
 
-It is **off by default on purpose**: one set of disks serves a whole family.
-The Atari set feeds the ST *and* the Falcon/TT; the Amiga set feeds ECS *and*
-AGA. Reducing the art helps the machine that has to quantise and very
-slightly flattens the one that does not, so build a second, converted set for
-the low-colour machine rather than converting everybody's.
+```sh
+tools/mkdatadisks.sh amiga                 # converted for ECS (budget 24)
+tools/mkdatadisks.sh atari                 # converted for ST/STE (budget 12)
+PERBAND=off tools/mkdatadisks.sh atari     # SSI's palettes, untouched
+PERBAND=16 tools/mkdatadisks.sh atari      # your own budget
+```
+
+**Use `PERBAND=off` when the disks are for a 256-colour machine only** — a
+Falcon, a TT, an A1200, or any graphics card. One set of disks serves a whole
+family (the Atari set feeds the ST *and* the Falcon/TT; the Amiga set feeds
+ECS *and* AGA), so the default helps the member that must reduce the art and
+slightly flattens the member that need not. For reference, the palette error
+the conversion introduces is 9.3 at budget 24 and 14.5 at 12 — against 26.3
+for the single-palette cut and 34.6 for a 16-colour one, i.e. even the ST
+budget stays far closer to SSI's original than what the machine would
+otherwise produce for itself.
 
 So **every one of these machines needs a hard disk, CF or SD card** — unless
 you have a **Gotek running FlashFloppy**, which changes the arithmetic
