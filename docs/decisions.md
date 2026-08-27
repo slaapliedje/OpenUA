@@ -1411,3 +1411,29 @@ for free. A module's converted art lives in its `.DSN` per ADR-0011 and
 never overwrites the base game; the base game's converted set installs
 beside the originals the same way `.ctl` conversion already does. ABC
 (Leonard's GPU quantizer) serves as the quality oracle.
+
+### ADR-0020 addendum (2026-08-26, measured) — the target is PER-BAND, not per-screen
+
+The first prequant run against the real backends corrected the colour
+target. Both bitplane backends paint through RASTER-SPLIT palettes, not
+one palette per frame: Amiga ECS runs **25 copper bands x 32 colours**
+(`ECS_NBANDS`, 8 scanlines each) and the ST runs its Timer-B viewport
+split (24 colours a frame, `vpbands`). Quantizing the art offline to a
+single 32-colour palette therefore THROWS CAPABILITY AWAY — verified by
+eye on the ECS titles: the red gradient banded into hard diagonal
+stripes and the stone border shifted green/purple, visibly worse than
+what the runtime quantizer produces from the same art at the same 32
+colours per band.
+
+So v2's target is not "N colours per screen". It is: per-screen-family
+palettes sized to the hardware's PER-BAND budget, dithered offline —
+which keeps the raster capability and still removes the runtime
+re-band churn (the actual win the user asked for). The v1 palette-snap
+stays useful as the plumbing (it proved the rewrite is safe and the
+engine plays converted art unchanged) and as an EGA-nostalgia preset,
+where collapsing to one small palette is the POINT rather than a loss.
+
+Corollary worth keeping: measure a quantization change against the
+BACKEND, never against the source art alone. A metric that says "rms
+22.3, better than 16 colours" ranked the worse-looking result first,
+because it could not see the copper.

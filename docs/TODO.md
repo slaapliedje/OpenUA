@@ -246,7 +246,14 @@ list of what the real machine found — and what it is still owed — is
    left-edge note in the colour-budget memory), or an incremental-copy
    hazard like #148's s_dt run copy on the ST.
 
-13. **ECS titles: half-draw + CLUT churn + corruption** (same report):
+13. ~~**ECS titles: half-draw + CLUT churn + corruption**~~ **FIXED
+   (fbed8cc3, #165)** — two causes, both reproduced in amiberry: the
+   copper palette was installed ~12 s before the planes it described
+   (now staged and committed at the flip), and l19d4's mid-body present
+   deliberately showed each title half-composed (now dropped for every
+   backend, matching the DOS release). 80 samples over 160 s of the
+   title sequence now yield 3 distinct frames, each complete and
+   correctly coloured. Original report:
    the ECS titles show the SAME "half buffer, then load more, with
    corruption" pattern the STe titles had before they were fixed. This
    is the known pattern of Atari-side fixes not being ported to the
