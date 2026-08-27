@@ -92,3 +92,42 @@ and the CBODY/COMSPR composite tables. Several conversions are proven
 Verified end-to-end with BEOWOLF, AGAINST THE GIANTS, and the Pool of
 Radiance remake (Game39: 191/191 files) on both the colour and ST-mono
 builds.
+
+# Reducing the colours for a 16/32-colour machine — `perband.py`
+
+`art_convert.py` changes a picture's FORMAT. `perband.py` changes its
+COLOURS, and only if you are aiming at an Atari ST/STE or an Amiga ECS.
+
+Those machines cannot show SSI's 256-colour art, so the engine reduces
+every scene as it draws it. That runtime reduction is where the band
+seams, the stray wrong-coloured pixels and a large part of the CPU cost
+come from. Doing the same work here, on a PC with unlimited time, leaves
+the engine with nothing to cut.
+
+What it enforces is the hardware's own constraint — **no 8-scanline strip
+of a picture may need more than the budget** — rather than a flat colour
+count. A picture that satisfies it can still carry far more than 32
+colours overall, because different strips spend their allowance on
+different colours, and every band then reduces exactly.
+
+```sh
+python3 perband.py MYGAME --out MYGAME-ecs --budget 24   # Amiga ECS
+python3 perband.py MYGAME --out MYGAME-st  --budget 12   # Atari ST/STE
+python3 perband.py MYGAME --report                       # measure only
+```
+
+Budgets sit below the hardware's per-band maximum (32 on ECS, 16 on ST)
+because the frame chrome, roster and text box share every band.
+
+It reads both formats — SSI's DOS `.TLB` and the engine's `.ctl` — and
+rewrites **only palette bytes**: pixels, offsets and codecs are untouched,
+so the output is valid art by construction and the unmodified engine plays
+it. Converting the `.TLB` is what reaches a machine that installs DOS art,
+since the engine derives its `.ctl` from that on first touch.
+
+If you build data disks with `tools/mkdatadisks.sh`, this already happens
+for you — see HARDWARE.md. Run it by hand for a fan module you are
+installing yourself, or to try a different budget.
+
+`prequant.py` is the older, blunter tool: one palette for everything. Its
+use now is the deliberately-flat EGA look, not fidelity.

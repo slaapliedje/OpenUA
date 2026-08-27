@@ -898,6 +898,13 @@ define PKG_DIST
 	@cp $(2) dist/$(1)/
 	@cp README.md GAMEDATA.md HARDWARE.md docs/enhancements.md dist/$(1)/ 2>/dev/null || true
 	@cp tools/art_convert.py dist/$(1)/
+	@# The offline colour reducers (ADR-0020). perband.py is the one to use
+	@# on a 16/32-colour machine: it fits the art to the hardware's PER-BAND
+	@# budget so the engine never has to reduce a scene at runtime. It
+	@# imports prequant.py (container + palette parsing) and art_convert.py
+	@# (DOS .TLB support), so all three travel together; the flat layout is
+	@# what its next-to-script import expects.
+	@cp tools/perband.py tools/prequant.py dist/$(1)/
 	@cp docs/converter-howto.md dist/$(1)/CONVERTER.md
 	@# The game-data staging tools (Python 3, run on a PC): stage_dos.py turns
 	@# a GOG/Steam DOS install into a complete game folder in one command
