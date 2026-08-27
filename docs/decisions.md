@@ -1437,3 +1437,46 @@ Corollary worth keeping: measure a quantization change against the
 BACKEND, never against the source art alone. A metric that says "rms
 22.3, better than 16 colours" ranked the worse-looking result first,
 because it could not see the copper.
+
+### ADR-0020 v2 (2026-08-26) — the per-band converter, and why it works
+
+`tools/perband.py` implements the corrected target from the addendum above.
+The constraint it enforces is the hardware's own:
+
+    no 8-scanline strip of a picture may need more than `budget`
+    distinct colours
+
+A picture satisfying that can carry FAR more than 32 colours overall —
+different strips spend their 32 on different colours, which is how Amiga
+"rainbow" art and SSI's hand-authored ST art work — and every band then
+quantizes EXACTLY at runtime: nothing is merged, so there are no per-band
+seams and no nearest-luma stray pixels. The runtime quantizer is left with
+nothing to do, which is the actual goal (the CPU win) as well as the
+fidelity one.
+
+**It needs no pixel rewriting.** A strip's cost is the number of distinct
+RGB VALUES its indices resolve to, not the number of indices, so the budget
+is met by MERGING PALETTE ENTRIES alone — the same palette-only rewrite v1
+proved safe. Each merge takes the closest pair inside an over-budget strip,
+so fidelity is spent only where the constraint binds. Pictures land at
+screen y=24, a multiple of the 8-row band height, so a picture's own strips
+align with the hardware's bands.
+
+**Budget is deliberately below the hardware's 32** (default 24): a screen
+band also carries frame chrome, the roster and the text box.
+
+Measured, whole HEIRS corpus at budget 24: 364 pictures, none skipped,
+worst band 197 -> 24 colours, 2323 over-budget bands -> 0, palette rms
+error **7.6** — against 26.3 for a global 32-colour palette and 34.6 for
+global 16. Better fidelity AND a hardware guarantee, which is the whole
+argument for doing this offline.
+
+Verified on ECS in amiberry, artefact rows in the HEIRS tavern picture:
+stock art before #167 = 9 rows / severity 3.39; stock art after #167 = 3 /
+0.85; **per-band art = 0 / 0.00**, with the picture's modelling intact.
+So #167 (the copper timing fix) and this converter close the ECS
+band-artefact family from both ends: the engine stops mis-timing the
+palette, and the art stops needing a runtime cut at all.
+
+Still open for v3: true pixel-level dithering (needs codec re-encoding, not
+just palette merges) and the EGA-nostalgia preset.
