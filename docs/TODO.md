@@ -239,12 +239,34 @@ list of what the real machine found — and what it is still owed — is
    audio to the desktop — mute with SDL_AUDIODRIVER=dummy; that does NOT
    explain the on-hardware report.
 
-12. **ECS pixel leftovers** (field report 2026-08-26, real A500): "pixel
-   left overs in some places" during play. Location/screens not yet
-   pinned — get specifics (which screens, walk vs menus) on the next
-   pass. Candidate suspects: quantizer stray pixels (the old A500
-   left-edge note in the colour-budget memory), or an incremental-copy
-   hazard like #148's s_dt run copy on the ST.
+12. **ECS bigpic leftover pixels** (field report 2026-08-26, real A500:
+   "the bigpics all had leftover pixels"). **REPRODUCED headlessly
+   2026-08-26** (amiberry ECS, SAVGAMB walk fixture: p/l/b/b then Up x4
+   to the HEIRS tavern-brawl event at 13,8): the picture carries white
+   and yellow DASHED horizontal lines across the art. Evidence and what
+   it rules out:
+   - The dashes are DASHED, not solid full-width rows, so this is NOT
+     "a row never converted" — it is per-pixel.
+   - **The unannounced-row police reads ZERO.** A whole drive under
+     `-DFRUA_DIRTYCHECK` (boot -> menu -> load -> walk -> two bigpic
+     events) logged 0 `apecs MISS unannounced row`. The #63 narrowed
+     scan is NOT the cause; do not re-suspect it without new evidence.
+   - Art census (tools/prequant.py parser over the real libraries):
+     `BIGPIC.CTL` is modes 8+2 only (palette + OPAQUE PackBits), but the
+     event-picture libraries (`PICA.CTL`) carry **mode 7 (transparent
+     RLE, 12 pieces) and mode 9 (composite, 1)** alongside mode 2. So an
+     event picture is a composite of an opaque base plus TRANSPARENT
+     overlays — and `l2d4e`'s mode-7 arm skips index-0 pixels, which
+     shows whatever was underneath.
+   NEXT: determine whether the destination is supposed to be cleared
+   before a transparent overlay lands (check the Mac's own order in
+   L2d4e/L309c — a port divergence here would explain it), or whether a
+   composite sub-piece is landing at the wrong offset. Also re-test on
+   hardware AFTER #165: the pre-#165 incremental present wrote changed
+   rows into the VISIBLE page while the other page held an older frame,
+   which is the #61 two-page staleness class and could produce leftovers
+   of its own; #165's tear-free path rebuilds the whole page and may
+   have removed some or all of what the user saw.
 
 13. ~~**ECS titles: half-draw + CLUT churn + corruption**~~ **FIXED
    (fbed8cc3, #165)** — two causes, both reproduced in amiberry: the
