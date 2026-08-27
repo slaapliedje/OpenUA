@@ -765,3 +765,18 @@ by the live DLItem group (raised/recessed from rec[28]); then wire jt315's
 faithful JT[3] dispatch (CODE22+0x5112) and lift each sub-menu. Deferred
 polish: backdrop tile has a baked-in white 3D bevel line (FRAME.CTL item4 is
 a framing piece, not a clean field — /tmp/frame_bar.png); bars/sizing.
+
+15. ~~**Text output stutters: fragment, pause, then the rest**~~ **FIXED
+   (9cb32155, #166)** — reported on the Mega STe + ATW after #163 landed
+   ("it'll say 'The weary wande' pause for one or 1.5 seconds, then
+   finish"). NOT an ordering bug: l435a showed each glyph with a FULL
+   present, which on an expensive-present machine overruns the glyph
+   interval, so the pacer falls behind, its fell-behind arm returns
+   before the present, and the rest of the line types INVISIBLY. Now
+   presents only the announced rows. Reproduced and verified headlessly
+   on ECS (2 frames before, 15 progressive frames after).
+
+   NOTE while verifying: on ECS the FIRST text line renders bright cyan
+   and later lines render DIM/grey (visible in the innkeeper event).
+   That is the known new-ink family — text drawn after the re-band
+   landing on a near-luma slot — not the typewriter. Separate item.
