@@ -257,8 +257,14 @@ list of what the real machine found — and what it is still owed — is
    real answers are palette continuity across boundaries (generalise
    st_unify_border's slot-0 trick to boundary colours) or ADR-0020's
    offline pre-quant giving the art a palette stable across bands.
-   Worth re-checking whether the old A500 LEFT-EDGE corruption note
-   (in the colour-budget memory) was the same late-copper-write cause.
+   The old A500 LEFT-EDGE corruption is NOT this cause (tested
+   2026-08-26, negative): late copper writes can only affect
+   band-boundary lines, but only 3 of the top 20 left-edge anomaly rows
+   land on a multiple of 8 (chance ~2.5), and the standouts are the text
+   box and command bar. NB the AGA-is-clean argument proves nothing
+   here — AGA never reduces colours, so it is immune to every
+   colour-reduction cause equally. Left-edge stays with the quantizer
+   stray-pixel hypothesis; a real A500 arbitrates.
    Original report and the elimination trail:
    "the bigpics all had leftover pixels"). **REPRODUCED headlessly
    2026-08-26** (amiberry ECS, SAVGAMB walk fixture: p/l/b/b then Up x4
