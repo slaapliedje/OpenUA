@@ -239,7 +239,27 @@ list of what the real machine found — and what it is still owed — is
    audio to the desktop — mute with SDL_AUDIODRIVER=dummy; that does NOT
    explain the on-hardware report.
 
-12. **ECS bigpic leftover pixels** (field report 2026-08-26, real A500:
+12. **ECS bigpic "leftover pixels"** — **ROOT-CAUSED AND LARGELY FIXED
+   (34252c19, #167)**: not leftover pixels at all, but a COPPER TIMING
+   bug. Each band's 32 COLOR moves need 128 colour clocks and the old
+   code started them at the band's own scanline, hpos 0 — 1 CCK of
+   margin against DIWSTRT's 129, before refresh slots and blitter
+   contention. The load spilled into the visible line, so that scanline
+   kept the previous band's colours for the registers not yet written:
+   a thin dashed wrong-coloured line at every band boundary. Now loaded
+   in the PRECEDING hblank. Measured on the tavern-brawl picture
+   (picture region): 9 artefact rows / 3.37 severity -> 3 / 0.85.
+   **RESIDUAL, still open:** ~3 faint rows remain, most likely the
+   GENUINE per-band palette seam (adjacent bands quantising a shared
+   colour differently) rather than timing. Do NOT fix that by dropping
+   bands: quantsim on the same frame measures banded 125.8 vs global
+   249.6 mean sq err, and the global version is visibly flatter. The
+   real answers are palette continuity across boundaries (generalise
+   st_unify_border's slot-0 trick to boundary colours) or ADR-0020's
+   offline pre-quant giving the art a palette stable across bands.
+   Worth re-checking whether the old A500 LEFT-EDGE corruption note
+   (in the colour-budget memory) was the same late-copper-write cause.
+   Original report and the elimination trail:
    "the bigpics all had leftover pixels"). **REPRODUCED headlessly
    2026-08-26** (amiberry ECS, SAVGAMB walk fixture: p/l/b/b then Up x4
    to the HEIRS tavern-brawl event at 13,8): the picture carries white
