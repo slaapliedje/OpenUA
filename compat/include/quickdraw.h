@@ -388,6 +388,11 @@ void          qd_present_at(short line, char tag);
 #define qd_present() qd_present_at((short)__LINE__, (char)__FILE__[7])
 #endif
 
+/* #8 — presents swallowed by the ref-counted hold, monotonic. Lets a holder
+ * bound its own hold by WORK rather than wall-clock; see qd_hold_swallowed's
+ * definition for why time is the wrong axis. */
+long          qd_hold_swallowed(void);
+
 /* Off-screen compose (#144): while suppressed, qd_present() defers to a
  * single commit. The engine's frame bracket (JT[108]/L38d0 begin,
  * l3994 commit) toggles this in lockstep with the -18395 compose flag,

@@ -18952,6 +18952,7 @@ static unsigned char *g_evf_snap;
  * every path out of an iteration, including the exitflag break, so a hold
  * can never outlive the step that took it. */
 static short g_event_tail_hold;
+static long  g_event_tail_base;         /* #8: qd_hold_swallowed() at arm time */
 
 /* ★ AND IT IS ARMED ONLY FOR A WALK STEP. The repair half of this hold lives
  * in l63c0's per-step re-render, so the hold is only safe where that re-render
@@ -18980,6 +18981,7 @@ static void port_event_tail_hold(void)
 	if (!g_event_tail_hold) {
 		g_event_tail_hold = 1;
 		g_event_tail_tick = TickCount();
+		g_event_tail_base = qd_hold_swallowed();
 		qd_present_hold(1);
 	}
 }
@@ -19004,17 +19006,69 @@ static void port_event_tail_hold(void)
  * has to be good enough to keep the common case exact; correctness no longer
  * depends on it being complete.
  *
- * The limit is generous next to the window it protects (a wipe and a repair
- * inside one step render) and short enough that a missed release costs a blink
- * rather than a frozen game. A slow machine that exceeds it simply gets the
- * pre-#161 flash back — the cosmetic outcome, never the frozen one. */
-#define EVENT_TAIL_HOLD_TICKS 30        /* 0.5s at 60Hz */
+ * ★ AND THE AXIS WAS WRONG — #8, measured 2026-08-30. The bound above was
+ * wall-clock, 30 ticks, reasoned as generous against "a wipe and a repair
+ * inside one step render" and shipped with the note that a slow machine
+ * exceeding it "simply gets the pre-#161 flash back". Instrumenting the tail
+ * says EVERY machine exceeds it, and not marginally:
+ *
+ *   tail in        tick 14515
+ *   tail out       tick 14549   (jt23+jt935+jt937+jt938 = 34 ticks, 5 presents)
+ *   L63c0 release  tick 14569   90 presents swallowed
+ *
+ * The honest window is 54-66 ticks over two events — nearly TWICE the bound —
+ * on a Falcon030, in an emulator, under fast-forward. So the expiry fired on
+ * every event ever dispatched, and l63c0's release (the designed one, the one
+ * that discards the intermediate and lands the whole tail as a single frame)
+ * never once ran. #161 has been inert since the day it shipped.
+ *
+ * On a fast machine that costs a blink and nobody noticed for a month. On a
+ * slow-present machine it is the reported bug: the expiry lands mid-tail, the
+ * remaining presents go out one at a time, and closing a picture event shows
+ * the picture vanish and the OLD view return before the step redraws — "the
+ * pic unloading, draining out of the view square" (Mega STe + ATW800/2, where
+ * a present is ~0.5s of VME writes).
+ *
+ * ★ Reproduced by impersonating that machine: -DFRUA_SLOWPRESENT=30 (see
+ * qd_present_body) makes a Falcon present at ATW speed, and one close then
+ * shows FOUR distinct frames where it should show two — the middle pair being
+ * the torn-down intermediates. Nothing we can emulate is natively slow enough
+ * to show this, which is why it took a hardware report to find; the simulator
+ * is how the next one gets found here instead.
+ *
+ * TIME CANNOT SEPARATE the two states this has to tell apart. "Busy rebuilding
+ * the frame" and "stuck, and the engine has run on without me" both look like
+ * elapsed ticks, and the legitimate case — a play-screen recompose, a 3D view
+ * render, and the sticky text replay — is already ~1s on the FASTEST target.
+ * Any bound tight enough to catch a runaway fires on every healthy event on a
+ * Mega STe. That is not a tuning error in the constant; it is the wrong axis.
+ *
+ * PRESENTS SWALLOWED is the right one, because it does not vary with machine
+ * speed: the same code path issues the same presents on a 7MHz 68000 and a
+ * 50MHz 030, so a cap set here holds on every target without a per-machine
+ * table. The honest window measures 71-90 (it tracks the message length — the
+ * replay commits per glyph), so 512 clears the longest five-slot message
+ * several times over while a runaway, which presents without bound because
+ * presenting is what it does, still trips it.
+ *
+ * The wall-clock bound survives as a LAST resort only, at a value no honest
+ * tail can reach on any target we ship. Neither bound is now expected to fire
+ * in normal play; the primary protection remains STRUCTURAL — the walk-step
+ * gate in port_event_tail_hold, and the explicit drops at every point the
+ * engine waits for the player (l1806, l4d26's entry, and jt511's combat
+ * entry, which is the shape that defeated enumeration twice). The bounds are
+ * the net under those, not the mechanism. */
+#define EVENT_TAIL_HOLD_PRESENTS 512    /* honest window measures 71-90 */
+#define EVENT_TAIL_HOLD_TICKS 900       /* 15s — last resort, never expected */
 
 static void port_event_tail_expire(void)
 {
-	if (g_event_tail_hold
-	    && (long)(TickCount() - g_event_tail_tick) > EVENT_TAIL_HOLD_TICKS)
+	if (!g_event_tail_hold)
+		return;
+	if (qd_hold_swallowed() - g_event_tail_base > EVENT_TAIL_HOLD_PRESENTS
+	    || (long)(TickCount() - g_event_tail_tick) > EVENT_TAIL_HOLD_TICKS) {
 		port_event_tail_show();
+	}
 }
 
 /* Returns 1 if a hold was actually dropped. Releasing DISCARDS the held
@@ -52950,6 +53004,16 @@ static void l159a(void *ev_v, short f)
 	                                  | ((ev[16] & 0xe0) >> 5));
 	rec[27] = (unsigned char)(ev[7] & 0x7f);
 
+	/* #161/#8: combat is the shape that defeated exit ENUMERATION twice —
+	 * a step-triggered event that chains into a fight leaves l4d26's tail
+	 * hold outstanding while jt511's loop draws its field and takes turns
+	 * behind a frozen screen ("it keeps the bigpic of the rider on the
+	 * screen ... sounds as if turns are being taken in the background").
+	 * The present cap in port_event_tail_expire is the net under this, but
+	 * a net that trips after hundreds of presents is a visible stall; drop
+	 * it structurally here, where we KNOW the frame is about to change and
+	 * the player is about to be waited on. */
+	port_event_tail_show();
 	jt510();                                   /* CODE 13 combat — task #115 */
 	jt512();                                   /* CODE 14 combat — task #115 */
 	jt511();

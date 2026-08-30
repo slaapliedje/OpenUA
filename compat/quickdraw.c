@@ -29,6 +29,9 @@
 #include "font_8x8.h"           /* qd_font_8x8 — fallback bitmap font */
 #include "mac_font.h"           /* g_mac_font — preferred when loaded */
 #include "input.h"              /* plat_mouse_pos — software cursor   */
+#ifdef FRUA_SLOWPRESENT
+#include "events.h"             /* TickCount — #8 slow-present simulator */
+#endif
 #if defined(FRUA_PRESENTCENSUS) || defined(FRUA_NCPROF) || defined(FRUA_REBAKEVERIFY) \
  || defined(FRUA_PALDIAG)
 #include "dbglog.h"             /* #61/#63 present census; #122 nc histogram */
@@ -301,6 +304,22 @@ static int g_present_suppress;
 static int g_present_pending;
 static int g_present_hold;              /* #147 atomic-recompose hold (nests) */
 
+/* #8 — how many presents the ref-counted hold has swallowed, ever. The engine's
+ * event-tail hold needs a way to notice it has been outstanding too long, and
+ * WALL-CLOCK cannot serve: a legitimate tail is 40-55 ticks of rendering on a
+ * Falcon and several times that on a Mega STe, so any time bound short enough
+ * to catch a stuck hold also fires on every healthy event. Presents swallowed
+ * is the machine-independent measure of the same thing — a healthy tail eats a
+ * handful, a runaway loop eats them without limit. Counts only the hold, never
+ * the frame bracket (g_present_suppress), because only the hold has an engine
+ * owner that can fail to release it. */
+static long g_hold_swallowed;
+
+long qd_hold_swallowed(void)
+{
+	return g_hold_swallowed;
+}
+
 /* #152: has anything drawn to the surface since the last full present?
  * Set by every write path — the fill/blit/glyph primitives, direct-writer
  * pointer grabs (qd_screen_pixels), and palette installs (which can change
@@ -530,6 +549,8 @@ static char qd_present_body(void)
 #ifdef FRUA_KBTRACE
 		g_kbt_qdsuppressed++;
 #endif
+		if (g_present_hold)
+			g_hold_swallowed++;   /* #8: what the HOLD ate, not the bracket */
 		g_present_pending = 1;   /* defer to the commit */
 		return 'H';
 	}
@@ -557,6 +578,20 @@ static char qd_present_body(void)
 #endif
 	if (g_present_hook != NULL)
 		g_present_hook();
+#ifdef FRUA_SLOWPRESENT
+	/* #8 DIAGNOSTIC — impersonate a slow-present machine. The ATW800/2's
+	 * Nova card takes ~0.5s of VME writes per full present; nothing we can
+	 * emulate is anywhere near that slow, so the bugs that only appear at
+	 * that speed cannot be reproduced by running an emulator. Burn the
+	 * difference here instead: -DFRUA_SLOWPRESENT=<ticks> makes every
+	 * present cost that many 60Hz ticks, turning any machine into an
+	 * ATW-class one for TIMING purposes. Diagnostic only, never shipped. */
+	{
+		long t0 = TickCount();
+		while ((long)(TickCount() - t0) < (long)FRUA_SLOWPRESENT)
+			;
+	}
+#endif
 	cursor_restore();
 	/* #152: frame on screen is current. Cleared LAST — cursor_composite/
 	 * cursor_restore above grab the pixel pointer (marking touched) but
@@ -610,6 +645,13 @@ void qd_present_at(short line, char tag)
 	dbg_log_num(out == 'P' ? "pcP site = "
 	          : out == 'H' ? "pcH site = " : "pcS site = ",
 	            (long)(unsigned char)tag * 100000L + (long)line);
+	/* #8: WHICH gate held it — the suppress boolean or the ref-counted
+	 * hold? They are different bugs with different fixes, and the site
+	 * alone cannot tell them apart. */
+	if (out == 'H')
+		dbg_log_num("    pc by sup*10+hold = ",
+		            (long)(g_present_suppress ? 1 : 0) * 10
+		            + (long)g_present_hold);
 }
 #endif
 
