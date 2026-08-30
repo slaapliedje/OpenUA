@@ -186,13 +186,41 @@ list of what the real machine found — and what it is still owed — is
    the Mac/DOS shows (DOS oracle, fine sampling), then either hold presents
    across the step+text compose or reorder.
 
-8. **Big-pic teardown is visible on slow presents** — closing a picture
-   event shows the pic "unloading" (draining out of the view square) before
-   the view redraws (same field report). Same disease the titles had: a
-   multi-step clear+recompose presented piecemeal over ~0.5 s VME writes.
-   Candidate fix: qd_present_hold around the event-close teardown+restore so
-   it lands as ONE present (blackout is wrong here — it is a content change,
-   not a palette one).
+8. ~~**Big-pic teardown is visible on slow presents**~~ **ROOT-CAUSED AND
+   FIXED (568ceaf5)** — and the guess in this entry was backwards. It
+   proposed *adding* a `qd_present_hold` around the event-close teardown.
+   The hold has been there since #161; it had never once worked.
+   `port_event_tail_expire` bounded it at 30 ticks, but the honest window
+   measures **54-66 ticks and 71-92 swallowed presents** — on a Falcon030,
+   in an emulator, under fast-forward. So the expiry fired on EVERY event
+   ever dispatched and `l63c0`'s release (the designed one, which discards
+   the intermediates and lands the tail as a single frame) never ran. On a
+   fast machine that is a blink nobody noticed for a month; on a slow-present
+   card the expiry lands mid-tail and the rest of the teardown goes out one
+   present at a time — the reported drain.
+   **The bound was on the wrong AXIS, not merely mistuned.** "Busy rebuilding
+   the frame" and "stuck, the engine ran on without me" are indistinguishable
+   in elapsed ticks, and the legitimate case is already ~1s on the FASTEST
+   target — any bound tight enough to catch a runaway fires on every healthy
+   event on a Mega STe. Presents swallowed does not vary with machine speed
+   (same code path, same presents at 7MHz and 50MHz), so one cap serves every
+   target: `qd_hold_swallowed()`, cap 512 against a 71-92 window, with the
+   wall-clock bound surviving at 900 ticks as a never-expected last resort.
+   Primary protection stays STRUCTURAL (the walk-step gate + explicit drops
+   where the engine waits for the player); the drop that defeated enumeration
+   twice — jt511's combat entry — is now explicit.
+   Measured A/B, same fixture and key timing, HEIRS 13,8 tavern-brawl:
+   **HEAD presented 5 separate partial states** (bracket commit, text commit,
+   full x2, step) where **the fix presents 2 — the two flip pages of ONE
+   frame.** At ~0.5 s/present on the Nova card that is ~2.5 s of visible
+   teardown removed.
+   ★ **New tool: `-DFRUA_SLOWPRESENT=<ticks>`** burns that cost per present
+   and turns any machine into an ATW-class one for TIMING purposes. Nothing
+   we emulate is natively that slow, which is why this class of bug has only
+   ever been found by hardware report; at 30 it reproduces the drain on a
+   Falcon. Reach for it on anything reported as "only on the slow card".
+   **Owed:** confirmation on the reporting hardware — everything here is
+   emulator-measured.
 
 9. ~~**Movement-arrow cursor is not confined to the 3D view**~~ **CORE
    FIXED (f8a8e308)** — the pad was the faithful Mac 136x160 screen-origin
