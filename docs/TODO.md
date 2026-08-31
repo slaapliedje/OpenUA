@@ -256,16 +256,45 @@ list of what the real machine found — and what it is still owed — is
    around screen 4 on the original too. Verify against DOS/Mini vMac before
    touching anything; the user explicitly ranks this minor.
 
-11. **Menu accelerators beep on the Mega STe** (field report 2026-08-26):
-   [P]lay / [L]oad / [B]egin each WORK but beep every time — "don't recall
-   it doing that before". Check the DOS oracle (drive p/l/<slot>/b in
-   DOSBox with a pulse audio capture: does DOS beep on accelerators?),
-   then find which path beeps — jt1080 fired by an unclaimed-key fall-
-   through AFTER the accelerator was consumed is the likely shape (l2d3e
-   Phase-5 "ph5 unclaimed -> jt1080"). NB the beeping heard during the
-   2026-08-26 session was ALSO partly my own headless Hatari leaking SDL
-   audio to the desktop — mute with SDL_AUDIODRIVER=dummy; that does NOT
-   explain the on-hardware report.
+11. ~~**Menu accelerators beep on the Mega STe**~~ **ROOT-CAUSED AND FIXED
+   (d408e3b4)**. The guessed shape was right — "jt1080 fired by an
+   unclaimed-key fall-through AFTER the accelerator was consumed" — and
+   the cause is a DOUBLE DELIVERY, so the DOS oracle was not needed:
+   Phase 5's `else jt1080()` is the faithful Mac arm for a key nothing
+   claims, and the port was handing it the SAME keystroke twice. First
+   read claims the accelerator and opens a modal; second finds no item
+   with that letter in the modal that just opened, and chimes.
+   Traced end to end on a Mega STe, ONE physical press:
+   `plat_kb_poll 9836` -> `kb_to_event 9836` -> `l6dd0 STAMP 9836` ->
+   read 'l' CLAIMED (opens Load) -> **`jt1125 STAMP 108` with no new poll
+   and no new event** -> read 'l' UNCLAIMED -> jt1080.
+   ★ **That also settles #132**, whose discriminator sits in
+   `plat_kb_poll`'s own comment and was never answered: two polls for one
+   press = IKBD repeat or the injector, one poll + two engine reads =
+   ours. It is one poll and two reads. **The repo had been blaming the
+   harness injector.**
+   Cause: the TaskList #84 stash. `l725c` pushes a copy of the key event
+   to `g_evfifo` so jt1125's consumers still see what the pump ate, AND
+   routes it to `l6dd0`, which stamps the pending slot (-818/-820);
+   jt1125 later pops the stashed copy and its port bridge stamps again.
+   On the Mac the paths cannot collide (jt1125 reads a separate IRQ
+   buffer and does not stamp at all), so the fix restores that invariant:
+   **jt1125 stamps only for an event it fetched ITSELF.** The event is
+   still returned either way, so l2d3e Phase 1's movement routing is
+   untouched — walk-verified (10,8 -> 12,8, innkeeper event fires).
+   A/B, same fixture, keys P L B: **STe HEAD 1 beep -> fixed 0**; Falcon
+   0 both ways. WHICH key doubles is a race and moves between runs, which
+   fits a machine whose timing makes it beep every time. An unclaimed
+   Return in the Hall still chimes — that is the faithful arm, not this.
+   New: `FRUA_BEEPTRACE` (every beep source + each Phase-5 key with its
+   claim result). The `FRUA_KEYDIAG` caps are now 400 across boot.c,
+   events.c and input.c — they were 60 per layer, and this bug is only
+   visible by correlating stamps ACROSS layers, which a cap mismatch
+   silently breaks.
+   **Owed:** confirmation on the reporting hardware. (NB the beeping
+   heard during the 2026-08-26 session was ALSO partly headless Hatari
+   leaking SDL audio to the desktop — mute with SDL_AUDIODRIVER=dummy;
+   that never explained the on-hardware report, and this does.)
 
 12. **ECS bigpic "leftover pixels"** — **ROOT-CAUSED AND LARGELY FIXED
    (34252c19, #167)**: not leftover pixels at all, but a COPPER TIMING
