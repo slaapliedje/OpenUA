@@ -90,6 +90,7 @@ static short          s_dirty;
  * current band palettes cannot show — render the frame properly NOW instead of
  * painting it through the wrong palette. Runtime knob: video.cfg inkhold=off. */
 short ecs_ink_hold = 1;
+short ecs_ink_adopt = 1;       /* video.cfg inkadopt=off */
 /* A500 walk-speckle A/B set (see the video.cfg parser in ecs_init).
  * ecs_eagerq defaults OFF: the eager re-quant-at-install is unverified on
  * real silicon and is the prime suspect for the accumulating speckle in
@@ -327,6 +328,13 @@ static int ecs_init(short want_w, short want_h)
 			} else if (strstr(buf, "inkhold=on") != NULL) {
 				ecs_ink_hold = 1;
 				dbg_log("ecs: ink-hold ENABLED (video.cfg)");
+			}
+			if (strstr(buf, "inkadopt=off") != NULL) {
+				ecs_ink_adopt = 0;
+				dbg_log("ecs: ink-adopt DISABLED (video.cfg)");
+			} else if (strstr(buf, "inkadopt=on") != NULL) {
+				ecs_ink_adopt = 1;
+				dbg_log("ecs: ink-adopt ENABLED (video.cfg)");
 			}
 			if (strstr(buf, "vpgroups=off") != NULL) {
 				ecs_vp_groups = 0;
@@ -780,6 +788,32 @@ static void remap_rect(short x, short y, short w, short h)
 		for (c = 0; c < w; c++) {
 			if (!e_used_idx[src[c]])
 				e_new_ink++;
+#ifdef FRUA_ECSINK
+			/* #dim: report NEW ink (an index the last quant never
+			 * saw) once per (band, index) — with the slot it lands
+			 * on, how far away that slot is, and how many of the
+			 * band's 32 slots are actually in use. If the band has
+			 * free slots, the grey glyph is pure loss. */
+			if (!e_used_idx[src[c]]) {
+				static unsigned char seen[ECS_NBANDS][256];
+				if (!seen[band][src[c]]) {
+					const unsigned char *bpal =
+					    s_band_pal + (long)band * ECS_NCOL * 3;
+					short sl = lut[src[c]], k, nused = 0;
+					long d = e_coldist(s_clut + (long)src[c] * 3,
+					                   bpal + (long)sl * 3);
+					seen[band][src[c]] = 1;
+					for (k = 0; k < ECS_NCOL; k++)
+						if (e_slot_rep[band][k] != 0xFF)
+							nused++;
+					dbg_log_num("ink: band*1000+idx = ",
+					            (long)band * 1000 + src[c]);
+					dbg_log_num("     slot*10000+dist = ",
+					            (long)sl * 10000 + (d > 9999 ? 9999 : d));
+					dbg_log_num("     slots used of 32 = ", (long)nused);
+				}
+			}
+#endif
 			dst[c] = lut[src[c]];
 		}
 	}
@@ -1504,6 +1538,115 @@ static void ecs_prof_dump(void)
 }
 #endif
 
+/* ★ GIVE NEW INK A SLOT INSTEAD OF THE NEAREST WRONG ONE (#dim).
+ *
+ * The per-band cut is computed from the surface AS IT STOOD. Anything drawn
+ * afterwards is not in that band's palette, so remap_rect resolves it through
+ * the absent-colour bucket — the nearest slot the band happens to own. On the
+ * ECS that is the reported bug: an event's first text line lands in the band
+ * the PICTURE occupies, which owns a cyan slot because the picture is cyan
+ * there, and the following lines land in the bands BELOW the picture, which
+ * never saw a cyan pixel and resolve the same glyphs to grey. Measured on the
+ * HEIRS innkeeper event: line 1 ink #00bbbb, lines 2 and 3 #888888, and the
+ * split falls exactly on the band boundary (line 1 in band 13, lines 2-3 in
+ * bands 14-15).
+ *
+ * The remedy was a placeholder: ecs_ink_hold skips ONE present in case a
+ * palette install is following, and failing that the ink "paints on the NEXT
+ * present via the bucket fallback exactly as before". The bucket fallback is
+ * the grey glyph.
+ *
+ * ★ AND THE BAND HAD ROOM THE WHOLE TIME. Instrumenting the text-box bands
+ * says they use 7 to 11 of their 32 slots, so 21+ sit empty while the glyph is
+ * forced onto a slot 3675 away. Nothing needs re-quantising and nothing needs
+ * to be sacrificed: hand the colour an EMPTY slot.
+ *
+ * Writing a free slot's COLOR word is safe in a way a palette install is not
+ * (#165): free means no used index maps to it, so no pixel on screen wears
+ * that slot and changing its RGB cannot recolour the outgoing frame.
+ *
+ * Only adopts when the bucket is actually bad (ECS_INK_NEAR), so a glyph whose
+ * colour the band already holds costs one distance test and nothing else.
+ * Per-band, because a colour absent HERE may be present one band down. */
+#define ECS_INK_NEAR 256        /* bucket this close: leave it alone */
+
+static short ecs_ink_adopt_scan(void)
+{
+	short y, adopted = 0;
+
+	if (!ecs_ink_adopt || !s_have_pal || !e_quant_valid)
+		return 0;
+
+	for (y = 0; y < ECS_H; y++) {
+		short band = (short)((long)y * ECS_NBANDS / ECS_H);
+		const unsigned char *row = s_chunky + (long)y * ECS_W;
+		unsigned char *bpal = s_band_pal + (long)band * ECS_NCOL * 3;
+		unsigned char *brem = s_band_remap + (long)band * 256;
+		short x;
+
+		if (!e_pend[y])
+			continue;
+
+		for (x = 0; x < ECS_W; x++) {
+			unsigned char c = row[x];
+			const unsigned char *cc = s_clut + (long)c * 3;
+			short s, slot, free_slot = -1;
+			long bd = 0x7fffffffL;
+
+			if (e_used_band[band][c])
+				continue;               /* the band already knows this ink */
+
+			for (s = 0; s < ECS_NCOL; s++) {
+				long d;
+
+				if (e_slot_rep[band][s] == 0xFF) {
+					if (free_slot < 0)
+						free_slot = s;
+					continue;           /* empty slots hold no colour yet */
+				}
+				d = e_coldist(cc, bpal + (long)s * 3);
+				if (d < bd) { bd = d; }
+			}
+
+			e_used_band[band][c] = 1;   /* decided either way — do it once */
+
+			if (bd <= ECS_INK_NEAR || free_slot < 0)
+				continue;               /* good enough, or no room */
+
+			slot = free_slot;
+			bpal[slot * 3 + 0] = quant_snap(cc[0], ECS_BITS);
+			bpal[slot * 3 + 1] = quant_snap(cc[1], ECS_BITS);
+			bpal[slot * 3 + 2] = quant_snap(cc[2], ECS_BITS);
+			brem[c] = (unsigned char)slot;
+			e_slot_rep[band][slot] = c;
+			e_used_idx[c] = 1;          /* stops the ink-hold re-firing */
+			*s_cop_pal[band][slot] =
+				(UWORD)(((bpal[slot * 3 + 0] >> 4) << 8)
+					  | ((bpal[slot * 3 + 1] >> 4) << 4)
+					  |  (bpal[slot * 3 + 2] >> 4));
+			adopted++;
+#ifdef FRUA_PLANAR
+			/* Rows in this band already stamped by a draw-time writer used the
+			 * OLD remap for c, so they show the bucket slot. Drop the band's
+			 * coverage and let them re-bridge with the corrected map. */
+			{
+				short r0 = (short)((long)band * ECS_H / ECS_NBANDS);
+				short r1 = (short)((long)(band + 1) * ECS_H / ECS_NBANDS);
+				short r;
+
+				for (r = r0; r < r1 && r < ECS_H; r++) {
+					e_dt_rowcov[r] = 0;
+					e_pend[r] = 1;      /* re-announce: its planes are stale */
+				}
+			}
+#endif
+		}
+	}
+	if (adopted)
+		dbg_log_num("ecs: ink adopted free slots = ", (long)adopted);
+	return adopted;
+}
+
 static void ecs_present(void)
 {
 	unsigned char *front;
@@ -1606,6 +1749,9 @@ static void ecs_present(void)
 			}
 		}
 		e_held_once = 0;
+
+		/* #dim: before converting, give any new ink a free slot. */
+		ecs_ink_adopt_scan();
 
 		/* ★ #165 SCENE CHANGES GO THROUGH THE FLIP, NOT THE VISIBLE PAGE.
 		 * This loop converts changed rows STRAIGHT INTO s_planes[s_front]
