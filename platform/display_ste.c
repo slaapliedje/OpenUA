@@ -3919,10 +3919,34 @@ static void st_prof_b30b(void)
 
 /* Latch a new video base (supervisor: the base registers are protected). The
  * shifter reloads the base at the next VBL, so this is a NON-BLOCKING flip — the
- * freshly-drawn back page appears atomically at vblank, no mid-c2p tearing. Only
- * the hi/mid base bytes are written: pages are 256-aligned so the STE low byte
- * ($820D) is always 0, which is its power-on value — leaving it out keeps this
- * correct on a plain ST too (no $820D there). */
+ * freshly-drawn back page appears atomically at vblank, no mid-c2p tearing.
+ *
+ * ★ THE COMMENT HERE USED TO CONTRADICT THE CODE. It claimed only the hi/mid
+ * bytes were written and that leaving $820D out "keeps this correct on a plain
+ * ST too (no $820D there)" — while the code three lines down writes $820D. One
+ * of the two had to be wrong, and it was the comment; the write is correct and
+ * stays. Measured 2026-08-31 on the configuration that makes it matter, a plain
+ * ST with TOS 2.06 and an 030 (a Stacy with an accelerator, in Hatari via
+ * `--machine st --cpulevel 3 --cpuclock 32`):
+ *
+ *   - the write really does reach the bus — 12 writes to ffff820d during boot,
+ *     against 13 each to ffff8201/ffff8203, so this is not dead code;
+ *   - it raises NO bus error. A whole drive (boot, load, dungeon walk) took six
+ *     bus errors in total, every one of them from the TOS ROM probing hardware
+ *     it might not have (ffff8900 the STE DMA sound, ffff8a00 the blitter),
+ *     and NOT ONE from frua.
+ *
+ * That is evidence rather than absence-of-evidence because Hatari does model
+ * this fault class on an ST — those ROM probes are exactly it, faulting and
+ * being caught. So the ST decodes the $FF82xx block coarsely and swallows the
+ * write.
+ *
+ * It is also harmless by construction: pages are 256-byte aligned, so the low
+ * byte is 0 on every flip, which is both its power-on value and the only value
+ * a plain ST's fixed low byte can have. The register is an STE-and-later
+ * addition (Compendium B.20: $FF820C "Video Base Address Low"), so this is a
+ * HARDWARE difference, not a TOS one — fitting TOS 2.06 to an ST does not add
+ * the register, and TOS 1.04 in an STE does not remove it. */
 static long st_flip_super(void)
 {
 	unsigned long a = (unsigned long)(uintptr_t)s_flip_target;
