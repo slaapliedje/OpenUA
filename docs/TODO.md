@@ -861,5 +861,28 @@ a framing piece, not a clean field — /tmp/frame_bar.png); bars/sizing.
 
    NOTE while verifying: on ECS the FIRST text line renders bright cyan
    and later lines render DIM/grey (visible in the innkeeper event).
-   That is the known new-ink family — text drawn after the re-band
-   landing on a near-luma slot — not the typewriter. Separate item.
+   ~~That is the known new-ink family — text drawn after the re-band
+   landing on a near-luma slot — not the typewriter. Separate item.~~
+   **FIXED (ef6d0d15).** The note was right that it is the new-ink
+   family and not the typewriter, but the mechanism is SPATIAL, not
+   temporal: the split lands exactly on a copper band boundary. Line 1
+   sits in band 13, lines 2-3 in bands 14-15; measured ink #00bbbb vs
+   #888888 on a #555544 box. Band 13 owns a cyan slot only because the
+   event PICTURE is cyan there — the bands below the picture never saw
+   a cyan pixel, so `remap_rect`'s absent-colour bucket resolves the
+   same glyphs to grey. Drawing text never marks the bands dirty, so no
+   re-band ever corrects it.
+   ★ **The bands had room the whole time** — instrumented at 7-11 of 32
+   slots used, 21+ empty, while the glyph was forced onto a slot 3675
+   away. So the fix costs no re-quant and sacrifices nothing:
+   `ecs_ink_adopt_scan()` hands new ink an EMPTY slot, fixes the remap
+   and patches that slot's copper word. Writing a FREE slot's COLOR
+   word is safe where a palette install is not (#165): no pixel wears
+   an unused slot, so it cannot recolour the outgoing frame. Under
+   FRUA_PLANAR the band's draw-time coverage is dropped and its rows
+   re-announced (a writer's earlier stamp used the old remap).
+   All three lines now measure #00bbbb. `video.cfg inkadopt=off` is the
+   A/B arm. The pre-existing `ecs_ink_hold` was only ever a placeholder
+   — its own comment concedes the ink then "paints via the bucket
+   fallback exactly as before", which IS the grey glyph.
+   **Owed:** hardware confirmation.
