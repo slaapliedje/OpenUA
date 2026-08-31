@@ -23776,6 +23776,7 @@ static short  jt1125(short kind, long p1, long p2)
 	EventRecord ev;
 	short *out1 = (short *)(uintptr_t)p1;
 	short *out2 = (short *)(uintptr_t)p2;
+	short  from_stash;
 
 	PROBE("jt1125");
 	if (out1 == NULL || out2 == NULL)
@@ -23783,8 +23784,15 @@ static short  jt1125(short kind, long p1, long p2)
 
 	/* Drain the pump's stash first (TaskList #84); only poll the shim queue
 	 * when it is empty. The short-circuit keeps the no-stash path bit-for-bit
-	 * the same call it always was. */
-	if (!evfifo_pop(&ev)
+	 * the same call it always was.
+	 *
+	 * ★ #11 — REMEMBER WHERE IT CAME FROM. A stashed event has ALREADY been
+	 * through l725c's dispatch, and for a key that means l6dd0 has already
+	 * stamped the engine's pending-key slot. The keyDown arm below stamps it
+	 * too, so a stashed key was delivered TWICE. See the stamp for the whole
+	 * story. */
+	from_stash = evfifo_pop(&ev);
+	if (!from_stash
 	 && !WaitNextEvent(everyEvent, &ev, 1, NULL)) {
 		*out1 = 0;
 		*out2 = 0;
@@ -23849,12 +23857,45 @@ static short  jt1125(short kind, long p1, long p2)
 		 * can route it to L6dd0. Stamp the engine's "key pending"
 		 * state here so L2d3e Phase 5 (l31ea -> jt1118 -> jt1133)
 		 * still sees the key and the cmd=5 shortcut walk fires. */
-		g_a5_word(-818) = ascii;
-		g_a5_byte(-820) = 1;
+		/* ★ #11 — ONLY IF NOBODY ELSE ALREADY DID. On the Mac this stamp
+		 * does not exist: keys reach the engine's pending slot solely
+		 * through L725c -> L6dd0, and jt1125 reads a SEPARATE IRQ-filled
+		 * buffer, so exactly one stamp lands per physical key. The port
+		 * has a single OS event queue, so whichever of the two paths
+		 * reaches the event first consumes it — hence this bridge, added
+		 * so a key jt1125 won the race for still reaches Phase 5.
+		 *
+		 * But the TaskList #84 stash then made BOTH paths fire for one
+		 * key: l725c pops the event, routes it to l6dd0 (stamp #1) AND
+		 * pushes a copy to the stash, which jt1125 later pops and stamps
+		 * again (#2). Phase 5 therefore ran twice — the first read claimed
+		 * the accelerator and opened a modal, the second found no item
+		 * matching that letter in the modal that had JUST opened, and rang
+		 * jt1080. That is the "[P]lay / [L]oad / [B]egin each work but beep
+		 * every time" report; the beep is the port telling the truth about
+		 * a key the port itself delivered twice.
+		 *
+		 * Traced end to end on a Mega STe: ONE plat_kb_poll, ONE
+		 * kb_to_event, then `l6dd0 STAMP 9836` -> read 'l' -> claimed, and
+		 * `jt1125 STAMP 108` -> read 'l' -> unclaimed -> chime. That also
+		 * settles #132's open question (input.c's plat_kb_poll comment):
+		 * one poll and two engine reads means the duplication is OURS, not
+		 * IKBD repeat and not the test injector.
+		 *
+		 * Restore the Mac's invariant — exactly one stamp per key — by
+		 * stamping only for an event this call fetched itself. The event
+		 * is still RETURNED either way, so l2d3e Phase 1's movement
+		 * routing (the g_walk_input exception below) is untouched: that
+		 * path reads the returned event, not the pending slot. */
+		if (!from_stash) {
+			g_a5_word(-818) = ascii;
+			g_a5_byte(-820) = 1;
 #ifdef FRUA_KEYDIAG
-		{ static short kd_s; if (kd_s < 60) { kd_s++;
-			dbg_file_num("keydiag:   jt1125 STAMP ascii = ", (long)ascii); } }
+			{ static short kd_s; if (kd_s < 400) { kd_s++;
+				dbg_file_num("keydiag:   jt1125 STAMP ascii = ",
+				             (long)ascii); } }
 #endif
+		}
 #ifdef FRUA_ACCTRACE
 		if (g_walk_input)
 			dbg_file_num("acc: jt1125 stamp ascii ", (long)ascii);
@@ -26794,7 +26835,7 @@ static void l6dd0(EventRecord *ev)
 	/* Non-Cmd path. */
 	g_a5_byte(-820) = 1;
 #ifdef FRUA_KEYDIAG
-	{ static short kd_l; if (kd_l < 60) { kd_l++;
+	{ static short kd_l; if (kd_l < 400) { kd_l++;
 		dbg_file_num("keydiag:   l6dd0 STAMP lo    = ", (long)lo); } }
 #endif
 
@@ -27236,7 +27277,7 @@ static short jt1133(void)
 		;
 	g_a5_byte(-820) = 0;
 #ifdef FRUA_KEYDIAG
-	{ static short kd_r; if (kd_r < 60) { kd_r++;
+	{ static short kd_r; if (kd_r < 400) { kd_r++;
 		dbg_file_num("keydiag:     jt1133 READ  key   = ",
 		             (long)(short)g_a5_word(-818)); } }
 #endif
@@ -28125,6 +28166,9 @@ static void jt1080(void)
 	long start;
 
 	PROBE("jt1080");
+#ifdef FRUA_BEEPTRACE
+	dbg_file_num("beep: jt1080 (unclaimed-key chime)", 1L);
+#endif
 	start = jt1134();
 	jt1122((short)2, (short)1189, (short)127);
 	while (jt1134() < start + 5)
@@ -28722,6 +28766,10 @@ static short l2d3e(void)
 		if (g_walk_input)
 			dbg_file_num("acc: ph5 claimed item (count if none) ", (long)i * 100L + count);
 #endif
+#ifdef FRUA_BEEPTRACE
+		dbg_file_num("beep: ph5 key*1000+claimed = ",
+		             (long)sel_key * 1000L + (i < count ? 1L : 0L));
+#endif
 #ifdef FRUA_CBTKEYDIAG
 		dbg_log_num("cbtkey: ph5 key =  ", (long)sel_key);
 		if (i < count)
@@ -28751,6 +28799,10 @@ static short l2d3e(void)
 					return i;
 			}
 		} else {
+#ifdef FRUA_BEEPTRACE
+			dbg_file_num("beep: ph5 UNCLAIMED key = ", (long)sel_key);
+			dbg_file_num("beep: ph5 pool count = ", (long)count);
+#endif
 			jt1080();
 		}
 	}
@@ -46142,7 +46194,7 @@ static void jt612(void)	/* +0x4338; id 125 */
 		unsigned char hd =
 		    ((unsigned char *)(uintptr_t)g_a5_long(-23508))[129];
 
-		if (hd > 10 && hd < 60) {
+		if (hd > 10 && hd < 400) {
 			g_a5_word(-25242) = 255;
 			jt868(9, g_a5_longs(-23508));	/* the A5 slot, may rewrite */
 			if (g_a5_word(-25242) != 0)

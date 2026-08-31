@@ -184,7 +184,7 @@ static Boolean kb_to_event(EventRecord *out)
 	out->message = ((long)scan << 8) | (long)ascii;
 	fill_common(out);
 #ifdef FRUA_KEYDIAG
-	{ static short kd_e; if (kd_e < 60) { kd_e++;
+	{ static short kd_e; if (kd_e < 400) { kd_e++;
 		dbg_file_num("keydiag:  kb_to_event -> keyDown msg = ", out->message); } }
 #endif
 	return 1;

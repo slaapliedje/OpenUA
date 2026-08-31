@@ -190,7 +190,7 @@ int plat_kb_poll(unsigned char *out_scan, unsigned char *out_ascii)
 	 * injector, and the maintainer sees it on real hardware. */
 	{
 		static short kd_n;
-		if (kd_n < 60) {
+		if (kd_n < 400) {
 			kd_n++;
 			dbg_file_num("keydiag: plat_kb_poll scan<<8|ascii = ",
 			             (long)(((c >> 16) & 0xFF) << 8) | (c & 0xFF));

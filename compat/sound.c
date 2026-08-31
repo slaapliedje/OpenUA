@@ -263,6 +263,9 @@ void SysBeep(short duration)
 	 * `duration` is in ticks, as the Mac passes it. */
 	if (duration <= 0)
 		duration = 6;
+#ifdef FRUA_BEEPTRACE
+	dbg_file_num("beep: SysBeep dur = ", (long)duration);
+#endif
 	plat_sound_tone(710, 128, (int)duration);
 }
 
