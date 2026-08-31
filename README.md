@@ -49,7 +49,7 @@ are wanted.
 |---|---|---|
 | **Atari Falcon030** | VIDEL 16bpp | Playable beta — the original target. **Verified on real hardware** (Falcon030@50, VGA, hard-disk install) as well as in Hatari. Pick the video mode with `video.cfg` if your monitor dislikes the automatic choice. |
 | **Atari TT030** | TT-low 8bpl, 320×200 line-doubled into a 320×400 letterbox | Verified in Hatari + EmuTOS: menu → load → caravan event → 3D town walk; STE-DMA sound (music + SFX). |
-| **Atari ST/STE** | ST-low 4bpl, quantized to 16 colours with a Timer-B raster split (per-band palette) | Verified in Hatari `--machine ste` + EmuTOS: the menu renders in 16 colours, quantizer live, STE 4-bit palette, per-band colours via an MFP raster interrupt. A 68000 build (runs on any Atari). *Faint band-boundary seams at 16 colours remain.* |
+| **Atari ST/STE** | ST-low 4bpl, quantized to 16 colours with a Timer-B raster split (per-band palette) | Verified in Hatari `--machine ste` + EmuTOS: the menu renders in 16 colours, quantizer live, STE 4-bit palette, per-band colours via an MFP raster interrupt. A 68000 build (runs on any Atari), and a **stock non-e ST** is verified too (`--machine st` + TOS 1.04): the STE 4-bit palette encoding carries the extra bit in bit 3, so a plain ST reads a correct 3-bit approximation for free — fewer distinct colours (15 vs 23 in a walk frame), but measurably no more band-boundary artefacts. On an **accelerated** ST/STE run the Falcon/TT binary instead; it downgrades to this same backend but keeps 020 codegen (~12-17x on a step render). *Faint band-boundary seams at 16 colours remain.* |
 | **Amiga AGA** (A1200/A4000) | Direct copper list, AGA bank palette, hardware-sprite pointer | Playable — verified in amiberry through **combat**: save-load, the caravan event, the town walk, the animated fireplace, and a full fight. Keyboard, mouse, and Paula audio all live. |
 | **Amiga RTG** (classic Amiga + graphics card) | Picasso96 chunky 8-bit screen | Verified — the full 256-colour menu renders on a live Picasso96 320×200×8 RTG screen (amiberry, accelerated A2000 + uaegfx board, Workbench 3.2). A classic non-AGA Amiga with an accelerator and an RTG card runs the game at full colour, no bitplanes. |
 | **Amiga ECS/OCS** (bare classic Amiga) | Native 5bpl copper, quantized to 32 colours with a per-band copper palette | Verified in amiberry on a bare OCS A2000: the menu renders in 32 colours, quantizer live, per-band palette (the copper reloads all 32 registers each band boundary for free), software cursor. The granite chrome renders as clean grey stone. |
@@ -57,10 +57,16 @@ are wanted.
 One binary serves each family — one `frua.prg` for Falcon **and** TT (plus a
 68000 `frua.prg` that also covers ST/STE); one `frua` for AGA **and** RTG (plus a
 `FORCE_ECS` build for bare ECS). The machine is detected at runtime and the
-matching display/sound path chosen. On the paletted targets (TT, ST/STE, AGA,
-RTG, ECS) the palette lives in hardware, so colour-cycle animation like the
-tavern fireplace is free (on the quantized targets that lands with the palette
-banding).
+matching display/sound path chosen — **in both directions**. The 68000 build
+runs on a Falcon or TT and picks their higher-colour backend; equally, the
+020 Falcon/TT build runs on an ST or STE and *downgrades* to the 16-colour
+ST-low path. Only the CPU decides which binary you can run; the graphics
+follow the machine. That matters if you have an **accelerated ST** — see
+[`HARDWARE.md`](HARDWARE.md#accelerated-st-and-ste-030-or-040-accelerator).
+
+On the paletted targets (TT, ST/STE, AGA, RTG, ECS) the palette lives in
+hardware, so colour-cycle animation like the tavern fireplace is free (on the
+quantized targets that lands with the palette banding).
 
 What works (on every target unless noted):
 

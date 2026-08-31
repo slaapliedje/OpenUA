@@ -158,13 +158,62 @@ Delete DH0:frua.00 DH0:frua.01
 runtime.
 
 **Atari ST / STE / Mega ST** — `openua-atari-st-*.zip`, 2 MB, **colour
-monitor**. ST-low, 16 colours, native bitplanes. TOS 2.06 or EmuTOS is what has
-been tested; there is no version check in the code, so earlier TOS may well
-work — nobody has tried. A mono (SM124) setup will *not* work yet: the
-monochrome build currently hangs at boot.
+monitor**. ST-low, 16 colours, native bitplanes. Tested on TOS 2.06, EmuTOS and
+**TOS 1.04**; the one version-sensitive call (Mxalloc, which does not exist
+before TOS 2.01) is gated on `Sversion()` and falls back to `Malloc`, so the
+older ROMs are handled rather than merely untried. A mono (SM124) setup will
+*not* work yet: the monochrome build currently hangs at boot.
 
 This 68000 build also runs on the TT and Falcon, which pick their own
 higher-colour backend, so it is the run-on-anything Atari binary.
+
+**A stock (non-e) ST is fine, and this is measured rather than assumed.** The
+palette is written in the STE's 4-bit encoding with the extra bit in bit 3, so
+a plain ST ignores that bit and reads a correct 3-bit approximation for free —
+verified: an ST frame uses only the even gun indices (0,2,4,…,14), a true
+512-colour palette, where the same frame on an STE uses the odd ones too. The
+cost is colour count, about 15 distinct colours in a walk frame against the
+STE's 23. It is **not** extra band seams: the band-boundary test scores the ST
+5/20 and the STE 4/20 against a chance baseline of ~2.5, i.e. the same. Nor can
+it become worse, because the collapse is deterministic — two colours equal on
+an STE stay equal on an ST, so the 3-bit path can only merge colours, never
+split them, and merging cannot create a seam. You lose gradient smoothness, not
+banding.
+
+### Accelerated ST and STE (030 or 040 accelerator)
+
+**Run the Falcon/TT zip's binary, not the ST/STE one.** The display backend is
+chosen at runtime from the `_VDO` cookie, not baked in at build time, so the
+020 build detects ST hardware and *downgrades itself* to the same 16-colour
+ST-low banded path — you get the ST graphics your shifter can actually produce,
+with the faster code. What the two builds differ in is **CPU codegen**: the
+ST/STE zip is compiled bare-68000 so it runs on a stock machine, which means it
+gives up the 32-bit multiplies/divides and bitfield instructions your
+accelerator has. The Falcon/TT zip is `-m68020-60` and uses them.
+
+The difference is not subtle. Measured in the guest's own clock
+(`FRUA_STEPPROF`), one dungeon step's render:
+
+| Machine | Binary | Step render |
+|---|---|---|
+| stock ST, 8 MHz 68000 | `openua-atari-st` (68000) | **155 ticks** (~2.6 s) |
+| ST + 030 @ 32 MHz | `openua-falcon` (020) | **9–13 ticks** (~0.2 s) |
+
+Roughly 12-17x, from the clock, the 030 itself and the wider codegen together.
+(Small sample — one and two steps respectively — so read the magnitude, not the
+exact ratio.)
+
+Requirements are just the accelerator: an 020 or better. There is no extra TOS
+floor — `plat_stram_alloc` gates Mxalloc on `Sversion()` and falls back to
+`Malloc` on the pre-2.01 ROMs that lack it — though TOS 2.06 is what has been
+tested here.
+
+Emulating this to try it yourself: Hatari needs no patching, despite the
+`--machine` list stopping at `ste`. Set the CPU independently —
+`hatari --machine st --cpulevel 3 --cpuclock 32` — with the two caveats Hatari
+imposes: `--cpulevel` requires TOS 2.06 or EmuTOS (which accelerated machines
+generally run anyway), and `--cpuclock` tops out at 32 MHz, so a 40 MHz card
+comes out slightly pessimistic.
 
 **Amiga AGA** — `openua-amiga-*.zip`, **Kickstart 3.0+**, about 4 MB. Chooses
 AGA or RTG at runtime.
