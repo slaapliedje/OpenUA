@@ -172,8 +172,11 @@ amiga_img() {       # amiga_img <out.adf> <label> <srcdir> <file...>
 # and SYS:System on 3.1.4/3.2 — neither is in the path, and IconX (in C:)
 # is. Nothing is shipped that is not ours.
 amiga_install_files() {   # amiga_install_files <variant: aga|ecs> <datadisks-default>
-	local variant="$1" ndata="${2:-6}" vol
+	local variant="$1" ndata="${2:-6}" vol kickreq
 	[ "$variant" = aga ] && vol=OpenUA-AGA || vol=OpenUA-ECS-1
+	# Measured minimums (#43), not guesses — see docs/TODO.md and HARDWARE.md.
+	[ "$variant" = aga ] && kickreq="Kickstart 3.0 or later (AGA)" \
+	                     || kickreq="Kickstart 2.0 or later (ECS/OCS; 1.3 will NOT work)"
 	# ★ WB 3.1 NEVER SHIPPED Installer (it was a separate developer package
 	# that vendors bundled under a signed paper licence from AMIGA Technologies
 	# — not something we can do), so the icon falls back to OUR instdisk,
@@ -197,6 +200,38 @@ amiga_install_files() {   # amiga_install_files <variant: aga|ecs> <datadisks-de
 ; volume ${vol}" at the very END of a successful install, with this window
 ; stuck open (A1200, WB 3.2 Installer 47.19, 2026-08-23). Every path below
 ; is absolute for the same reason; instdisk finds the drive via PROGDIR:.
+;
+; ★ THE CONSOLE IS NOT WASTED SPACE. IconX opens this window (see the
+; WINDOW= tooltype on Install.info) and, when the AmigaOS Installer is
+; present, the launcher previously left it EMPTY behind the Installer's
+; GUI — a blank window whose only content was the Installer's own version
+; banner. A1200 field report, 2026-09-03: "the extra window that pops up
+; with the installer version in it could be used for ... some of the
+; readme information / license and required files list". So print the
+; things a first-time installer actually needs, while the GUI is up. It
+; costs nothing at run time and needs no extra files on a full floppy.
+;
+; Keep it inside 78 columns and ~20 rows: the window is CON:0/20/640/180
+; and topaz 8 puts 80x22 characters in that, so anything longer scrolls
+; the useful lines away before the Installer's requester is answered.
+ECHO ""
+ECHO "  OpenUA ${VERSION} - an open reimplementation of SSI's"
+ECHO "  Unlimited Adventures (FRUA, 1993) for the Amiga (${vol})"
+ECHO ""
+ECHO "  YOU WILL NEED"
+ECHO "    - this engine disk, and your OpenUA DATA disks"
+ECHO "    - about 7 MB free on the destination drive"
+ECHO "    - ${kickreq}"
+ECHO ""
+ECHO "  THE INSTALLER WILL ASK"
+ECHO "    - where to put the OpenUA drawer (it creates one for you)"
+ECHO "    - how many data disks you have, then for each in turn"
+ECHO "  RETURN accepts the default at every prompt."
+ECHO ""
+ECHO "  ENGINE: GPL-2.0, source at github.com/slaapliedje/OpenUA."
+ECHO "  GAME DATA IS NOT INCLUDED and is not ours to give: the data"
+ECHO "  disks are built from YOUR OWN copy of FRUA. See HARDWARE.txt."
+ECHO ""
 CD RAM:
 IF EXISTS SYS:System/Installer
   SYS:System/Installer SCRIPT ${vol}:Install.script APPNAME OpenUA MINUSER NOVICE DEFUSER AVERAGE
