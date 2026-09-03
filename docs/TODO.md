@@ -351,6 +351,37 @@ list of what the real machine found — and what it is still owed — is
    of its own; #165's tear-free path rebuilds the whole page and may
    have removed some or all of what the user saw.
 
+17. **ECS walk shimmer — walls darken/brighten while standing still.**
+   Hardware report (A500, v0.9.21-beta): "there also seems to be some
+   changing colour as you walk around the start area in HEIRS.DSN, namely
+   the wooden walls kind of darken then brighten even while you're
+   standing in the same square... it is having issues with the palette
+   swap."
+   **NOT REPRODUCED in amiberry ECS**, twice, deliberately:
+   - stand still from arrival: 24 frames / 96 s, **1 distinct hash**,
+     7 adoptions during the run;
+   - walk a step + four turns FIRST (which is what drives re-bands), then
+     stand still: 30 frames / 120 s, **1 distinct hash**, 10 adoptions.
+   The capture method is not the problem — the same `shot` loop resolved
+   multiple distinct frames on the title sequence and the typewriter the
+   same day.
+   **Suspicion, from code, still unconfirmed:** `ecs_ink_adopt_scan`
+   (this release) patches a band slot at PRESENT time, but `ecs_reband`'s
+   CLUT-cache hit path restores `s_band_pal`/`s_band_remap` wholesale from
+   an entry cut BEFORE the ink existed, which drops the adoption; the next
+   present re-adopts. That loop is real but **benign when it re-picks the
+   same free slot and the same colour** — which is presumably why the
+   emulator is stable. Hardware timing could make the choice differ
+   between cycles.
+   **The decisive test is on silicon, not here:** `inkadopt=off` in
+   `video.cfg` in the game drawer. Shimmer gone => it is the adopter and
+   the fix is to make an adoption survive a cache hit (or invalidate the
+   cached cut on adopt). Shimmer unchanged => the adopter is exonerated
+   and this belongs with the older palette-swap family.
+   Do NOT rewrite the adopter on speculation before that A/B — it was
+   added for a MEASURED bug (item 15) and removing it brings the dim text
+   back.
+
 16. **ECS TITLE SCREENS ARE STILL WRONG — #165 DID NOT CLOSE THIS.**
    Hardware report (A500, v0.9.21-beta, 2026-09-02): "the SSI / Micromagic
    logo screen no longer even displays. The Unlimited Adventures one just
