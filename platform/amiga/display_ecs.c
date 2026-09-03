@@ -91,6 +91,7 @@ static short          s_dirty;
  * painting it through the wrong palette. Runtime knob: video.cfg inkhold=off. */
 short ecs_ink_hold = 1;
 short ecs_ink_adopt = 1;       /* video.cfg inkadopt=off */
+short ecs_title_defer = 1;     /* video.cfg titledefer=off */
 /* A500 walk-speckle A/B set (see the video.cfg parser in ecs_init).
  * ecs_eagerq defaults OFF: the eager re-quant-at-install is unverified on
  * real silicon and is the prime suspect for the accumulating speckle in
@@ -329,6 +330,13 @@ static int ecs_init(short want_w, short want_h)
 				ecs_ink_hold = 1;
 				dbg_log("ecs: ink-hold ENABLED (video.cfg)");
 			}
+			if (strstr(buf, "titledefer=off") != NULL) {
+				ecs_title_defer = 0;
+				dbg_log("ecs: title cut-defer DISABLED (video.cfg)");
+			} else if (strstr(buf, "titledefer=on") != NULL) {
+				ecs_title_defer = 1;
+				dbg_log("ecs: title cut-defer ENABLED (video.cfg)");
+			}
 			if (strstr(buf, "inkadopt=off") != NULL) {
 				ecs_ink_adopt = 0;
 				dbg_log("ecs: ink-adopt DISABLED (video.cfg)");
@@ -481,6 +489,8 @@ static dsp_surface_t *ecs_surface(void)
  * Cannot loop: the re-quant's own capture covers the ink. */
 static unsigned char e_used_idx[256];
 static long          e_new_ink;
+#define ECS_TITLEDEFER_MAX 24   /* presents; a lost title beats a lost game */
+static short         e_title_defer_n;
 
 /* --- B1/Phase-0 palette machinery (ST-backend parity, ADR-0016) ----------
  *
@@ -1730,6 +1740,38 @@ static void ecs_present(void)
 #ifdef FRUA_AMIGAPROF
 	{ long ap_c0 = amiga_prof_rl();
 #endif
+	/* ★ #16 DO NOT CUT A PALETTE THAT HAS NOT FINISHED ARRIVING.
+	 *
+	 * l19d4 brackets each title's composition in qd_palette_blackout().
+	 * On a hardware-palette backend that pushes black so the half-built
+	 * screen is simply not seen, and the finished title pops in whole.
+	 * A quantiser cannot do that — its planes hold slots, not indices —
+	 * and it has the worse problem anyway: a CUT taken mid-bracket is
+	 * BAKED IN. Measured on the A500 title (docs/TODO.md #16): 975 chunky
+	 * pixels still referenced CLUT entries holding the art's magenta
+	 * defer sentinel, and the cut spent 10 of every band's 32 slots on
+	 * magenta — a fifth of the budget gone, which is why the screen read
+	 * as "colours all inverted" rather than merely speckled.
+	 *
+	 * So defer: keep showing the last COMPLETE frame and let the palette
+	 * finish. The engine's own install at the end of the bracket sets
+	 * s_dirty, and this present then cuts against a whole CLUT.
+	 *
+	 * ★ BOUNDED, because #8 taught what an unbounded wait costs. If the
+	 * bracket somehow never closes we lose the title, not the game: after
+	 * ECS_TITLEDEFER_MAX presents we cut anyway and take the old
+	 * behaviour. The bound is on PRESENTS, not wall-clock, for the same
+	 * machine-independence reason as #8's. */
+	if (ecs_title_defer && (s_force_full || s_dirty)
+	    && dsp_palette_incomplete() && e_quant_valid
+	    && e_title_defer_n < ECS_TITLEDEFER_MAX) {
+		e_title_defer_n++;
+		dbg_log_num("ecs: title cut DEFERRED, present = ",
+		            (long)e_title_defer_n);
+		return;
+	}
+	e_title_defer_n = 0;
+
 	if (s_force_full || s_dirty) {
 #ifdef FRUA_ECSTRACE
 		dbg_log_num("et: FULL render start rl= ", amiga_prof_rl());

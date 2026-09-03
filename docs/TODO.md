@@ -425,12 +425,29 @@ list of what the real machine found — and what it is still owed — is
    real palette window arrives afterwards. Note the cut is only re-run on
    a >=32-entry palette write, and the title then cycles `first=176
    count=64` repeatedly.
-   **Candidate fixes:** (a) give quantiser backends the blackout's
-   discipline — hold the CUT (not just the paint) until the deferred
-   palette lands, extending the existing one-shot `ecs_ink_hold`; or
-   (b) keep sentinel-valued indices out of the histogram so they never
-   win a slot, letting the next re-band place them properly. (b) is
-   cheaper but special-cases a colour that could be legitimate art.
+   ★★ **FIXED — option (a), the engine already told us the window.**
+   `l19d4` brackets each title's composition in `qd_palette_blackout()`.
+   That call previously RETURNED BEFORE TOUCHING ITS COUNTER on a
+   non-hw_palette backend, so quantisers could not ask the one question
+   the bracket answers. The counter is now kept for every backend (only
+   the black PUSH stays hardware-specific) and published to the display
+   layer as `dsp_palette_incomplete()` — state placed in
+   `platform/planar.c` (shared by both targets) and set by the shim, so
+   the LAYER RULE holds: compat calls down into platform, never the
+   reverse. ECS then defers its CUT across the bracket and keeps showing
+   the last complete frame; the engine's own install at the end sets
+   `s_dirty` and that present cuts against a WHOLE clut.
+   Measured, same fixture and instrumentation as the root-cause run:
+   **chunky px on sentinel slots 975 -> 0**, **band-palette magenta slots
+   10 -> 0**, at every cut. The defer fires for 4 presents.
+   **Bounded at `ECS_TITLEDEFER_MAX` = 24 presents** — #8's lesson: a
+   wait with no bound is how the frame hold froze the game twice, and the
+   bound is on PRESENTS not wall-clock so it does not vary with machine
+   speed. Overrun costs the title, never the game.
+   `video.cfg titledefer=off` is the A/B arm.
+   Option (b) — keeping sentinel-valued indices out of the histogram —
+   was NOT taken: it special-cases a colour that could be legitimate art,
+   where the bracket is a protocol signal the engine already sends.
    Measurement note: SHORT boots do not reach the affected title — the
    first three renders all report 0 sentinel pixels. Drive to
    `menu: modal up` before concluding anything.

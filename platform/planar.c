@@ -317,3 +317,23 @@ void planar_dirty_reset(void)
 	s_dirty_any = 0;
 	memset(s_dirty_rows, 0, sizeof s_dirty_rows);
 }
+
+/* ---- palette-arrival state (see platform/include/display.h) --------------
+ * Lives in the SHARED platform file because both the Atari and the Amiga
+ * builds need it and neither backend file is linked by the other. Set by the
+ * shim's qd_palette_blackout; read by any backend that must know the CLUT is
+ * still arriving. */
+static int s_dsp_pal_incomplete;
+
+void dsp_set_palette_incomplete(int on)
+{
+	if (on)
+		s_dsp_pal_incomplete++;
+	else if (s_dsp_pal_incomplete > 0)
+		s_dsp_pal_incomplete--;
+}
+
+int dsp_palette_incomplete(void)
+{
+	return s_dsp_pal_incomplete > 0;
+}

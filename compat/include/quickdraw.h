@@ -416,6 +416,12 @@ int           qd_palette_is_hw(void);   /* backend keeps INDEX + hw palette */
  * writes). Nests like qd_present_hold. */
 void          qd_palette_blackout(int on);
 
+/* Non-zero while a qd_palette_blackout bracket is open, i.e. the CLUT is
+ * known incomplete. Hardware-palette backends hide that by pushing black;
+ * quantisers must instead defer the CUT, or they bake the half-written
+ * palette into the planes permanently. */
+int           qd_palette_incomplete(void);
+
 /* Present only a dirty rect, when the backend supports it (else falls
  * back to a full present). Lets the dungeon view skip converting the
  * static parts of the screen each frame. */

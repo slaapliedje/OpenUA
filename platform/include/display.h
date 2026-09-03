@@ -133,6 +133,18 @@ typedef struct dsp_backend {
 /* Probe the host machine and return the best available backend, or NULL. */
 const dsp_backend_t *dsp_detect(void);
 
+/* Palette-arrival state, SET BY THE SHIM (qd_palette_blackout) and read by
+ * whichever backend needs it. It lives here rather than in the shim because
+ * platform/ must not call up into compat/ (the layer rule); the shim already
+ * calls down.
+ *
+ * A hardware-palette backend answers an open bracket by pushing black. A
+ * QUANTISER cannot — its planes hold slots, not indices — and must instead
+ * defer its CUT, because a cut taken against a half-written CLUT is baked
+ * into the planes and no later palette write can undo it. */
+void dsp_set_palette_incomplete(int on);
+int  dsp_palette_incomplete(void);
+
 /* Native-planar support (ADR-0016, approach B). The active bitplane backend's
  * fixed per-band chunky-index -> palette-slot remap, so engine planar writers
  * convert wall/UI pixels to the SAME slots the backend's c2p uses (one shared

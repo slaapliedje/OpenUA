@@ -2045,19 +2045,47 @@ void qd_palette_blackout(int on)
 	const dsp_backend_t *d = dsp_detect();
 	short i;
 
+	/* ★ THE COUNT IS MAINTAINED FOR EVERY BACKEND — only the black PUSH is
+	 * hardware-palette-specific. This used to return before touching the
+	 * counter on a quantiser, which left those backends with no way to ask
+	 * the one question the bracket answers: "is the palette between here
+	 * and the matching off() INCOMPLETE?".
+	 *
+	 * A quantiser cannot blackout — its planes hold quantised SLOTS, not
+	 * CLUT indices, so pushing black would recolour the outgoing frame
+	 * rather than hide the incoming one. But it needs the same knowledge
+	 * for a different reason: cutting a palette while the CLUT is still
+	 * half-written bakes the wrong colours into the planes, and unlike a
+	 * hardware CLUT that cannot be undone by a later palette write. See
+	 * the ECS title corruption (docs/TODO.md #16), where the art was cut
+	 * against a CLUT still holding the art's magenta defer sentinel and
+	 * the quantiser spent 10 of every band's 32 slots on it. */
+	if (on)
+		s_pal_blackout++;
+	else if (s_pal_blackout > 0)
+		s_pal_blackout--;
+	dsp_set_palette_incomplete(on);   /* tell the display layer (see display.h) */
+
 	if (d == NULL || !d->hw_palette || d->set_palette == NULL)
 		return;
 	if (on) {
-		if (s_pal_blackout++ == 0) {
+		if (s_pal_blackout == 1) {
 			dsp_color_t black[256];
 
 			for (i = 0; i < 256; i++)
 				black[i].r = black[i].g = black[i].b = 0;
 			d->set_palette(black, 0, 256);
 		}
-	} else if (s_pal_blackout > 0 && --s_pal_blackout == 0) {
+	} else if (s_pal_blackout == 0) {
 		d->set_palette(g_palette, 0, 256);
 	}
+}
+
+/* Is a palette-incomplete bracket open? Quantiser backends defer their CUT
+ * across it; see qd_palette_blackout. */
+int qd_palette_incomplete(void)
+{
+	return s_pal_blackout > 0;
 }
 
 /* #142: pending CLUT range whose effect on the baked colour cursor has not been
