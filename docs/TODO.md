@@ -351,6 +351,37 @@ list of what the real machine found — and what it is still owed — is
    of its own; #165's tear-free path rebuilds the whole page and may
    have removed some or all of what the user saw.
 
+16. **ECS TITLE SCREENS ARE STILL WRONG — #165 DID NOT CLOSE THIS.**
+   Hardware report (A500, v0.9.21-beta, 2026-09-02): "the SSI / Micromagic
+   logo screen no longer even displays. The Unlimited Adventures one just
+   looks awful (almost as if the colors are all inverted) and the credits
+   screen is golden coloured instead of shades of red. The Forgotten
+   Realms screen is close to being good, but has miscoloured lines on the
+   left and right."
+   ★ **#165's verification claimed the titles were "complete and correctly
+   coloured". That claim was WRONG** — it measured frame COMPLETENESS and
+   timing (3 distinct complete frames over 80 samples), never colour
+   correctness. Do not treat #165 as covering this.
+   **Reproduced in amiberry ECS** and attributed by elimination. Five
+   candidate causes RULED OUT, each by a one-variable A/B with matching
+   frame hashes — record these so they are not re-tested:
+   - NOT a v0.9.21 regression: the shipped **v0.9.20** ECS binary renders
+     byte-identical frames (0ace8405 / df066b74 / 37560758 / 2318cfc5).
+   - NOT the per-band art (ADR-0020): identical with the ORIGINAL art.
+   - NOT `ecs_ink_adopt_scan` (this release): identical with
+     `video.cfg inkadopt=off`.
+   - NOT the disk palette cache: identical after deleting `PALCACHE.ECS`.
+   - NOT amiberry's capture blending ([[amiberry-capture-blends]]):
+     identical under the exact-pixel config `openua-ecs-exact.uae`.
+   - v0.9.15 (the version the reporter's card previously carried) is ALSO
+     corrupt here, so the emulator does not date the regression.
+   ★ **THE LEAD: the magenta DEFER SENTINEL is on screen.** Filtering the
+   exact-pixel capture to genuine ECS colours (every channel a multiple of
+   17) gives 127 colours, of which **585 pixels are pure `#ff00ff`** —
+   the sentinel from [[title-clut-blackout]]. Sentinel pixels reaching the
+   display means a deferred palette was never committed for those slots.
+   Start there, not in the quantiser.
+
 13. ~~**ECS titles: half-draw + CLUT churn + corruption**~~ **FIXED
    (fbed8cc3, #165)** — two causes, both reproduced in amiberry: the
    copper palette was installed ~12 s before the planes it described
