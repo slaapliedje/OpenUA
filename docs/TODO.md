@@ -375,7 +375,36 @@ list of what the real machine found — and what it is still owed — is
      identical under the exact-pixel config `openua-ecs-exact.uae`.
    - v0.9.15 (the version the reporter's card previously carried) is ALSO
      corrupt here, so the emulator does not date the regression.
-   ★ **THE LEAD: the magenta DEFER SENTINEL is on screen.** Filtering the
+   ★★ **ROOT-CAUSED 2026-09-02 — the quantiser BAKES IN the defer
+   sentinel.** Instrumented on a full ECS boot (`FRUA_ECSTITLE`):
+
+       ttl:   chunky px on sentinel slots = 975
+       ttl: band-palette MAGENTA slots    = 10
+
+   The title art is drawn while the CLUT still holds the magenta
+   (255,0,255) "unused/defer" sentinel for some indices. On a
+   HARDWARE-PALETTE backend `qd_palette_blackout` (53c67d7d) hides
+   exactly this — and **it is a documented NO-OP on quantisers**, so ECS
+   has never had the fix. The quantiser therefore sees 975 sentinel
+   pixels as real content and spends **10 of every band's 32 slots** on
+   magenta. That is why the screen reads "colours all inverted" rather
+   than merely speckled: a fifth of the palette budget is gone, so every
+   real colour gets a worse cut.
+   Ordering, from the trace: the art blits, a render+cut happens, and the
+   real palette window arrives afterwards. Note the cut is only re-run on
+   a >=32-entry palette write, and the title then cycles `first=176
+   count=64` repeatedly.
+   **Candidate fixes:** (a) give quantiser backends the blackout's
+   discipline — hold the CUT (not just the paint) until the deferred
+   palette lands, extending the existing one-shot `ecs_ink_hold`; or
+   (b) keep sentinel-valued indices out of the histogram so they never
+   win a slot, letting the next re-band place them properly. (b) is
+   cheaper but special-cases a colour that could be legitimate art.
+   Measurement note: SHORT boots do not reach the affected title — the
+   first three renders all report 0 sentinel pixels. Drive to
+   `menu: modal up` before concluding anything.
+
+   ★ **The lead that got here: the magenta DEFER SENTINEL is on screen.** Filtering the
    exact-pixel capture to genuine ECS colours (every channel a multiple of
    17) gives 127 colours, of which **585 pixels are pure `#ff00ff`** —
    the sentinel from [[title-clut-blackout]]. Sentinel pixels reaching the

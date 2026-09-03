@@ -654,6 +654,27 @@ static void ecs_repalette(void)
 	 * no slot number moves, so the planes on screen stay valid. */
 	for (b = 1; b < ECS_NBANDS; b++)
 		*s_cop_pal[b][0] = *s_cop_pal[0][0];
+#ifdef FRUA_ECSTITLE
+	/* #16: how many band slots just took a SENTINEL colour from their
+	 * representative? A slot painted magenta paints every pixel mapped to
+	 * it, not just the sentinel ones. */
+	{
+		short bb, ii; long nsent = 0, nlive = 0;
+
+		for (bb = 0; bb < ECS_NBANDS; bb++)
+			for (ii = 0; ii < ECS_NCOL; ii++) {
+				unsigned char r = e_slot_rep[bb][ii];
+
+				if (r == 0xFF) continue;
+				nlive++;
+				if (s_clut[r * 3 + 0] > 200 && s_clut[r * 3 + 1] < 60
+				    && s_clut[r * 3 + 2] > 200)
+					nsent++;
+			}
+		dbg_log_num("ttl: repalette live slots      = ", nlive);
+		dbg_log_num("ttl:   ...taking SENTINEL rgb  = ", nsent);
+	}
+#endif
 	memcpy(e_clut_quant, s_clut, sizeof e_clut_quant);
 }
 
@@ -1316,6 +1337,27 @@ static void ecs_reband(short defer)
 	}
 	memcpy(e_clut_quant, s_clut, sizeof e_clut_quant);
 	e_quant_valid = 1;
+#ifdef FRUA_ECSTITLE
+	/* #16: after the cut, does any BAND PALETTE hold the magenta sentinel?
+	 * A slot holding it paints every pixel mapped to that slot. */
+	{
+		short bb, ii; long nmag = 0; short firstb = -1, firsts = -1;
+
+		for (bb = 0; bb < ECS_NBANDS; bb++) {
+			const unsigned char *bp = s_band_pal + (long)bb * ECS_NCOL * 3;
+
+			for (ii = 0; ii < ECS_NCOL; ii++)
+				if (bp[ii*3+0] > 200 && bp[ii*3+1] < 60 && bp[ii*3+2] > 200) {
+					nmag++;
+					if (firstb < 0) { firstb = bb; firsts = ii; }
+				}
+		}
+		dbg_log_num("ttl: band-palette MAGENTA slots = ", nmag);
+		if (nmag)
+			dbg_log_num("ttl:   first band*100+slot     = ",
+			            (long)firstb * 100 + firsts);
+	}
+#endif
 	/* ★ #165: DO NOT show a new palette over the old planes. This used to
 	 * write the copper words right here — but when the caller is
 	 * ecs_render(), the planes this palette describes do not exist yet:
@@ -1370,6 +1412,11 @@ static long ap_quant_t, ap_quant_n;   /* ecs_reband alone (the 25 cuts)      */
 static long ap_remap_t, ap_c2pf_t;    /* whole-screen remap / c2p in render  */
 #endif
 
+#ifdef FRUA_ECSTITLE
+static short ecs_sentinel_clut(void);
+static long  ecs_sentinel_pixels(void);
+#endif
+
 /* Full render: (re-band if dirty), remap the whole surface, convert to the
  * back plane set, flip. */
 static void ecs_render(void)
@@ -1381,6 +1428,12 @@ static void ecs_render(void)
 	if (s_dirty) {
 #ifdef FRUA_AMIGAPROF
 		long q0 = amiga_prof_rl();
+#endif
+#ifdef FRUA_ECSTITLE
+		dbg_log_num("ttl: RENDER, sentinel CLUT entries = ",
+		            (long)ecs_sentinel_clut());
+		dbg_log_num("ttl:   chunky px on sentinel slots = ",
+		            ecs_sentinel_pixels());
 #endif
 		ecs_reband(1);            /* #165: palette lands at the flip */
 #ifdef FRUA_AMIGAPROF
@@ -1948,6 +2001,38 @@ static void ecs_present_rect(short x, short y, short w, short h)
 #endif
 }
 
+
+#ifdef FRUA_ECSTITLE
+/* #16 — is the title being quantised against a CLUT that has not arrived?
+ * The art's unused/defer slots are the magenta sentinel (255,0,255); on a
+ * hardware-palette backend qd_palette_blackout hides them, but that is a
+ * NO-OP on a quantiser, so on ECS they can be quantised into the bands. */
+static short ecs_sentinel_clut(void)
+{
+	short i, n = 0;
+
+	for (i = 0; i < 256; i++)
+		if (s_clut[i * 3 + 0] > 200 && s_clut[i * 3 + 1] < 60
+		    && s_clut[i * 3 + 2] > 200)
+			n++;
+	return n;
+}
+
+static long ecs_sentinel_pixels(void)
+{
+	long n = 0, k;
+
+	for (k = 0; k < (long)ECS_W * ECS_H; k++) {
+		unsigned char c = s_chunky[k];
+
+		if (s_clut[c * 3 + 0] > 200 && s_clut[c * 3 + 1] < 60
+		    && s_clut[c * 3 + 2] > 200)
+			n++;
+	}
+	return n;
+}
+#endif
+
 static void ecs_set_palette(const dsp_color_t *colors, short first, short count)
 {
 	short i;
@@ -1963,6 +2048,11 @@ static void ecs_set_palette(const dsp_color_t *colors, short first, short count)
 		s_clut[idx * 3 + 1] = colors[i].g;
 		s_clut[idx * 3 + 2] = colors[i].b;
 	}
+#ifdef FRUA_ECSTITLE
+	dbg_log_num("ttl: set_palette first*1000+count = ",
+	            (long)first * 1000 + count);
+	dbg_log_num("ttl:   sentinel CLUT entries now  = ", (long)ecs_sentinel_clut());
+#endif
 	/* Only a SUBSTANTIAL load (a scene change) marks the bands dirty; small
 	 * writes are palette cycling, whose re-band + full re-render churn is
 	 * what froze the ST live test (same policy there). Deferred to the next
