@@ -248,8 +248,10 @@ def build_bank(xmi_by_song):
     """{1: bytes, 2: bytes, 3: bytes} (XMI file contents) -> .slb bytes."""
     songs = []
     for slot, q in enumerate(SLOT_MAP):
-        songs.append(song_from_xmi(xmi_by_song[q]) if q is not None
-                     else empty_song())
+        # a partial module set leaves its missing songs empty, exactly as the
+        # Mac-only slots 2..6 already are
+        songs.append(song_from_xmi(xmi_by_song[q])
+                     if q is not None and q in xmi_by_song else empty_song())
     offs = []
     off = 0
     for s in songs:
@@ -261,28 +263,59 @@ def build_bank(xmi_by_song):
     return b"SLBR" + struct.pack(">IBB", total, len(songs), 0) + body
 
 
-def find_xmi_set(dos_dir):
-    """Locate one full Q1/Q2/Q3 set under `dos_dir` (searched recursively,
-    case-insensitive). Tandy (TY) preferred — already 3 monophonic voices;
-    then PC (1 voice), then RO/AD (reduced to the 3 busiest channels)."""
+def find_xmi_set(dos_dir, skip_designs=False):
+    """Locate a Q1/Q2/Q3 set under `dos_dir` (recursive, case-insensitive).
+
+    Driver preference: Tandy (TY) first — already 3 monophonic voices — then
+    PC (1 voice), then RO/AD (reduced to the 3 busiest channels). DQ is the
+    retail naming (`ADDQ1.XMI`); `DQK` is the other family fan modules use
+    (`dqkQ1.xmi`, and bare `Dqk1.xmi` with no Q).
+
+    ★ TWO REAL MODULE SHAPES THAT THE ORIGINAL 9-CHARACTER `??DQ?.XMI` MATCH
+    MISSED, both measured against the fan-module corpus:
+      * `Dqk1.xmi` .. `Dqk9.xmi` — 8 chars, no driver pair (curse ships 8
+        songs this way and converted to NOTHING).
+      * a PARTIAL set — g39 ships only Q1, and requiring all of 1..3 rejected
+        the whole module rather than converting the one song it has.
+    A partial set now converts what exists; the missing songs become empty
+    songs, which is what slots 2..6 already are, so jt985's range check still
+    passes and a design asking for a song it does not have plays silence."""
     found = {}
-    for r, _d, files in os.walk(dos_dir):
+    for r, dirs, files in os.walk(dos_dir):
+        if skip_designs:
+            # ★ The walk is recursive, so a DESIGN's soundtrack would
+            # otherwise be a candidate for the BASE GAME's bank — and with
+            # the driver preference deciding, a module shipping the arrangement
+            # the retail set lacks would quietly replace the game's own music.
+            # Pruning here keeps "the root bank" meaning the root's music.
+            dirs[:] = [x for x in dirs if not x.upper().endswith(".DSN")]
         for f in files:
             u = f.upper()
-            if u.endswith(".XMI") and len(u) == 9 and u[2:4] == "DQ":
-                found[(u[:2], int(u[4]))] = os.path.join(r, f)
-    for pref in ("TY", "PC", "RO", "AD"):
-        if all((pref, q) in found for q in (1, 2, 3)):
-            return {q: found[(pref, q)] for q in (1, 2, 3)}, pref
+            if not u.endswith(".XMI"):
+                continue
+            p = os.path.join(r, f)
+            if len(u) == 9 and u[2:4] == "DQ" and u[4].isdigit():
+                found[(u[:2], int(u[4]))] = p          # ADDQ1.XMI
+            elif len(u) == 9 and u[:3] == "DQK" and u[3] == "Q" \
+                    and u[4].isdigit():
+                found[("DQK", int(u[4]))] = p          # dqkQ1.xmi
+            elif len(u) == 8 and u[:3] == "DQK" and u[3].isdigit():
+                found[("DQK", int(u[3]))] = p          # Dqk1.xmi
+    for pref in ("TY", "PC", "RO", "AD", "DQK"):
+        have = {q: found[(pref, q)] for q in (1, 2, 3) if (pref, q) in found}
+        if have:
+            return have, pref
     return None, None
 
 
 def main(argv):
+    skip = "--skip-designs" in argv
+    argv = [a for a in argv if a != "--skip-designs"]
     if len(argv) != 2:
         print(__doc__)
-        print("usage: xmi2slb.py <dos_dir> <out.slb>")
+        print("usage: xmi2slb.py [--skip-designs] <dos_dir> <out.slb>")
         return 2
-    paths, pref = find_xmi_set(argv[0])
+    paths, pref = find_xmi_set(argv[0], skip_designs=skip)
     if paths is None:
         print("xmi2slb: no complete ??DQ1..3.XMI set under %s" % argv[0])
         return 1
@@ -291,7 +324,11 @@ def main(argv):
         f.write(bank)
     print("xmi2slb: %s (%d bytes) from the %s arrangement (%s)"
           % (argv[1], len(bank), pref,
-             ", ".join(os.path.basename(paths[q]) for q in (1, 2, 3))))
+             ", ".join(os.path.basename(paths[q]) for q in sorted(paths))))
+    if len(paths) < 3:
+        # say so rather than let a quiet 1-song bank pass for a full one
+        print("xmi2slb: PARTIAL set - %d of 3 songs; the rest play silence"
+              % len(paths))
     return 0
 
 

@@ -9,7 +9,8 @@ holding frua.prg / frua), and it performs the whole ADR-0017 pipeline that
   1. copy the DISK1..3 data files flat + every *.DSN design folder
   2. convert all DOS art to the engine's .ctl twins   (art_convert)
   3. convert the root data banks HLIB -> GLIB          (glb2glib)
-  4. synthesize MUSIC.SLB from the DOS XMI soundtrack  (xmi2slb)
+  4. synthesize MUSIC.SLB from the DOS XMI soundtrack, root AND
+     per-design (xmi2slb)
   5. rebuild SOUNDS.GLB (DIG8) from SFXDQ.VOC          (voc2glb)
   6. build frua.rsc from CKIT.EXE                      (rsrc_from_dos)
   7. extract the colour mouse pointers to frua.cur     (hlib_extract)
@@ -114,9 +115,23 @@ def main(argv=None):
     # 3) root data banks HLIB -> GLIB (skips anything already GLIB)
     glb2glib.main(sorted(glob.glob(os.path.join(dest, "*.[Gg][Ll][Bb]"))))
 
-    # 4+5) music + sampled sfx from the DOS soundtrack sources
-    xmi2slb.main([dos, os.path.join(dest, "MUSIC.SLB")])
+    # 4+5) music + sampled sfx from the DOS soundtrack sources.
+    # --skip-designs so a module's own soundtrack cannot become the base
+    # game's bank; each design then gets its OWN bank below.
+    xmi2slb.main(["--skip-designs", dos, os.path.join(dest, "MUSIC.SLB")])
     voc2glb.main([dos, os.path.join(dest, "SOUNDS.GLB")])
+
+    # 4b) PER-DESIGN music. A DOS fan module keeps its .XMI inside its .DSN
+    # (curse does exactly this), and the engine now resolves the bank
+    # design-first, root-fallback like every other overridable file
+    # (ADR-0011). Without this a module played the BASE GAME's music, which
+    # looks like working audio and is the wrong soundtrack.
+    for dsn in sorted(glob.glob(os.path.join(dest, "*.[Dd][Ss][Nn]"))):
+        if not os.path.isdir(dsn):
+            continue
+        paths, _pref = xmi2slb.find_xmi_set(dsn)
+        if paths:
+            xmi2slb.main([dsn, os.path.join(dsn, "MUSIC.SLB")])
 
     # 6) the engine resource archive, from CKIT.EXE alone
     rsrc_from_dos.main([ckit, "-o", os.path.join(dest, "frua.rsc")])

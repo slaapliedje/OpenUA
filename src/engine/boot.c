@@ -98889,17 +98889,48 @@ static void jt986(short kind, const char *name)
 {
 	char buf[200];
 
+	char        dbuf[256];
+	const char *dsn;
+	const char *use = buf;
+	short       ref;
+
 	PROBE("jt986");
 	jt384(buf, name);
 	jt419(buf, ua_strs_at(0x6d5e) /* "slb" */, (short)1);
+
+	/* ADR-0011 APPLIED TO MUSIC. This open used the bare literal, so a
+	 * design's own soundtrack could never resolve — exactly the omission
+	 * ua_open_art fixed for whole-file art reads, and the same fix. It
+	 * matters because a DOS fan module keeps its .XMI INSIDE <design>.DSN
+	 * (curse does precisely that), so its converted bank belongs there too;
+	 * without this the module would play the base game's music instead of
+	 * its own, which looks like working audio and is not.
+	 *
+	 * Design-first, root-fallback: a design shipping no bank falls straight
+	 * through and loads the identical root file, so unmodified designs are
+	 * unchanged. */
+	dsn = (const char *)g_a5_buf(-31336);
+	if (dsn != NULL && dsn[0] != '\0'
+	    && strlen(dsn) + 1 + strlen(buf) < sizeof dbuf) {
+		strcpy(dbuf, dsn);
+		strcat(dbuf, ":");                    /* HFS separator (jt431) */
+		strcat(dbuf, buf);
+		ref = jt398(dbuf, (short)0);
+		if (ref >= 0) {
+			jt411(ref);
+			use = dbuf;
+			dbg_log("jt986: design sound bank");
+		}
+	}
+
 	/* PORT-SAFETY (ADR-0017 / gamedata-dos): the .slb sound banks are
 	 * Mac-release files — a DOS-sourced install has none (DOS plays XMI
 	 * through its own drivers). The faithful path hands the name straight
 	 * to jt987, whose cold-disk retry loop then prompts "Please Insert
 	 * Disk" forever on a hard-disk install. Probe for the file first and
 	 * degrade to silence: no bank, no mixer pump, everything else runs. */
-	{
-		short ref = jt398(buf, (short)0);
+	if (use == buf) {
+		ref = jt398(buf, (short)0);
 
 		if (ref < 0) {
 			dbg_log("jt986: sound bank missing - music/sfx off");
@@ -98909,7 +98940,7 @@ static void jt986(short kind, const char *name)
 		jt411(ref);
 	}
 	g_sndbank_missing = 0;
-	jt987((short)(signed char)kind, buf, (short)0,
+	jt987((short)(signed char)kind, use, (short)0,
 	      (void *)(uintptr_t)jt975);
 	g_a5_long(-4774) = (long)(uintptr_t)jt974;
 }
