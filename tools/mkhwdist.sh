@@ -228,9 +228,11 @@ ECHO "    - where to put the OpenUA drawer (it creates one for you)"
 ECHO "    - how many data disks you have, then for each in turn"
 ECHO "  RETURN accepts the default at every prompt."
 ECHO ""
-ECHO "  ENGINE: GPL-2.0, source at github.com/slaapliedje/OpenUA."
 ECHO "  GAME DATA IS NOT INCLUDED and is not ours to give: the data"
 ECHO "  disks are built from YOUR OWN copy of FRUA. See HARDWARE.txt."
+ECHO "  MORE ADVENTURES: fan modules at frua.rosegarden.org - install"
+ECHO "  one with UAINST in the OpenUA drawer (it converts the art)."
+ECHO "  ENGINE: GPL-2.0, source at github.com/slaapliedje/OpenUA."
 ECHO ""
 CD RAM:
 IF EXISTS SYS:System/Installer
@@ -432,6 +434,7 @@ and tool icons are standard, so directory scanners index it as-is.
 ALSO IN THE DRAWER
 ------------------
 uainst  — installs a DOS FAN MODULE from its .zip, converting its art.
+          Hundreds of fan-made modules: frua.rosegarden.org
 uaconv  — OPTIONAL: pre-convert all DOS art in one pass and reclaim
           ~5 MB (uaconv -d <this drawer>). Never required.
 
