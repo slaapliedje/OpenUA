@@ -351,6 +351,38 @@ list of what the real machine found — and what it is still owed — is
    of its own; #165's tear-free path rebuilds the whole page and may
    have removed some or all of what the user saw.
 
+18. ~~**SSI / MicroMagic logo screen never displays on ECS**~~ **FIXED
+   2026-09-04.** A500 report: "the SSI / Micromagic logo screen no longer
+   even displays... it's there on the AGA version."
+   **The AGA-vs-ECS split was the whole clue** — same engine code, same
+   art, one works. Cause: **the title's palette is installed AFTER the
+   present that shows it.** Traced (`FRUA_TITLESEQ`):
+
+       tsq:   jt117 SHOW, mode = 2
+       ecsp:  present, dirty=0              <- converts under the OLD palette
+       ecsp:  set_palette first=16 count=240  <- the title's palette, after
+
+   On a hardware-palette screen that is harmless: the pixels are already
+   placed and the late CLUT write recolours them correctly — which is
+   exactly why AGA was always fine. On a QUANTISER the pixels were already
+   converted through the previous palette and no later write can fix them.
+   At boot the previous palette is the black startup one, so the screen
+   renders BLACK and the title never appears. It also explains why THIS
+   screen was missing while the later ones merely looked wrong: every
+   title was being shown in its predecessor's colours.
+   Fix: quantiser backends take ONE more present after the palette bracket
+   closes (`port_present_full()`, guarded by `!qd_palette_is_hw()`), so the
+   cut runs against the complete CLUT. The backend already declines the
+   premature present — that is #16's defer doing useful work. HW-palette
+   backends keep the Mac's single present; theirs was never wrong.
+   Also: `ecs_set_palette` now marks the bands dirty for ANY palette write
+   while a composition bracket is open, not just `count >= 32`. Size is the
+   wrong test there — a title whose art declares fewer than 32 colours was
+   filed as "colour cycling" and never re-cut.
+   Verified: the SSI/MicroMagic screen renders on ECS and matches the AGA
+   reference; 4 titles composed -> 4 renders (1:1, was 0); sentinel pixels
+   and magenta band slots both still 0.
+
 17. **ECS walk shimmer — walls darken/brighten while standing still.**
    Hardware report (A500, v0.9.21-beta): "there also seems to be some
    changing colour as you walk around the start area in HEIRS.DSN, namely
@@ -439,7 +471,15 @@ list of what the real machine found — and what it is still owed — is
    `s_dirty` and that present cuts against a WHOLE clut.
    Measured, same fixture and instrumentation as the root-cause run:
    **chunky px on sentinel slots 975 -> 0**, **band-palette magenta slots
-   10 -> 0**, at every cut. The defer fires for 4 presents.
+   10 -> 0**, at every cut.
+   ★ **THE FIRST MEASUREMENT OF THIS WAS A FALSE POSITIVE, and the trap is
+   worth keeping.** As first written the defer also swallowed `jt117` — the
+   ONE present each title gets, since the composition holds all the others
+   — so the sentinel counts read 0 because NO CUT HAPPENED, not because the
+   cut was clean, and the whole title sequence rendered BLACK (60/60 frames)
+   while the metric said "fixed". A metric can go quiet because the work
+   stopped. Any check of this kind must ALSO assert the thing still happens
+   — the re-verification now requires titles to actually render (item 18).
    **Bounded at `ECS_TITLEDEFER_MAX` = 24 presents** — #8's lesson: a
    wait with no bound is how the frame hold froze the game twice, and the
    bound is on PRESENTS not wall-clock so it does not vary with machine

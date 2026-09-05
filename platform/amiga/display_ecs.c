@@ -1432,6 +1432,9 @@ static long  ecs_sentinel_pixels(void);
 static void ecs_render(void)
 {
 	unsigned char *back = s_planes[s_front ^ 1];
+#ifdef FRUA_TITLESEQ
+	dbg_log("ecsp: RENDER begin");
+#endif
 	unsigned char *planes[ECS_DEPTH];
 	short p;
 
@@ -1470,6 +1473,9 @@ static void ecs_render(void)
 	/* #165: planes and palette change together — the staged words go in
 	 * beside the new plane pointers, so no frame ever shows one screen's
 	 * pixels under another screen's colours. */
+#ifdef FRUA_TITLESEQ
+	dbg_log("ecsp: RENDER end (flip)");
+#endif
 	if (e_cop_pending)
 		ecs_cop_pal_commit();
 	cop_point_planes(back);
@@ -1713,6 +1719,10 @@ static short ecs_ink_adopt_scan(void)
 static void ecs_present(void)
 {
 	unsigned char *front;
+#ifdef FRUA_TITLESEQ
+	{ static long np; dbg_log_num("ecsp: present#*100+dirty*10+force = ",
+	  (long)(++np) * 100 + (long)(s_dirty ? 1 : 0) * 10 + (s_force_full ? 1 : 0)); }
+#endif
 	unsigned char *planes[ECS_DEPTH];
 	short p, y;
 #ifdef FRUA_AMIGAPROF
@@ -2090,6 +2100,12 @@ static void ecs_set_palette(const dsp_color_t *colors, short first, short count)
 		s_clut[idx * 3 + 1] = colors[i].g;
 		s_clut[idx * 3 + 2] = colors[i].b;
 	}
+#ifdef FRUA_TITLESEQ
+	dbg_log_num("ecsp: set_palette first*1000+count = ",
+	            (long)first * 1000 + count);
+	dbg_log_num("ecsp:   incomplete-bracket open? = ",
+	            (long)(dsp_palette_incomplete() ? 1 : 0));
+#endif
 #ifdef FRUA_ECSTITLE
 	dbg_log_num("ttl: set_palette first*1000+count = ",
 	            (long)first * 1000 + count);
@@ -2098,8 +2114,28 @@ static void ecs_set_palette(const dsp_color_t *colors, short first, short count)
 	/* Only a SUBSTANTIAL load (a scene change) marks the bands dirty; small
 	 * writes are palette cycling, whose re-band + full re-render churn is
 	 * what froze the ST live test (same policy there). Deferred to the next
-	 * full present, when the surface is completely drawn. */
-	if (count >= 32 || !s_have_pal)
+	 * full present, when the surface is completely drawn.
+	 *
+	 * ★ ...EXCEPT WHILE A SCREEN IS COMPOSING, where SIZE IS THE WRONG
+	 * TEST. The count>=32 heuristic asks "is this big enough to be a scene
+	 * change?", and a title whose art declares FEWER THAN 32 colours
+	 * answers no — so its palette was filed as cycling, the bands were
+	 * never re-cut, and the screen was remapped through the PREVIOUS
+	 * screen's palette. At boot that previous palette is the black startup
+	 * one, so the screen renders BLACK and the title simply never appears.
+	 *
+	 * That is the A500 report "the SSI / Micromagic logo screen no longer
+	 * even displays" (2026-09-02) — measured here as: at its show present
+	 * the SSI title had dirty=0/force=0 while the next title had dirty=1,
+	 * and only the second one rendered. It is also why the screen is
+	 * MISSING rather than mis-coloured, which no palette-quality theory
+	 * explained.
+	 *
+	 * l19d4 brackets each composition (qd_palette_blackout), so during one
+	 * we KNOW a screen is being built and any palette write belongs to it,
+	 * whatever its size. Outside a bracket the size heuristic is untouched,
+	 * so the walk's colour cycling stays as cheap as it was. */
+	if (count >= 32 || !s_have_pal || dsp_palette_incomplete())
 		s_dirty = 1;
 
 	/* The Atari twin's eager re-quant on a WHOLESALE replacement (see

@@ -67765,6 +67765,9 @@ static void l19d4(const char *name, short arg2, short a3, short a4)
 	 * and the palette already committed, shows a complete correct frame —
 	 * matching both the Mac (instant CLUT) and the DOS release (title
 	 * screens arrive whole, verified in DOSBox at 0.35 s sampling). */
+#ifdef FRUA_TITLESEQ
+	dbg_file_num("tsq: compose title mode = ", (long)mode);
+#endif
 	qd_present_hold(1);
 	/* HW-palette backends additionally BLACK the CLUT for the whole
 	 * composition (no-op on quantisers). Field report (Mega STe ATW800/2,
@@ -67800,6 +67803,13 @@ static void l19d4(const char *name, short arg2, short a3, short a4)
 	jt115(&handle);                                  /* 0x1a3a dispose */
 
 	jt110(&handle, 0, 1, mode, buf);                 /* 0x1a44 reload with the mode */
+#ifdef FRUA_TITLESEQ
+	/* handle 0 = the art for this mode never loaded -> a screen that is
+	 * MISSING rather than mis-coloured. Distinguishes a data/loader fault
+	 * from a display fault without guessing. */
+	dbg_file_num("tsq:   handle nonzero? mode*10+ok = ",
+	             (long)mode * 10 + (handle != 0 ? 1 : 0));
+#endif
 	if (!qd_palette_is_hw())
 		jt124(handle);                           /* PORT: palette first, as above */
 	if (jt1200() != 3) {                             /* 0x1a62 */
@@ -67837,8 +67847,42 @@ static void l19d4(const char *name, short arg2, short a3, short a4)
 	l3880(0, 0, 2, (void *)(uintptr_t)handle);       /* 0x1aba frame 2 */
 	jt124(handle);                                   /* 0x1ace */
 	qd_present_hold(0);                              /* balanced with entry */
+#ifdef FRUA_TITLESEQ
+	dbg_file_num("tsq:   jt117 SHOW, mode = ", (long)mode);
+#endif
 	jt117();                                         /* 0x1ad8 */
 	qd_palette_blackout(0);                          /* pop the finished title */
+#ifdef FRUA_TITLESEQ
+	dbg_file_num("tsq:   blackout off, mode = ", (long)mode);
+#endif
+	/* ★ QUANTISERS NEED ONE MORE PRESENT, BECAUSE THE PALETTE LANDS LATE.
+	 *
+	 * Measured on ECS (FRUA_TITLESEQ): at jt117 above, the title's own
+	 * palette has NOT been installed yet — the trace reads
+	 *
+	 *     jt117 SHOW, mode = 2
+	 *     present, dirty=0            <- converts through the OLD palette
+	 *     set_palette first=16 count=240   <- the title's palette, after
+	 *
+	 * On a hardware-palette screen that is harmless: the pixels are already
+	 * placed and the late CLUT write simply recolours them correctly, which
+	 * is why the SSI/MicroMagic screen has always looked right on AGA. On a
+	 * QUANTISER the pixels were converted through the previous palette and
+	 * no later write can fix them — at boot the previous palette is the
+	 * black startup one, so the screen renders BLACK and the title never
+	 * appears at all. That is the A500 report "the SSI / Micromagic logo
+	 * screen no longer even displays", and it is why THAT screen is missing
+	 * while the later ones merely looked wrong: each title was being shown
+	 * with its predecessor's colours.
+	 *
+	 * The backend already declines the premature present (it is inside the
+	 * palette-incomplete bracket, #16). So all that is needed is a present
+	 * AFTER the bracket closes, when the palette is complete: the cut then
+	 * runs against the right CLUT and the title appears in its own colours.
+	 * Hardware-palette backends keep the Mac's single present — theirs was
+	 * never wrong. */
+	if (!qd_palette_is_hw())
+		port_present_full();
 	jt115(&handle);                                  /* 0x1adc dispose */
 }
 
