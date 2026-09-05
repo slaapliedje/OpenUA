@@ -13134,15 +13134,51 @@ static void load_wall_groups(const unsigned char *ds)
  * band at 32) untouched so it composes with the active wall set. */
 static int load_backdrop(short n)
 {
+#ifdef FRUA_BACKPROF
+	/* #20: how often does the sky/floor reload, and what does it cost?
+	 * The report is a visible flash when the backdrop changes, even on a
+	 * Vampire — so measure BOTH the rate and the tick cost before assuming
+	 * which one is the problem. */
+	long bp_t0 = TickCount();
+	static long bp_n;
+#endif
 	unsigned char *buf;                   /* BACK.CTL (~150KB) — lazily
 	                                       * NewPtr'd scratch, not resident;
 	                                       * only reloaded on backdrop change */
 	static RGBColor bpal[32];
+	/* #20 MEMO. Measured on an AGA walk: 7 loads for 2 DISTINCT ids — five
+	 * of seven re-read the same file to rebuild a byte-identical result.
+	 * Each one opens BACK.CTL, NewPtr's 160 KB, reads 160 KB and frees it,
+	 * to extract one 88x88 image; that read is the flash the sky/floor shows
+	 * when it changes, and on a real A1200 off CF it is far longer than the
+	 * 1-3 ticks amiberry measures.
+	 *
+	 * ★ THE PALETTE RE-INSTALL MUST STILL HAPPEN. The wall-reload path calls
+	 * load_backdrop(g_back_set) with an UNCHANGED id precisely to re-lay the
+	 * backdrop band after an event picture wiped the CLUT — so returning
+	 * early on an id match would trade this flash for wrong colours. The
+	 * cache therefore skips the DISK READ and keeps the install, replaying
+	 * it from the palette we already held in `bpal` (a static since long
+	 * before this change). */
+	static short cached_id = -1;
+	static short cached_pe;
+	static short cached_w, cached_h;
 	short refnum = 0, k, pe;
 	long count, base, sub, p0, p1, img;
 	unsigned char metric[8];
 	short w, h;
 	int rc = 0;
+
+	if (n == cached_id && cached_w > 0) {
+		g_back_w = cached_w;
+		g_back_h = cached_h;
+		if (cached_pe > 0)
+			port_clut_install(bpal, BACK_PAL_BASE, cached_pe);
+#ifdef FRUA_BACKPROF
+		dbg_log_num("backdrop: CACHE HIT id  = ", (long)n);
+#endif
+		return 1;
+	}
 
 	g_back_w = g_back_h = 0;
 	if (ua_open_art((ConstStr255Param)"\010BACK.CTL", 0, &refnum) != noErr)
@@ -13182,6 +13218,11 @@ static int load_backdrop(short n)
 	}
 	g_back_w = w;
 	g_back_h = h;
+#ifdef FRUA_BACKPROF
+	dbg_log_num("backdrop: id*10000+ticks = ",
+	            (long)n * 10000 + (TickCount() - bp_t0));
+	dbg_log_num("backdrop: load count     = ", ++bp_n);
+#endif
 #ifdef FRUA_VPP_WRITE
 	g_back_gen++;
 #endif
@@ -13191,6 +13232,8 @@ static int load_backdrop(short n)
 	p1 = l37aa(sub, 1);
 	if (p0 == 0 || p1 <= p0) {
 		rc = 1;                           /* image loaded; palette as-is */
+		cached_id = n; cached_pe = 0;
+		cached_w = g_back_w; cached_h = g_back_h;
 		goto done;
 	}
 	{
@@ -13216,6 +13259,8 @@ static int load_backdrop(short n)
 			bpal[k].blue  = (unsigned short)((b << 8) | b);
 		}
 		port_clut_install(bpal, BACK_PAL_BASE, pe);
+		cached_id = n; cached_pe = pe;
+		cached_w = g_back_w; cached_h = g_back_h;
 	}
 	rc = 1;
 done:
