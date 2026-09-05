@@ -383,6 +383,45 @@ list of what the real machine found — and what it is still owed — is
    reference; 4 titles composed -> 4 renders (1:1, was 0); sentinel pixels
    and magenta band slots both still 0.
 
+19. **ECS left/right edge corruption — CHARACTERISED, four causes ruled
+   out, NOT FIXED.** A500 report, restated 2026-09-02 against the
+   Forgotten Realms title: "miscoloured lines on the left and right".
+   **What it actually is** (amiberry, exact-pixel config, FR title): thin
+   HORIZONTAL runs of beige / white / orange pixels, 3-60 px long, at the
+   LEFT of the picture, sitting in smooth dark-red gradient areas that
+   should hold no such colour. Not a vertical edge band, not a full row.
+   The same screen on AGA is completely clean — same engine, same chunky
+   surface — so the fault is in the ECS conversion, not the drawing.
+   Side-by-side crop recipe is in this entry's session; an exact-pixel AGA
+   config now exists at `~/Amiberry/Configurations/openua-aga-exact.uae`
+   (openua.uae + the gfx_* exact keys) so ECS and AGA can be captured at
+   matching geometry. **NB the stock `openua.uae` (720x568, linemode
+   double2) BLENDS** — a naive ECS-vs-AGA diff there reads a median
+   distance of 106 and drowns the artefact ([[amiberry-capture-blends]]).
+   **RULED OUT, each by a one-variable A/B — do not re-test these:**
+   - **draw-time planar writers.** `PLANAR=0` renders the FR title
+     PIXEL-IDENTICAL (hash 5c5c4e5d both ways), so the artefact is
+     upstream of plane writing.
+   - **both palette caches.** `clutcache=off palcache=off` + deleted
+     `PALCACHE.ECS`: identical hashes.
+   - **stale previous-screen content.** Only 3% of candidate pixels match
+     the preceding screen at the same (x,y), and those are granite-border
+     pixels that are identical between screens anyway; a shifted-lookup
+     control scores 0%.
+   - **a catastrophic remap.** New probe `FRUA_ECSERR` reports, per band,
+     the worst distance between a used colour and the slot it maps to.
+     Worst across the frame is grey -> slightly-lighter grey (idx 19
+     #838387 -> #a8a8a8, band 2), never red -> beige. No colour lands
+     somewhere unrelated.
+   **Still open, and the two candidates left:** (a) the copper palette
+   install for NON-boundary rows (#167 fixed the band-boundary case only);
+   (b) the marks are in SSI's own art and AGA's 256-colour rendering hides
+   what the 32-colour cut exposes — untested because the title container
+   does not decode with the `perband.py` piece decoders (TITLE.TLB gives 2
+   items, 0 rows), so settling it needs a real offline renderer.
+   Recommend (b) first: it is offline, cheap to re-run, and would say
+   whether this is our bug at all.
+
 17. **ECS walk shimmer — walls darken/brighten while standing still.**
    Hardware report (A500, v0.9.21-beta): "there also seems to be some
    changing colour as you walk around the start area in HEIRS.DSN, namely

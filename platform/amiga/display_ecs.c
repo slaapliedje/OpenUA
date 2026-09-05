@@ -1347,6 +1347,40 @@ static void ecs_reband(short defer)
 	}
 	memcpy(e_clut_quant, s_clut, sizeof e_clut_quant);
 	e_quant_valid = 1;
+#ifdef FRUA_ECSERR
+	/* #19: how FAR is any used colour from the slot it was mapped to?
+	 * Normal quantisation error is small; a colour landing somewhere
+	 * unrelated (a red gradient pixel painted beige) is the artefact. */
+	{
+		short bb, ii;
+		for (bb = 0; bb < ECS_NBANDS; bb++) {
+			const unsigned char *brem = s_band_remap + (long)bb * 256;
+			const unsigned char *bpal = s_band_pal + (long)bb * ECS_NCOL * 3;
+			long worst = 0; short wi = -1;
+
+			for (ii = 0; ii < 256; ii++) {
+				long d;
+				if (!e_used_band[bb][ii]) continue;
+				d = e_coldist(s_clut + (long)ii * 3,
+				              bpal + (long)brem[ii] * 3);
+				if (d > worst) { worst = d; wi = ii; }
+			}
+			if (worst > 2000)
+				dbg_log_num("err: band*100000+worst = ",
+				            (long)bb * 100000L + (worst > 99999 ? 99999 : worst));
+			if (worst > 2000 && wi >= 0) {
+				const unsigned char *cc = s_clut + (long)wi * 3;
+				const unsigned char *sc = bpal + (long)brem[wi] * 3;
+				dbg_log_num("err:   idx*1000+slot = ",
+				            (long)wi * 1000 + brem[wi]);
+				dbg_log_num("err:   WANT rgb = ",
+				            ((long)cc[0] << 16) | ((long)cc[1] << 8) | cc[2]);
+				dbg_log_num("err:   GOT  rgb = ",
+				            ((long)sc[0] << 16) | ((long)sc[1] << 8) | sc[2]);
+			}
+		}
+	}
+#endif
 #ifdef FRUA_ECSTITLE
 	/* #16: after the cut, does any BAND PALETTE hold the magenta sentinel?
 	 * A slot holding it paints every pixel mapped to that slot. */
