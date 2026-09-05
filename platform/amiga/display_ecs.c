@@ -1750,6 +1750,60 @@ static short ecs_ink_adopt_scan(void)
 	return adopted;
 }
 
+#ifdef FRUA_ECSERR
+/* #19: does the COPPER actually show what the cut computed?
+ *
+ * FRUA_ECSERR's other probe checks s_band_pal against the CLUT — i.e. that
+ * the cut chose sensible colours. This checks the OTHER half of the path:
+ * that the words the copper reads still agree with s_band_pal. A code path
+ * that writes one without the other diverges silently, and the screen then
+ * shows a colour nobody computed. In a smooth vertical gradient one wrong
+ * slot in one band paints exactly the 3-60px horizontal run #19 describes.
+ *
+ * Encoding must match every writer: 4 bits per gun, ((r>>4)<<8)|((g>>4)<<4)|
+ * (b>>4). */
+static void ecs_cop_verify(short tag)
+{
+	short b, i, bad = 0;
+
+	for (b = 0; b < ECS_NBANDS; b++) {
+		const unsigned char *bp = s_band_pal + (long)b * ECS_NCOL * 3;
+
+		for (i = 0; i < ECS_NCOL; i++) {
+			UWORD want = (UWORD)(((bp[i * 3 + 0] >> 4) << 8)
+			                   | ((bp[i * 3 + 1] >> 4) << 4)
+			                   |  (bp[i * 3 + 2] >> 4));
+			UWORD got = *s_cop_pal[b][i];
+
+			if (want != got) {
+				if (bad < 6)
+					dbg_log_num("cop: MISMATCH band*100+slot = ",
+					            (long)b * 100 + i);
+				if (bad < 6)
+					dbg_log_num("cop:   want*65536+got = ",
+					            ((long)want << 16) | got);
+				bad++;
+			}
+		}
+	}
+	/* ★ A ZERO IS ONLY MEANINGFUL IF THE PROBE RAN. Report the checked
+	 * count periodically, so "no mismatches" cannot be confused with "never
+	 * executed" — that confusion has cost this project three debugging
+	 * rounds (a missing objdump, a missing binary, a converter pointed at a
+	 * missing file, all reading as a clean pass). */
+	{
+		static long calls;
+
+		if ((calls++ % 8) == 0)
+			dbg_log_num("cop: checked words*1000+bad = ",
+			            (long)ECS_NBANDS * ECS_NCOL * 1000L + bad);
+	}
+	if (bad)
+		dbg_log_num("cop: total mismatched words (tag) = ",
+		            (long)tag * 10000 + bad);
+}
+#endif
+
 static void ecs_present(void)
 {
 	unsigned char *front;
@@ -2016,6 +2070,12 @@ static void ecs_present(void)
 		e_quant_valid = 0;  /* bypass the CLUT-guard: content changed */
 	}
 	e_new_ink = 0;
+#ifdef FRUA_ECSERR
+	/* #19: end of present — the frame now up is what the copper is showing,
+	 * so this is the moment the words must agree with the cut. */
+	if (s_have_pal)
+		ecs_cop_verify(1);
+#endif
 #ifdef FRUA_AMIGAPROF
 	ap_full_t += amiga_prof_rl() - ap_t0;
 	ap_full_n++;

@@ -102,3 +102,20 @@ def test_mono_piece_contributes_no_pixels():
     ent = struct.pack(">Hhh", 4, 0, 0) + bytes([1, 0x92]) + bytes(16)
     g = _glib([ent])
     assert artview.piece_pixels(g, 0) == {}
+
+
+def test_compose_paints_entries_in_order_on_one_canvas():
+    """A title screen is a BASE plus an OVERLAY (l19d4 loads the library
+    twice), so the reference a screenshot is compared against has to be the
+    composite. Diffing against the base alone reports the whole overlay as a
+    difference, which reads as corruption and is not."""
+    base = _glib([_pal_block(32, [(10, 20, 30), (40, 50, 60)]),
+                  _raw8_piece(1, 1, [32, 33, 255, 255, 255, 255, 255, 255])])
+    over = _glib([_pal_block(34, [(200, 210, 220)]),
+                  _raw8_piece(1, 1, [255, 34, 255, 255, 255, 255, 255, 255])])
+    lib = _glib([base, over])
+    im, note = artview.render_compose(lib, [0, 1], canvas=(4, 1))
+    px = im.load()
+    assert px[0, 0] == (10, 20, 30)      # base only
+    assert px[1, 0] == (200, 210, 220)   # overlay wins where it paints
+    assert "entries=[0, 1]" in note

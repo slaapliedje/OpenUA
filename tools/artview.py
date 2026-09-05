@@ -176,6 +176,56 @@ def clut_of(entry_bytes, base_clut=None):
     return clut, len(found)
 
 
+def render_compose(glib, idxs, transparent_rgb=(0, 0, 0), canvas=None):
+    """Composite several top-level entries into ONE image, in order.
+
+    A title screen on screen is not one entry: l19d4 loads "<name>1" and blits
+    it, then RELOADS the same library with the caller's mode and blits that
+    over it — a base plus an overlay. Comparing a screenshot against the base
+    alone therefore shows the whole overlay as a difference, which looks like
+    corruption and is not. Pieces carry their own bearings, so painting each
+    entry at its own absolute coordinates reproduces the composed screen.
+
+    The palette ACCUMULATES across entries: each entry's type-8 blocks are
+    applied in turn over the running CLUT, so a later window overrides an
+    earlier one exactly as the engine's successive installs do. Rebuilding it
+    per entry instead would lose the base's colours the moment an overlay
+    installs its own window."""
+    from PIL import Image
+
+    cnt, offs = prequant.parse_glib(glib)
+    clut = [(0, 0, 0)] * 256
+    pix = {}
+    for i in idxs:
+        ent = glib[offs[i]:offs[i + 1]]
+        if prequant.parse_glib(ent) is None:
+            continue
+        clut, _ = clut_of(ent, clut)
+        sub_cnt, _ = prequant.parse_glib(ent)
+        for j in range(sub_cnt):
+            try:
+                piece_pixels(ent, j, 0, 0, 0, pix)
+            except perband.Undecodable:
+                continue
+    if not pix:
+        return None, "no decodable pixels"
+    if canvas:
+        w, h = canvas
+        x0 = y0 = 0
+    else:
+        xs = [p[0] for p in pix]
+        ys = [p[1] for p in pix]
+        x0, y0 = min(xs), min(ys)
+        w, h = max(xs) - x0 + 1, max(ys) - y0 + 1
+    im = Image.new("RGB", (w, h), transparent_rgb)
+    px = im.load()
+    for (x, y), v in pix.items():
+        if 0 <= x - x0 < w and 0 <= y - y0 < h:
+            px[x - x0, y - y0] = clut[v]
+    return im, "%dx%d  entries=%s  colours=%d" % (w, h, list(idxs),
+                                                  len({v for v in pix.values()}))
+
+
 def render_entry(glib, i, transparent_rgb=(0, 0, 0)):
     """-> (PIL.Image, info string) for top-level entry i, or (None, why)."""
     from PIL import Image
@@ -246,10 +296,28 @@ def main():
     ap.add_argument("-o", "--out", help="output PNG (with --item)")
     ap.add_argument("--out-dir", default=".", help="output dir (with --all)")
     ap.add_argument("--info", action="store_true", help="print the tree")
+    ap.add_argument("--compose", help="composite entries, e.g. 1,4 (base,overlay)")
+    ap.add_argument("--canvas", help="force a canvas size, e.g. 320x200")
     ap.add_argument("--scale", type=int, default=1, help="nearest-neighbour zoom")
     args = ap.parse_args()
 
     glib = as_glib(open(args.art, "rb").read())
+    if args.compose:
+        from PIL import Image
+        idxs = [int(v) for v in args.compose.split(",")]
+        canvas = None
+        if args.canvas:
+            canvas = tuple(int(v) for v in args.canvas.lower().split("x"))
+        im, note = render_compose(glib, idxs, canvas=canvas)
+        if im is None:
+            print(note)
+            return 1
+        if args.scale > 1:
+            im = im.resize((im.width * args.scale, im.height * args.scale),
+                           Image.NEAREST)
+        im.save(args.out or "compose.png")
+        print("composed -> %s   %s" % (args.out or "compose.png", note))
+        return 0
     if args.info or (args.item is None and not args.all):
         info(glib)
         return 0

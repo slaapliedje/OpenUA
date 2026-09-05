@@ -430,7 +430,30 @@ list of what the real machine found — and what it is still owed — is
    The container has 7 entries: a leaf plus 6 pictures, and each title
    screen is base entry 1 composited with its own overlay entry, which is
    exactly l19d4's two loads.)
-   **So the remaining candidate is (a), the per-band palette actually shown
+   ★★ **(a) IS DEAD TOO — the copper agrees with the cut.** New probe
+   (`FRUA_ECSERR`, `ecs_cop_verify`) re-derives every copper COLOR word
+   from `s_band_pal` in the 4-bit encoding and compares it with the word
+   the copper actually reads, at the END of every present. Result:
+   **800 words checked (25 bands x 32 slots), 0 mismatched**, twice. The
+   probe reports its CHECKED COUNT alongside the mismatch count precisely
+   so that a zero cannot be read as "never ran" — that confusion has cost
+   this project several rounds (a missing objdump, a missing binary, a
+   converter pointed at a missing file, all reading as clean passes).
+   **Six causes are now excluded** (planar writers, both caches, stale
+   frames, the remap, the art, the copper words). What has NOT been done
+   is a per-pixel comparison of the ECS output against the art in GAME
+   coordinates: aligning an emulator screenshot to the art by search gave
+   inconsistent offsets (dx 21/28/22, dy 10/23/12 by three methods), so
+   the resulting "N% of pixels differ" figures are NOT trustworthy and are
+   deliberately not recorded here.
+   **NEXT, and it removes the screenshot from the loop:** have the ECS
+   backend dump its own state at the end of a title render — the chunky
+   surface, `s_band_pal` and `s_band_remap` — to a file on the mount, then
+   compare offline against `artview.py --compose 1,4 --canvas 320x200`.
+   Both sides are then in game coordinates and no alignment is needed, so
+   the comparison is exact rather than approximate.
+
+   (superseded) the per-band palette actually shown
    — and the next probe follows from a shape argument:** in a smooth
    VERTICAL gradient a horizontal run of pixels shares one index, so ONE
    slot holding a wrong colour in ONE band paints exactly the observed
