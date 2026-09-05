@@ -446,12 +446,42 @@ list of what the real machine found — and what it is still owed — is
    inconsistent offsets (dx 21/28/22, dy 10/23/12 by three methods), so
    the resulting "N% of pixels differ" figures are NOT trustworthy and are
    deliberately not recorded here.
-   **NEXT, and it removes the screenshot from the loop:** have the ECS
-   backend dump its own state at the end of a title render — the chunky
-   surface, `s_band_pal` and `s_band_remap` — to a file on the mount, then
-   compare offline against `artview.py --compose 1,4 --canvas 320x200`.
-   Both sides are then in game coordinates and no alignment is needed, so
-   the comparison is exact rather than approximate.
+   ★★★ **THE STATE DUMP IS BUILT AND IT CLEARS THE WHOLE CPU SIDE.**
+   `-DFRUA_ECSDUMP` writes `PROGDIR:ECSDMPnn.BIN` at the end of each
+   present (v2: clut, chunky, band_pal, band_remap, AND the displayed
+   bitplanes with s_front); `tools/ecsdump.py` reads it. Everything is in
+   GAME coordinates, so nothing is aligned and nothing is approximate.
+   Forgotten Realms title, ECSDMP05 (130 distinct indices — which matches
+   `artview --compose 1,4` exactly, so it is provably the same screen):
+   - **chunky vs SSI's art: 1 pixel of 64000 differs, by d=6.** The load,
+     decode and composite path reproduces the art.
+   - **cut vs chunky: 5 pixels of 64000** exceed d=120, at x=154..158,
+     y=61 — mid-screen highlights (#ffffff -> #f8e848), not a left edge.
+     1172 (band,index) mappings in use, 2 of them bad.
+   - **planes vs cut: 0 of 64000.** The bitplanes the display DMA fetches
+     carry exactly the slots the cut assigned.
+   - (earlier) **copper words vs band_pal: 800/800 agree.**
+   **AND THE SCREEN STILL SHOWS THE DASHES.** Same run, same frame: the
+   emulator display carries pale horizontal dashes in the left red
+   gradient that none of the dumped state contains (side-by-side crop,
+   game window x0..90 y30..90). So every value the CPU computes is
+   correct and the corruption appears at DISPLAY time — which is the one
+   thing a memory dump cannot see, and puts #19 firmly in the #167
+   copper-timing family rather than anywhere in the quantiser.
+   **A SEVENTH CAUSE IS THEREFORE EXCLUDED: the cut, end to end.**
+   ⚠ **Do NOT try to measure the artefact's rows from a screenshot.** It
+   was attempted again here and failed again: the capture is scaled, so a
+   pale-pixel detector locks onto the granite border edge at x 7..13 and
+   returns a row-mod-8 histogram that is uniform (12/12/12/12/12/12/12/12)
+   — i.e. pure noise, and it would have been read as "not a band boundary"
+   if taken at face value. That is the FOURTH time alignment has produced
+   junk here. The dump exists precisely so that no measurement needs it.
+   **NEXT:** the remaining suspect is WHEN the copper's COLOR writes land
+   relative to the beam. #167 fixed the band-BOUNDARY case (32 COLOR moves
+   = 128 CCK against 129 available before DIWSTRT); this is what is left.
+   That is a cycle-timing question, so the tool is amiberry's own copper
+   debugger or a static cycle count of the emitted list — not another
+   memory dump, and not another screenshot.
 
    (superseded) the per-band palette actually shown
    — and the next probe follows from a shape argument:** in a smooth

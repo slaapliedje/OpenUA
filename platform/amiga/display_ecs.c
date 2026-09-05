@@ -1750,6 +1750,89 @@ static short ecs_ink_adopt_scan(void)
 	return adopted;
 }
 
+#ifdef FRUA_ECSDUMP
+/* #19: DUMP THE BACKEND'S OWN STATE, so the comparison needs no alignment.
+ *
+ * Every earlier attempt at "is this pixel wrong?" went through an emulator
+ * screenshot, and that put two unknowns in one measurement: the artefact, and
+ * where the picture sits inside the captured window. Three alignment methods
+ * disagreed (dx 21/28/22, dy 10/23/12), which makes any resulting "N% differ"
+ * figure meaningless — so this writes the state the backend actually holds and
+ * lets the comparison happen in GAME coordinates.
+ *
+ * What goes in is deliberately BOTH ENDS of the quantiser:
+ *
+ *   s_clut + s_chunky        the INPUT  — the 256-colour frame, i.e. exactly
+ *                            what AGA displays, and AGA is clean
+ *   s_band_pal + s_band_remap the OUTPUT — the per-band 32-colour cut
+ *   s_planes[s_front]        the SCREEN  — the bitplanes the display DMA is
+ *                            actually fetching, which is one transformation
+ *                            further on again
+ *
+ * so the shown colour of any pixel is band_pal[band][remap[band][idx]] and the
+ * wanted colour is clut[idx], with band = y * NBANDS / H. A pixel whose shown
+ * colour is nowhere near its wanted colour is the artefact, located exactly,
+ * with no screenshot and nothing to align.
+ *
+ * Fixed-width big-endian header written BYTE BY BYTE: a struct would carry the
+ * compiler's padding into the file and the reader would silently mis-slice it.
+ */
+#define ECSD_CAP   12                   /* enough for the whole title sequence */
+#define ECSD_HDR   32
+static short e_dmp_n;
+
+static void ecs_state_dump(void)
+{
+	unsigned char hdr[ECSD_HDR];
+	char name[32];
+	FILE *f;
+	short i;
+
+	if (e_dmp_n >= ECSD_CAP)
+		return;
+
+	for (i = 0; i < ECSD_HDR; i++)
+		hdr[i] = 0;
+	hdr[0] = 'E'; hdr[1] = 'C'; hdr[2] = 'S'; hdr[3] = 'D';
+	hdr[4] = 0; hdr[5] = 2;                         /* version */
+	hdr[6] = (unsigned char)(e_dmp_n >> 8); hdr[7] = (unsigned char)e_dmp_n;
+	hdr[8] = (unsigned char)(ECS_W >> 8);      hdr[9]  = (unsigned char)ECS_W;
+	hdr[10] = (unsigned char)(ECS_H >> 8);     hdr[11] = (unsigned char)ECS_H;
+	hdr[12] = (unsigned char)(ECS_NBANDS >> 8);hdr[13] = (unsigned char)ECS_NBANDS;
+	hdr[14] = (unsigned char)(ECS_NCOL >> 8);  hdr[15] = (unsigned char)ECS_NCOL;
+	/* v2: the DISPLAYED bitplanes, and which buffer they are. The cut being
+	 * right is not the same as the screen being right — the planes are one
+	 * more transformation past everything above, and nothing checked them. */
+	hdr[16] = (unsigned char)ECS_DEPTH;
+	hdr[17] = (unsigned char)s_front;
+	hdr[18] = (unsigned char)(ECS_PITCH >> 8); hdr[19] = (unsigned char)ECS_PITCH;
+
+	/* PROGDIR: so the file lands beside the binary on the mount, exactly
+	 * where the palette cache already writes. */
+	sprintf(name, "PROGDIR:ECSDMP%02d.BIN", (int)e_dmp_n);
+	f = fopen(name, "wb");
+	if (f == NULL) {
+		dbg_log("ecs: DUMP fopen FAILED");
+		return;
+	}
+	if (fwrite(hdr, ECSD_HDR, 1, f) == 1
+	    && fwrite(s_clut,       sizeof s_clut,     1, f) == 1
+	    && fwrite(s_band_pal,   EPC_PAL,           1, f) == 1
+	    && fwrite(s_band_remap, EPC_REMAP,         1, f) == 1
+	    && fwrite(s_chunky,     (long)ECS_W * ECS_H, 1, f) == 1
+	    && fwrite(s_planes[s_front], FRAME_BYTES,  1, f) == 1) {
+		/* Report the SEQUENCE NUMBER, not just "ok": a dump that silently
+		 * stops at 0 while the sequence runs on looks identical to one
+		 * that never armed. */
+		dbg_log_num("ecs: state dump written, seq = ", (long)e_dmp_n);
+		e_dmp_n++;
+	} else {
+		dbg_log("ecs: DUMP write FAILED (short write)");
+	}
+	fclose(f);
+}
+#endif /* FRUA_ECSDUMP */
+
 #ifdef FRUA_ECSERR
 /* #19: does the COPPER actually show what the cut computed?
  *
@@ -2075,6 +2158,12 @@ static void ecs_present(void)
 	 * so this is the moment the words must agree with the cut. */
 	if (s_have_pal)
 		ecs_cop_verify(1);
+#endif
+#ifdef FRUA_ECSDUMP
+	/* Same moment as the copper check: the cut that produced this frame is
+	 * live, so input and output belong to the SAME present. */
+	if (s_have_pal)
+		ecs_state_dump();
 #endif
 #ifdef FRUA_AMIGAPROF
 	ap_full_t += amiga_prof_rl() - ap_t0;
