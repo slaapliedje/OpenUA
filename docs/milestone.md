@@ -249,12 +249,21 @@ instead of six disks (`HARDWARE.md`).
 The lesson worth keeping: **an emulator agrees with your assumptions.** Three of
 those five were in code that had been "verified" repeatedly.
 
-**Hardware matrix as of 2026-08-22.** Falcon030: played through dungeon, map,
-events and camp (above). **Mega STe: the ST/STE build has run** (2026-08,
-via the Gotek media). **A1200: the AGA build has had a brief test.** TT030,
-Amiga ECS and Amiga RTG: emulator only. Gotek media for a full A1200 (AGA) and
-A500 (ECS — needs Kickstart 2.0+) install were cut 2026-08-22 from the
-v0.9.7-beta zips, so those two are next.
+**Hardware matrix as of 2026-09-05** (supersedes the 2026-08-22 one below it in
+git history). What each machine has CONFIRMED, and what it is still OWED:
+
+| Machine | Confirmed on the metal | Still owed |
+|---|---|---|
+| **Falcon030** @50, VGA | dungeon, map, events, camp, save/load, clean exit to TOS (§2a) | nothing structural; #8 hold + #166 typewriter are emulator-measured |
+| **Mega STe** | boots and plays from the Gotek media; the accelerator beep (#11) reported here | #8 event-tail hold and #11 one-stamp fix — both shipped 0.9.21, **not yet confirmed back** |
+| **TT030** | own drive install (E3/OPENUA) since 0.9.15 | a play report |
+| **A1200 + IceDrake** (AGA) | installer flow **works great** (2026-09-05); **AHI audio opened, played and tore down cleanly** (`snd: AHI backend up`, ADR-0021); PCMCIA CD drive works under Coffin R64 | the sky/floor flash fix (#20, 0.9.22) and design-first music |
+| **A500 + ACA500Plus** (ECS) | install flow (0.9.10); titles/dim-text/walk reports came from here (0.9.21) | #16/#18 title fixes, dim-text fix, **#17 walk shimmer (`inkadopt=off` A/B)**, #19 left-edge — all 0.9.22, unconfirmed |
+| **Amiga RTG / Nova** | Nova: xVDI + row-diff presents on the real Seurat (0.9.18) | RTG: emulator only |
+
+The pattern since 2026-08-22 holds: **every one of the A500's reports was
+invisible in amiberry**, and #19 is now proven to be a display-time effect the
+emulator's own state dump cannot see (`docs/TODO.md` 19).
 
 ## 3. REMAINING — rewritten 2026-08-02, refreshed 2026-08-03
 

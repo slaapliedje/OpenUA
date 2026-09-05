@@ -50,7 +50,7 @@ are wanted.
 | **Atari Falcon030** | VIDEL 16bpp | Playable beta — the original target. **Verified on real hardware** (Falcon030@50, VGA, hard-disk install) as well as in Hatari. Pick the video mode with `video.cfg` if your monitor dislikes the automatic choice. |
 | **Atari TT030** | TT-low 8bpl, 320×200 line-doubled into a 320×400 letterbox | Verified in Hatari + EmuTOS: menu → load → caravan event → 3D town walk; STE-DMA sound (music + SFX). |
 | **Atari ST/STE** | ST-low 4bpl, quantized to 16 colours with a Timer-B raster split (per-band palette) | Verified in Hatari `--machine ste` + EmuTOS: the menu renders in 16 colours, quantizer live, STE 4-bit palette, per-band colours via an MFP raster interrupt. A 68000 build (runs on any Atari), and a **stock non-e ST** is verified too (`--machine st` + TOS 1.04): the STE 4-bit palette encoding carries the extra bit in bit 3, so a plain ST reads a correct 3-bit approximation for free — fewer distinct colours (15 vs 23 in a walk frame), but measurably no more band-boundary artefacts. On an **accelerated** ST/STE run the Falcon/TT binary instead; it downgrades to this same backend but keeps 020 codegen (~12-17x on a step render). *Faint band-boundary seams at 16 colours remain.* |
-| **Amiga AGA** (A1200/A4000) | Direct copper list, AGA bank palette, hardware-sprite pointer | Playable — verified in amiberry through **combat**: save-load, the caravan event, the town walk, the animated fireplace, and a full fight. Keyboard, mouse, and Paula audio all live. |
+| **Amiga AGA** (A1200/A4000) | Direct copper list, AGA bank palette, hardware-sprite pointer | Playable — verified in amiberry through **combat**: save-load, the caravan event, the town walk, the animated fireplace, and a full fight. Keyboard, mouse and audio all live. **Verified on a real A1200 + Apollo IceDrake** (2026-09-05): the Workbench installer, and the **AHI** sound backend opening and tearing down cleanly (with Paula as the fallback on a stock machine). |
 | **Amiga RTG** (classic Amiga + graphics card) | Picasso96 chunky 8-bit screen | Verified — the full 256-colour menu renders on a live Picasso96 320×200×8 RTG screen (amiberry, accelerated A2000 + uaegfx board, Workbench 3.2). A classic non-AGA Amiga with an accelerator and an RTG card runs the game at full colour, no bitplanes. |
 | **Amiga ECS/OCS** (bare classic Amiga) | Native 5bpl copper, quantized to 32 colours with a per-band copper palette | Verified in amiberry on a bare OCS A2000: the menu renders in 32 colours, quantizer live, per-band palette (the copper reloads all 32 registers each band boundary for free), software cursor. The granite chrome renders as clean grey stone. |
 
@@ -88,7 +88,11 @@ What works (on every target unless noted):
 - **Editors** — the in-engine GEO map editor, event editor, record/game-settings
   editor, art gallery, and monster editor, plus GDOS printing from the editor.
 - **Sound** — digitized SFX and the Mac four-tone-synth music, through the
-  Falcon CODEC, the TT's STE-DMA sound, or Amiga Paula.
+  Falcon CODEC, the TT's STE-DMA sound, or on the Amiga **AHI when it is
+  installed (which is how a Vampire's SAGA audio is reached), Paula otherwise**.
+  A design's own soundtrack plays when it ships one — the DOS module's `.XMI`
+  converts to a per-design `MUSIC.SLB` (`tools/xmi2slb.py`, all four arrangements
+  and partial sets).
 
 It plays the bundled sample design **HEIRS TO SKULL CRAG** and real commercial
 modules (e.g. *Pool of Radiance*) on their own art. The current gaps are
@@ -110,8 +114,8 @@ files are byte-identical between the DOS and Mac versions, the included art
 converter (`tools/art_convert.py`, below) makes the DOS art readable, and the
 engine resource archive `frua.rsc` builds from the DOS `CKIT.EXE` via
 `tools/rsrc_from_dos.py`. The DOS path is the easy one: `make gamedata-dos`
-converts everything in one step, including `frua.rsc`, the soundtrack and the
-sampled sound effects. The Mac path is a short manual copy plus one packing
+converts everything in one step, including `frua.rsc`, the soundtrack (the
+base game's and each design's own) and the sampled sound effects. The Mac path is a short manual copy plus one packing
 step. **Step-by-step setup — which files go where, per platform — is in
 [`GAMEDATA.md`](GAMEDATA.md)**; the Mac release's unpacking pipeline is in
 [`docs/mac-release.md`](docs/mac-release.md).

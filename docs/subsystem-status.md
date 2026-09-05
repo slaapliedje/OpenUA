@@ -146,7 +146,7 @@ save A → Begin Adventuring. Remaining = render polish, not logic.
 | Subsystem | CODE | Status | Wall / scope doc |
 |-----------|:----:|:------:|------------------|
 | **Event pictures / portraits** (PIC/SPRIT/CPIC/bigpic) | 20/6/5 | 🟡 | `event-pictures-wall.md` — runtime pipeline (`l442e`→…→`l6e58`) FAITHFUL + works; 2 open bugs are composition-ordering + buffer-sharing, NOT palette math. CODE 10 = the picture EDITOR (deferred), not the runtime path |
-| **Audio / music / sound** (.slb engine) | 5/6 | ✅ | `audio-wall.md` — dispatch + bank-load lifted, every output leaf stubbed → MUTED. FRUA uses the Device Manager (`_Write`), NOT the Sound Manager. Falcon DMA HAL already exists; needs the engine→HAL glue. Multi-part |
+| **Audio / music / sound** (.slb engine) | 6/6 | ✅ | `audio-wall.md` — LIVE on every target and ear-verified: Falcon CODEC, TT STE-DMA, ST/STE, Amiga **AHI-preferred with a Paula fallback** (ADR-0021, confirmed on a real A1200 2026-09-05). Four-tone synth music from `MUSIC.SLB`, now resolved **design-first** (a module's own soundtrack plays; ADR-0011 applied to music, 2026-09-05). *(This row said "every output leaf stubbed → MUTED" until 2026-09-05 — that had been false for weeks; milestone.md §3 even cited it as a stale-table hazard while this register still carried it.)* |
 
 ## 7. Editor / authoring tools  ✅ LIVE + menu-wired + DRIVEN END-TO-END
 
@@ -204,7 +204,7 @@ polish:
    populated. `geo-editor.md`.
 2. **Player-facing runtime gaps** — inventory/equip
    (`inventory-subsystem-wall.md`), the remaining `l709e` event arms (~17), and
-   **audio (MUTED)** = the CODE 5 sound cluster jt965/974/1064 (`audio-wall.md`):
+   **audio (was MUTED; live since the sound release, v0.9.7)** = the CODE 5 sound cluster jt965/974/1064 (`audio-wall.md`):
    engine→Falcon-DMA-HAL glue, the biggest genuinely-open subsystem.
 3. **Real stub subtrees** (not leaves): jt933 (CODE 12 item-take modal, ~400
    lines), jt955 (CODE 21 camp, 1014 B), jt1206 (CODE 4, small dispatcher).

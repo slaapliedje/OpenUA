@@ -180,6 +180,29 @@ an STE stay equal on an ST, so the 3-bit path can only merge colours, never
 split them, and merging cannot create a seam. You lose gradient smoothness, not
 banding.
 
+**Amiga AGA (A1200 / A4000) and RTG** — `openua-amiga-*.zip`, Kickstart 3.0+,
+about 4 MB. One `frua` serves AGA and a Picasso96/CyberGraphX RTG screen; the
+machine is detected at runtime. **Verified on a real A1200 + Apollo IceDrake**
+(installer and sound, 2026-09-05).
+
+**Amiga ECS/OCS (A500+ / A600 / A2000, bare 68000)** — `openua-amiga-ecs-*.zip`,
+Kickstart **2.0 or later** (1.3 will not work), 2 MB. Native 5-bitplane
+32-colour display with a per-band copper palette. Playable at 7 MHz for the
+patient; comfortable with an accelerator (an ACA500Plus at 14 MHz is marginal,
+42 MHz is fine).
+
+**Amiga sound: AHI if you have it, Paula if you don't.** The engine opens
+`ahi.device` first and falls back to Paula when it is absent or will not open,
+so a stock Workbench needs nothing extra. AHI is the only route to a Vampire's
+SAGA audio ("Arne"), which has no published register map. Both paths sound
+centred, so the way to tell which one you got is the log:
+
+    snd: AHI backend up (ahi.device)
+    snd: no AHI - Paula fallback (AUD0+AUD1 centred)
+
+in `DBG.LOG` beside the binary. Known: the campfire bard tune is direct-to-Paula
+and stays silent under AHI.
+
 ### Accelerated ST and STE (030 or 040 accelerator)
 
 **Run the Falcon/TT zip's binary, not the ST/STE one.** The display backend is
