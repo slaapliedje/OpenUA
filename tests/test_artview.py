@@ -6,7 +6,11 @@ COORDINATE with the right COLOUR. perband's decoders are already pinned for
 the colour SETS they return; these tests pin the positions its pixel-preserving
 twins add, plus the palette-window law and composite placement.
 
-PIL is only imported inside artview.render_entry, so none of this needs it.
+Most of this needs no PIL: artview imports it lazily, inside the render
+functions, so the decoder and placement tests run without it. The compose
+test DOES render, so it needs Pillow — which is why Pillow is in
+tools/requirements.txt. It was only in the local venv once, and that gap
+is precisely how this file passed here and failed in CI.
 """
 import os
 import struct
