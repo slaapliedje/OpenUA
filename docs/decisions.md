@@ -1480,3 +1480,94 @@ palette, and the art stops needing a runtime cut at all.
 
 Still open for v3: true pixel-level dithering (needs codec re-encoding, not
 just palette merges) and the EGA-nostalgia preset.
+
+## ADR-0021 — Amiga audio goes through AHI when it is there, and falls back to Paula when it is not
+
+**Status:** ratified 2026-09-05. Extends ADR-0012 (the Amiga target). The
+*decision* is ratified; the AHI path itself is **not yet hardware-validated** —
+see Consequence.
+
+**Context.** The Amiga backend drove Paula directly, mixing all four Mac
+four-tone voices, the swMode tone and the current effect into one ring and
+looping it on **AUD0**. Paula hard-pans its channels — 0 and 3 left, 1 and 2
+right — so the entire engine mix left the machine in the LEFT speaker only.
+That went unnoticed because everything upstream is mono and emulator playback
+sums to both ears.
+
+It surfaced when the port was captured off real hardware (an A1200 with an
+Apollo V4 IceDrake, through a StarTech USB3HDCAP). Measured on the FRUA intro:
+**L−R = +18.1 dB**, reproduced to a tenth of a dB by two independent capture
+paths (ffmpeg via PipeWire, and OBS), while the *State of the Art* demo through
+the same rig measured +5.1 dB. Identical numbers from different capture software
+put the imbalance in the port, not the capture.
+
+A second defect turned up in the same code. In the general mix path four voices
+already fill the sample — they sum to ±512 and `>>2` lands on exactly ±128 —
+and a full-scale effect (±128) or beep (`amp & 0xff`, so ±255 before its shift)
+was then added ON TOP and hard-clamped. Music alone (the fast path) could not
+clip by construction; music *plus* an effect always did.
+
+**Decision.**
+
+1. **Paula plays the ring on AUD0 *and* AUD1** — mono centred, which is the
+   faithful rendering of a mono source. Both are started by ONE `dmacon` write
+   with identical LC/LEN/PER so they stay sample-aligned; enabling them
+   separately would leave up to a full ring (160 ms) of offset and sound like an
+   echo rather than a centre image. `plat_bard_stop` restarts both together and
+   re-seats the play model, because the bard borrows AUD1.
+
+2. **`plat_sound_init` prefers `ahi.device`, and falls back to Paula** when it
+   is absent or will not open. AHI is the standard Amiga audio API, mixes and
+   pans properly, and on an Apollo/Vampire its driver reaches the SAGA audio
+   core ("Arne"). One backend serves both stock and accelerated machines; no
+   Vampire special case.
+
+3. **The general mix path ducks instead of clamping.** The voices give up 6 dB
+   while something rides on top and the rider is scaled into the budget that
+   frees, so the two combinations that actually occur land exactly on full
+   scale: voices ±64 + effect ±64, and voices ±64 + beep ±63. Music-only
+   playback never enters this path and is unchanged. This is a **deliberate
+   divergence** from the Mac original, which clamped without ducking; the three
+   shift values are commented so it is a one-line revert.
+
+**Why not drive Arne directly.** Arne is documented by feature — 16 channels,
+8/16-bit, rates to 56 kHz, per-channel panning, 24-bit internal mixing, samples
+from any RAM — but **no register map is published**. The Apollo wiki's SAGA
+register reference lists SD-card, video and SPI-flash registers and has no audio
+entries at all, deferring audio to the original OCS/ECS/AGA registers, and the
+other official source (apollo-core.com/sagadoc) serves no HTTPS. Writing to
+guessed addresses on real hardware is not acceptable, so AHI is the route until
+the Apollo team publishes a register map — at which point a third backend can
+sit beside these two behind the same HAL.
+
+**Implementation shape.** Both backends live in `platform/amiga/sound_paula.c`
+and share `synth_render`; only the output stage differs. AHI uses the DEVICE api
+(`OpenDevice("ahi.device")` + `CMD_WRITE` on an `AHIRequest`, double-buffered
+through `ahir_Link`) rather than the low-level api, so it needs no library base,
+no inlines and no link library — only `devices/ahi.h`, vendored under
+`third_party/ahi/` because the Bebbo toolchain ships no AHI headers. The device
+api blocks in `WaitIO`, so a small process ("OpenUA AHI") owns rendering and
+`plat_sound_vbl` skips the ring refill while still running the engine sequencer
+hook. Under AHI, Paula is untouched: no DMA, no ring, no LED filter change, and
+the campfire bard (a direct-to-Paula tune) does not play.
+
+**Consequence.** On a stock machine without AHI nothing changes except that the
+sound is now centred and no longer clips under effects. With AHI installed the
+output goes through a real mixer and, on Apollo hardware, through Arne.
+
+Open, and deliberately so:
+
+* **The AHI path has never been run.** It is written, compiles clean under
+  `-Wall -Wextra` and links, and follows the AHI developer archive's own
+  double-buffering example — but no hardware or emulator has executed it. First
+  run should confirm: the fallback is silent when AHI is missing, playback does
+  not stutter at 1024-sample buffers, and the loading screen is merely quiet
+  (no bard) rather than broken.
+* **Still 8-bit mono into AHI.** `synth_render` produces `signed char`, handed
+  over as `AHIST_M8S`. This buys centring and AHI's mixing, not more bits.
+  16-bit (`AHIST_M16S`) is where Arne's quality would actually show; the mixer
+  already accumulates in `long` before the clamp, so it is an extension rather
+  than a rewrite.
+* The ducking in (3) can pump audibly if effects are dense. If that is heard on
+  hardware, the alternative is a constant 6 dB cut everywhere (no pumping, a
+  quieter game), and the choice should be made by listening, not by argument.

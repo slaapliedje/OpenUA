@@ -63,7 +63,7 @@ SRCDIRS := src src/engine compat
 # third_party/c2p-68k is a git subtree (see third_party/c2p-68k/PROVENANCE.md).
 # It owns c2p32.h / c2p4st.h / c2p_amiga.*; do NOT re-add local copies — edit
 # them upstream and `git subtree pull`, or the two will silently diverge.
-INCLUDE := -Isrc -Icompat/include -Iplatform/include -Ithird_party/c2p-68k/include
+INCLUDE := -Isrc -Icompat/include -Iplatform/include -Ithird_party/c2p-68k/include -Ithird_party/ahi/include
 
 # Machine stamp: the two machines share object paths, so a MACHINE switch
 # without a clean silently links stale other-machine objects (bitten three

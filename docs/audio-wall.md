@@ -267,3 +267,56 @@ the situation" looks identical to both. `FRUA_STEPSND` separates the first two
 (it names which of the four gates bailed) and `FRUA_SNDPROF` separates the
 third (no `STEP` line at all means the step never happened). Neither alone is
 enough — the first pass had only the second and drew the wrong conclusion.
+
+## AHI backend (2026-09-05)
+
+`plat_sound_init` now tries **ahi.device** first and falls back to Paula when it
+is absent or will not open. Both live in `platform/amiga/sound_paula.c`; the
+mixer (`synth_render`) is shared and only the OUTPUT stage differs.
+
+Why: Paula is 8-bit and hard-pans its channels — 0/3 left, 1/2 right. The port
+drove only AUD0, so the entire engine mix came out of the LEFT speaker. Measured
+off real hardware through a capture card: **18.1 dB left of right**, identical
+through two independent capture paths, so it was the port and not the capture.
+AUD0+AUD1 now both play the ring (mono centred, one `dmacon` write so they stay
+sample-aligned — a separate enable would leave up to a full ring, 160 ms, of
+offset between the channels and sound like an echo).
+
+AHI is the better answer where it exists: it is the standard Amiga audio API,
+it mixes and pans properly, and on an Apollo/Vampire its driver reaches the SAGA
+audio core (**"Arne"**: 16 channels, 8/16-bit, rates to 56 kHz, per-channel
+panning, 24-bit internal mixing, samples from any RAM).
+
+> **Arne cannot be driven directly from published information.** The Apollo wiki
+> documents Arne's FEATURES but no register map, and the SAGA register reference
+> lists SD-card, video and SPI-flash registers with **no audio entries at all**,
+> deferring audio to the original OCS/ECS/AGA registers. apollo-core.com/sagadoc
+> is the other official source and its host refuses HTTPS. So AHI it is — which
+> is portable anyway, and works on any stock machine with AHI installed.
+
+Implementation notes:
+
+* The **device** API (`OpenDevice("ahi.device")` + `CMD_WRITE` on an
+  `AHIRequest`, double-buffered through `ahir_Link`), not the low-level API: no
+  library base, no inlines, no link library — just `devices/ahi.h`, vendored at
+  `third_party/ahi/include/` (see the README there for provenance; the Bebbo
+  toolchain ships no AHI headers).
+* The device API blocks in `WaitIO`, so a small **process** (`CreateNewProc`,
+  "OpenUA AHI") owns rendering: it calls `synth_render()` into its own double
+  buffers and hands them to AHI. `plat_sound_vbl` then skips the ring refill but
+  still runs the engine sequencer hook — that hook is what arms the voices.
+* Paula is left entirely alone under AHI: no DMA, no ring allocation, no LED
+  filter change, and `plat_bard_start` returns immediately (the campfire bard is
+  a direct-to-Paula tune).
+* Buffers are 1024 samples each, ~45 ms at SYNTH_HZ.
+
+### Still to do
+
+* **Hardware testing.** Written and built, never run. Watch for: AHI failing to
+  open (should fall back silently to Paula), gaps/stutter if 1024 samples is too
+  short for the machine, and the loading screen being silent under AHI.
+* **16-bit.** `synth_render` still produces 8-bit mono and is handed to AHI as
+  `AHIST_M8S`, so this buys correct centring and AHI's mixing, not more bits.
+  Rendering to 16-bit (`AHIST_M16S`) is where Arne's quality actually shows, and
+  the mixer already accumulates in `long` before the clamp.
+* This adds a second Amiga audio backend; **worth an ADR** alongside ADR-0012.

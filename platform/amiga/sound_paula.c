@@ -30,6 +30,7 @@
  */
 
 #include "plat_sound.h"
+#include "dbglog.h"
 
 #ifdef FRUA_AMIGA
 
@@ -39,6 +40,9 @@
 #include <hardware/cia.h>
 #include <hardware/dmabits.h>
 #include <proto/exec.h>
+#include <proto/dos.h>
+#include <dos/dostags.h>
+#include <devices/ahi.h>
 
 #define CUSTOM ((volatile struct Custom *)0xDFF000)
 #define CIAA   ((volatile struct CIA *)0xBFE001)
@@ -246,8 +250,35 @@ static void synth_render(signed char *dst, long n)
 		}
 		}
 	} else {
-		/* tone and/or effect present — the general mix, same order and
-		 * single final clamp as the original */
+		/* Tone and/or effect present — the general mix.
+		 *
+		 * HEADROOM. The voices alone already fill the sample: four of
+		 * them sum to +-512 and `>>2` lands on exactly +-128. Adding a
+		 * full-scale effect (+-128) or beep (g_tone_amp is amp & 0xff,
+		 * so +-255 before its shift) on TOP of that reached +-256 and
+		 * hit the clamp below hard, on every loud sample — heard as
+		 * gritty overload whenever an effect played over music, while
+		 * music alone (the fast path above) stayed clean. That matched
+		 * a capture off real hardware: peaks pinned at the clamp only
+		 * while effects were sounding.
+		 *
+		 * So this path now DUCKS: the voices give up 6 dB while
+		 * something rides on top, and the rider is scaled to fit the
+		 * budget it just freed. The two common pairings land exactly on
+		 * full scale with no clipping at all:
+		 *
+		 *      voices >>3  +-64  +  effect >>1  +-64  = +-128
+		 *      voices >>3  +-64  +  tone   >>2  +-63  = +-127
+		 *
+		 * Music-only playback is untouched — it never enters this path —
+		 * so the level only moves while an effect or beep is actually
+		 * sounding, which is the usual game-audio ducking behaviour.
+		 * Tone AND effect together can still reach the clamp, but that
+		 * combination is rare and the clamp remains as the safety net.
+		 *
+		 * NOTE this is a deliberate divergence from the Mac original,
+		 * which clamped without ducking. Restoring the old behaviour is
+		 * a matter of putting these three shifts back to 2 / 1 / 0. */
 		for (i = 0; i < n; i++) {
 			long acc = 0;
 			int  k;
@@ -257,15 +288,15 @@ static void synth_render(signed char *dst, long n)
 				acc += (long)wv[k][(pv[k] >> 16) & 0xff] - 128;
 			}
 			if (nv)
-				acc >>= 2;
+				acc >>= 3;              /* was 2 — 6 dB of headroom */
 			if (g_tone_left > 0) {          /* swMode square wave */
 				g_tone_phase += g_tone_inc;
 				acc += ((g_tone_phase & 0x80000000UL)
-				        ? g_tone_amp : -g_tone_amp) >> 1;
+				        ? g_tone_amp : -g_tone_amp) >> 2;
 				g_tone_left--;
 			}
 			if (g_sfx_pos < g_sfx_len)      /* the effect rides on top */
-				acc += g_sfx_buf[g_sfx_pos++];
+				acc += g_sfx_buf[g_sfx_pos++] >> 1;
 
 			if (acc > 127)
 				acc = 127;
@@ -279,12 +310,197 @@ static void synth_render(signed char *dst, long n)
 		g_ft_phase[ix[v]] = pv[v];
 }
 
+/* --- AHI BACKEND -----------------------------------------------------------
+ *
+ * Paula is 8-bit and hard-pans its channels; ahi.device is the standard Amiga
+ * audio API and, on an Apollo/Vampire, its driver reaches the SAGA audio core
+ * ("Arne": 16 channels, 8/16-bit, rates to 56 kHz, per-channel panning, 24-bit
+ * internal mixing). Arne's REGISTERS ARE NOT PUBLICLY DOCUMENTED — the Apollo
+ * wiki publishes the feature list but no register map, and the SAGA register
+ * reference has no audio entries at all — so talking to it directly is not
+ * possible from published information. AHI is the supported route, and it also
+ * works on any stock machine with AHI installed, so this is one backend rather
+ * than a Vampire special case.
+ *
+ * We use AHI's DEVICE api (OpenDevice + CMD_WRITE on an AHIRequest, double
+ * buffered via ahir_Link), not the low-level api: it needs no library base, no
+ * inlines and no link library — just the vendored devices/ahi.h.
+ *
+ * The device api wants a PROCESS (WaitIO blocks), while the Paula path renders
+ * from the VBL. So when AHI is in use a small process owns rendering: it calls
+ * synth_render() straight into its own double buffers and hands them to AHI,
+ * and plat_sound_vbl skips the ring refill entirely (it still runs the engine
+ * sequencer hook — that is what arms the voices). Paula is left completely
+ * alone: no DMA, no ring, no LED filter change.
+ *
+ * Falls back to Paula whenever ahi.device is missing or refuses to open, which
+ * is the common case on a stock Workbench without AHI installed.
+ */
+
+#define AHI_BUF_SAMPLES  1024           /* ~45 ms at SYNTH_HZ, x2 buffers */
+
+static volatile int  g_use_ahi;         /* 1 = AHI owns the output */
+static volatile int  g_ahi_run;         /* player process: keep going */
+static volatile int  g_ahi_state;       /* 0 starting, 1 playing, -1 failed */
+static volatile int  g_ahi_done;        /* player has exited */
+
+static void ahi_player(void)
+{
+	struct MsgPort    *mp   = NULL;
+	struct AHIRequest *req[2] = { NULL, NULL };
+	struct AHIRequest *link = NULL;
+	signed char       *buf[2] = { NULL, NULL };
+	BYTE               opened = -1;
+	int                cur = 0;
+
+	mp = CreateMsgPort();
+	if (mp != NULL)
+		req[0] = (struct AHIRequest *)
+		         CreateIORequest(mp, sizeof(struct AHIRequest));
+	if (req[0] != NULL) {
+		req[0]->ahir_Version = 4;
+		opened = OpenDevice((CONST_STRPTR)AHINAME, 0,
+		                    (struct IORequest *)req[0], 0);
+	}
+	if (opened == 0) {
+		/* the second request is a COPY of the opened one, per the AHI
+		 * developer example — do not OpenDevice twice */
+		req[1] = AllocMem(sizeof(struct AHIRequest), MEMF_ANY);
+		if (req[1] != NULL)
+			CopyMem(req[0], req[1], sizeof(struct AHIRequest));
+		buf[0] = AllocMem(AHI_BUF_SAMPLES, MEMF_ANY | MEMF_CLEAR);
+		buf[1] = AllocMem(AHI_BUF_SAMPLES, MEMF_ANY | MEMF_CLEAR);
+	}
+	if (opened != 0 || req[1] == NULL || buf[0] == NULL || buf[1] == NULL) {
+		g_ahi_state = -1;
+		goto cleanup;
+	}
+
+	g_ahi_state = 1;
+	while (g_ahi_run) {
+		struct AHIRequest *r = req[cur];
+
+		synth_render(buf[cur], AHI_BUF_SAMPLES);
+
+		r->ahir_Std.io_Command = CMD_WRITE;
+		r->ahir_Std.io_Data    = buf[cur];
+		r->ahir_Std.io_Length  = AHI_BUF_SAMPLES;
+		r->ahir_Std.io_Offset  = 0;
+		r->ahir_Frequency      = SYNTH_HZ;
+		r->ahir_Type           = AHIST_M8S;     /* what synth_render makes */
+		r->ahir_Volume         = 0x10000;       /* unity */
+		r->ahir_Position       = 0x8000;        /* CENTRED — the whole point */
+		r->ahir_Link           = link;
+		SendIO((struct IORequest *)r);
+
+		/* Wait for the PREVIOUS buffer, so exactly one is always queued
+		 * ahead: that is what keeps playback gapless. */
+		if (link != NULL)
+			WaitIO((struct IORequest *)link);
+		link = r;
+		cur ^= 1;
+	}
+
+	/* only `link` can still be queued: every other request was waited on
+	 * inside the loop before being reused */
+	if (link != NULL) {
+		AbortIO((struct IORequest *)link);
+		WaitIO((struct IORequest *)link);
+	}
+
+cleanup:
+	if (opened == 0)
+		CloseDevice((struct IORequest *)req[0]);
+	if (buf[1] != NULL) FreeMem(buf[1], AHI_BUF_SAMPLES);
+	if (buf[0] != NULL) FreeMem(buf[0], AHI_BUF_SAMPLES);
+	if (req[1] != NULL) FreeMem(req[1], sizeof(struct AHIRequest));
+	if (req[0] != NULL) DeleteIORequest((struct IORequest *)req[0]);
+	if (mp != NULL)     DeleteMsgPort(mp);
+	g_ahi_done = 1;
+}
+
+/* Start the AHI player. Returns 0 if AHI is driving the output, -1 to fall
+ * back to Paula. Runs from task context (plat_sound_init). */
+static int ahi_start(void)
+{
+	int spin;
+
+	g_ahi_run   = 1;
+	g_ahi_state = 0;
+	g_ahi_done  = 0;
+
+	{
+		/* CreateNewProc takes a TagItem ARRAY in this NDK (the varargs
+		 * spelling is CreateNewProcTags) */
+		struct TagItem tags[5];
+
+		tags[0].ti_Tag = NP_Entry;     tags[0].ti_Data = (ULONG)ahi_player;
+		tags[1].ti_Tag = NP_Name;      tags[1].ti_Data = (ULONG)"OpenUA AHI";
+		tags[2].ti_Tag = NP_StackSize; tags[2].ti_Data = 16384;
+		tags[3].ti_Tag = NP_Priority;  tags[3].ti_Data = 5;
+		tags[4].ti_Tag = TAG_DONE;     tags[4].ti_Data = 0;
+
+		if (CreateNewProc(tags) == NULL) {
+			g_ahi_run = 0;
+			return -1;
+		}
+	}
+
+	/* the process reports back within a few ticks; Delay() is legal here
+	 * (task context) and costs nothing on the failure path */
+	for (spin = 0; spin < 50 && g_ahi_state == 0; spin++)
+		Delay(1);
+
+	if (g_ahi_state != 1) {
+		g_ahi_run = 0;
+		for (spin = 0; spin < 50 && !g_ahi_done; spin++)
+			Delay(1);
+		return -1;
+	}
+	return 0;
+}
+
+static void ahi_stop(void)
+{
+	int spin;
+
+	if (!g_use_ahi)
+		return;
+	g_ahi_run = 0;
+	for (spin = 0; spin < 100 && !g_ahi_done; spin++)
+		Delay(1);
+	g_use_ahi = 0;
+}
+
 int plat_sound_init(void)
 {
 	int v;
 
 	if (g_inited)
 		return 0;
+
+	for (v = 0; v < 4; v++)
+		g_ft_phase[v] = 0;
+
+	/* Prefer AHI: 16-bit-capable, properly stereo, and on an Apollo it
+	 * reaches the SAGA audio core. Paula is the fallback when ahi.device
+	 * is absent or will not open — the common case on a stock Workbench. */
+	if (ahi_start() == 0) {
+		g_use_ahi   = 1;
+		g_ring_live = 1;
+		g_quiet_run = 0;
+		g_inited    = 1;
+		/* SAY WHICH BACKEND RAN. Both paths now produce CENTRED audio —
+		 * AHI by mixing, Paula by driving AUD0+AUD1 — so a listener on
+		 * hardware cannot tell them apart, and "the sound is centred
+		 * now" would confirm nothing about AHI. This line is the only
+		 * thing that separates "AHI opened" from "AHI was absent and
+		 * the Paula fix carried it". */
+		dbg_log("snd: AHI backend up (ahi.device)");
+		return 0;
+	}
+	dbg_log("snd: no AHI - Paula fallback (AUD0+AUD1 centred)");
+
 	g_ring = AllocMem(RING_SAMPLES, MEMF_CHIP | MEMF_CLEAR);
 	if (g_ring == NULL)
 		return -1;
@@ -295,15 +511,31 @@ int plat_sound_init(void)
 	for (v = 0; v < 4; v++)
 		g_ft_phase[v] = 0;
 
-	/* Program channel 0 once; Paula reloads LC/LEN itself at the end of
-	 * the buffer — a hardware ring. Kill any modulation linkage first. */
-	CUSTOM->dmacon = DMAF_AUD0;                     /* clear while we set up */
+	/* Program channels 0 and 1 once; Paula reloads LC/LEN itself at the end
+	 * of the buffer — a hardware ring. Kill any modulation linkage first.
+	 *
+	 * BOTH channels play the SAME ring: Paula hard-pans 0/3 left and 1/2
+	 * right, so driving only AUD0 put the entire engine mix in the left
+	 * speaker (measured on captured hardware output: 18 dB left of right).
+	 * The Mac original is mono, so the faithful rendering is mono CENTRED,
+	 * i.e. the same samples in both channels.
+	 *
+	 * They must be started by ONE dmacon write with identical LC/LEN/PER so
+	 * they run in lockstep. Enabling them separately would leave the right
+	 * channel at a different ring offset — up to a full ring, 160 ms — which
+	 * would be heard as an echo rather than a centred image. */
+	CUSTOM->dmacon = (UWORD)(DMAF_AUD0 | DMAF_AUD1);/* clear while we set up */
 	CUSTOM->adkcon = 0x00FF;                        /* clear all AM/FM links */
 	CUSTOM->aud[0].ac_ptr = (UWORD *)g_ring;
 	CUSTOM->aud[0].ac_len = (UWORD)(RING_SAMPLES / 2);      /* words */
 	CUSTOM->aud[0].ac_per = SYNTH_PER;
 	CUSTOM->aud[0].ac_vol = 64;
-	CUSTOM->dmacon = (UWORD)(DMAF_SETCLR | DMAF_MASTER | DMAF_AUD0);
+	CUSTOM->aud[1].ac_ptr = (UWORD *)g_ring;
+	CUSTOM->aud[1].ac_len = (UWORD)(RING_SAMPLES / 2);
+	CUSTOM->aud[1].ac_per = SYNTH_PER;
+	CUSTOM->aud[1].ac_vol = 64;
+	CUSTOM->dmacon = (UWORD)(DMAF_SETCLR | DMAF_MASTER
+	                         | DMAF_AUD0 | DMAF_AUD1);
 
 	/* LED off = the 3.2kHz low-pass filter off (see the header note). */
 	g_saved_led = (UBYTE)(CIAA->ciapra & CIAF_LED);
@@ -421,6 +653,8 @@ void plat_bard_start(void)
 
 	if (!g_inited || g_bard_on)
 		return;
+	if (g_use_ahi)
+		return;         /* Paula-only tune; AHI owns the audio hardware */
 	if (g_bard_wave == NULL) {
 		g_bard_wave = AllocMem(BARD_WAVE_LEN, MEMF_CHIP);
 		if (g_bard_wave == NULL)
@@ -435,7 +669,10 @@ void plat_bard_start(void)
 			    (i < 16 ? i * 16 - 120 : 120 - (i - 16) * 16);
 	}
 	g_bard_vol0 = 64;
-	CUSTOM->aud[0].ac_vol = 0;              /* mute the frozen engine chord */
+	/* mute the frozen engine chord — BOTH ring channels now (AUD1 is the
+	 * right half of the centred mix; the bard borrows it below) */
+	CUSTOM->aud[0].ac_vol = 0;
+	CUSTOM->aud[1].ac_vol = 0;
 	/* melody: AUD1.  drone: AUD2, a soft D3 that just loops. */
 	CUSTOM->dmacon = (UWORD)(DMAF_AUD1 | DMAF_AUD2 | DMAF_AUD3);
 	CUSTOM->aud[1].ac_ptr = (UWORD *)g_bard_wave;
@@ -523,16 +760,34 @@ void plat_bard_stop(void)
 	g_vblprof_calls = 0; g_vblprof_lines = 0;
 	g_bard_calls = 0;
 	CUSTOM->dmacon = (UWORD)(DMAF_AUD1 | DMAF_AUD2 | DMAF_AUD3);
-	CUSTOM->aud[1].ac_vol = 0;
 	CUSTOM->aud[2].ac_vol = 0;
 	CUSTOM->aud[3].ac_vol = 0;
-	CUSTOM->aud[0].ac_vol = g_bard_vol0;    /* the engine ring returns */
-	/* the render skipped while muted: put the write cursor back half a ring
-	 * ahead of the play model, as init does, so the resumed synth writes
-	 * ahead of the DMA instead of into stale geometry */
-	g_ring_w = g_ring_play + RING_SAMPLES / 2;
-	if (g_ring_w >= RING_SAMPLES)
-		g_ring_w -= RING_SAMPLES;
+
+	/* The bard stole AUD1, so the right half of the centred mix has to be
+	 * re-seated. Restart BOTH ring channels from the top of the buffer with
+	 * one dmacon write: re-enabling AUD1 alone would leave it at a different
+	 * ring offset from the still-running AUD0 and turn the centred image
+	 * into an echo. Engine audio was muted throughout the bard, so
+	 * restarting AUD0 here is inaudible.
+	 *
+	 * Restarting the DMA means the play cursor really is back at 0, so the
+	 * model is reset to match rather than carried over. */
+	CUSTOM->dmacon = (UWORD)(DMAF_AUD0 | DMAF_AUD1);
+	CUSTOM->aud[0].ac_ptr = (UWORD *)g_ring;
+	CUSTOM->aud[0].ac_len = (UWORD)(RING_SAMPLES / 2);
+	CUSTOM->aud[0].ac_per = SYNTH_PER;
+	CUSTOM->aud[0].ac_vol = g_bard_vol0;
+	CUSTOM->aud[1].ac_ptr = (UWORD *)g_ring;
+	CUSTOM->aud[1].ac_len = (UWORD)(RING_SAMPLES / 2);
+	CUSTOM->aud[1].ac_per = SYNTH_PER;
+	CUSTOM->aud[1].ac_vol = g_bard_vol0;
+	CUSTOM->dmacon = (UWORD)(DMAF_SETCLR | DMAF_MASTER
+	                         | DMAF_AUD0 | DMAF_AUD1);
+
+	g_ring_play = 0;
+	g_play_acc  = 0;
+	g_play_tod  = bard_tod();
+	g_ring_w    = RING_SAMPLES / 2;         /* half a ring ahead, as init */
 	g_quiet_run = 0;
 	g_bard_on = 0;
 }
@@ -634,6 +889,15 @@ void plat_sound_shutdown(void)
 		return;
 	g_ring_live = 0;
 	g_ft_rec    = NULL;
+
+	if (g_use_ahi) {
+		/* Paula was never programmed and the LED filter never touched,
+		 * so there is nothing to undo here beyond stopping the player. */
+		ahi_stop();
+		g_inited = 0;
+		return;
+	}
+
 	CUSTOM->dmacon = DMAF_AUD0;
 	CUSTOM->aud[0].ac_vol = 0;
 	if (g_saved_led == 0)
@@ -852,7 +1116,11 @@ void plat_sound_vbl(void)
 #ifdef FRUA_SNDNOGATE
 	g_quiet_run = 0;                        /* A/B arm: gate disabled */
 #endif
-	if (!audible && g_quiet_run >= RING_SAMPLES) {
+	if (g_use_ahi) {
+		/* the AHI player process renders straight into its own buffers;
+		 * there is no ring and no DMA model to service here. The engine
+		 * sequencer hook below still runs — it is what arms the voices. */
+	} else if (!audible && g_quiet_run >= RING_SAMPLES) {
 		g_vblprof_calls++;
 		g_vblprof_lines += (long)((vbl_beamline() - b0 + 313UL) % 313UL);
 		/* Hold the write point exactly half a ring ahead rather than
