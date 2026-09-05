@@ -419,8 +419,25 @@ list of what the real machine found — and what it is still owed — is
    what the 32-colour cut exposes — untested because the title container
    does not decode with the `perband.py` piece decoders (TITLE.TLB gives 2
    items, 0 rows), so settling it needs a real offline renderer.
-   Recommend (b) first: it is offline, cheap to re-run, and would say
-   whether this is our bug at all.
+   ★★ **(b) IS DEAD — the art is CLEAN.** `tools/artview.py` (new) renders
+   the art to PNG offline at full 256 colours, with no engine and no
+   emulator in the loop. TITLE.TLB entry 1 — the 320x200 base that carries
+   the granite frame and the red gradient the marks sit in — renders as a
+   smooth frame and a smooth gradient with **no beige/white dashes at all**.
+   So the marks are NOT in SSI's data; the port puts them there.
+   (Aside: the earlier "TITLE.TLB gives 2 items" was me misreading the API
+   — `prequant.parse_glib` returns a `(count, offsets)` TUPLE, not a list.
+   The container has 7 entries: a leaf plus 6 pictures, and each title
+   screen is base entry 1 composited with its own overlay entry, which is
+   exactly l19d4's two loads.)
+   **So the remaining candidate is (a), the per-band palette actually shown
+   — and the next probe follows from a shape argument:** in a smooth
+   VERTICAL gradient a horizontal run of pixels shares one index, so ONE
+   slot holding a wrong colour in ONE band paints exactly the observed
+   3-60 px horizontal run. `FRUA_ECSERR` already showed the band PALETTE
+   ENTRIES are sane, so check the other half — whether the COPPER WORDS
+   agree with `s_band_pal`. A path that writes one without the other would
+   diverge invisibly to that probe.
 
 17. **ECS walk shimmer — walls darken/brighten while standing still.**
    Hardware report (A500, v0.9.21-beta): "there also seems to be some

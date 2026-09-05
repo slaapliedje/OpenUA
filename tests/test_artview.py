@@ -51,6 +51,16 @@ def test_mode2_packbits_pixels():
     assert rows == {0: {0: 0xAA, 1: 0xBB, 2: 0x0C, 3: 0x0C, 4: 0x0C, 5: 0x0C}}
 
 
+def test_multi_row_piece_stacks_downwards():
+    # Rows must advance DOWN from the origin. A single-row fixture cannot see
+    # a sign error here (r is always 0), so this piece is deliberately 3 rows
+    # tall — a mutation of `y0 + r` to `y0 - r` survives without it.
+    body = bytes([1] + [255] * 7 + [2] + [255] * 7 + [3] + [255] * 7)
+    ent = struct.pack(">Hhh", 3, 0, 0) + bytes([1, 0xC0]) + body
+    g = _glib([ent])
+    assert artview.piece_pixels(g, 0) == {(0, 0): 1, (0, 1): 2, (0, 2): 3}
+
+
 def test_bearings_offset_the_piece():
     # ybear/xbear are SUBTRACTED from the caller's origin (perband does the
     # same for y); a piece with bearings (-3,-5) lands at (+5,+3).
