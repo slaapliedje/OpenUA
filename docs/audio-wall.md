@@ -312,9 +312,17 @@ Implementation notes:
 
 ### Still to do
 
-* **Hardware testing.** Written and built, never run. Watch for: AHI failing to
-  open (should fall back silently to Paula), gaps/stutter if 1024 samples is too
-  short for the machine, and the loading screen being silent under AHI.
+* ~~**Hardware testing.**~~ **DONE 2026-09-05, A1200 + Apollo V4 IceDrake.**
+  `snd: AHI backend up (ahi.device)` in DBG.LOG — AHI opened, played, and tore
+  down cleanly (`ExitToShell: display mode restored, exiting`). The user's
+  "sounded better" is therefore AHI, not the Paula centring: **that is exactly
+  what the backend log line was added to disambiguate**, since both paths now
+  produce centred audio and a listener cannot tell them apart.
+  The Paula fallback is separately exercised every time it runs in amiberry
+  (no `ahi.device` on the WB mount), so BOTH arms have now been executed.
+  Still unwatched on hardware: gaps/stutter if 1024 samples is short for a
+  given machine, and the campfire bard being SILENT under AHI (by design —
+  `plat_bard_start` returns early; it is a direct-to-Paula tune).
 * **16-bit.** `synth_render` still produces 8-bit mono and is handed to AHI as
   `AHIST_M8S`, so this buys correct centring and AHI's mixing, not more bits.
   Rendering to 16-bit (`AHIST_M16S`) is where Arne's quality actually shows, and

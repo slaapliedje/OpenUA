@@ -1483,9 +1483,11 @@ just palette merges) and the EGA-nostalgia preset.
 
 ## ADR-0021 — Amiga audio goes through AHI when it is there, and falls back to Paula when it is not
 
-**Status:** ratified 2026-09-05. Extends ADR-0012 (the Amiga target). The
-*decision* is ratified; the AHI path itself is **not yet hardware-validated** —
-see Consequence.
+**Status:** ratified 2026-09-05. Extends ADR-0012 (the Amiga target).
+**AHI CONFIRMED ON REAL HARDWARE the same day** — A1200 + Apollo V4 IceDrake,
+`0.9.22dev-ahi`, DBG.LOG reads `snd: AHI backend up (ahi.device)`, plays, and
+tears down cleanly through ExitToShell. That is the first time the AHI path had
+executed anywhere. See Consequence for what is still unverified.
 
 **Context.** The Amiga backend drove Paula directly, mixing all four Mac
 four-tone voices, the swMode tone and the current effect into one ring and
