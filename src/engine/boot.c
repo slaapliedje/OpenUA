@@ -12266,6 +12266,31 @@ static void port_clut_install(const RGBColor *pal, short first, short count)
 	}
 }
 
+/* #20: the backdrop band lands WITH its pixels at the next present, so the
+ * old backdrop is never shown through the new palette (the sky/floor flash). */
+static void port_clut_install_deferred(const RGBColor *pal, short first, short count)
+{
+	unsigned char *live = (unsigned char *)(uintptr_t)g_a5_long(-3390);
+	unsigned char *work = (unsigned char *)(uintptr_t)g_a5_long(-3394);
+	short i;
+
+	qd_set_palette_deferred(pal, first, count);
+
+	if (pal == NULL || live == NULL || work == NULL)
+		return;
+	if (first < 0 || count <= 0 || (short)(first + count) > 256)
+		return;
+	for (i = 0; i < count; i++) {
+		long          o = (long)(first + i) * 3;
+		unsigned char r = (unsigned char)(pal[i].red   >> 8);
+		unsigned char g = (unsigned char)(pal[i].green >> 8);
+		unsigned char b = (unsigned char)(pal[i].blue  >> 8);
+
+		live[o] = r; live[o + 1] = g; live[o + 2] = b;
+		work[o] = r; work[o + 1] = g; work[o + 2] = b;
+	}
+}
+
 /* Colour wall sets — up to CW_SLOTS loaded at once so the three wall
  * groups a level can use (Wall1-3) are all on screen. Each slot holds a
  * copy of its set's plain-wall piece (item 8, 8bpp chunky, <=56x56) and a
@@ -13173,7 +13198,7 @@ static int load_backdrop(short n)
 		g_back_w = cached_w;
 		g_back_h = cached_h;
 		if (cached_pe > 0)
-			port_clut_install(bpal, BACK_PAL_BASE, cached_pe);
+			port_clut_install_deferred(bpal, BACK_PAL_BASE, cached_pe);
 #ifdef FRUA_BACKPROF
 		dbg_log_num("backdrop: CACHE HIT id  = ", (long)n);
 #endif
@@ -13258,9 +13283,21 @@ static int load_backdrop(short n)
 			bpal[k].green = (unsigned short)((g << 8) | g);
 			bpal[k].blue  = (unsigned short)((b << 8) | b);
 		}
-		port_clut_install(bpal, BACK_PAL_BASE, pe);
+		port_clut_install_deferred(bpal, BACK_PAL_BASE, pe);
 		cached_id = n; cached_pe = pe;
+#ifdef FRUA_BACKFLASH
+		/* DIAGNOSTIC (stretch the race): hold here, after the band is queued
+		 * and before the new pixels exist. With the band deferred this shows
+		 * the OLD backdrop in its OWN colours; before the fix it showed the
+		 * old pixels through the NEW band — the flash, held still. */
+		{ long t0 = TickCount(); while (TickCount() - t0 < FRUA_BACKFLASH) ; }
+#endif
 		cached_w = g_back_w; cached_h = g_back_h;
+#ifdef FRUA_BACKFLASH
+		/* diagnostic: freeze right after the NEW palette is live and
+		 * BEFORE the new pixels are drawn — what is on screen now? */
+		{ long t0 = TickCount(); while (TickCount() - t0 < FRUA_BACKFLASH) ; }
+#endif
 	}
 	rc = 1;
 done:

@@ -492,6 +492,36 @@ list of what the real machine found — and what it is still owed — is
    agree with `s_band_pal`. A path that writes one without the other would
    diverge invisibly to that probe.
 
+20. **AGA sky/floor "texture flash" on a backdrop-zone change — TWO causes,
+   both fixed 2026-09-05.** A1200 (Vampire) report: "a flash of an unload/load
+   of textures as it needs to redraw the sky/floor", worse on a stock AGA.
+   - **The cause that was measured first (`0c544962`, v0.9.22):** `load_backdrop`
+     read 160 KB of BACK.CTL per call; 7 loads for 2 zones on a walk, 5 of them
+     re-reading the same id. Memoised: 7 -> 2. **This did NOT fix the report**
+     — the user still saw it on 0.9.23 crossing outside<->inside. A one-entry
+     memo cannot help alternating between two zones, and — more to the point —
+     the read was never the VISIBLE part.
+   - **The visible cause (this entry):** on a live-palette backend (AGA, TT:
+     `hw_palette`) `qd_set_palette` lands in the hardware CLUT immediately, so
+     the moment `load_backdrop` installed the NEW zone's band the display —
+     still showing the OLD backdrop's pixels — rendered them through the new
+     colours for the whole render until the present. Same family as #165
+     ("planes and palette change together at the flip"). Fix:
+     `qd_set_palette_deferred` — on hw_palette backends the band is queued and
+     installed right after the backend present, so pixels and palette change
+     together; on quantiser/true-colour backends it installs immediately (the
+     ECS cut needs it before). Only `load_backdrop` uses it.
+   - **Proof, both directions, in amiberry:** `-DFRUA_BACKFLASH=40` holds the
+     engine for 40 ticks right after the band is queued, stretching the window
+     so a screenshot can catch it. BEFORE: frame f10 shows the sky pixels
+     wearing the indoor band (held still). AFTER, same sky->indoor transition
+     (id 19 -> 8, confirmed in the log): no such frame — the sky stays in its
+     own colours through the hold and the indoor view appears whole. Falcon
+     (immediate arm) and TT (deferred arm) walk cleanly in Hatari.
+   - Seen but not chased: on the FIRST render of the walk the hole is captured
+     half-black once (f12 in the after-run) — an entry-time present, not the
+     transition. **Owed:** the A1200's verdict on the transition.
+
 17. **ECS walk shimmer — walls darken/brighten while standing still.**
    Hardware report (A500, v0.9.21-beta): "there also seems to be some
    changing colour as you walk around the start area in HEIRS.DSN, namely

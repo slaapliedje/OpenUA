@@ -543,6 +543,55 @@ long  g_qdp_counts[8];
  * the three outcomes it took, because a held or skipped present is NOT a
  * redraw and counting them together would overstate the problem.
  *   'H' held/suppressed (deferred)  'S' skipped clean (#152)  'P' presented */
+/* ---- deferred palette band (hw_palette backends) ------------------------
+ *
+ * On a LIVE-palette backend (AGA, TT: hw_palette) qd_set_palette lands in the
+ * hardware CLUT immediately, while the pixels that need the new colours only
+ * reach the screen at the next present. Everything already on screen in that
+ * index range wears the new colours for the whole render in between. That is
+ * the sky/floor "flash" on a backdrop-zone change (#20, second half): the
+ * OLD backdrop's pixels, still on screen, shown through the NEW backdrop's
+ * band for one full render — longer on a stock A1200. The disk read was never
+ * the visible part.
+ *
+ * Same family as the ECS titles (#165: "planes and palette change together at
+ * the flip"). A caller whose pixels arrive at the next present installs its
+ * band through here; on a quantiser or true-colour backend it is installed
+ * now (their present already carries the palette with the pixels, and the
+ * ECS quantiser NEEDS it before the cut). ONE band at a time is enough — a
+ * render installs one backdrop band — and a second one arriving while one
+ * is pending flushes the first immediately rather than losing it. */
+static RGBColor s_pal_def[256];
+static short    s_pal_def_first, s_pal_def_count;
+static int      s_pal_def_on;
+
+void qd_set_palette_deferred(const RGBColor *colors, short first, short count)
+{
+	const dsp_backend_t *dsp = dsp_detect();
+	short i;
+
+	if (count <= 0 || first < 0 || first + count > 256)
+		return;
+	if (dsp == NULL || !dsp->hw_palette) {
+		qd_set_palette(colors, first, count);
+		return;
+	}
+	if (s_pal_def_on && (s_pal_def_first != first || s_pal_def_count != count)) {
+		s_pal_def_on = 0;
+		qd_set_palette(s_pal_def, s_pal_def_first, s_pal_def_count);
+	}
+	for (i = 0; i < count; i++)
+		s_pal_def[i] = colors[i];
+	s_pal_def_first = first;
+	s_pal_def_count = count;
+	s_pal_def_on = 1;
+}
+
+int qd_palette_deferred_pending(void)
+{
+	return s_pal_def_on;
+}
+
 static char qd_present_body(void)
 {
 	if (g_present_suppress || g_present_hold) {
@@ -560,7 +609,7 @@ static char qd_present_body(void)
 	/* #152: nothing drawn since the last full present -> the frame on
 	 * screen is already current; skip the backend's (expensive) no-op
 	 * scan. Only on single-buffered backends — see g_qd_touched. */
-	if (!g_qd_touched && g_present_pages == 1) {
+	if (!g_qd_touched && g_present_pages == 1 && !s_pal_def_on) {
 		QDT(6);                          /* #63: presents skipped clean */
 #ifdef FRUA_MONOPROF
 		g_qdp_counts[7]++;               /* clean presents skipped */
@@ -578,6 +627,11 @@ static char qd_present_body(void)
 #endif
 	if (g_present_hook != NULL)
 		g_present_hook();
+	if (s_pal_def_on) {
+		/* the pixels are up: now the band they were drawn for */
+		s_pal_def_on = 0;
+		qd_set_palette(s_pal_def, s_pal_def_first, s_pal_def_count);
+	}
 #ifdef FRUA_SLOWPRESENT
 	/* #8 DIAGNOSTIC — impersonate a slow-present machine. The ATW800/2's
 	 * Nova card takes ~0.5s of VME writes per full present; nothing we can

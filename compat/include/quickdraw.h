@@ -546,6 +546,10 @@ void PenPat(const Pattern *pat); /* set the 8x8 pen pattern (copies bytes) */
 void RGBForeColor(const RGBColor *color);
 void RGBBackColor(const RGBColor *color);
 void qd_set_palette(const RGBColor *colors, short first, short count);
+/* Same, but on a live-palette backend the band lands at the NEXT PRESENT,
+ * together with the pixels drawn for it (see the note in quickdraw.c). */
+void qd_set_palette_deferred(const RGBColor *colors, short first, short count);
+int  qd_palette_deferred_pending(void);
 void qd_dump_palette(unsigned char *out768);
 
 /* --- text drawing ---
