@@ -415,6 +415,30 @@ int main(int argc, char **argv)
 		printf("-> %s\n", dest);
 	}
 	{
+#ifndef __MINT__
+		/* ★ BACKSLASHES. AmigaDOS separates with '/' and treats '\' as an
+		 * ordinary filename character. A1200 field report 2026-09-05: the
+		 * user typed "Personal:Games\OpenUA\" (a DOS habit) and the module
+		 * was installed into a drawer literally NAMED "Games\OpenUA\" at
+		 * the root of Personal: — invisible unless you knew to look for a
+		 * drawer with backslashes in its name. Nobody means a backslash in
+		 * an Amiga path, so turn each one into '/', drop a trailing
+		 * separator, and echo back what will actually be used. */
+		{
+			char *q;
+			int fixed = 0;
+			size_t n;
+			for (q = dest; *q; q++)
+				if (*q == '\\') { *q = '/'; fixed = 1; }
+			n = strlen(dest);
+			while (n > 1 && dest[n - 1] == '/' && dest[n - 2] != ':') {
+				dest[--n] = 0;
+				fixed = 1;
+			}
+			if (fixed)
+				printf("(backslashes are not path separators on the Amiga - using %s)\n", dest);
+		}
+#endif
 		/* does it exist yet? mkdir SUCCEEDING means it did not */
 		if (mkdir(dest, 0755) == 0)
 			dest_created = 1;

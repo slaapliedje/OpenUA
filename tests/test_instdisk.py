@@ -80,3 +80,20 @@ def test_base_game_set_has_no_design_line(instdisk, tmp_path):
     # the first manifest path is a ROOT file, so no design is named
     assert "The design" not in r.stdout
     assert (dest / "FRAME.TLB").exists() and (dest / "HEIRS.DSN" / "GAME.DAT").exists()
+
+
+def test_backslashes_are_normalised_to_slashes(instdisk, tmp_path):
+    """The field case: "Personal:Games\\OpenUA\\" typed from a DOS habit
+    installed into a drawer literally NAMED "Games\\OpenUA\\". On the Amiga
+    (and the host) '\\' is a filename character, not a separator, so the
+    installer turns it into '/', strips the trailing one, and says so."""
+    src = _disk(tmp_path, "Curse module", ["Curse.dsn/GAME.DAT"])
+    games = tmp_path / "Games"
+    games.mkdir()
+    typed = str(tmp_path) + "\\Games\\OpenUA\\"          # what a DOS hand types
+    r = _run(instdisk, typed, src)
+    assert r.returncode == 0, r.stdout
+    assert (games / "OpenUA" / "Curse.dsn" / "GAME.DAT").exists()
+    assert not any("\\" in p.name for p in tmp_path.iterdir())   # no drawer named with a backslash
+    assert "backslashes are not path separators" in r.stdout
+    assert "The design Curse.dsn is now in " + str(games / "OpenUA") in r.stdout
