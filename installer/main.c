@@ -36,6 +36,7 @@
 #include "miniz.c"
 
 #include "../src/convert/artconv.h"
+#include "../src/convert/xmi2slb.h"
 #include "rsrc_from_dos.h"
 
 #ifdef __MINT__
@@ -410,6 +411,88 @@ static int installer_main(int argc, char **argv)
 				monoed++;
 		}
 		mz_zip_reader_end(&za);
+	}
+
+	/* THE MODULE'S OWN MUSIC. A DOS fan module ships its soundtrack as .XMI
+	 * and the engine resolves MUSIC.SLB design-first (ADR-0011 applied to
+	 * music), so the bank belongs in the design folder. Until this pass the
+	 * conversion was host-side Python only, and a module installed here
+	 * played the BASE game's music — working audio, wrong soundtrack.
+	 * Same core the PC tool mirrors (src/convert/xmi2slb.c, byte-identical
+	 * by test); driver preference Tandy > PC > Roland > AdLib > DQK, and a
+	 * partial set converts what exists (the rest play silence). */
+	{
+		/* best[drv][q-1] = basename of that driver's song q, or empty */
+		static char best[XMI2SLB_NDRV][3][MAXPATH];
+		int have[XMI2SLB_NDRV] = { 0, 0, 0, 0, 0 };
+		int drv, q, chosen = -1;
+
+		memset(&za, 0, sizeof za);
+		if (mz_zip_reader_init_file(&za, zip_path, 0)) {
+			nfiles = mz_zip_reader_get_num_files(&za);
+			for (i = 0; i < nfiles; i++) {
+				char nm[MAXPATH];
+				const char *base;
+				mz_zip_reader_get_filename(&za, i, nm, sizeof nm);
+				if (mz_zip_reader_is_file_a_directory(&za, i))
+					continue;
+				base = basename_of(nm);
+				if (!xmi2slb_classify(base, &drv, &q))
+					continue;
+				if (q < 1 || q > 3)		/* only Q1..Q3 map to Mac slots */
+					continue;
+				if (strlen(base) >= MAXPATH)
+					continue;
+				strcpy(best[drv][q - 1], base);
+				have[drv] = 1;
+			}
+			mz_zip_reader_end(&za);
+		}
+		for (drv = 0; drv < XMI2SLB_NDRV; drv++)
+			if (have[drv]) { chosen = drv; break; }
+
+		if (chosen >= 0) {
+			static const char *drvname[XMI2SLB_NDRV] =
+				{ "Tandy", "PC speaker", "Roland", "AdLib", "DQK" };
+			const unsigned char *xmi[3] = { 0, 0, 0 };
+			unsigned char *own[3] = { 0, 0, 0 };
+			long len[3] = { 0, 0, 0 }, out, cap = 64L * 1024;
+			unsigned char *bank = malloc(cap);
+			int nsongs = 0;
+
+			for (q = 0; q < 3; q++) {
+				if (best[chosen][q][0] == 0)
+					continue;
+				path_join(path, sizeof path, dsn_dir, best[chosen][q]);
+				own[q] = read_file(path, &len[q]);
+				if (own[q]) { xmi[q] = own[q]; nsongs++; }
+			}
+			printf("  music: %s arrangement, %d of 3 song%s...",
+			       drvname[chosen], nsongs, nsongs == 1 ? "" : "s");
+			fflush(stdout);
+			out = bank ? xmi2slb_bank(xmi, len, bank, cap, g_scratch, SCRATCH_CAP)
+				   : XMI2SLB_ERR_SPACE;
+			if (out > 0) {
+				FILE *f;
+				path_join(path, sizeof path, dsn_dir, "MUSIC.SLB");
+				f = fopen(path, "wb");
+				if (f && fwrite(bank, 1, out, f) == (size_t)out) {
+					printf(" MUSIC.SLB (%ld bytes)%s\n", out,
+					       nsongs < 3 ? " - partial set, the rest play silence" : "");
+				} else {
+					printf(" FAILED to write MUSIC.SLB\n");
+					failed++;
+				}
+				if (f)
+					fclose(f);
+			} else {
+				printf(" FAILED (convert error %ld)\n", out);
+				failed++;
+			}
+			for (q = 0; q < 3; q++)
+				free(own[q]);
+			free(bank);
+		}
 	}
 
 	printf("\nDone: %d extracted, %d art file%s converted "

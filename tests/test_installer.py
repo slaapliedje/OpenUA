@@ -16,11 +16,14 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 import art_convert as ac
+import xmi2slb as xref  # the byte-exact reference for the music bank
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 SRC = [os.path.join(ROOT, "installer", "main.c"),
        os.path.join(ROOT, "installer", "miniz.c"),
        os.path.join(ROOT, "src", "convert", "artconv.c"),
+       # the module's own soundtrack: main.c builds MUSIC.SLB from its .XMI
+       os.path.join(ROOT, "src", "convert", "xmi2slb.c"),
        # main.c dispatches CKIT.EXE to the native frua.rsc builder (ADR-0017),
        # so the host build needs it too — and -Iinstaller for the generated
        # strs_map_dos12.h it includes.
@@ -141,3 +144,60 @@ def test_real_por_zip_installs_byte_identically(uainst, tmp_path):
         assert (d / (base[:-4] + ".ctl")).read_bytes() == want_ctl
         fam = ac.mono_family(base)
         assert (d / base).read_bytes() == ac.mono_synth(want_ctl, fam)
+
+
+# ---- the module's own music --------------------------------------------------
+
+def _tiny_xmi(events, tempo_us=None):
+    """[(delta, ch, note, vel, dur)] -> an XMIDI file, as parse_xmi reads it."""
+    def vlq(v):
+        out = [v & 0x7F]; v >>= 7
+        while v:
+            out.append((v & 0x7F) | 0x80); v >>= 7
+        return bytes(reversed(out))
+    ev = bytearray()
+    if tempo_us is not None:
+        ev += bytes([0xFF, 0x51]) + vlq(3) + tempo_us.to_bytes(3, "big")
+    for delta, ch, note, vel, dur in events:
+        if delta:
+            ev.append(delta)
+        ev += bytes([0x90 | ch, note, vel]) + vlq(dur)
+    ev += bytes([0xFF, 0x2F, 0x00])
+    return b"FORM\0\0\0\0XMIDEVNT" + len(ev).to_bytes(4, "big") + bytes(ev)
+
+
+def test_module_music_converts_into_the_design_folder(uainst, tmp_path):
+    """A module shipping .XMI gets a MUSIC.SLB IN ITS DESIGN FOLDER, built by
+    the same core the PC tool mirrors — byte-identical to the reference. This
+    is the on-device half of design-first music: without it a module
+    installed on the Amiga/Atari played the BASE game's soundtrack."""
+    q1 = _tiny_xmi([(0, 0, 60, 100, 60), (60, 0, 64, 100, 60)], tempo_us=560747)
+    q3 = _tiny_xmi([(0, 1, 67, 100, 120)])
+    zp = tmp_path / "tunes.zip"
+    with zipfile.ZipFile(zp, "w") as z:
+        z.writestr("Tunes.dsn/GAME.DAT", b"\0" * 16)
+        z.writestr("Tunes.dsn/ADDQ1.XMI", q1)           # AdLib set, Q2 missing
+        z.writestr("Tunes.dsn/ADDQ3.XMI", q3)
+        z.writestr("Tunes.dsn/TYDQ1.XMI", q1)           # Tandy present -> it must WIN
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    r = _run(uainst, zp, dest)
+    assert r.returncode == 0, r.stdout + r.stderr
+    bank = (dest / "Tunes.dsn" / "MUSIC.SLB").read_bytes()
+    # Tandy outranks AdLib, and Tandy ships only Q1 -> a 1-song partial bank
+    assert bank == xref.build_bank({1: q1})
+    assert "Tandy" in r.stdout and "partial" in r.stdout
+
+
+def test_module_without_music_gets_no_bank(uainst, tmp_path):
+    """Control: no .XMI, no MUSIC.SLB — the engine then falls back to the
+    root bank, which is the unchanged behaviour for every art-only module."""
+    zp = tmp_path / "quiet.zip"
+    with zipfile.ZipFile(zp, "w") as z:
+        z.writestr("Quiet.dsn/GAME.DAT", b"\0" * 16)
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    r = _run(uainst, zp, dest)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert not (dest / "Quiet.dsn" / "MUSIC.SLB").exists()
+    assert "music:" not in r.stdout

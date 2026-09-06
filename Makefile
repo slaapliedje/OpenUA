@@ -777,7 +777,7 @@ distclean: clean
 # because the desktop has already left GEM by the time it runs.
 installer: uainst.prg uainst.ttp
 UAINST_SRC = installer/main.c installer/fsel_atari.c installer/miniz.c \
-	     src/convert/artconv.c installer/rsrc_from_dos.c
+	     src/convert/artconv.c src/convert/xmi2slb.c installer/rsrc_from_dos.c
 
 # The STRS positions map as C. Generated (like src/engine/a4_map.c) rather than
 # committed, from the JSON the release zips already ship — so a fresh clone
@@ -832,12 +832,12 @@ uaconv_amiga: installer/uaconv.c installer/asl_amiga.c src/convert/artconv.c src
 	    -o $@ installer/uaconv.c installer/asl_amiga.c src/convert/artconv.c
 
 installer-amiga: uainst_amiga uainst.info frua.info uaconv_amiga uaconv.info
-uainst_amiga: installer/main.c installer/asl_amiga.c installer/miniz.c src/convert/artconv.c src/convert/artconv.h installer/rsrc_from_dos.c installer/rsrc_from_dos.h installer/strs_map_dos12.h
+uainst_amiga: installer/main.c installer/asl_amiga.c installer/miniz.c src/convert/artconv.c src/convert/artconv.h installer/rsrc_from_dos.c installer/rsrc_from_dos.h installer/strs_map_dos12.h src/convert/xmi2slb.c src/convert/xmi2slb.h
 	$(AMIGA_CROSS)gcc -m68000 -msoft-float -noixemul -std=gnu99 -O2 \
 	    -fomit-frame-pointer -s \
 	    -DUAINST_GUI -Iinstaller \
 	    -o $@ installer/main.c installer/asl_amiga.c installer/miniz.c \
-	    src/convert/artconv.c installer/rsrc_from_dos.c
+	    src/convert/artconv.c src/convert/xmi2slb.c installer/rsrc_from_dos.c
 	# no post-link strip: m68k-amigaos-strip corrupts hunk executables
 	# (see toolchain/m68k-amigaos.mk) — '-s' above strips at link time
 
