@@ -345,6 +345,9 @@ static void wait_for_disk(const char *src, const char *lst, int want,
 int main(int argc, char **argv)
 {
 	char dest[MAXPATH] = "", src[MAXPATH] = "";
+	char dsn_name[64] = "";            /* "<X>.dsn" when this is a MODULE set */
+	int  dsn_checked = 0;
+	int  dest_created = 0;
 	char name[64], line[MAXPATH];
 	char spath[MAXPATH], dpath[MAXPATH];
 	int  disk = 0, total = 0, expect = 1;
@@ -410,6 +413,11 @@ int main(int argc, char **argv)
 		if (dest[0] == 0)
 			snprintf(dest, sizeof dest, "%s", def_dest);
 		printf("-> %s\n", dest);
+	}
+	{
+		/* does it exist yet? mkdir SUCCEEDING means it did not */
+		if (mkdir(dest, 0755) == 0)
+			dest_created = 1;
 	}
 
 	for (;;) {
@@ -490,6 +498,21 @@ int main(int argc, char **argv)
 				continue;
 			path_join(spath, sizeof spath, src, line);
 			path_join(dpath, sizeof dpath, dest, line);
+			if (dsn_name[0] == 0 && !dsn_checked) {
+				/* a module set's paths ALL start "<X>.dsn/", so the
+				 * first one decides; a base-game set starts with root
+				 * files and must not name its bundled HEIRS a "design" */
+				dsn_checked = 1;
+				const char *sl = strchr(line, '/');
+				size_t k = sl ? (size_t)(sl - line) : 0;
+				if (k > 4 && k < sizeof dsn_name
+				    && (line[k - 4] == '.')
+				    && ((line[k - 3] | 32) == 'd') && ((line[k - 2] | 32) == 's')
+				    && ((line[k - 1] | 32) == 'n')) {
+					memcpy(dsn_name, line, k);
+					dsn_name[k] = 0;
+				}
+			}
 			GUI_TICK(line);
 			rc = copy_one(spath, dpath, &n, 0);
 			if (rc != 0) {
@@ -526,6 +549,7 @@ int main(int argc, char **argv)
 	}
 
 	printf("\n%ld file(s), %ld byte(s) copied to %s\n", files, bytes, dest);
+
 	if (failed) {
 		printf("%d file(s) FAILED - the install is incomplete.\n",
 		       failed);
@@ -618,6 +642,15 @@ int main(int argc, char **argv)
 				       " to unzip FRUA.PRG on a PC.\n"
 				       "Insert an engine disk and press RETURN (s to"
 				       " skip): ");
+				/* No console behind us (a harness, a redirected run):
+				 * the prompt can never be answered, so treat EOF as
+				 * "s". Without this the loop re-prompted forever —
+				 * the host test's first run was killed mid-spin. */
+				if (feof(stdin)) {
+					printf("\n(no input - skipping the engine disk)\n");
+					skipped = 1;
+					break;
+				}
 				continue;
 			}
 #endif
@@ -729,5 +762,21 @@ int main(int argc, char **argv)
 	}
 #endif
 	printf("\nDone. Run the game from %s.\n", dest);
+
+	/* ★ SAY WHERE IT WENT, UNMISSABLY. A500/A1200 field report 2026-09-05:
+	 * a module set installed with this fallback and the user had "no clue
+	 * where it put the files". The destination was printed once, at the top,
+	 * before five disks' worth of file names scrolled it away — and the
+	 * default "DH0:OpenUA" is CREATED if absent, so on a machine whose real
+	 * OpenUA drawer lives elsewhere the module lands in a brand-new, empty-
+	 * looking drawer on DH0:. Both facts are now the LAST thing on screen. */
+	if (dsn_name[0]) {
+		printf("The design %s is now in %s%s%s - start OpenUA and pick it with SELECT A DESIGN.\n",
+		       dsn_name, dest, (dest[0] && dest[strlen(dest) - 1] != ':' && dest[strlen(dest) - 1] != '/') ? "/" : "", dsn_name);
+	}
+	if (dest_created)
+		printf("NOTE: %s did not exist before and was CREATED. If your OpenUA drawer is\n"
+		       "      somewhere else, move %s into it (the engine looks for designs\n"
+		       "      beside frua).\n", dest, dsn_name[0] ? dsn_name : "the files");
 	return 0;
 }

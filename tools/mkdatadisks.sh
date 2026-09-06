@@ -183,6 +183,27 @@ fi
 #   subdirectory present.
 
 XDFTOOL="$REPO/tools/.venv/bin/xdftool"
+
+# ★ MODULE=<Name> — a FAN MODULE disk set, not the base game. Field report
+#   (A1200, 2026-09-05): a Curse set built as plain OpenUA-Data-N disks
+#   carried the console `instdisk` on disk 1, the user ran that, and "had no
+#   clue where it put the files" — its default destination DH0:OpenUA is
+#   CREATED if absent, so on a machine whose real drawer is elsewhere the
+#   module landed in a fresh drawer on DH0:. A module set now:
+#     - labels its volumes <Name>-Data-N (instdisk matches disks by the
+#       DISK.LST header, never by volume name, so nothing else changes) — and
+#       the set can no longer be mistaken for the base game's disks;
+#     - titles its manifest "<Name> module";
+#     - (Amiga) carries a Workbench Install icon on disk 1 that drives the OS
+#       Installer with the ONE question that matters — "where is your OpenUA
+#       drawer?" — and copies the module INTO it; falls back to instdisk on
+#       WB 3.1, as the engine disk does.
+MODULE="${MODULE:-}"
+if [[ -n "$MODULE" ]]; then
+	VOLBASE="$MODULE-Data"; LSTTITLE="$MODULE module"
+else
+	VOLBASE="OpenUA-Data"; LSTTITLE="OpenUA game data"
+fi
 say() { echo "datadisks: $*"; }
 
 [[ -d "$SRC" ]] || { echo "no game data at $SRC" >&2; exit 1; }
@@ -238,15 +259,63 @@ say "$(wc -l < "$WORK/all") files, $TOTBYTES bytes (ART=$ART)"
 # accounting for that packed disk 1 to the full cap and then failed at mcopy
 # time with a bare "Disk full", after the image was already written.
 INSTSZ=$(stat -c%s "$INST")
+MODFILES=()
+if [[ -n "$MODULE" && "$EXT" == adf ]]; then
+	# The launcher: same shape as the engine disk's (tools/mkhwdist.sh), but
+	# it installs a MODULE into an EXISTING drawer, so the only question is
+	# where that drawer is. IconX opens the console; the banner explains what
+	# is about to happen; the OS Installer does the copying on WB 3.2, and
+	# instdisk (also on this disk) on a 3.1 that has no Installer.
+	cat > "$WORK/Install" <<EOS
+; $MODULE — fan-module install launcher (run by IconX). No .KEY line: a
+; bare .KEY is rejected by the 3.1 script runner ("Illegal Key directive").
+; CD off the floppy first, or the shell demands the volume back at the end.
+ECHO ""
+ECHO "  $MODULE - a fan-made module for OpenUA"
+ECHO ""
+ECHO "  This installs the design INTO YOUR EXISTING OpenUA DRAWER."
+ECHO "  It does NOT install OpenUA itself. You will be asked where"
+ECHO "  that drawer is (the one holding frua); the default is DH0:OpenUA."
+ECHO "  If you pick a folder that does not exist, it is created there,"
+ECHO "  and the engine will NOT find the module until you move it."
+ECHO ""
+ECHO "  \$NDISKS_PLACEHOLDER disks, labelled $VOLBASE-1 .. Feed them in order."
+ECHO "  Then start OpenUA and choose SELECT A DESIGN."
+ECHO ""
+CD RAM:
+IF EXISTS SYS:System/Installer
+  SYS:System/Installer SCRIPT $VOLBASE-1:Install.script APPNAME "$MODULE" MINUSER NOVICE DEFUSER AVERAGE
+ELSE
+  IF EXISTS SYS:Utilities/Installer
+    SYS:Utilities/Installer SCRIPT $VOLBASE-1:Install.script APPNAME "$MODULE" MINUSER NOVICE DEFUSER AVERAGE
+  ELSE
+    ECHO "No AmigaOS Installer on this system (Workbench 3.1 never shipped one)."
+    ECHO "Using the console installer instead. At its prompt, type the path of"
+    ECHO "your OpenUA drawer (the one holding frua), e.g. DH0:OpenUA"
+    ECHO ""
+    $VOLBASE-1:instdisk
+    ECHO ""
+    ECHO "Press RETURN to close this window."
+    ASK "" >NIL:
+  ENDIF
+ENDIF
+EOS
+	python3 "$REPO/tools/make_amiga_icon.py" --type project --default-tool "IconX" \
+	    --tooltype "WINDOW=CON:0/20/640/180/$MODULE install/CLOSE" \
+	    -o "$WORK/Install.info" >/dev/null
+	MODFILES=(Install Install.info Install.script)
+	INSTSZ=$(( INSTSZ + 12288 ))          # room for the three small files
+fi
 if [[ -n "${INST2:-}" ]]; then
 	[[ -f "$INST2" ]] || { echo "installer not built: $INST2 (make instdisk)" >&2; exit 1; }
 	INSTSZ=$(( INSTSZ + $(stat -c%s "$INST2") ))
 fi
-python3 - "$SRC" "$WORK" "$CAP" "$INSTSZ" "$MACHINE" "$UNIT" "$ROOT" <<'PY'
+python3 - "$SRC" "$WORK" "$CAP" "$INSTSZ" "$MACHINE" "$UNIT" "$ROOT" "$LSTTITLE" <<'PY'
 import os, sys
 src, work, capblocks = sys.argv[1], sys.argv[2], int(sys.argv[3])
 instsz, machine = int(sys.argv[4]), sys.argv[5]
 unit, rootmax = int(sys.argv[6]), int(sys.argv[7])
+lsttitle = sys.argv[8]
 
 def blocks(nbytes):
     """Allocation units a file costs, filesystem overhead included."""
@@ -293,13 +362,40 @@ for f in files:
         disks.append([f]); used.append(n); entries.append([1, sub])
 for i, d in enumerate(disks, 1):
     with open(os.path.join(work, f'disk{i}.lst'), 'w') as fh:
-        fh.write(f'{i} {len(disks)} OpenUA game data\n')
+        fh.write(f'{i} {len(disks)} {lsttitle}\n')
         for f in sorted(d):
             fh.write(f.replace(os.sep, '/') + '\n')
 pass
 PY
 NDISKS=$(ls "$WORK"/disk*.lst | wc -l)
 say "packing into $NDISKS x $MACHINE disks"
+if [[ ${#MODFILES[@]} -gt 0 ]]; then
+	sed -i "s/\$NDISKS_PLACEHOLDER/$NDISKS/" "$WORK/Install"
+	{
+		echo "; $MODULE — OpenUA fan-module install script for the AmigaOS Installer (2.0+)"
+		echo '; Copies the design INTO an existing OpenUA drawer; installs nothing else.'
+		echo '(set uadir'
+		echo '  (askdir (prompt "Where is your OpenUA drawer? (the one holding frua)")'
+		echo "          (help \"$MODULE is copied INTO the drawer you pick. Pick the drawer that already holds the OpenUA engine (frua). If you pick a folder that does not exist it is created, but the engine will not find the module there.\")"
+		echo '          (default "DH0:OpenUA")))'
+		echo '(if (not (exists (tackon uadir "frua")))'
+		echo '  (message (cat "There is no frua in " uadir ". The module is copied there anyway, but OpenUA will only see it once it is beside frua.")))'
+		echo "(message \"Installing $MODULE into \" uadir)"
+		echo '(set i 1)'
+		echo "(while (<= i $NDISKS)"
+		echo '  ('
+		echo "    (askdisk (prompt (cat \"Insert $MODULE disk \" i \" of $NDISKS\"))"
+		echo "             (help \"The disks are labelled $VOLBASE-1 .. $VOLBASE-$NDISKS.\")"
+		echo "             (dest (cat \"$VOLBASE-\" i)))"
+		echo "    (copyfiles (source (cat \"$VOLBASE-\" i \":\")) (dest uadir) (pattern \"~(DISK.LST|instdisk|Install|Install.info|Install.script)\"))"
+		echo '    (set i (+ i 1))'
+		echo '  )'
+		echo ')'
+		echo "(askdisk (prompt \"Put $VOLBASE-1 back in the drive.\") (help \"The install window needs its script disk back to close cleanly.\") (dest \"$VOLBASE-1\"))"
+		echo '(complete 100)'
+		echo "(exit (cat \"$MODULE is installed in \" uadir \". Start OpenUA and pick it with SELECT A DESIGN.\"))"
+	} > "$WORK/Install.script"
+fi
 
 # ---- build the images ------------------------------------------------------
 for ((n = 1; n <= NDISKS; n++)); do
@@ -313,6 +409,7 @@ for ((n = 1; n <= NDISKS; n++)); do
 	done < <(tail -n +2 "$WORK/disk$n.lst")
 	cp "$WORK/disk$n.lst" "$STAGE/DISK.LST"
 	[[ $n -eq 1 ]] && cp "$INST" "$STAGE/$INSTNAME"
+	if [[ $n -eq 1 ]]; then for mf in "${MODFILES[@]}"; do cp "$WORK/$mf" "$STAGE/$mf"; done; fi
 	[[ $n -eq 1 && -n "${INST2:-}" ]] && cp "$INST2" "$STAGE/$INST2NAME"
 
 	# Branch on the IMAGE FORMAT, not the machine name: `atari720` is an Atari
@@ -336,7 +433,7 @@ for ((n = 1; n <= NDISKS; n++)); do
 		free=$(mdir -i "$IMG" :: | grep -F 'bytes free' | tr -s ' ')
 	else
 		rm -f "$IMG"
-		"$XDFTOOL" "$IMG" create + format "OpenUA-Data-$n" ffs >/dev/null
+		"$XDFTOOL" "$IMG" create + format "$VOLBASE-$n" ffs >/dev/null
 		# ★ Check every write. Swallowing xdftool's status left the run
 		# dying mid-set with no message and a half-written image on disk
 		# — the same silent-failure shape the Atari cap bug had.
