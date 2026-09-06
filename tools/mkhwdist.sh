@@ -436,7 +436,10 @@ ALSO IN THE DRAWER
 uainst  — installs a DOS FAN MODULE from its .zip, converting its art.
           Hundreds of fan-made modules: frua.rosegarden.org
 uaconv  — OPTIONAL: pre-convert all DOS art in one pass and reclaim
-          ~5 MB (uaconv -d <this drawer>). Never required.
+          ~5 MB (uaconv -d <this drawer>). Never required. Also builds
+          MUSIC.SLB from any .XMI in the drawer or a .DSN — for a module
+          copied by hand rather than installed from its ZIP. An existing
+          MUSIC.SLB is kept, never overwritten.
 
 Project: https://github.com/slaapliedje/OpenUA (GPL-2.0, no SSI data).
 TXT

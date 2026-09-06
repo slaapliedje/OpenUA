@@ -826,10 +826,10 @@ uaconv-amiga: uaconv_amiga
 # uaconv — the one-time DOS-art converter (.tlb -> .ctl) the Amiga install runs.
 # artconv wants a big stack, so it borrows uainst's StackSwap trampoline
 # (installer/asl_amiga.c). Colour convert only; no miniz/rsrc needed.
-uaconv_amiga: installer/uaconv.c installer/asl_amiga.c src/convert/artconv.c src/convert/artconv.h
+uaconv_amiga: installer/uaconv.c installer/asl_amiga.c src/convert/artconv.c src/convert/artconv.h src/convert/xmi2slb.c src/convert/xmi2slb.h
 	$(AMIGA_CROSS)gcc -m68000 -msoft-float -noixemul -std=gnu99 -O2 \
 	    -fomit-frame-pointer -s -Iinstaller \
-	    -o $@ installer/uaconv.c installer/asl_amiga.c src/convert/artconv.c
+	    -o $@ installer/uaconv.c installer/asl_amiga.c src/convert/artconv.c src/convert/xmi2slb.c
 
 installer-amiga: uainst_amiga uainst.info frua.info uaconv_amiga uaconv.info
 uainst_amiga: installer/main.c installer/asl_amiga.c installer/miniz.c src/convert/artconv.c src/convert/artconv.h installer/rsrc_from_dos.c installer/rsrc_from_dos.h installer/strs_map_dos12.h src/convert/xmi2slb.c src/convert/xmi2slb.h

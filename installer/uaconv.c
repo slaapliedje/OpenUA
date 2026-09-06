@@ -10,6 +10,12 @@
  *   uaconv DH0:OpenUA          convert everything, ask about deleting
  *   uaconv -d DH0:OpenUA       convert and delete the .tlb without asking
  *
+ * It also builds MUSIC.SLB from any .XMI it finds — in the root and in each
+ * .DSN — for a module (or a whole DOS install) that was copied by hand rather
+ * than installed from its ZIP by uainst. An EXISTING MUSIC.SLB is never
+ * overwritten: the Mac release's root bank holds eight songs and a DOS
+ * conversion holds three, so replacing one with the other would lose music.
+ *
  * Portable C over stdio + the artconv core (src/convert/artconv.c). The only
  * platform split is the directory scan: dos.library Examine/ExNext on the
  * Amiga, POSIX readdir on the host (so the convert path is host-testable).
@@ -21,6 +27,7 @@
 #include <string.h>
 
 #include "../src/convert/artconv.h"
+#include "../src/convert/xmi2slb.h"
 
 #define MAXPATH   256
 #define MAX_TLB   512
@@ -29,6 +36,7 @@
 static unsigned char *g_scratch;
 static char  g_tlb[MAX_TLB][MAXPATH];   /* converted .tlb, for the delete pass */
 static int   g_ntlb;
+static int   g_nmusic;                  /* MUSIC.SLB banks written        */
 
 #ifdef __amigaos__
 int uainst_run_big_stack(int (*fn)(int, char **), int argc, char **argv);
@@ -157,6 +165,88 @@ static int convert_one(const char *tlb_path)
 	return 1;
 }
 
+/* ---- the music pass ----------------------------------------------------- */
+
+static int file_exists(const char *path)
+{
+	FILE *f = fopen(path, "rb");
+	if (!f)
+		return 0;
+	fclose(f);
+	return 1;
+}
+
+/* Per directory: pick the best-ranked driver arrangement among the .XMI
+ * present (Tandy > PC > Roland > AdLib > DQK, songs Q1..Q3 only), build the
+ * bank with the same core uainst and the PC tool share (byte-identical by
+ * test), write <dir>/MUSIC.SLB. Filled by for_each_file, then flushed. */
+static char g_xmi_best[XMI2SLB_NDRV][3][MAXPATH];
+static int  g_xmi_have[XMI2SLB_NDRV];
+
+static void music_note_file(const char *dir, const char *name)
+{
+	int drv, q;
+	if (!xmi2slb_classify(name, &drv, &q))
+		return;
+	if (q < 1 || q > 3)
+		return;
+	path_join(g_xmi_best[drv][q - 1], MAXPATH, dir, name);
+	g_xmi_have[drv] = 1;
+}
+
+static void music_flush(const char *dir)
+{
+	static const char *drvname[XMI2SLB_NDRV] =
+		{ "Tandy", "PC speaker", "Roland", "AdLib", "DQK" };
+	const unsigned char *xmi[3] = { 0, 0, 0 };
+	unsigned char *own[3] = { 0, 0, 0 }, *bank;
+	long len[3] = { 0, 0, 0 }, out, cap = 64L * 1024;
+	char path[MAXPATH];
+	int drv, chosen = -1, q, nsongs = 0;
+
+	for (drv = 0; drv < XMI2SLB_NDRV; drv++)
+		if (g_xmi_have[drv]) { chosen = drv; break; }
+	memset(g_xmi_have, 0, sizeof g_xmi_have);
+	if (chosen < 0)
+		return;
+
+	path_join(path, sizeof path, dir, "MUSIC.SLB");
+	if (file_exists(path)) {
+		printf("  music: %s - MUSIC.SLB already there, kept\n",
+		       dir[0] ? basename_of(dir) : ".");
+		return;
+	}
+	for (q = 0; q < 3; q++) {
+		if (g_xmi_best[chosen][q][0] == 0)
+			continue;
+		own[q] = read_file(g_xmi_best[chosen][q], &len[q]);
+		if (own[q]) { xmi[q] = own[q]; nsongs++; }
+	}
+	bank = malloc(cap);
+	out = bank ? xmi2slb_bank(xmi, len, bank, cap, g_scratch, SCRATCH_CAP)
+		   : XMI2SLB_ERR_SPACE;
+	if (out > 0 && write_file(path, bank, out)) {
+		printf("  music: %s - %s arrangement, %d of 3 song%s -> MUSIC.SLB (%ld bytes)%s\n",
+		       dir[0] ? basename_of(dir) : ".", drvname[chosen], nsongs,
+		       nsongs == 1 ? "" : "s", out,
+		       nsongs < 3 ? " (partial: the rest play silence)" : "");
+		g_nmusic++;
+	} else {
+		printf("  music: %s - FAILED (%ld)\n", dir[0] ? basename_of(dir) : ".", out);
+	}
+	for (q = 0; q < 3; q++)
+		free(own[q]);
+	free(bank);
+}
+
+static void for_each_file(const char *dir, void (*fn)(const char *, const char *));
+
+static void scan_music(const char *dir)
+{
+	for_each_file(dir, music_note_file);
+	music_flush(dir);
+}
+
 /* ---- directory scan (platform split) ------------------------------------ */
 /* scan_files: convert every .tlb directly in `dir`.
  * for_each_dsn: call `fn(subdir_path)` for every *.DSN sub-folder of `dir`. */
@@ -188,6 +278,25 @@ static void scan_files(const char *dir)
 				if (rc == 1)
 					printf("  %s\n", fib->fib_FileName);
 			}
+		}
+	}
+	if (fib)
+		FreeMem(fib, sizeof *fib);
+	UnLock(lock);
+}
+
+static void for_each_file(const char *dir, void (*fn)(const char *, const char *))
+{
+	BPTR lock = Lock((CONST_STRPTR)dir, ACCESS_READ);
+	struct FileInfoBlock *fib;
+	if (!lock)
+		return;
+	fib = (struct FileInfoBlock *)AllocMem(sizeof *fib, MEMF_CLEAR);
+	if (fib && Examine(lock, fib)) {
+		while (ExNext(lock, fib)) {
+			if (fib->fib_DirEntryType > 0)      /* a directory */
+				continue;
+			fn(dir, fib->fib_FileName);
 		}
 	}
 	if (fib)
@@ -253,6 +362,23 @@ static void scan_files(const char *dir)
 	closedir(d);
 }
 
+static void for_each_file(const char *dir, void (*fn)(const char *, const char *))
+{
+	DIR *d = opendir(dir[0] ? dir : ".");
+	struct dirent *e;
+	if (!d)
+		return;
+	while ((e = readdir(d)) != NULL) {
+		char full[MAXPATH];
+		struct stat st;
+		path_join(full, sizeof full, dir, e->d_name);
+		if (stat(full, &st) == 0 && (st.st_mode & S_IFDIR))
+			continue;
+		fn(dir, e->d_name);
+	}
+	closedir(d);
+}
+
 static void for_each_dsn(const char *dir, void (*fn)(const char *))
 {
 	DIR *d = opendir(dir);
@@ -311,11 +437,18 @@ static int uaconv_main(int argc, char **argv)
 	scan_files(dir);                        /* root libraries */
 	for_each_dsn(dir, scan_files);          /* per-design libraries */
 
+	/* music: root and each design, hand-copied installs included */
+	scan_music(dir);
+	for_each_dsn(dir, scan_music);
+
 	free(g_scratch);
 	g_scratch = NULL;
 
+	if (g_nmusic)
+		printf("\nWrote %d MUSIC.SLB bank(s).\n", g_nmusic);
 	if (g_ntlb == 0) {
-		printf("\nNothing to convert (no DOS .tlb art found).\n");
+		printf("\nNothing %sto convert (no DOS .tlb art found).\n",
+		       g_nmusic ? "else " : "");
 		return 0;
 	}
 	printf("\nConverted %d file(s) to .ctl.\n", g_ntlb);
