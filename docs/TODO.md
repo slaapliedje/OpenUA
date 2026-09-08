@@ -522,6 +522,33 @@ list of what the real machine found — and what it is still owed — is
      half-black once (f12 in the after-run) — an entry-time present, not the
      transition. **Owed:** the A1200's verdict on the transition.
 
+21. **The GROUND colour-cycles in the walk after an event picture — a
+   picture's cycle range outlived the picture. FIXED 2026-09-07.** A1200
+   report (v0.9.25, Curse of the Fire Dragon, outdoors at night): "color
+   cycling is happening on the ground". Not the backdrop's doing: the
+   backdrop loader installs no cycle records. The ranges belong to PICTURES:
+   five base-game pictures carry a colour-cycle record over CLUT 144..175 —
+   the backdrop band (BIGPIC entry 3: 144+8; PICB entry 27: 160+16; PICC entry
+   25: 144+16 and 160+16; PICE: 86+65). jt993 -> jt1069 installs them when the
+   picture shows. On the Mac they die the moment the walk's palette comes back
+   because that install goes through jt1069 too, whose Phase 3a frees every
+   range the request overlaps. The port's wall/backdrop/UI bands are DIRECT
+   installs (`port_clut_install*`), so nothing freed them: jt1067 kept rotating
+   slots 144..175 — by then the backdrop's mirrored colours — and committing,
+   every 11 ticks, forever. Fix: `port_cycle_free_overlap` in both direct
+   installers, Phase 3a's exact bookkeeping (mark used, empty the entry, raise
+   the -3162 flag); the wall sets' own fire cycles are re-armed by
+   `dungeon_cycle_ensure` as they already were after a picture.
+   - **Repro, Falcon/Hatari:** `tools/mk_bigpic_design.py --current --picture
+     242` (id 240+k = BIGPIC entry k+1 — entry 3 is id 242, NOT 243), beginplay,
+     Return, then 8 stills standing still. v0.9.25: six of seven frames differ
+     from the first inside the view hole (the floor's speckle pattern walks).
+     Fixed build: all identical, and the FRUA_CYCTRACE log shows `direct
+     install frees range base=144` at the backdrop install. HEIRS's save-B walk
+     never showed it on either build because no cycling picture had been shown.
+   - Machine-independent (l6e58 -> qd_set_palette on every backend), so the
+     Falcon repro stands for the A1200. Owed: the A1200's verdict.
+
 22. **A module's own music did not play after SELECT A DESIGN — the bank
    loaded once, at boot. FIXED 2026-09-07.** The A1200's DBG.LOG for a Curse of
    the Fire Dragon session had no `jt986: design sound bank` line: jt986 runs

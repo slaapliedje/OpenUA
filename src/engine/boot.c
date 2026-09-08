@@ -12243,12 +12243,57 @@ static void cw_seed_ui_band(RGBColor *pal)
  *
  * Mirroring the direct installs keeps the allocator's view of the CLUT true, so
  * a span commit re-emits exactly what is already on screen. */
+/* PORT: the other half of the mirror above — jt1069's Phase 3a. On the Mac a
+ * palette request FREES every colour-cycle range it overlaps (an event
+ * picture's twinkle over CLUT 144..175 dies the moment the walk's backdrop
+ * band takes those slots, because that band arrives through jt1069). The
+ * port's direct installs skipped that, so a picture's cycle range outlived
+ * the picture: jt1067 kept rotating slots 144..175 — now the backdrop's
+ * mirrored colours — and committing them, and the GROUND cycled colours in
+ * the walk (A1200, Curse of the Fire Dragon, 2026-09-07; five base-game
+ * pictures carry such ranges: BIGPIC 144+8, PICB 160+16, PICC 144+16 and
+ * 160+16, PICE 86+65). Same bookkeeping as Phase 3a: mark the slots used so
+ * the next jt1066 commit re-emits them from the (now true) mirror, empty the
+ * entry, raise its -3162 flag. The wall sets' own fire cycles are freed too
+ * when their band installs; dungeon_cycle_ensure puts them back before the
+ * next jt1067, as it already does after a picture's Phase 3a. */
+static void port_cycle_free_overlap(short first, short count)
+{
+	unsigned char *rng  = (unsigned char *)&g_a5_byte(-3258);
+	unsigned char *used = (unsigned char *)&g_a5_byte(-3386);
+	short i;
+
+	if ((void *)(uintptr_t)g_a5_long(-3394) == NULL)
+		return;                         /* allocator not up: no ranges */
+	for (i = 0; i < 12; i++) {
+		unsigned char *e = rng + i * 8;
+		short base, cnt, m;
+
+		if (*(long *)e == 0x7fffffffL)
+			continue;
+		base = e[6];
+		cnt  = e[7];
+		if (base >= (short)(first + count) || (short)(base + cnt) <= first)
+			continue;
+#ifdef FRUA_CYCTRACE
+		dbg_file_num("cyc: direct install frees range base=", base);
+		dbg_file_num("cyc:   count=", cnt);
+		dbg_file_num("cyc:   install first=", first);
+#endif
+		for (m = 0; m < cnt; m++, base++)
+			used[base >> 3] |= (unsigned char)(1 << (base & 7));
+		*(long *)e = 0x7fffffffL;
+		g_a5_byte(-3162 + i) = 1;
+	}
+}
+
 static void port_clut_install(const RGBColor *pal, short first, short count)
 {
 	unsigned char *live = (unsigned char *)(uintptr_t)g_a5_long(-3390);
 	unsigned char *work = (unsigned char *)(uintptr_t)g_a5_long(-3394);
 	short i;
 
+	port_cycle_free_overlap(first, count);
 	qd_set_palette(pal, first, count);
 
 	if (pal == NULL || live == NULL || work == NULL)
@@ -12274,6 +12319,7 @@ static void port_clut_install_deferred(const RGBColor *pal, short first, short c
 	unsigned char *work = (unsigned char *)(uintptr_t)g_a5_long(-3394);
 	short i;
 
+	port_cycle_free_overlap(first, count);
 	qd_set_palette_deferred(pal, first, count);
 
 	if (pal == NULL || live == NULL || work == NULL)
