@@ -2440,6 +2440,7 @@ int          port_autoload_armed(void);  /* port-local, defined near jt582   */
 static void  port_cursor_reveal(void);   /* one-shot ShowCursor at the menu  */
 
 /* Intra-CODE-6 helpers, still to lift. */
+static void  savgam_dir_ensure(void);  /* "<design>\\SAVE" exists — defined with the save paths */
 static void  l0444(void);       /* CODE 6 + 0x0444 — start.dat design-name
                                  * reader (lifted next to its jt128 writer) */
 /* l3918 = JT[120] (the viewport reskin, CODE 6+0x3918) — full lift far below; repointed. */
@@ -2636,6 +2637,7 @@ int ua_main(short arg1, long arg2)
 	NR_MARK("l0444 enter");
 	ST_MARK("l0444 enter");
 	l0444();
+	savgam_dir_ensure();   /* PORT: the start design gets its SAVE folder too (see the picker) */
 	NR_MARK("jt361 enter");
 	ST_MARK("jt361 enter");
 	jt361(1);
@@ -71168,6 +71170,13 @@ static int l494e(void)
 		}
 		if (b != 0)
 			jt133((const char *)(uintptr_t)(b + 5));
+		/* PORT: a design becomes current -> make sure "<design>\\SAVE" exists.
+		 * The Mac's own Create-New-Design path (l7222 @0x73c0) makes it, but a
+		 * module copied in by hand may ship without one, and then the hall's
+		 * ADD CHARACTER listed nothing and the first save would have failed
+		 * "couldn't write". DirCreate on an existing folder is a no-op, so this
+		 * is idempotent and invisible to the player (2026-09-08). */
+		savgam_dir_ensure();
 		jt356();
 		result = 1;
 	}

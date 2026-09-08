@@ -566,12 +566,20 @@ list of what the real machine found — and what it is still owed — is
      reload and the design bank, and the walk keeps running (turned E after).
      Amiga AGA: the design-first open works on AmigaDOS paths (SONGTEST as the
      start design logs `design sound bank`), and the C is shared.
-   - Seen on the way, not chased: after a picker switch, ADD CHARACTER in the
-     hall shows NOTHING until `<design>/SAVE` exists (the CHAR*.CHR migration
-     scan did not fill the list); with the folder present it works. A fresh
-     module picked from the menu may need one save/load round to seed its
-     roster. Also `tools/dsn.py` writes a message event's sound at rec[18]
-     while the engine reads ev[12] — untested claim, from reading only.
+   - Follow-up (2026-09-08): `<design>\SAVE` is now CREATED when a design
+     becomes current — at boot after start.dat and on the picker's pick
+     (`savgam_dir_ensure`, the helper the save paths already used; DirCreate
+     on an existing folder is a no-op on both backends). A module copied in
+     without one no longer fails its first save. Verified on the Falcon: pick
+     a design with no SAVE folder, the folder exists before the hall opens.
+     What is NOT a bug: the hall's ADD CHARACTER list is that design's OWN
+     roster (`<design>\SAVE\*.CCH`, per design as in DOS FRUA), so a fresh
+     module lists nobody until a character is created or copied in. Open
+     oddity: the flat-layout `CHAR*.CHR` migration fills the list for the
+     BOOT design but not for a design picked afterwards — not chased, the
+     migration is for pre-2026-08-03 installs only. Also `tools/dsn.py`
+     writes a message event's sound at rec[18] while the engine reads ev[12]
+     — untested claim, from reading only.
 
 17. **ECS walk shimmer — walls darken/brighten while standing still.**
    Hardware report (A500, v0.9.21-beta): "there also seems to be some
