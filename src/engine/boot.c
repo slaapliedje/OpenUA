@@ -27987,11 +27987,15 @@ static void l11a2(short idx, long tickbase)
  * against the -4758 song count — in range [0, count) it loads via
  * L11a2(n, 0), otherwise prints "Song out of range (n/count)" — and
  * restore -4778. Full lift. */
+static void port_bank_recheck(void);   /* defined with jt986, below */
 static void jt985(short n) __attribute__((unused));
 static void jt985(short n)
 {
-	short saved = g_a5_word(-4778);
-	short count = (unsigned char)g_a5_byte(-4758);
+	short saved, count;
+
+	port_bank_recheck();   /* PORT: the design may have changed since the bank loaded */
+	saved = g_a5_word(-4778);
+	count = (unsigned char)g_a5_byte(-4758);
 
 	l0f1e();
 	if ((unsigned short)count > (unsigned short)n && n >= 0)
@@ -98962,6 +98966,9 @@ static void jt974(long tick)
  * engine's own no-sound-driver path instead of loading sfx from a bank
  * that was never opened. */
 static short g_sndbank_missing;
+/* The design (g_a5_-31336) the bank was last resolved for — "" for none.
+ * port_bank_recheck compares against it at every song start. */
+static char  g_bank_dsn[40];
 
 /* JT[986] (CODE 5+0x10f0) — open the "<name>.slb" sound bank: build
  * the filename (jt384 + jt419 "slb"), load it through the GLIB loader
@@ -98992,6 +98999,8 @@ static void jt986(short kind, const char *name)
 	 * through and loads the identical root file, so unmodified designs are
 	 * unchanged. */
 	dsn = (const char *)g_a5_buf(-31336);
+	strncpy(g_bank_dsn, dsn != NULL ? dsn : "", sizeof g_bank_dsn - 1);
+	g_bank_dsn[sizeof g_bank_dsn - 1] = 0;
 	if (dsn != NULL && dsn[0] != '\0'
 	    && strlen(dsn) + 1 + strlen(buf) < sizeof dbuf) {
 		strcpy(dbuf, dsn);
@@ -99020,11 +99029,40 @@ static void jt986(short kind, const char *name)
 			return;
 		}
 		jt411(ref);
+		dbg_log("jt986: root sound bank");
 	}
 	g_sndbank_missing = 0;
 	jt987((short)(signed char)kind, use, (short)0,
 	      (void *)(uintptr_t)jt975);
 	g_a5_long(-4774) = (long)(uintptr_t)jt974;
+}
+
+/* PORT — the other half of ADR-0011 for music. jt986 runs ONCE, from the
+ * boot-time audio bring-up (l59d6), so its design-first resolution only ever
+ * saw the START design (start.dat). Picking a module afterwards with SELECT A
+ * DESIGN kept the root bank: the A1200 played the base game's intro over
+ * Curse of the Fire Dragon (2026-09-07 — its DBG.LOG had no "design sound
+ * bank" line). Re-resolve lazily at the next song start whenever the current
+ * design differs from the one the bank was loaded for: idle the voices
+ * (jt974 skips a zero tick base, so nothing walks the pool while it is
+ * replaced), drop the sample pool jt975 allocated, and run jt986 again — it
+ * falls through to the identical root bank for a design without one. */
+static void port_bank_recheck(void)
+{
+	const char *dsn = (const char *)g_a5_buf(-31336);
+
+	if (dsn == NULL)
+		dsn = "";
+	if (strcmp(dsn, g_bank_dsn) == 0)
+		return;
+	l0f1e();
+	if (g_a5_long(-4770) != 0) {
+		DisposePtr((Ptr)(uintptr_t)g_a5_long(-4770));
+		g_a5_long(-4770) = 0;
+	}
+	g_a5_byte(-4758) = 0;                 /* no songs until a bank loads */
+	dbg_file_str("jt986: design changed, reloading the bank for ", dsn);
+	jt986((short)49, ua_strs_at(0x75c) /* "music" */);
 }
 
 /* L3736 (CODE 5 local) — count the pieces in a GLIB pool: check the

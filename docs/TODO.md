@@ -522,6 +522,30 @@ list of what the real machine found — and what it is still owed — is
      half-black once (f12 in the after-run) — an entry-time present, not the
      transition. **Owed:** the A1200's verdict on the transition.
 
+22. **A module's own music did not play after SELECT A DESIGN — the bank
+   loaded once, at boot. FIXED 2026-09-07.** The A1200's DBG.LOG for a Curse of
+   the Fire Dragon session had no `jt986: design sound bank` line: jt986 runs
+   from l59d6, the boot-time audio bring-up, so its design-first resolution
+   (abc75ca8, v0.9.22) only ever saw the start.dat design. Picking a module
+   afterwards kept the root bank — the base game's intro over the module's
+   start. Fix: `port_bank_recheck` at the top of jt985 (every song start goes
+   through it): when g_a5_-31336 differs from the design the bank was loaded
+   for, idle the voices (jt974 skips a zero tick base), free the sample pool,
+   run jt986 again. Log lines: `jt986: root sound bank` / `design sound bank`
+   at every (re)load, plus `design changed, reloading the bank for <dsn>`.
+   - **Verified:** Falcon/Hatari, HEIRS at boot -> picker -> SONGTEST.DSN (a
+     generated design: type-17 play-sounds event id 32 = song 0 on the entry
+     cell, Curse's MUSIC.SLB beside it) -> hall -> Begin: the log shows the
+     reload and the design bank, and the walk keeps running (turned E after).
+     Amiga AGA: the design-first open works on AmigaDOS paths (SONGTEST as the
+     start design logs `design sound bank`), and the C is shared.
+   - Seen on the way, not chased: after a picker switch, ADD CHARACTER in the
+     hall shows NOTHING until `<design>/SAVE` exists (the CHAR*.CHR migration
+     scan did not fill the list); with the folder present it works. A fresh
+     module picked from the menu may need one save/load round to seed its
+     roster. Also `tools/dsn.py` writes a message event's sound at rec[18]
+     while the engine reads ev[12] — untested claim, from reading only.
+
 17. **ECS walk shimmer — walls darken/brighten while standing still.**
    Hardware report (A500, v0.9.21-beta): "there also seems to be some
    changing colour as you walk around the start area in HEIRS.DSN, namely
