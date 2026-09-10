@@ -81079,11 +81079,21 @@ static void l6e58(short start, short count, short mode,
 
 	PROBE("L6e58");
 	(void)mode;
-	if (start < 16) {                       /* Mac reserves CLUT 0..15 */
-		short skip = (short)(16 - start);
+	/* ★ NO 0..15 RESERVATION (2026-09-09). The Mac clamps `start` up to 16
+	 * because 0..15 are the Macintosh SYSTEM colours and its art never uses
+	 * them. DOS art does — every picture we ship now is DOS-sourced (ADR-0019)
+	 * and a fan module's full-palette title (Curse of the Fire Dragon) paints
+	 * its marble with slots 11 and 15, which the clamp left holding the UI's
+	 * cyan and white: bright streaks on the A1200 that the DOS release does
+	 * not show, and its dragon's highlight coming out UI-grey. The DOS engine
+	 * loads all 256 entries; so do we. The port's own screens re-install their
+	 * UI band on entry (load_menu_ui, port_hud_text_clut), so a picture owning
+	 * 0..15 for its duration is exactly the DOS behaviour. */
+	if (start < 0) {
+		short skip = (short)-start;
 		count = (short)(count - skip);
 		buf  += (long)skip * 3;
-		start = 16;
+		start = 0;
 	}
 	if (count <= 0)
 		return;

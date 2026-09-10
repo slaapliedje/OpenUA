@@ -581,6 +581,34 @@ list of what the real machine found — and what it is still owed — is
      writes a message event's sound at rec[18] while the engine reads ev[12]
      — untested claim, from reading only.
 
+23. **A DOS module's title screens in the wrong colours — the Mac's CLUT
+   0..15 reservation. FIXED 2026-09-09.** A1200 report (v0.9.26, Curse of the
+   Fire Dragon as the start design): every title screen wrong except the
+   dragon, and even that with one highlight coming out grey. Not a regression:
+   the base-game title roll is frame-identical on 0.9.25 and 0.9.26, and this
+   was the first boot on that machine with a module's OWN title art current.
+   - **Cause:** l6e58, the engine's SetEntries, clamps `start` up to 16 —
+     faithful to the Mac, whose 0..15 are the system colours and whose art
+     never uses them. DOS art does. Curse's title sets carry full 256-entry
+     palettes and paint their marble with slots 11 and 15, which the clamp
+     left holding the UI band's cyan and white (the streaks), and the dragon's
+     dark grey lived in slot 9 (UI light blue on the emulator, grey on the
+     user's machine — whatever the boot palette held there).
+   - **Proof:** DOS FRUA 1.2 in DOSBox with the same CURSE.DSN shows a smooth
+     dark-teal marble on every logo/credits screen. AGA before: the marble
+     with bright white/cyan smears (credits diff: 7,895 px of (255,255,255)
+     and 3,582 of (85,255,255) where DOS has teal). AGA after the clamp is
+     removed: matches DOS; the SSI screen's colour count 2370 -> 1409.
+     Base-game titles: frame signatures unchanged on the fixed build. The
+     walk after an event picture keeps readable HUD text (the menus and the
+     walk re-install their UI band on entry, as they always did).
+   - Recipe: `tools/dosdrive.sh boot` needs Xvfb :99 started with
+     `-listen tcp -ac`; pick the design with `s`, quit, relaunch WITHOUT the
+     driver's boot (its Return presses skip the titles) and screenshot for
+     90 s. Never put the emulator's name in a command line the driver's
+     `pkill -f` can see. The Falcon title capture (`start` in the background
+     with `shot`s alongside) WEDGED display :99 once — kill Xvfb and restart.
+
 17. **ECS walk shimmer — walls darken/brighten while standing still.**
    Hardware report (A500, v0.9.21-beta): "there also seems to be some
    changing colour as you walk around the start area in HEIRS.DSN, namely
