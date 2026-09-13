@@ -315,6 +315,53 @@ static void cop_point_sprite(short chan, UWORD *spr)
 
 static void aga_shutdown_partial(void);
 
+#ifdef FRUA_PALTEST
+/* -DFRUA_PALTEST: a one-photo diagnostic for a real machine's colour path.
+ * Right after the display is taken, paint all 256 palette entries as a
+ * 32 x 8 grid (row = AGA bank, left to right = entry within the bank) with
+ * ramps whose LOW nibbles matter, through the SAME copper list the game uses,
+ * and hold it ~12 s. What a photo tells:
+ *   rows 0-1  gray 0..252 in steps of 4  -> low nibbles ignored shows as
+ *                                           groups of four identical swatches
+ *   row 2 red, 3 green, 4 blue ramps (c*8+7)  -> a channel wired wrong shows
+ *                                           as the wrong hue
+ *   row 5 yellow, 6 cyan, 7 gray 128..255 -> a bank not written shows as a
+ *                                           row that is black or garbage
+ * Built for the A1200 + IceDrake report (2026-09-12): a module's bright
+ * yellow came out pale on the machine while the emulator showed it right. */
+static void aga_present(void);
+static void aga_set_palette(const dsp_color_t *colors, short first, short count);
+static void aga_paltest(void)
+{
+	dsp_color_t pal[256];
+	short i, x, y;
+
+	for (i = 0; i < 256; i++) {
+		short row = (short)(i >> 5), c = (short)(i & 31);
+		unsigned char v = (unsigned char)(c * 8 + 7);
+		dsp_color_t *p = &pal[i];
+		switch (row) {
+		case 0: case 1: p->r = p->g = p->b = (unsigned char)(i * 4); break;
+		case 2: p->r = v; p->g = 0; p->b = 0; break;
+		case 3: p->r = 0; p->g = v; p->b = 0; break;
+		case 4: p->r = 0; p->g = 0; p->b = v; break;
+		case 5: p->r = v; p->g = v; p->b = 0; break;
+		case 6: p->r = 0; p->g = v; p->b = v; break;
+		default: p->r = p->g = p->b = (unsigned char)(128 + c * 4 + 3); break;
+		}
+	}
+	for (y = 0; y < AGA_H; y++)
+		for (x = 0; x < AGA_W; x++)
+			s_chunky[(long)y * AGA_W + x] =
+			    (unsigned char)((y / 25) * 32 + x / 10);
+	aga_set_palette(pal, 0, 256);
+	aga_present();
+	dbg_log("aga: PALTEST grid up for 12 s");
+	for (i = 0; i < 600; i++)
+		WaitTOF();
+}
+#endif
+
 static int aga_init(short want_w, short want_h)
 {
 	/* video.cfg, same contract as the ECS/ST/Nova backends: runtime knobs
@@ -431,6 +478,9 @@ static int aga_init(short want_w, short want_h)
 		if (a_dt_idx)    { FreeMem(a_dt_idx, (ULONG)AGA_W * AGA_H); a_dt_idx = NULL; }
 		if (a_dt_rowcov) { FreeMem(a_dt_rowcov, AGA_H * sizeof(short)); a_dt_rowcov = NULL; }
 	}
+#endif
+#ifdef FRUA_PALTEST
+	aga_paltest();
 #endif
 	return 0;
 }
