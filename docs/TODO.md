@@ -609,6 +609,26 @@ list of what the real machine found — and what it is still owed — is
      `pkill -f` can see. The Falcon title capture (`start` in the background
      with `shot`s alongside) WEDGED display :99 once — kill Xvfb and restart.
 
+24. **The bright yellow missing from a DOS module's title art — the 255
+   transparency key in an OPAQUE piece. FIXED 2026-09-12.** A1200 on v0.9.27
+   (after #23): "looks better, there must be a bright colour missing". Settled
+   against DOS FRUA 1.2 in DOSBox with the same CURSE.DSN: where DOS paints
+   its brightest yellow (704 px on the AD&D logo, 110 on the dragon) the port
+   painted the base marble — in amiberry too, so not the machine's colour path
+   (the FRUA_PALTEST grid built for that question is still useful; the user
+   has it on the stick). Curse's title pieces are DOS drawing method 18,
+   "compressed, OPAQUE", and its palette keeps bright yellow in slot 255.
+   l2d4e's mode-2 arm keyed 255 as transparent, as the Mac's L2bfc does — and
+   the Mac never needed to care, because no Mac mode-2 piece holds a 255
+   pixel (0 across all 185 in the base art), nor does any SSI DOS method-18
+   piece (0 across 184). Dropped the key in that arm only; the transparent
+   methods keep theirs. After: bright-yellow pixel counts match DOS on all
+   five screens (AD&D 1320 vs 1368, dragon 2505 vs 2096, credits 2058 vs
+   1767 — scaling noise), mean per-channel difference unchanged. Tests green.
+   Lesson: a fan module's art exercises conventions SSI's own art never did;
+   when the emulator and DOS agree and the machine differs, suspect the
+   machine, but when the EMULATOR shows the loss too, it is ours.
+
 17. **ECS walk shimmer — walls darken/brighten while standing still.**
    Hardware report (A500, v0.9.21-beta): "there also seems to be some
    changing colour as you walk around the start area in HEIRS.DSN, namely

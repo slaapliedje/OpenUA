@@ -6963,8 +6963,15 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 				unsigned char v = rowbuf[c];
 				short dx;
 
-				if (v == 255)
-					continue;
+				/* ★ NO 255 KEY IN AN OPAQUE PIECE (2026-09-12). Mode 2 is
+				 * DOS drawing method 18, "compressed, OPAQUE": 255 is a
+				 * colour there, and a fan module paints with it (Curse of
+				 * the Fire Dragon's title art keeps its brightest yellow in
+				 * slot 255 — DOS shows 704 px of it on the AD&D logo, the
+				 * port showed the base marble through 704 holes). The Mac
+				 * art never puts 255 in a mode-2 piece (0 pixels across all
+				 * 185 of them), so keying it never did anything faithful
+				 * here; the transparent methods (modes 1/5/7) keep theirs. */
 				dx = (short)(x + c);
 				if (dx < left || dx >= right)
 					continue;
