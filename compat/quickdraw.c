@@ -561,6 +561,26 @@ long  g_qdp_counts[8];
  * ECS quantiser NEEDS it before the cut). ONE band at a time is enough — a
  * render installs one backdrop band — and a second one arriving while one
  * is pending flushes the first immediately rather than losing it. */
+/* ---- palette rides with the present (dsp_backend_t.palette_with_present) ---
+ * The pending range is a window over g_palette, which always holds the logical
+ * truth; flushing forwards that window to the backend and empties it. */
+static short s_pal_pend_lo = 256, s_pal_pend_hi = -1;
+static dsp_color_t g_palette[256];   /* defined below; tentative decl is fine */
+
+static void qd_pal_pend_flush(void)
+{
+	const dsp_backend_t *d;
+
+	if (s_pal_pend_hi < s_pal_pend_lo)
+		return;
+	d = dsp_detect();
+	if (d != NULL && d->set_palette != NULL)
+		d->set_palette(&g_palette[s_pal_pend_lo], s_pal_pend_lo,
+		               (short)(s_pal_pend_hi - s_pal_pend_lo + 1));
+	s_pal_pend_lo = 256;
+	s_pal_pend_hi = -1;
+}
+
 static RGBColor s_pal_def[256];
 static short    s_pal_def_first, s_pal_def_count;
 static int      s_pal_def_on;
@@ -572,7 +592,10 @@ void qd_set_palette_deferred(const RGBColor *colors, short first, short count)
 
 	if (count <= 0 || first < 0 || first + count > 256)
 		return;
-	if (dsp == NULL || !dsp->hw_palette) {
+	if (dsp == NULL || !dsp->hw_palette || dsp->palette_with_present) {
+		/* quantiser / true colour: install now. palette_with_present:
+		 * qd_set_palette already defers EVERY write to the present, so a
+		 * private stash here would land one present late. */
 		qd_set_palette(colors, first, count);
 		return;
 	}
@@ -589,7 +612,7 @@ void qd_set_palette_deferred(const RGBColor *colors, short first, short count)
 
 int qd_palette_deferred_pending(void)
 {
-	return s_pal_def_on;
+	return s_pal_def_on || s_pal_pend_hi >= s_pal_pend_lo;
 }
 
 static char qd_present_body(void)
@@ -610,6 +633,7 @@ static char qd_present_body(void)
 	 * screen is already current; skip the backend's (expensive) no-op
 	 * scan. Only on single-buffered backends — see g_qd_touched. */
 	if (!g_qd_touched && g_present_pages == 1 && !s_pal_def_on) {
+		qd_pal_pend_flush();             /* nothing drawn: the palette IS the frame */
 		QDT(6);                          /* #63: presents skipped clean */
 #ifdef FRUA_MONOPROF
 		g_qdp_counts[7]++;               /* clean presents skipped */
@@ -632,6 +656,7 @@ static char qd_present_body(void)
 		s_pal_def_on = 0;
 		qd_set_palette(s_pal_def, s_pal_def_first, s_pal_def_count);
 	}
+	qd_pal_pend_flush();             /* the pixels are up: now their palette */
 #ifdef FRUA_SLOWPRESENT
 	/* #8 DIAGNOSTIC — impersonate a slow-present machine. The ATW800/2's
 	 * Nova card takes ~0.5s of VME writes per full present; nothing we can
@@ -764,6 +789,18 @@ void qd_present_rect(short x, short y, short w, short h)
 		g_present_rect_hook(x, y, w, h);
 	else if (g_present_hook != NULL)
 		g_present_hook();            /* fall back to a full present */
+	qd_pal_pend_flush();
+}
+
+/* The engine is idle in its event pump: no present is coming for a palette
+ * write made since the last one (pure colour animation, a fade loop), so land
+ * it now — unless a hold is outstanding, in which case the frame being built
+ * is exactly what the palette must wait for. */
+void qd_palette_idle_flush(void)
+{
+	if (g_present_hold > 0 || g_present_suppress)
+		return;
+	qd_pal_pend_flush();
 }
 
 void qd_attach_screen(void *pixels, short rowBytes, short width, short height)
@@ -2122,6 +2159,8 @@ void qd_palette_blackout(int on)
 
 	if (d == NULL || !d->hw_palette || d->set_palette == NULL)
 		return;
+	s_pal_pend_lo = 256;                 /* black, or all of g_palette, is about */
+	s_pal_pend_hi = -1;                  /* to be pushed: nothing stays pending  */
 	if (on) {
 		if (s_pal_blackout == 1) {
 			dsp_color_t black[256];
@@ -2236,7 +2275,15 @@ void qd_set_palette(const RGBColor *colors, short first, short count)
 		g_palette[first + i] = tmp[i];
 	}
 	dsp = dsp_detect();
-	if (dsp != NULL && dsp->set_palette != NULL
+	if (dsp != NULL && dsp->hw_palette && dsp->palette_with_present
+	    && !s_pal_blackout) {
+		/* rides with the next present — see display.h. g_palette above is
+		 * already current; remember the window to forward. */
+		if (first < s_pal_pend_lo)
+			s_pal_pend_lo = first;
+		if ((short)(first + count - 1) > s_pal_pend_hi)
+			s_pal_pend_hi = (short)(first + count - 1);
+	} else if (dsp != NULL && dsp->set_palette != NULL
 	    && !(s_pal_blackout && dsp->hw_palette))   /* latched: see blackout */
 		dsp->set_palette(tmp, first, count);
 	/* #152: on most backends the mapping change re-renders pixels, so the whole

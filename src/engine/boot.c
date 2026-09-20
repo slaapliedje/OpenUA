@@ -29126,6 +29126,7 @@ static void l604e(void)
 	long a = 0, b = 0;
 	PROBE("L604e");
 	port_event_tail_expire();       /* #161: ...nor the event pump */
+	qd_palette_idle_flush();        /* TODO 25: a palette no present will carry lands here */
 	if (jt1118())
 		(void)l5f84();
 	(void)jt1125((short)7, (long)&b, (long)&a);
@@ -81593,6 +81594,14 @@ static void jt1067(void)
 #endif
 		l6e58(min, (short)(max - min + 1), mode, work + min * 3);  /* 79d4 */
 		g_cyc_commit_epoch++;   /* 16bpp port: see port_cycle_present */
+		/* TODO 25: a cycle step IS its own frame — no pixels change, so no
+		 * present will ever carry it. On a palette-with-present backend land
+		 * it here. The title wait loop (l192c) neither presents nor pumps
+		 * events, so without this the SSI stars froze (caught by the title
+		 * capture: one colour-count signature where the release shows five).
+		 * Refused while a present hold is outstanding — then the frame being
+		 * built is exactly what the palette must wait for. */
+		qd_palette_idle_flush();
 	}
 }
 

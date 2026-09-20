@@ -629,6 +629,49 @@ list of what the real machine found — and what it is still owed — is
    when the emulator and DOS agree and the machine differs, suspect the
    machine, but when the EMULATOR shows the loss too, it is ours.
 
+25. **A big picture "takes a second to unload, leaving pixels behind" (AGA).
+   FIXED 2026-09-20 — palette writes now ride with the present.** A1200 on
+   v0.9.28: "almost 100% there", with this left. Filmed at 25 fps in amiberry
+   (`-DFRUA_AUTOPLAY` into a generated design whose entry event is a bigpic,
+   ffmpeg x11grab across the Return that dismisses it). v0.9.28 shows FOUR
+   frames before the screen settles: the picture with the clock panel already
+   over it; **1.4 s of the outgoing picture in the DUNGEON's palette** (black
+   with magenta/orange speckle — the "pixels left behind"); the walk screen
+   without its clock text; **1.6 s with the 3D view blacked out**; then the
+   final frame.
+   - **Cause:** on a hardware-palette backend a CLUT write recolours the screen
+     at once, while the pixels that want those colours arrive at the next
+     present — a second or more later here. #20 (sky/floor flash) was one
+     instance, fixed for one caller; this is the rule. The #8 event-tail hold
+     does not help: it holds PIXELS, the palette still landed, and it is armed
+     only for walk steps anyway (the repro is the area-entry chain).
+   - **Fix:** `dsp_backend_t.palette_with_present` (AGA sets it; `video.cfg
+     agapalsync=off` opts out for a hardware A/B). `qd_set_palette` keeps the
+     logical palette current and remembers a pending window; it is forwarded
+     right after the backend present, after a rect present, on a clean present,
+     or from the engine's event pump when no hold is outstanding — so pure
+     colour animation still lands (the picture's own cycling visibly continues
+     in the film). The title blackout supersedes anything pending.
+     `qd_set_palette_deferred` (#20) routes straight through on such a backend.
+   - **After:** picture in its own colours -> walk screen -> clock text. Both
+     the recoloured picture and the black view hole are gone.
+   - **The regression the harness caught before it shipped:** the first version
+     froze the SSI title's star animation. The title wait loop (l192c) cycles
+     the palette without presenting or pumping events, so those writes stayed
+     pending for ever. Found by the title capture's frame signatures — one
+     colour count on the SSI screen where the release shows five. jt1067 now
+     lands its own commit (`qd_palette_idle_flush`, refused under a hold); the
+     title roll is signature-identical to v0.9.28 again and the film is
+     unchanged. A deferral needs a flush point on EVERY path that writes and
+     then waits; enumerate the waits, do not assume a present follows.
+   - **Not the Nova** (deliberately): its ~0.5 s present makes palette-after-
+     pixels a different trade, and it cannot be tested off the real card. TT
+     is eligible and untested — left alone.
+   - Still visible on the entry chain, in both builds: the clock panel is drawn
+     over the picture before the walk renders, and the clock TEXT arrives ~3 s
+     after the walk frame. That is the unheld entry-chain tail (the hold is
+     armed only for walk steps, by design since the v0.9.4 freeze).
+
 17. **ECS walk shimmer — walls darken/brighten while standing still.**
    Hardware report (A500, v0.9.21-beta): "there also seems to be some
    changing colour as you walk around the start area in HEIRS.DSN, namely

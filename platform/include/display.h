@@ -128,6 +128,29 @@ typedef struct dsp_backend {
 	 * sets s_force_full, which also bypasses pass 1) but is shipping and
 	 * measured, so it is deliberately left alone. */
 	short palette_self_invalidates;
+
+	/* 1 = a palette write on this hw_palette backend RIDES WITH THE NEXT
+	 * PRESENT instead of landing at once (TODO 25, 2026-09-20).
+	 *
+	 * hw_palette says the screen holds the INDEX and the CLUT is hardware, so a
+	 * write recolours whatever is on screen that instant. The pixels that want
+	 * the new colours only arrive at the next present — a second or more later
+	 * when an event picture gives way to the 3D view — and for that whole time
+	 * the OLD picture sits on screen wearing the NEW palette. Filmed at 25 fps
+	 * on an emulated A1200: 1.4 s of the outgoing big picture in the dungeon's
+	 * colours. #20 (the sky/floor flash) was one instance; this is the rule.
+	 *
+	 * The shim keeps the logical palette current and forwards the pending
+	 * range right after the backend present, after a rect present, on a clean
+	 * (nothing-drawn) present, or when the engine goes idle in its event pump —
+	 * so pure palette animation still lands without a redraw.
+	 *
+	 * Last field, so every positional initialiser gets 0 = the historical
+	 * immediate write. AGA sets it at init (video.cfg agapalsync=off opts out).
+	 * NOT the Nova: its present is ~0.5 s of VME writes, which makes "palette
+	 * after pixels" a different trade there, and it cannot be tested off the
+	 * real card. */
+	short palette_with_present;
 } dsp_backend_t;
 
 /* Probe the host machine and return the best available backend, or NULL. */

@@ -550,6 +550,7 @@ void qd_set_palette(const RGBColor *colors, short first, short count);
  * together with the pixels drawn for it (see the note in quickdraw.c). */
 void qd_set_palette_deferred(const RGBColor *colors, short first, short count);
 int  qd_palette_deferred_pending(void);
+void qd_palette_idle_flush(void);   /* event-pump idle: land a palette no present will carry */
 void qd_dump_palette(unsigned char *out768);
 
 /* --- text drawing ---

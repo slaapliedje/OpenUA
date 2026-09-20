@@ -364,6 +364,7 @@ static void aga_paltest(void)
 
 static int aga_init(short want_w, short want_h)
 {
+	aga_backend.palette_with_present = 1;    /* default; video.cfg agapalsync=off opts out */
 	/* video.cfg, same contract as the ECS/ST/Nova backends: runtime knobs
 	 * so an A/B is one binary. cwd is the game dir (DH0:). */
 	{
@@ -380,6 +381,12 @@ static int aga_init(short want_w, short want_h)
 				dbg_log("aga: hw_palette DISABLED (video.cfg)");
 			} else if (strstr(buf, "agahwpal=on") != NULL) {
 				aga_backend.hw_palette = 1;
+			}
+			/* TODO 25: palette writes ride with the present (display.h).
+			 * One binary, so the real machine can A/B it. */
+			if (strstr(buf, "agapalsync=off") != NULL) {
+				aga_backend.palette_with_present = 0;
+				dbg_log("aga: palette-with-present DISABLED (video.cfg)");
 			}
 		}
 	}
