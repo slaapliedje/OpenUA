@@ -1573,3 +1573,51 @@ Open, and deliberately so:
 * The ducking in (3) can pump audibly if effects are dense. If that is heard on
   hardware, the alternative is a constant 6 dB cut everywhere (no pumping, a
   quieter game), and the choice should be made by listening, not by argument.
+
+## ADR-0022 — Where a Macintosh reservation collides with DOS art, the DOS convention wins
+
+**Status:** ratified 2026-09-20, recording three changes shipped in v0.9.26 to
+v0.9.28. Extends ADR-0001 (port from the Mac release), ADR-0017 (a player needs
+the DOS **or** the Mac release) and ADR-0019 (every target ships DOS art).
+
+**Context.** The engine is a lift of the Macintosh binary, and the Mac release
+carries conventions that were safe only because SSI authored its Mac art around
+them. Every picture the port ships is now DOS-sourced (ADR-0019), and fan
+modules are DOS art made in paint programs by people who never saw those
+conventions. SSI's own DOS art happens to respect them, which is why the base
+game never showed a fault; a module's art does not. Three cases surfaced on a
+real A1200 running *The Curse of the Fire Dragon*, each settled against DOS
+FRUA 1.2 in DOSBox with the same module:
+
+1. **CLUT 0..15.** `l6e58`, the engine's SetEntries, clamped `start` up to 16:
+   on the Mac those are the system colours. DOS loads all 256. A module's title
+   marble painted with slots 11 and 15 showed the UI band's cyan and white (#23).
+2. **Index 255 in an opaque piece.** `l2d4e`'s mode-2 arm (DOS drawing method
+   18, compressed OPAQUE) skipped 255 as transparent, as the Mac's `L2bfc` does.
+   No Mac mode-2 piece holds a 255 pixel (0 of 185) and no SSI method-18 piece
+   does (0 of 184); the module keeps its brightest yellow there (#24).
+3. **Colour-cycle ranges.** Not a convention but the same family — the port's
+   own shortcut. On the Mac every palette install goes through the GLIB
+   allocator, whose Phase 3a frees the cycle ranges a request overlaps. The
+   port installs its wall, backdrop and UI bands directly, so a picture's cycle
+   range outlived the picture and animated the walk's floor (#21).
+
+**Decision.** When a Mac-side reservation or key exists only because Mac art
+never exercised it, and DOS FRUA demonstrably behaves otherwise on the same
+data, the port follows DOS: all 256 CLUT entries load; 255 is a colour in the
+opaque drawing methods and stays the key in the transparent ones (modes 1/5/7);
+and the port's direct palette installs do the allocator's Phase 3a bookkeeping.
+The lifted routines keep their Mac structure and asm offsets; each divergence
+is a marked block with the evidence in its comment.
+
+**The test for a future case** is the one that settled these: run the same
+module in DOS FRUA, align the frames, and compare. If the emulator shows the
+same loss as the real machine, the fault is the port's; if only the machine
+shows it, suspect the machine (`-DFRUA_PALTEST` exists for that question).
+
+**Consequences.** A picture owns slots 0..15 while it is up; the menus
+(`load_menu_ui`) and the walk (`port_hud_text_clut`) re-install their UI band
+on entry, as they always did, so text over a full-palette fan picture takes
+that picture's colours — exactly as in DOS. Mac-sourced art renders
+identically (it never used the reserved values). The wall art's own 255 key
+(`cw_shade`) is untouched: walls are a transparent method by construction.

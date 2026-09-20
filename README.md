@@ -91,8 +91,10 @@ What works (on every target unless noted):
   Falcon CODEC, the TT's STE-DMA sound, or on the Amiga **AHI when it is
   installed (which is how a Vampire's SAGA audio is reached), Paula otherwise**.
   A design's own soundtrack plays when it ships one — the DOS module's `.XMI`
-  converts to a per-design `MUSIC.SLB` (`tools/xmi2slb.py`, all four arrangements
-  and partial sets).
+  converts to a per-design `MUSIC.SLB` (`tools/xmi2slb.py` on the PC, or
+  `uainst` / `uaconv` on the machine; all four arrangements and partial sets) —
+  and the bank follows the design, so a module picked from the menu plays its
+  own music, not only the one current at boot.
 
 It plays the bundled sample design **HEIRS TO SKULL CRAG** and real commercial
 modules (e.g. *Pool of Radiance*) on their own art. The current gaps are

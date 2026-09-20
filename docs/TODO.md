@@ -17,8 +17,9 @@ carry it and are kept current:
 - `docs/milestone.md` — the high-level burn-down. START HERE.
 - `docs/subsystem-status.md` — per-subsystem register + the `*-wall.md` index.
 - `python3 tools/stub_audit.py --stubs` / `--arms`, `tools/jt_progress.py` —
-  the authoritative numbers. As of 2026-07-30: 1201 done / 1 stub / 4 missing
-  of 1206 JT entries; **0 live gaps, 0 deferred arms**. A zero means no
+  the authoritative numbers (run them; do not trust a figure quoted here).
+  Last checked 2026-09-20: top-100 100/100 done, **0 live gaps, 0 deferred
+  arms**, 52 PROBE stubs none of them reachable, 0 stale stub claims. A zero means no
   reachable PROBE stub body, NOT feature-complete.
 
 The game **plays on real hardware** (Falcon 030@50MHz, VGA) and ships engine +

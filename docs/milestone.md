@@ -249,16 +249,16 @@ instead of six disks (`HARDWARE.md`).
 The lesson worth keeping: **an emulator agrees with your assumptions.** Three of
 those five were in code that had been "verified" repeatedly.
 
-**Hardware matrix as of 2026-09-06** (supersedes the 2026-08-22 one below it in
-git history). What each machine has CONFIRMED, and what it is still OWED:
+**Hardware matrix as of 2026-09-20** (supersedes the 2026-08-22 one below it in
+git history). **All five machines carry v0.9.28-beta** (one device pass, 2026-09-12). What each machine has CONFIRMED, and what it is still OWED:
 
 | Machine | Confirmed on the metal | Still owed |
 |---|---|---|
-| **Falcon030** @50, VGA | dungeon, map, events, camp, save/load, clean exit to TOS (§2a) | nothing structural; #8 hold + #166 typewriter are emulator-measured |
-| **Mega STe** | boots and plays from the Gotek media; the accelerator beep (#11) reported here | #8 event-tail hold and #11 one-stamp fix — both shipped 0.9.21, **not yet confirmed back** |
+| **Falcon030** @50, VGA | dungeon, map, events, camp, save/load, clean exit to TOS (§2a) | a play report on 0.9.28; #8 hold + #166 typewriter are emulator-measured |
+| **Mega STe** | boots and plays from the Gotek media; the accelerator beep (#11) reported here | #8 event-tail hold and #11 one-stamp fix — both shipped 0.9.21, **not yet confirmed back** (its DBG.LOG is still the 2026-08-26 run) |
 | **TT030** | own drive install (E3/OPENUA) since 0.9.15 | a play report |
-| **A1200 + IceDrake** (AGA) | installer flow **works great** (2026-09-05); **AHI audio opened, played and tore down cleanly** (`snd: AHI backend up`, ADR-0021); PCMCIA CD drive works under Coffin R64 | the sky/floor flash fix — the VISIBLE half, the palette now lands with the pixels (#20, **0.9.25**; the 0.9.22 memo alone did not fix it, confirmed on the metal) — and a module's own music after `uainst`/`uaconv` |
-| **A500 + ACA500Plus** (ECS) | install flow (0.9.10); titles/dim-text/walk reports came from here (0.9.21) | #16/#18 title fixes, dim-text fix, **#17 walk shimmer (`inkadopt=off` A/B)**, #19 left-edge — all 0.9.22, unconfirmed; the centred Paula mix (0.9.22) and the module disk-set installer (0.9.25) |
+| **A1200 + IceDrake** (AGA) | installer flow **works great**; **AHI audio** opened, played and tore down cleanly (ADR-0021); PCMCIA CD under Coffin R64; the module title art after #23 ("looks better"); **2026-09-20, on 0.9.28: "almost 100% there"** | **the big-picture teardown**: a second or so of leftover pixels when a bigpic gives way to the next one or to the 3D view (TODO 25). Not individually confirmed back: #20 sky/floor flash, #21 ground cycling, #22 module music after a pick, #24 bright yellow |
+| **A500 + ACA500Plus** (ECS) | install flow (0.9.10); titles/dim-text/walk reports came from here (0.9.21) | **not booted since the 2026-09-06 card refresh** (no DBG.LOG on the card at two later refreshes): #16/#18 title fixes, dim-text fix, **#17 walk shimmer (`inkadopt=off` A/B)**, #19 left-edge, the centred Paula mix, the module disk-set installer |
 | **Amiga RTG / Nova** | Nova: xVDI + row-diff presents on the real Seurat (0.9.18) | RTG: emulator only |
 
 The pattern since 2026-08-22 holds: **every one of the A500's reports was

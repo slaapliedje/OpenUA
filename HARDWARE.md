@@ -281,6 +281,31 @@ and run it from there.
 `UAINST` (`UAINST.PRG` / `UAINST.TTP` / `uainst`) is optional and installs DOS
 fan modules from their ZIP, converting the art in place.
 
+**A fan module as its own floppy set (Amiga).** When the only way onto the
+machine is a Gotek, build the module as disks rather than shipping a ZIP the
+Amiga cannot see:
+
+```sh
+MODULE=Curse tools/mkdatadisks.sh amiga <staged-module-dir> <outdir> Curse.dsn
+```
+
+The volumes are labelled `Curse-Data-1..N`, disk 1 carries a Workbench
+**Install** icon (the AmigaOS Installer asks where your OpenUA drawer is;
+Workbench 3.1, which has no Installer, falls back to the text installer), and
+the installer finishes by naming exactly where the design went, warning when
+the destination had to be created. A path typed DOS-style with backslashes is
+converted, since `\` is a filename character on the Amiga. `uainst` and
+`uaconv` also build the module's `MUSIC.SLB` from its `.XMI` files.
+
+`tools/tree2adf.py <srcdir> <outdir> <label>` spreads any directory tree over
+880 KB FFS images with the tree kept, for software that is not OpenUA's.
+
+**Judging a machine's colour path.** An AGA build made with
+`EXTRA_CFLAGS=-DFRUA_PALTEST` paints all 256 palette entries as a 32x8 grid
+through the game's own copper list for 12 seconds at boot. One photo tells
+whether the low colour nibbles, a palette bank, or a channel is being lost —
+useful when a real machine disagrees with the emulator.
+
 ### Choosing the video mode (Falcon)
 
 By default the engine picks from the monitor type: 320x200 on RGB/TV, and on
