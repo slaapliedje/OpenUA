@@ -171,7 +171,12 @@ static int x11_init(short want_w, short want_h)
 	wmh.initial_state = NormalState;
 	XSetWMHints(s_dpy, s_win, &wmh);
 	XStoreName(s_dpy, s_win, "OpenUA");
-	s_gc = XCreateGC(s_dpy, s_win, 0, NULL);
+	/* no GraphicsExpose/NoExpose per XCopyArea: put_rect copies rows */
+	{
+		XGCValues gv;
+		gv.graphics_exposures = False;
+		s_gc = XCreateGC(s_dpy, s_win, GCGraphicsExposures, &gv);
+	}
 	hide_pointer();
 
 	/* the image the presents go through: 8-bit indices at scale 1 on a
@@ -235,7 +240,9 @@ static dsp_surface_t *x11_surface(void)
 	return &s_surface;
 }
 
-/* Expand/convert the chunky rect into the image (scale, pixel format). */
+/* Convert the chunky rect into the image: each game pixel becomes S
+ * image pixels across, in the window's pixel format, on the FIRST image
+ * row of its S. The other S-1 rows are copied on the server (put_rect). */
 static void convert_rect(const unsigned char *pix, int x, int y, int w, int h)
 {
 	int r, c, k, S = s_scale, iw = GW * S;
@@ -247,41 +254,51 @@ static void convert_rect(const unsigned char *pix, int x, int y, int w, int h)
 			for (c = 0; c < w; c++)
 				for (k = 0; k < S; k++)
 					*d++ = src[c];
-			d = (unsigned char *)s_img_data + (long)r * S * iw + x * S;
-			for (k = 1; k < S; k++)
-				memcpy(d + (long)k * iw, d, (size_t)w * S);
 		} else if (s_bpp == 2) {
 			unsigned short *d = (unsigned short *)s_img_data + (long)r * S * iw + x * S;
-			unsigned short *d0 = d;
 			for (c = 0; c < w; c++) {
 				unsigned short p = (unsigned short)s_pixel[src[c]];
 				for (k = 0; k < S; k++)
 					*d++ = p;
 			}
-			for (k = 1; k < S; k++)
-				memcpy(d0 + (long)k * iw, d0, (size_t)w * S * 2);
 		} else {
 			unsigned long *d = (unsigned long *)s_img_data + (long)r * S * iw + x * S;
-			unsigned long *d0 = d;
 			for (c = 0; c < w; c++) {
 				unsigned long p = s_pixel[src[c]];
 				for (k = 0; k < S; k++)
 					*d++ = p;
 			}
-			for (k = 1; k < S; k++)
-				memcpy(d0 + (long)k * iw, d0, (size_t)w * S * 4);
 		}
 	}
 }
 
+/*
+ * Put a rect of game pixels in the window. Scaled, each game row goes over
+ * the wire ONCE, one window row tall, and XCopyArea duplicates it down the
+ * other S-1 window rows on the server - where a card with a 2D engine
+ * (the ATW800/2 under Xatw) does it without the CPU: half the data sent
+ * and converted at 2x. (A row whose copy source is covered by another
+ * window is fixed by the Expose that follows.)
+ */
 static void put_rect(const unsigned char *pix, int x, int y, int w, int h)
 {
-	if (s_pseudo && s_scale == 1)
-		s_img->data = (char *)pix;	/* the indices are the image */
-	else
-		convert_rect(pix, x, y, w, h);
-	XPutImage(s_dpy, s_win, s_gc, s_img, x * s_scale, y * s_scale,
-	          x * s_scale, y * s_scale, w * s_scale, h * s_scale);
+	int r, k, S = s_scale;
+
+	if (S == 1) {
+		if (s_pseudo)
+			s_img->data = (char *)pix;	/* the indices are the image */
+		else
+			convert_rect(pix, x, y, w, h);
+		XPutImage(s_dpy, s_win, s_gc, s_img, x, y, x, y, w, h);
+		return;
+	}
+	convert_rect(pix, x, y, w, h);
+	for (r = y; r < y + h; r++) {
+		XPutImage(s_dpy, s_win, s_gc, s_img, x * S, r * S, x * S, r * S, w * S, 1);
+		for (k = 1; k < S; k++)
+			XCopyArea(s_dpy, s_win, s_win, s_gc, x * S, r * S, w * S, 1,
+			          x * S, r * S + k);
+	}
 }
 
 /*
