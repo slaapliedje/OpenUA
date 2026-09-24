@@ -21,18 +21,21 @@
 #include <X11/keysym.h>
 #include <sys/types.h>
 #include <sys/time.h>
+#include <poll.h>
 
 #include "input.h"
 #include "x11_unix.h"
 #include "unix_vbl.h"
 
 extern int gettimeofday(struct timeval *, void *);
+extern int poll(struct pollfd *, unsigned long, int);
 
-/* --- ticks ---------------------------------------------------------------- */
+/* --- ticks, and waiting ---------------------------------------------------- */
 
 static struct timeval s_t0;
 
-unsigned long plat_ticks(void)
+/* elapsed time since the clock started, in ms */
+static long elapsed_ms(void)
 {
 	struct timeval t;
 
@@ -41,8 +44,65 @@ unsigned long plat_ticks(void)
 		s_t0 = t;
 	/* whole seconds and the microsecond parts separately: a microsecond
 	 * total would overflow 32 bits after 35 minutes */
-	return (unsigned long)((t.tv_sec - s_t0.tv_sec) * 60
-	     + (long)t.tv_usec * 60 / 1000000 - (long)s_t0.tv_usec * 60 / 1000000);
+	return (t.tv_sec - s_t0.tv_sec) * 1000L
+	     + (long)t.tv_usec / 1000 - (long)s_t0.tv_usec / 1000;
+}
+
+unsigned long unix_ticks(void)
+{
+	return (unsigned long)(elapsed_ms() * 60 / 1000);
+}
+
+/*
+ * The engine waits the way it did on the Atari: it polls TickCount and the
+ * input until something changes. On a TOS machine that only burns an idle
+ * CPU; on Unix every turn of such a loop is system calls (the clock, X),
+ * so an OpenUA sitting in a menu took the whole machine. So: when the
+ * engine asks for the time or its input SPIN_LIMIT times within one tick
+ * and nothing has happened, it is waiting - sleep on the X connection
+ * until the next tick, or until X has input for us. Measured at the main
+ * menu (emulated TT): the wait loop asks ~15 times per tick, each turn
+ * nearly all system calls; with the limit at 6 the machine went from 0%
+ * to 98% idle, and the boot to the menu (real work) took as long as
+ * before.
+ */
+#define SPIN_LIMIT	6
+
+static unsigned long s_spin_tick;
+static int           s_spin_n;
+
+static void idle_if_spinning(unsigned long now)
+{
+	Display *d;
+	struct pollfd pfd;
+	long ms;
+
+	if (now != s_spin_tick) {
+		s_spin_tick = now;
+		s_spin_n = 0;
+		return;
+	}
+	if (++s_spin_n < SPIN_LIMIT)
+		return;
+	s_spin_n = 0;
+	d = x11_display();
+	if (d != NULL && XPending(d) > 0)
+		return;				/* input already waiting */
+	ms = (long)((now + 1) * 1000 / 60) - elapsed_ms() + 1;
+	if (ms <= 0)
+		return;
+	pfd.fd = d != NULL ? ConnectionNumber(d) : -1;
+	pfd.events = POLLIN;
+	pfd.revents = 0;
+	poll(&pfd, d != NULL ? 1 : 0, (int)ms);
+}
+
+unsigned long plat_ticks(void)
+{
+	unsigned long now = unix_ticks();
+
+	idle_if_spinning(now);
+	return now;
 }
 
 /* --- TOS US keytables by Atari scancode (as input_amiga.c) ---------------- */
@@ -150,6 +210,11 @@ static void pump(void)
 	unix_vbl_poll();		/* the engine's VBL task, 60 Hz */
 	if (d == NULL)
 		return;
+	if (XPending(d) == 0) {
+		idle_if_spinning(unix_ticks());	/* asked again, nothing new */
+		return;
+	}
+	s_spin_n = 0;
 	while (XPending(d) > 0) {
 		XEvent ev;
 		XNextEvent(d, &ev);
@@ -174,7 +239,8 @@ static void pump(void)
 		case ButtonPress:
 			s_btn = 1;
 			s_click = 1;
-			/* fall through: the press carries a position */
+			/* the press carries a position too */
+			/* fall through */
 		case ButtonRelease:
 			if (ev.type == ButtonRelease)
 				s_btn = 0;
@@ -284,7 +350,7 @@ void plat_input_init(short screen_w, short screen_h)
 	s_scr_h = screen_h;
 	s_mx = (short)(screen_w / 2);
 	s_my = (short)(screen_h / 2);
-	(void)plat_ticks();		/* start the clock */
+	(void)unix_ticks();		/* start the clock */
 }
 
 void plat_input_shutdown(void)

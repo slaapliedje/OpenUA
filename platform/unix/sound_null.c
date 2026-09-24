@@ -23,7 +23,7 @@ static unsigned long s_last_tick;
 
 int plat_sound_init(void)
 {
-	s_last_tick = plat_ticks();
+	s_last_tick = unix_ticks();
 	return 1;			/* no sound: the shim continues silent */
 }
 
@@ -69,7 +69,7 @@ void plat_sound_set_vbl_hook(void (*fn)(void))
  * stopped, the machine busy) is not replayed in a burst beyond 4. */
 void unix_vbl_poll(void)
 {
-	unsigned long now = plat_ticks();
+	unsigned long now = unix_ticks();
 	int n = 0;
 
 	while (s_last_tick < now && n < 4) {

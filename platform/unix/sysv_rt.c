@@ -21,8 +21,8 @@ void __main(void) { }
  * name the X server by address (192.168.1.2:0), not by host name.
  */
 static struct netconfig nc_inet[] = {
-	{ "tcp",   NC_TPI_COTS_ORD, NC_VISIBLE, NC_INET, "tcp",  "/dev/tcp" },
-	{ "udp",   NC_TPI_CLTS,     NC_VISIBLE, NC_INET, "udp",  "/dev/udp" },
+	{ "tcp", NC_TPI_COTS_ORD, NC_VISIBLE, NC_INET, "tcp", "/dev/tcp", 0, 0, { 0 } },
+	{ "udp", NC_TPI_CLTS,     NC_VISIBLE, NC_INET, "udp", "/dev/udp", 0, 0, { 0 } },
 };
 #define NNC	(int)(sizeof nc_inet / sizeof nc_inet[0])
 

@@ -8,4 +8,8 @@
 
 void unix_vbl_poll(void);
 
+/* The 60 Hz tick count, for the port's own use: unlike plat_ticks() it
+ * never counts as the engine waiting (see input_x11.c). */
+unsigned long unix_ticks(void);
+
 #endif /* PLATFORM_UNIX_VBL_H */
