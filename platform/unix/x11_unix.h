@@ -10,6 +10,7 @@
 Display *x11_display(void);	/* NULL until the display backend's init */
 Window   x11_window(void);
 int      x11_scale(void);	/* window pixels per game pixel */
+void     x11_origin(int *x, int *y);	/* the game area's top left in the window */
 void     x11_repaint(void);	/* redraw what the window showed (Expose) */
 void     x11_flush_due(void);	/* send a presented frame once its tick has passed */
 

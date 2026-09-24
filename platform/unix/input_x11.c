@@ -11,7 +11,7 @@
  *
  * X events are pumped from every poll the engine makes: there is no
  * interrupt-driven handler as on the Atari and Amiga. The mouse position is
- * the pointer's in game pixels (window / scale). Ticks are Mac 60 Hz ticks
+ * the pointer's in game pixels ((window - game origin) / scale). Ticks are Mac 60 Hz ticks
  * from gettimeofday.
  */
 #ifdef FRUA_UNIX
@@ -207,7 +207,9 @@ static int s_btn, s_click;
 static void pump(void)
 {
 	Display *d = x11_display();
-	int scale = x11_scale();
+	int scale = x11_scale(), ox, oy;
+
+	x11_origin(&ox, &oy);
 
 	unix_vbl_poll();		/* the engine's VBL task, 60 Hz */
 	x11_flush_due();
@@ -247,12 +249,12 @@ static void pump(void)
 		case ButtonRelease:
 			if (ev.type == ButtonRelease)
 				s_btn = 0;
-			s_mx = (short)(ev.xbutton.x / scale);
-			s_my = (short)(ev.xbutton.y / scale);
+			s_mx = (short)((ev.xbutton.x - ox) / scale);
+			s_my = (short)((ev.xbutton.y - oy) / scale);
 			break;
 		case MotionNotify:
-			s_mx = (short)(ev.xmotion.x / scale);
-			s_my = (short)(ev.xmotion.y / scale);
+			s_mx = (short)((ev.xmotion.x - ox) / scale);
+			s_my = (short)((ev.xmotion.y - oy) / scale);
 			break;
 		case Expose:
 			if (ev.xexpose.count == 0)

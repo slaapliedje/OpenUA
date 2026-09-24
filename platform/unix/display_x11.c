@@ -11,10 +11,13 @@
  * pixels hold colours: the present converts through a pixel table and a
  * palette change re-presents everything.
  *
- * The window is the game scaled by OPENUA_SCALE (1..4; default 2, or 1 if
- * the screen is too small). A full present is row-diffed against a shadow
- * of what the window last received (the RTG/Nova design): only the runs of
- * rows that changed go over the wire, which on the TT is the network.
+ * Full screen by default: a borderless (override-redirect) window over the
+ * whole screen, the game centred on black at OPENUA_SCALE (1..4; default 2,
+ * less if the screen is too small), with the keyboard and pointer grabbed
+ * and - on a PseudoColor screen - its colormap installed, since no window
+ * manager looks after it. OPENUA_WINDOW=1 gives a managed window instead.
+ * Best on an 8-bit PseudoColor server (Xatw's default depth): a quarter of
+ * the data of 32 bpp, and palette changes cost nothing.
  *
  * The X pointer is hidden over the window: the engine draws its own (the
  * shim's software cursor, plat_cursor_active() = 0), at the position
@@ -48,6 +51,10 @@ static Colormap       s_cmap;
 static int            s_depth;
 static int            s_pseudo;		/* 8-bit PseudoColor: pixel = index */
 static int            s_scale = 2;
+static int            s_full;		/* full screen (the default) */
+static int            s_ox, s_oy;	/* game area's origin in the window */
+static int            s_winw, s_winh;	/* the window's size */
+static int            s_bg = -1;	/* PseudoColor: the black index the surround uses */
 static dsp_backend_t  s_x11_backend;	/* below */
 
 static unsigned char *s_chunky;		/* the engine's surface */
@@ -62,9 +69,10 @@ static char          *s_img_data;	/* scaled (and/or converted) image */
 static XImage        *s_img;
 static int            s_bpp;		/* bytes per pixel of s_img */
 static unsigned long  s_pixel[256];	/* TrueColor: index -> pixel value */
-static dsp_color_t    s_pal[256];	/* TrueColor: the logical palette */
+static dsp_color_t    s_pal[256];	/* the logical palette */
 
 Display *x11_display(void) { return s_dpy; }
+void     x11_origin(int *x, int *y) { *x = s_ox; *y = s_oy; }
 Window   x11_window(void)  { return s_win; }
 int      x11_scale(void)   { return s_scale; }
 
@@ -145,11 +153,28 @@ static int x11_init(short want_w, short want_h)
 		return 1;
 
 	memset(&wa, 0, sizeof wa);
-	wa.background_pixel = XBlackPixel(s_dpy, scr);
+	/* Full screen by default: a borderless window over the whole screen,
+	 * the game centred on black. OPENUA_WINDOW=1 for a managed window. */
+	e = getenv("OPENUA_WINDOW");
+	s_full = !(e != NULL && *e == '1');
+	if (s_full) {
+		s_ox = (sw - GW * s_scale) / 2;
+		s_oy = (sh - GH * s_scale) / 2;
+	}
+	s_winw = s_full ? sw : GW * s_scale;
+	s_winh = s_full ? sh : GH * s_scale;
+	/* the surround's colour: black. On a PseudoColor screen the window
+	 * shows through OUR colormap, where no entry is black for sure - the
+	 * palette changes pick one (surround_black) */
+	wa.background_pixel = s_pseudo ? 0 : XBlackPixel(s_dpy, scr);
 	wa.event_mask = ExposureMask | KeyPressMask | KeyReleaseMask
 	              | ButtonPressMask | ButtonReleaseMask | PointerMotionMask
 	              | StructureNotifyMask;
 	mask = CWBackPixel | CWEventMask;
+	if (s_full) {
+		wa.override_redirect = True;	/* no window manager frame */
+		mask |= CWOverrideRedirect;
+	}
 	if (s_pseudo) {
 		/* a private colormap: entry i is palette index i */
 		s_cmap = XCreateColormap(s_dpy, XRootWindow(s_dpy, scr), s_vis, AllocAll);
@@ -157,7 +182,7 @@ static int x11_init(short want_w, short want_h)
 		mask |= CWColormap;
 	}
 	s_win = XCreateWindow(s_dpy, XRootWindow(s_dpy, scr), 0, 0,
-	                      GW * s_scale, GH * s_scale, 0, s_depth, InputOutput,
+	                      s_winw, s_winh, 0, s_depth, InputOutput,
 	                      s_vis, mask, &wa);
 	memset(&hints, 0, sizeof hints);
 	hints.flags = PMinSize | PMaxSize;
@@ -207,6 +232,18 @@ static int x11_init(short want_w, short want_h)
 
 	XMapWindow(s_dpy, s_win);
 	XSync(s_dpy, False);
+	if (s_full) {
+		/* no window manager looks after this window: give it the
+		 * keyboard, keep the pointer in it, and install its colours */
+		if (s_pseudo)
+			XInstallColormap(s_dpy, s_cmap);
+		XSetInputFocus(s_dpy, s_win, RevertToParent, CurrentTime);
+		XGrabKeyboard(s_dpy, s_win, True, GrabModeAsync, GrabModeAsync, CurrentTime);
+		XGrabPointer(s_dpy, s_win, True,
+		             ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
+		             GrabModeAsync, GrabModeAsync, s_win, None, CurrentTime);
+		XSync(s_dpy, False);
+	}
 
 	s_surface.width  = GW;
 	s_surface.height = GH;
@@ -289,15 +326,16 @@ static void put_rect(const unsigned char *pix, int x, int y, int w, int h)
 			s_img->data = (char *)pix;	/* the indices are the image */
 		else
 			convert_rect(pix, x, y, w, h);
-		XPutImage(s_dpy, s_win, s_gc, s_img, x, y, x, y, w, h);
+		XPutImage(s_dpy, s_win, s_gc, s_img, x, y, s_ox + x, s_oy + y, w, h);
 		return;
 	}
 	convert_rect(pix, x, y, w, h);
 	for (r = y; r < y + h; r++) {
-		XPutImage(s_dpy, s_win, s_gc, s_img, x * S, r * S, x * S, r * S, w * S, 1);
+		XPutImage(s_dpy, s_win, s_gc, s_img, x * S, r * S,
+		          s_ox + x * S, s_oy + r * S, w * S, 1);
 		for (k = 1; k < S; k++)
-			XCopyArea(s_dpy, s_win, s_win, s_gc, x * S, r * S, w * S, 1,
-			          x * S, r * S + k);
+			XCopyArea(s_dpy, s_win, s_win, s_gc, s_ox + x * S, s_oy + r * S,
+			          w * S, 1, s_ox + x * S, s_oy + r * S + k);
 	}
 }
 
@@ -391,6 +429,40 @@ void x11_repaint(void)
 	XFlush(s_dpy);
 }
 
+/*
+ * PseudoColor, full screen: keep the surround black. Its colour is a
+ * colormap entry like any other and the engine's palette changes all of
+ * them (255, for one, is its magenta "transparent" key), so after each
+ * change make sure the window background names an entry that is black,
+ * and repaint the surround if it had to move.
+ */
+static void clear_strip(int x, int y, int w, int h)
+{
+	if (w > 0 && h > 0)
+		XClearArea(s_dpy, s_win, x, y, (unsigned)w, (unsigned)h, False);
+}
+
+static void surround_black(void)
+{
+	int i;
+
+	if (!s_full || (s_bg >= 0 && s_pal[s_bg].r == 0 && s_pal[s_bg].g == 0 && s_pal[s_bg].b == 0))
+		return;
+	for (i = 255; i >= 0; i--)
+		if (s_pal[i].r == 0 && s_pal[i].g == 0 && s_pal[i].b == 0)
+			break;
+	if (i < 0 || i == s_bg)
+		return;
+	s_bg = i;
+	XSetWindowBackground(s_dpy, s_win, (unsigned long)i);
+	/* the four strips round the game area (a 0 width or height would
+	 * mean "to the edge" to XClearArea: skip empty strips) */
+	clear_strip(0, 0, s_winw, s_oy);
+	clear_strip(0, s_oy + GH * s_scale, s_winw, s_winh - s_oy - GH * s_scale);
+	clear_strip(0, s_oy, s_ox, GH * s_scale);
+	clear_strip(s_ox + GW * s_scale, s_oy, s_winw - s_ox - GW * s_scale, GH * s_scale);
+}
+
 static void x11_set_palette(const dsp_color_t *colors, short first, short count)
 {
 	short i;
@@ -409,6 +481,9 @@ static void x11_set_palette(const dsp_color_t *colors, short first, short count)
 			xc[i].flags = DoRed | DoGreen | DoBlue;
 		}
 		XStoreColors(s_dpy, s_cmap, xc, count);
+		for (i = 0; i < count; i++)
+			s_pal[first + i] = colors[i];
+		surround_black();
 		XFlush(s_dpy);
 	} else {
 		/* TrueColor: the window holds colours, so a changed entry means
