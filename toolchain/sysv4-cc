@@ -1,0 +1,74 @@
+#!/bin/bash
+# sysv4-cc - compile C for AMIX (Amiga UNIX) and Atari System V with a modern
+# m68k GCC.
+#
+# The only compiler that targets those SVR4.0 systems is gcc-cross-amix's
+# gcc 2.7.2: C89, and its optimiser miscompiles long long comparisons. So
+# the mint GCC compiles instead, against AMIX's own headers (never
+# mint's), to assembly, which the SVR4 assembler of gcc-cross-amix turns
+# into ELF objects; the link is done by sysv4-ld. What makes this work:
+#   - symbols without the a.out leading underscore (-fno-leading-underscore)
+#   - no DWARF CFI directives (the 1997 assembler does not know them)
+#   - pointer results: the SVR4 libraries return them in both a0 and d0,
+#     and GCC reads d0. The other way round does not hold: GCC returns
+#     pointers in d0 only, and SVR4 code reads a0. A function of ours that
+#     an SVR4 library calls and that returns a pointer needs an entry
+#     point copying d0 to a0 (see platform/unix/sysv_rt.c)
+#   - structure layout: GCC keeps its 2-byte alignment of int (the engine
+#     mirrors 68k Mac structures, which need it); SVR4's is 4. Code that
+#     shares a structure with libc or Xlib must only use ones whose fields
+#     are all 4 bytes wide (stat, timeval, dirent, pollfd, XEvent, XImage,
+#     XColor... are) - not FILE.
+# Everything but -c/-S compilation is handed to GCC unchanged (-E, -M).
+#
+#   AMIX_SYSROOT   AMIX's usr/include, usr/lib, usr/ccs/lib and usr/X
+#   MINT_GCC       the modern GCC (default m68k-atari-mint-gcc)
+#   SVR4_AS        the SVR4 assembler (default ~/opt/asv-cross/bin/m68k-cbm-sysv4-as)
+set -e
+: "${AMIX_SYSROOT:?set AMIX_SYSROOT}"
+: "${MINT_GCC:=m68k-atari-mint-gcc}"
+: "${SVR4_AS:=$HOME/opt/asv-cross/bin/m68k-cbm-sysv4-as}"
+here=$(cd "$(dirname "$0")" && pwd)
+gccinc=$("$MINT_GCC" -print-file-name=include)
+
+sys=(-nostdinc
+	-isystem "$here/../platform/unix/include"	# stdint.h: SVR4.0 predates it
+	-isystem "$gccinc"				# stdarg.h, stddef.h, limits.h
+	-isystem "$AMIX_SYSROOT/usr/include"
+	-isystem "$AMIX_SYSROOT/usr/X/include"		# the real path of <X11/...>:
+							# system headers are excused
+							# their 1991 implicit ints
+	-Dm68k -Dunix -D__amix -DSVR4 -DSYSV
+	-A 'system(unix)'				# GCC asserts machine/cpu m68k
+	-fno-leading-underscore -fno-asynchronous-unwind-tables
+	-fno-dwarf2-cfi-asm)
+
+compile=no out= src=()
+for a in "$@"; do
+	case "$a" in
+	-c) compile=yes;;
+	-E|-M|-MM|-S) exec "$MINT_GCC" "${sys[@]}" "$@";;
+	esac
+done
+[ $compile = yes ] || { echo "sysv4-cc: compile only (-c); link with sysv4-ld" >&2; exit 1; }
+
+args=() prev=
+for a in "$@"; do
+	if [ "$prev" = -o ]; then out="$a"; prev=; continue; fi
+	case "$a" in
+	-o) prev=-o;;
+	-c) ;;
+	*) args+=("$a");;
+	esac
+done
+for a in "${args[@]}"; do case "$a" in *.c) src+=("$a");; esac; done
+[ ${#src[@]} -eq 1 ] || { echo "sysv4-cc: one source per -c" >&2; exit 1; }
+[ -n "$out" ] || out=$(basename "${src[0]%.c}").o
+s=$(mktemp "${TMPDIR:-/tmp}/sysv4cc.XXXXXX.s")
+trap 'rm -f "$s"' EXIT
+# -MMD would name the dependency file after the temporary .s: pin it to the
+# object, as a plain gcc -c -o would
+dep=()
+for a in "${args[@]}"; do case "$a" in -MMD|-MD) dep=(-MF "${out%.o}.d" -MT "$out");; esac; done
+"$MINT_GCC" "${sys[@]}" -S -o "$s" "${dep[@]}" "${args[@]}"
+"$SVR4_AS" -o "$out" "$s"

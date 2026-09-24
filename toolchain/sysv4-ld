@@ -1,0 +1,33 @@
+#!/bin/bash
+# sysv4-ld - link objects from sysv4-cc into a static AMIX program:
+#   sysv4-ld -o prog objs... [-lX11 ...]
+# A static program needs no shared library on the machine, so the same file
+# runs on AMIX and on Atari System V with the amx module (atari-sysv-sp1).
+# -l names are looked up as lib<name>.a in AMIX's usr/X/lib, usr/lib and
+# usr/ccs/lib; libc and gcc 2.7's libgcc (the 64-bit arithmetic helpers
+# GCC calls) come last.
+#   AMIX_SYSROOT, ASV_CROSS (default ~/opt/asv-cross)
+set -e
+: "${AMIX_SYSROOT:?set AMIX_SYSROOT}"
+: "${ASV_CROSS:=$HOME/opt/asv-cross}"
+ld="$ASV_CROSS/bin/m68k-cbm-sysv4-ld"
+crt="$AMIX_SYSROOT/usr/ccs/lib"
+libgcc=$(ls "$ASV_CROSS"/lib/gcc-lib/m68k-cbm-sysv4/*/libgcc.a | tail -1)
+
+out=a.out link=()
+while [ $# -gt 0 ]; do
+	case "$1" in
+	-o) out="$2"; shift;;
+	-l*) l="${1#-l}" f=
+	     for d in "$AMIX_SYSROOT/usr/X/lib" "$AMIX_SYSROOT/usr/lib" "$crt"; do
+		[ -f "$d/lib$l.a" ] && { f="$d/lib$l.a"; break; }
+	     done
+	     [ -n "$f" ] || { echo "sysv4-ld: no static lib$l.a" >&2; exit 1; }
+	     link+=("$f");;
+	-*) ;;			# compiler flags a Makefile passes to the linker
+	*) link+=("$1");;
+	esac
+	shift
+done
+exec "$ld" -Bstatic -o "$out" "$crt/crt1.o" "$crt/crti.o" "$crt/values-Xa.o" \
+	"${link[@]}" "$crt/libc.a" "$libgcc" "$crt/crtn.o"
