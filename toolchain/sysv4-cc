@@ -14,11 +14,15 @@
 #     pointers in d0 only, and SVR4 code reads a0. A function of ours that
 #     an SVR4 library calls and that returns a pointer needs an entry
 #     point copying d0 to a0 (see platform/unix/sysv_rt.c)
-#   - structure layout: GCC keeps its 2-byte alignment of int (the engine
-#     mirrors 68k Mac structures, which need it); SVR4's is 4. Code that
-#     shares a structure with libc or Xlib must only use ones whose fields
-#     are all 4 bytes wide (stat, timeval, dirent, pollfd, XEvent, XImage,
-#     XColor... are) - not FILE.
+#   - structure layout: SVR4 aligns int, long, pointers and floats to 4
+#     bytes, the mint GCC to 2, so -malign-int is the default here. Without
+#     it every structure shared with libc or Xlib that mixes widths comes
+#     out wrong: FILE is 14 bytes instead of 16, so stdout and stderr land
+#     inside the wrong __iob entry and fflush(stdout) hands libc garbage.
+#     OpenUA's engine mirrors 68k Mac structures, which need the 2-byte
+#     alignment: its build passes -mno-align-int (a later flag wins) and
+#     keeps to structures whose fields are all 4 bytes wide (stat, timeval,
+#     dirent, pollfd, XEvent, XImage, XColor... are) - not FILE.
 # Everything but -c/-S compilation is handed to GCC unchanged (-E, -M).
 #
 #   AMIX_SYSROOT   AMIX's usr/include, usr/lib, usr/ccs/lib and usr/X
@@ -40,6 +44,7 @@ sys=(-nostdinc
 							# their 1991 implicit ints
 	-Dm68k -Dunix -D__amix -DSVR4 -DSYSV
 	-A 'system(unix)'				# GCC asserts machine/cpu m68k
+	-malign-int					# SVR4 structure layout
 	-fno-leading-underscore -fno-asynchronous-unwind-tables
 	-fno-dwarf2-cfi-asm)
 
