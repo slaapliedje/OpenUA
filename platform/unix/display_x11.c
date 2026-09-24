@@ -35,6 +35,7 @@
 #include "display.h"
 #include "dbglog.h"
 #include "x11_unix.h"
+#include "unix_vbl.h"
 
 #define GW  320			/* the game's surface */
 #define GH  200
@@ -50,7 +51,11 @@ static int            s_scale = 2;
 static dsp_backend_t  s_x11_backend;	/* below */
 
 static unsigned char *s_chunky;		/* the engine's surface */
+static unsigned char *s_frame;		/* the last presented frame (snapshot) */
 static unsigned char *s_shadow;		/* what the window last received */
+static unsigned char  s_rowforce[200];	/* rows to resend though unchanged */
+static int            s_pending;	/* s_frame not yet sent */
+static unsigned long  s_pending_tick;	/* the tick it was presented in */
 static dsp_surface_t  s_surface;
 
 static char          *s_img_data;	/* scaled (and/or converted) image */
@@ -134,8 +139,9 @@ static int x11_init(short want_w, short want_h)
 	dbg_log_num("x11: scale = ", s_scale);
 
 	s_chunky = calloc(GW * GH, 1);
+	s_frame  = calloc(GW * GH, 1);
 	s_shadow = calloc(GW * GH, 1);
-	if (s_chunky == NULL || s_shadow == NULL)
+	if (s_chunky == NULL || s_frame == NULL || s_shadow == NULL)
 		return 1;
 
 	memset(&wa, 0, sizeof wa);
@@ -176,7 +182,7 @@ static int x11_init(short want_w, short want_h)
 	else
 		s_bpp = (s_depth > 16) ? 4 : 2;
 	if (s_pseudo && s_scale == 1)
-		s_img_data = (char *)s_chunky;
+		s_img_data = (char *)s_frame;	/* put_rect points it at its source */
 	else
 		s_img_data = malloc((size_t)GW * s_scale * GH * s_scale * s_bpp);
 	if (s_img_data == NULL)
@@ -213,14 +219,15 @@ static void x11_shutdown(void)
 		XDestroyImage(s_img);
 		s_img = NULL;
 	}
-	if (s_img_data != (char *)s_chunky)
+	if (s_img_data != (char *)s_frame && s_img_data != (char *)s_shadow)
 		free(s_img_data);
 	s_img_data = NULL;
 	XCloseDisplay(s_dpy);
 	s_dpy = NULL;
 	free(s_chunky);
+	free(s_frame);
 	free(s_shadow);
-	s_chunky = s_shadow = NULL;
+	s_chunky = s_frame = s_shadow = NULL;
 }
 
 static dsp_surface_t *x11_surface(void)
@@ -229,12 +236,12 @@ static dsp_surface_t *x11_surface(void)
 }
 
 /* Expand/convert the chunky rect into the image (scale, pixel format). */
-static void convert_rect(int x, int y, int w, int h)
+static void convert_rect(const unsigned char *pix, int x, int y, int w, int h)
 {
 	int r, c, k, S = s_scale, iw = GW * S;
 
 	for (r = y; r < y + h; r++) {
-		const unsigned char *src = s_chunky + r * GW + x;
+		const unsigned char *src = pix + r * GW + x;
 		if (s_bpp == 1) {
 			unsigned char *d = (unsigned char *)s_img_data + (long)r * S * iw + x * S;
 			for (c = 0; c < w; c++)
@@ -267,12 +274,69 @@ static void convert_rect(int x, int y, int w, int h)
 	}
 }
 
-static void put_rect(int x, int y, int w, int h)
+static void put_rect(const unsigned char *pix, int x, int y, int w, int h)
 {
-	if (!(s_pseudo && s_scale == 1))
-		convert_rect(x, y, w, h);
+	if (s_pseudo && s_scale == 1)
+		s_img->data = (char *)pix;	/* the indices are the image */
+	else
+		convert_rect(pix, x, y, w, h);
 	XPutImage(s_dpy, s_win, s_gc, s_img, x * s_scale, y * s_scale,
 	          x * s_scale, y * s_scale, w * s_scale, h * s_scale);
+}
+
+/*
+ * Send the presented frame: only the runs of rows that differ from what
+ * the window shows, or that a palette change marked (the RTG/Nova row
+ * diff: on the TT every row crosses the network).
+ */
+static void flush(void)
+{
+	short y, y0;
+
+#define ROW_CHANGED(y) (s_rowforce[y] || memcmp(s_frame + (long)(y) * GW, \
+                                               s_shadow + (long)(y) * GW, GW) != 0)
+	s_pending = 0;
+	for (y = 0; y < GH; ) {
+		if (!ROW_CHANGED(y)) {
+			y++;
+			continue;
+		}
+		y0 = y;
+		do
+			s_rowforce[y++] = 0;
+		while (y < GH && ROW_CHANGED(y));
+		put_rect(s_frame, 0, y0, GW, y - y0);
+		memcpy(s_shadow + (long)y0 * GW, s_frame + (long)y0 * GW,
+		       (size_t)(y - y0) * GW);
+	}
+#undef ROW_CHANGED
+	XFlush(s_dpy);
+}
+
+/*
+ * A present takes a snapshot; the window gets it at the next tick. The
+ * engine draws a picture, presents it and THEN sets its palette - on an
+ * 8-bit screen the palette write is instant, but on a TrueColor one each
+ * step was a full frame of converted pixels crossing the bus, so every
+ * intro screen showed in the old colours first, then repainted. Sent a
+ * tick later the frame goes out once, in the colours it was meant for.
+ * The snapshot keeps it the frame that was presented, whatever the
+ * engine draws next.
+ */
+void x11_flush_due(void)
+{
+	if (s_dpy != NULL && s_pending && unix_ticks() != s_pending_tick)
+		flush();
+}
+
+static void mark_presented(void)
+{
+	unsigned long now = unix_ticks();
+
+	if (s_pending && now != s_pending_tick)
+		flush();		/* the frame owed from an earlier tick */
+	s_pending = 1;
+	s_pending_tick = now;
 }
 
 static void x11_present_rect(short x, short y, short w, short h)
@@ -287,35 +351,18 @@ static void x11_present_rect(short x, short y, short w, short h)
 	if (y + h > GH) h = (short)(GH - y);
 	if (w <= 0 || h <= 0)
 		return;
-	put_rect(x, y, w, h);
 	for (r = 0; r < h; r++)
-		memcpy(s_shadow + (long)(y + r) * GW + x,
+		memcpy(s_frame + (long)(y + r) * GW + x,
 		       s_chunky + (long)(y + r) * GW + x, (size_t)w);
-	XFlush(s_dpy);
+	mark_presented();
 }
 
-/* Row-diffed full present: only the runs of rows that changed. */
 static void x11_present(void)
 {
-	short y, y0;
-
 	if (s_dpy == NULL)
 		return;
-	for (y = 0; y < GH; ) {
-		if (memcmp(s_chunky + (long)y * GW, s_shadow + (long)y * GW, GW) == 0) {
-			y++;
-			continue;
-		}
-		y0 = y;
-		do
-			y++;
-		while (y < GH && memcmp(s_chunky + (long)y * GW,
-		                        s_shadow + (long)y * GW, GW) != 0);
-		put_rect(0, y0, GW, y - y0);
-		memcpy(s_shadow + (long)y0 * GW, s_chunky + (long)y0 * GW,
-		       (size_t)(y - y0) * GW);
-	}
-	XFlush(s_dpy);
+	memcpy(s_frame, s_chunky, GW * GH);
+	mark_presented();
 }
 
 /* Redraw everything the window last received (an Expose). */
@@ -323,12 +370,7 @@ void x11_repaint(void)
 {
 	if (s_dpy == NULL)
 		return;
-	/* the shadow is what the window showed: present it, not the surface
-	 * the engine may be halfway through drawing */
-	unsigned char *keep = s_chunky;
-	s_chunky = s_shadow;
-	put_rect(0, 0, GW, GH);
-	s_chunky = keep;
+	put_rect(s_shadow, 0, 0, GW, GH);
 	XFlush(s_dpy);
 }
 
@@ -352,14 +394,36 @@ static void x11_set_palette(const dsp_color_t *colors, short first, short count)
 		XStoreColors(s_dpy, s_cmap, xc, count);
 		XFlush(s_dpy);
 	} else {
-		/* TrueColor: new pixel values; hw_palette = 0, so the shim marks
-		 * the frame dirty and the next present re-converts it. The shadow
-		 * is cleared so the row diff sees every row as changed. */
+		/* TrueColor: the window holds colours, so a changed entry means
+		 * resending the rows on screen that use it - only those, and
+		 * nothing when the entries did not actually change (the engine
+		 * re-installs the same range repeatedly). A pending frame is
+		 * converted with the new colours when it goes out. */
+		unsigned char chg[256];
+		int any = 0;
+		long p;
+
+		memset(chg, 0, sizeof chg);
 		for (i = 0; i < count; i++) {
-			s_pal[first + i] = colors[i];
-			s_pixel[first + i] = truecolor_pixel(&colors[i]);
+			dsp_color_t *o = &s_pal[first + i];
+			if (o->r != colors[i].r || o->g != colors[i].g || o->b != colors[i].b) {
+				*o = colors[i];
+				s_pixel[first + i] = truecolor_pixel(&colors[i]);
+				chg[first + i] = 1;
+				any = 1;
+			}
 		}
-		memset(s_shadow, 0xff, GW * GH);
+		if (!any)
+			return;
+		for (p = 0; p < (long)GW * GH; p++)
+			if (chg[s_shadow[p]]) {
+				s_rowforce[p / GW] = 1;
+				p = (p / GW + 1) * GW - 1;	/* next row */
+			}
+		if (!s_pending) {
+			s_pending = 1;
+			s_pending_tick = unix_ticks();
+		}
 	}
 }
 

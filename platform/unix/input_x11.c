@@ -85,6 +85,7 @@ static void idle_if_spinning(unsigned long now)
 	if (++s_spin_n < SPIN_LIMIT)
 		return;
 	s_spin_n = 0;
+	x11_flush_due();
 	d = x11_display();
 	if (d != NULL && XPending(d) > 0)
 		return;				/* input already waiting */
@@ -101,6 +102,7 @@ unsigned long plat_ticks(void)
 {
 	unsigned long now = unix_ticks();
 
+	x11_flush_due();
 	idle_if_spinning(now);
 	return now;
 }
@@ -208,6 +210,7 @@ static void pump(void)
 	int scale = x11_scale();
 
 	unix_vbl_poll();		/* the engine's VBL task, 60 Hz */
+	x11_flush_due();
 	if (d == NULL)
 		return;
 	if (XPending(d) == 0) {
