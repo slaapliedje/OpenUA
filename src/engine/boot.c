@@ -2054,6 +2054,8 @@ static short jt325(short a8, long *rec, void *ctrl, short type,
  * be a lie on a machine that has no DOS. */
 #ifdef FRUA_AMIGA
 #define PORT_QUIT_PROMPT  "Quit to Workbench?"
+#elif defined(FRUA_UNIX)
+#define PORT_QUIT_PROMPT  "Quit to Unix?"
 #else
 #define PORT_QUIT_PROMPT  "Quit to TOS?"
 #endif

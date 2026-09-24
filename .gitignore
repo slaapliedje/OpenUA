@@ -51,6 +51,7 @@ dist/
 # Personal Claude Code config (permission grants, local paths) — never public
 .claude/settings.local.json
 frua
+openua
 .machine
 uainst.ttp
 uainst_amiga

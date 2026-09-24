@@ -55,8 +55,21 @@ PLATFORM_SRC := $(PLATFORM_SHARED) \
 # this define it is a 158-byte empty stub. Atari-only — display_nova.c pulls in
 # mint/osbind.h, so it must never reach the Amiga branch (which has its own RTG).
 CFLAGS += -DFRUA_NOVA
+else ifeq ($(MACHINE),amix)
+# AMIX (Amiga UNIX) and Atari System V under X11: one static AMIX binary.
+include toolchain/sysv4.mk
+TARGET       := openua
+PLATFORM_SRC := platform/planar.c platform/mulprof.c \
+                platform/unix/display_x11.c \
+                platform/unix/input_x11.c \
+                platform/unix/sound_null.c \
+                platform/unix/sys_unix.c \
+                platform/unix/dbglog_unix.c \
+                platform/unix/sysv_rt.c \
+                platform/unix/snprintf.c \
+                platform/amiga/vdi_stub.c
 else
-$(error unknown MACHINE '$(MACHINE)' — use 'falcon' or 'amiga')
+$(error unknown MACHINE '$(MACHINE)' — use 'falcon', 'amiga' or 'amix')
 endif
 
 SRCDIRS := src src/engine compat
@@ -266,7 +279,7 @@ endif
 all: $(TARGET) frua.rsc
 
 $(TARGET): $(OBJ)
-	$(LD) $(LDFLAGS) -o $@ $^
+	$(LD) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 # Resource fork → flat FRSC archive (ADR-0007). The engine FSOpens
 # frua.rsc at startup and hands the bytes to the Resource Manager
@@ -746,7 +759,7 @@ clean:
 	    installer/strs_map_dos12.h
 	find src compat platform third_party -name '*.o' -delete 2>/dev/null || true
 	find src compat platform third_party -name '*.d' -delete 2>/dev/null || true
-	$(RM) frua frua.prg uainst.prg uainst.ttp uainst_amiga uainst.info frua.info
+	$(RM) frua frua.prg uainst.prg uainst.ttp uainst_amiga uainst.info frua.info openua
 
 # clean does NOT remove dist/ — release-all cleans objects between platforms and
 # must keep the earlier binaries' packaged output. `distclean` wipes dist too.

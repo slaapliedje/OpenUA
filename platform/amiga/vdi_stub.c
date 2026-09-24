@@ -14,7 +14,7 @@
 
 #include "plat_vdi.h"
 
-#ifdef FRUA_AMIGA
+#if defined(FRUA_AMIGA) || defined(FRUA_UNIX)
 
 int plat_vdi_gdos_present(void)
 {
@@ -69,4 +69,4 @@ void plat_vdi_meta_filename(short handle, const char *path)
 	(void)handle; (void)path;
 }
 
-#endif /* FRUA_AMIGA */
+#endif /* FRUA_AMIGA || FRUA_UNIX */
