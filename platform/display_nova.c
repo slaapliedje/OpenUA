@@ -20,8 +20,8 @@
  * Data-flow (matches display_rtg): render the frame into a chunky surface in
  * FAST/ST-RAM and copy it to the card aperture at present.  Do NOT let the
  * 68000 write pixels one at a time across the bus into card VRAM.  A later
- * pass hands the big copies to the card's 2D blitter (130 MB/s on the ATW800/2)
- * through accelerated VDI, off the CPU entirely.
+ * pass hands card-side copies to the ATW800/2's 2D blitter (measured 38 MB/s
+ * copy against 0.9 MB/s for the CPU over the VME bus; see nova_blit_op).
  */
 
 #ifdef FRUA_NOVA
@@ -95,10 +95,14 @@ static unsigned short           s_lut_save[256];/* the DESKTOP's palette, for ex
 static short                    s_lut_saved;
 
 /* ATW800/2 blitter present offload. The Seurat 2D engine copies CARD
- * memory to card memory (regs at VidMem top - 0x700 = LUT + 0x900, model
- * measured against xVDI 20260730 on the hatari-et4000 emulation:
- * word regs src.l/dst.l/sstride/dstride/width-bytes/rows/cmd; cmd 0x0003
- * copy, 0x0005 single-row fill, poll the cmd word to 0). It cannot read
+ * memory to card memory. Regs at VidMem top - 0x700 = LUT + 0x900: word
+ * regs src.l/dst.l/sstride/dstride/width-bytes/rows/cmd. Commands: bit 0
+ * go, bit 1 backwards, bit 2 fill - 0x0001 copy with ascending addresses,
+ * 0x0003 copy DESCENDING (src/dst = the last byte, negative strides),
+ * 0x0005 fill from one source row (sstride 0; 64 bytes, then the second
+ * 32-byte block repeated). The window is write-only: every offset reads
+ * back one status word whose BIT 0 is busy (other bits change on their
+ * own - never wait for the whole word to be 0). It cannot read
  * Atari RAM, so the CPU still crosses the VME bus once per doubled pixel
  * — but the 2x row DUPLICATION moves to the card: the CPU writes each
  * doubled row once (not twice) and one blit per run copies the even rows
@@ -109,15 +113,18 @@ static short                    s_lut_saved;
  * video.cfg `novablit=on` (OPT-IN); a bounded poll falls back to CPU
  * presents for the session if the engine ever fails to go idle.
  *
- * ⚠ DEFAULT OFF (2026-08-25): the register model above was derived from
- * tracing xVDI against OUR OWN Hatari emulation of the card — circular
- * evidence — and the first run on the real Mega STe ATW800/2 FAILED:
- * title pixels crammed into the top rows, then a black menu the mouse
- * cursor "paints" back in (rect presents are CPU and fine; every FULL
- * present went through the blit and drew nothing/garbage). The real
- * Seurat evidently disagrees with the emulation-derived model (register
- * semantics, completion, or per-mode pitch). Re-enable only after the
- * model is validated ON HARDWARE. */
+ * History: the first model (2026-08-25) was traced from xVDI against our
+ * own Hatari emulation - circular - and failed on the real Mega STe card:
+ * it issued 0x0003 set up as an ASCENDING copy (on the card that walks
+ * DOWN from the given start: 5 of 256 bytes land right) and waited for
+ * the status word to read 0 (bit 1 toggles by itself). The model above
+ * was re-derived from xVDI 20260730's scroll code and verified on a real
+ * V0205 card from Atari System V by reading VRAM back (atari-sysv-sp1
+ * tools/atw, 2026-09-24: 300 random unaligned copies and fills exact;
+ * 38 MB/s copy against 0.9 MB/s for the CPU).
+ *
+ * Still OPT-IN (video.cfg novablit=on) until OpenUA's own present path
+ * has run on the card with the corrected model. */
 static volatile unsigned short *s_blit;         /* word regs at LUT + 0x900 */
 static short                    s_use_blit;
 static short                    s_blit_cfg;     /* video.cfg novablit=on   */
@@ -126,7 +133,7 @@ static int nova_blit_wait(void)
 {
 	long n = 500000L;
 
-	while (s_blit[8] != 0)
+	while (s_blit[8] & 1)		/* bit 0 = busy; the rest is not ours */
 		if (--n <= 0) {
 			s_use_blit = 0;
 			dbg_log("nova: blitter never went idle - CPU presents from here");
@@ -452,7 +459,8 @@ static void nova_present(void)
 			/* A run of changed rows. With the blitter armed the CPU
 			 * writes each doubled row ONCE (the even card row) and a
 			 * single card-side blit copies the run's even rows down
-			 * to the odd rows — half the CPU bus traffic. */
+			 * to the odd rows — half the CPU bus traffic. The rows
+			 * never overlap, so an ascending copy (0x0001). */
 			y0 = y;
 			do {
 				nova_stamp_worker(0, y, NOVA_SURF_W, !s_use_blit);
@@ -463,7 +471,7 @@ static void nova_present(void)
 			         && memcmp(s_shadow + (long)y * NOVA_SURF_W, src,
 			                   NOVA_SURF_W) != 0);
 			if (s_use_blit
-			    && !nova_blit_op(0x0003,
+			    && !nova_blit_op(0x0001,
 			                     (long)(y0 * 2) * s_pitch,
 			                     (long)(y0 * 2 + 1) * s_pitch,
 			                     (short)(2 * s_pitch), (short)(2 * s_pitch),
@@ -633,7 +641,7 @@ static long bootdev_super(void)
  * engine's register window — and then runs a fully-logged self-test in
  * OFFSCREEN VRAM: write the op registers and read them back (a shifted,
  * word-swapped or write-only window shows up right here), then one
- * 1-row copy (cmd 0x0003) and one 4-row fill (cmd 0x0005), each with
+ * 1-row copy (cmd 0x0001) and one 2-row fill (cmd 0x0005), each with
  * poll counts, status snapshots and byte-level verification of the
  * destination. Worst case is garbage in scratch VRAM past the visible
  * screen, never a trashed display. */
@@ -768,10 +776,12 @@ static void nova_seurat_diag(volatile unsigned short *lut)
 		bl[7] = 1;
 		diag_words("seurat: regs after write = ", bl, 9);
 
-		/* GO: cmd 0x0003 copy, 1 row, and log how it completes. */
-		bl[8] = 0x0003;
+		/* GO: cmd 0x0001 (ascending) copy, 1 row, and log how it
+		 * completes: the window reads back the status word, bit 0
+		 * busy. */
+		bl[8] = 0x0001;
 		dbg_file_num("seurat: status right after go = ", bl[8]);
-		for (t = 0; t < 500000L && bl[8] != 0; t++)
+		for (t = 0; t < 500000L && (bl[8] & 1); t++)
 			;
 		dbg_file_num("seurat: copy poll iterations = ", t);
 		dbg_file_num("seurat: copy final status = ", bl[8]);
@@ -805,7 +815,7 @@ static void nova_seurat_diag(volatile unsigned short *lut)
 		bl[6] = 64;
 		bl[7] = 2;
 		bl[8] = 0x0005;
-		for (t = 0; t < 500000L && bl[8] != 0; t++)
+		for (t = 0; t < 500000L && (bl[8] & 1); t++)
 			;
 		dbg_file_num("seurat: fill poll iterations = ", t);
 		dbg_file_num("seurat: fill final status = ", bl[8]);
