@@ -119,6 +119,10 @@ unsigned long plat_ticks(void)
 	 * sleep. The TOS build does the same under g_plat_in_super. */
 	if (unix_in_vbl)
 		return now;
+	/* An engine waiting on the clock (a wipe, a pause, a picture paced
+	 * row by row) may not pump input for seconds: the VBL still has to
+	 * run, as the interrupt does on the Atari. */
+	unix_vbl_poll();
 	x11_flush_due();
 	idle_if_spinning(now);
 	return now;
