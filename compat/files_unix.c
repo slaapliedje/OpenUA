@@ -31,6 +31,8 @@
 
 /* platform/unix/sound_unix.c: the sound's VBL (see FSRead) */
 extern void unix_vbl_poll(void);
+extern const char *unix_vbl_site;
+extern void unix_sound_loading(void);
 #define FSREAD_PIECE	16384		/* bytes read between VBLs */
 
 /* refNum descriptor table: index 1..MAX_FH-1 -> fd + 1 (0 = free). refNum 0
@@ -238,6 +240,7 @@ OSErr FSRead(short refNum, long *count, void *buffPtr)
 	if (fd < 0) return rfNumErr;
 	if (count == NULL || buffPtr == NULL)
 		return paramErr;
+	unix_sound_loading();
 	/* A read can come back short without meaning end-of-file (a signal,
 	 * a pipe): loop until the count is met; only a read of 0 is the end.
 	 * Large reads go in pieces, with the sound's VBL between them, so
@@ -246,8 +249,10 @@ OSErr FSRead(short refNum, long *count, void *buffPtr)
 		long want = *count - n > FSREAD_PIECE ? FSREAD_PIECE : *count - n;
 		long k = read(fd, (char *)buffPtr + n, (unsigned)want);
 
-		if (k > 0 && n + k < *count)
+		if (k > 0 && n + k < *count) {
+			unix_vbl_site = "read";
 			unix_vbl_poll();
+		}
 
 		if (k < 0 && errno == EINTR)
 			continue;

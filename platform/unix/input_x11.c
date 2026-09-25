@@ -122,6 +122,7 @@ unsigned long plat_ticks(void)
 	/* An engine waiting on the clock (a wipe, a pause, a picture paced
 	 * row by row) may not pump input for seconds: the VBL still has to
 	 * run, as the interrupt does on the Atari. */
+	unix_vbl_site = "clock";
 	unix_vbl_poll();
 	x11_flush_due();
 	idle_if_spinning(now);
@@ -232,6 +233,7 @@ static void pump(void)
 
 	x11_origin(&ox, &oy);
 
+	unix_vbl_site = "input";
 	unix_vbl_poll();		/* the engine's VBL task, 60 Hz */
 	x11_flush_due();
 	if (d == NULL)

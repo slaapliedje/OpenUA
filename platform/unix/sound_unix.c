@@ -44,6 +44,8 @@
 #define SND_SETVOLUME	(SND_IOC | 8)	/* master 0..40, 40 = 0 dB */
 
 #define LEAD_MS		150		/* how far ahead of the play position */
+#define LOAD_LEAD_MS	1000		/* ... while a screen loads */
+#define LOAD_TICKS	90		/* how long a read counts as loading */
 #define CHUNK		4096		/* the most rendered per write */
 #define RESYNC		32		/* refills between asking the driver */
 #define HIGHPASS_HZ	50		/* the default low-bass cut */
@@ -55,6 +57,8 @@ static int s_rec = -1;			/* OPENUA_SNDREC: a copy of the stream */
 static char s_buf[CHUNK];
 volatile int unix_in_vbl;
 static int s_gaplog, s_ngaps;		/* OPENUA_SNDLOG */
+const char *unix_vbl_site = "?";
+static const char *s_last_site = "?";
 
 int plat_sound_init(void)
 {
@@ -116,6 +120,7 @@ void plat_sound_shutdown(void)
 static long s_queued;			/* samples queued, as of s_qtime */
 static unsigned long s_qtime;		/* unix_ticks() then */
 static int s_since_sync = RESYNC;
+static unsigned long s_loading_until;	/* unix_ticks() */
 
 static long queued_now(void)
 {
@@ -139,7 +144,8 @@ static void refill(void)
 
 	if (s_fd < 0 || !mix_audible())
 		return;
-	want = mix_hz * LEAD_MS / 1000 - queued_now();
+	want = mix_hz * (unix_ticks() < s_loading_until ? LOAD_LEAD_MS : LEAD_MS)
+	     / 1000 - queued_now();
 	while (want > 0) {
 		n = want < CHUNK ? want : CHUNK;
 		mix_render(s_buf, n);
@@ -207,6 +213,18 @@ void plat_sound_set_vbl_hook(void (*fn)(void))
 	s_vbl_hook = fn;
 }
 
+/* A screen is loading (FSRead): what follows the read - decoding and
+ * drawing the picture - can run for most of a second without anything
+ * that polls, where the Atari's vertical blank would interrupt it. Queue
+ * a second of sound now and keep that lead while loading goes on; the
+ * rest of the time the lead stays short, so an effect is heard promptly. */
+void unix_sound_loading(void)
+{
+	s_loading_until = unix_ticks() + LOAD_TICKS;
+	if (!unix_in_vbl)
+		refill();
+}
+
 /* One VBL per 60 Hz tick since the last call; a long stall (the process was
  * stopped, the machine busy) is not replayed in a burst beyond 4. Not
  * re-entered: FSRead can be reached from inside a VBL. */
@@ -221,11 +239,14 @@ void unix_vbl_poll(void)
 	now = unix_ticks();
 	/* a gap longer than the queue lasts is a dropout: say when, and how
 	 * long (OPENUA_SNDLOG, the first 64) */
-	if (s_gaplog && s_fd >= 0 && now - s_last_tick > LEAD_MS * 60 / 1000
+	if (s_gaplog && s_fd >= 0 && now - s_last_tick >
+	    (s_last_tick < s_loading_until ? LOAD_LEAD_MS : LEAD_MS) * 60 / 1000
 	    && s_ngaps < 64) {
 		s_ngaps++;
 		dbg_log_num("sound: unfed at tick ", (long)now);
 		dbg_log_num("sound:   for ticks ", (long)(now - s_last_tick));
+		dbg_log(s_last_site);
+		dbg_log(unix_vbl_site);
 	}
 	while (s_last_tick < now && n < 4) {
 		plat_sound_vbl();
@@ -233,6 +254,7 @@ void unix_vbl_poll(void)
 		n++;
 	}
 	s_last_tick = now;
+	s_last_site = unix_vbl_site;
 	unix_in_vbl = 0;
 }
 

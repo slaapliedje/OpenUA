@@ -9,6 +9,13 @@
 
 void unix_vbl_poll(void);
 
+/* A file is being read: a screen is probably loading, and decoding it is
+ * computation that polls nothing for up to a second. Queue more sound. */
+void unix_sound_loading(void);
+
+/* Who is calling unix_vbl_poll, for OPENUA_SNDLOG's dropout lines. */
+extern const char *unix_vbl_site;
+
 /* Nonzero while the VBLs run: plat_ticks is then just the clock, and a
  * nested unix_vbl_poll does nothing. */
 extern volatile int unix_in_vbl;

@@ -352,32 +352,48 @@ int mix_effect_playing(void)
 
 /* --- the high-pass filter (see sound_mix.h) --------------------------------
  *
- * Each stage is y[n] = a * (y[n-1] + x[n] - x[n-1]) with a = RC / (RC + dt)
- * = fs / (fs + 2 pi fc), in integers: a in Q14 and the samples scaled up by
- * 2^6, so a product stays below 2^30. */
-static long g_hp_a;                     /* Q14; 0 = off */
+ * Each stage is y[n] = a * (y[n-1] + x[n] - x[n-1]) with a = 1 - 2^-k, so
+ * the multiply is a shift: the corner is fs / (2 pi 2^k), the power of two
+ * nearest the frequency asked for (at 25033 Hz: k = 6 is 62 Hz, 7 is 31 Hz).
+ * A multiplying version cost three times the whole mixer on the TT. The
+ * samples are scaled up by 2^8 to keep the shifts' rounding out of the way. */
+static int  g_hp_k;                     /* 0 = off */
 static long g_hp_x1, g_hp_y1, g_hp_x2, g_hp_y2;
 
 void mix_set_highpass(int hz)
 {
-	g_hp_a = hz > 0 ? (16384L * mix_hz) / (mix_hz + (710L * hz) / 113) : 0;
+	long f;
+
+	g_hp_k = 0;
 	g_hp_x1 = g_hp_y1 = g_hp_x2 = g_hp_y2 = 0;
+	if (hz <= 0)
+		return;
+	/* the k whose corner mix_hz * 113 / (710 << k) is nearest hz, i.e.
+	 * the first whose corner falls below hz * sqrt(2) */
+	for (g_hp_k = 1; g_hp_k < 12; g_hp_k++) {
+		f = (mix_hz * 113L / 710) >> g_hp_k;
+		if (f * 1000 < hz * 1414L)
+			break;
+	}
 }
 
 void mix_highpass(char *buf, long n)
 {
-	long a = g_hp_a, x1 = g_hp_x1, y1 = g_hp_y1, x2 = g_hp_x2, y2 = g_hp_y2;
+	int  k = g_hp_k;
+	long x1 = g_hp_x1, y1 = g_hp_y1, x2 = g_hp_x2, y2 = g_hp_y2;
 	long i, x, v;
 
-	if (a == 0)
+	if (k == 0)
 		return;
 	for (i = 0; i < n; i++) {
-		x  = (long)(signed char)buf[i] << 6;
-		y1 = (a * (y1 + x - x1)) >> 14;
+		x  = (long)(signed char)buf[i] << 8;
+		v  = y1 + x - x1;
+		y1 = v - (v >> k);
 		x1 = x;
-		y2 = (a * (y2 + y1 - x2)) >> 14;
+		v  = y2 + y1 - x2;
+		y2 = v - (v >> k);
 		x2 = y1;
-		v  = y2 >> 6;
+		v  = y2 >> 8;
 		buf[i] = (char)(v > 127 ? 127 : v < -128 ? -128 : v);
 	}
 	g_hp_x1 = x1; g_hp_y1 = y1; g_hp_x2 = x2; g_hp_y2 = y2;

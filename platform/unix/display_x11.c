@@ -334,6 +334,7 @@ static void put_rect(const unsigned char *pix, int x, int y, int w, int h)
 		/* a whole frame takes the TT's X server longer than the sound
 		 * queue lasts: keep the sound fed while it goes out */
 		if (((r - y) & 7) == 7)
+			unix_vbl_site = "present";
 			unix_vbl_poll();
 		XPutImage(s_dpy, s_win, s_gc, s_img, x * S, r * S,
 		          s_ox + x * S, s_oy + r * S, w * S, 1);
