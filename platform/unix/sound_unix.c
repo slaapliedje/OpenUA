@@ -46,6 +46,7 @@
 #define LEAD_MS		150		/* how far ahead of the play position */
 #define CHUNK		4096		/* the most rendered per write */
 #define RESYNC		32		/* refills between asking the driver */
+#define HIGHPASS_HZ	50		/* the default low-bass cut */
 
 static void (*s_vbl_hook)(void);
 static unsigned long s_last_tick;
@@ -70,6 +71,10 @@ int plat_sound_init(void)
 	}
 	mix_hz = hz;
 	mix_reset_phases();
+	/* FRUA's bass reaches ~26 Hz, below anything a Mac could play: cut it
+	 * by default. OPENUA_HIGHPASS=hz moves the corner, 0 keeps it all. */
+	mix_set_highpass(getenv("OPENUA_HIGHPASS") != NULL
+	                 ? atoi(getenv("OPENUA_HIGHPASS")) : HIGHPASS_HZ);
 	/* diagnostics: OPENUA_VOLUME=0..40 sets the TT's master volume (40 =
 	 * 0 dB, 2 dB steps); OPENUA_SNDREC=file keeps a copy of every sample
 	 * written (signed 8-bit mono at mix_hz) */
@@ -135,6 +140,7 @@ static void refill(void)
 	while (want > 0) {
 		n = want < CHUNK ? want : CHUNK;
 		mix_render(s_buf, n);
+		mix_highpass(s_buf, n);
 		if (write(s_fd, s_buf, (size_t)n) != n)
 			return;
 		if (s_rec >= 0)

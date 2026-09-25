@@ -36,4 +36,11 @@ void mix_effect(const signed char *samples, long count, int rate_hz);
 void mix_effect_stop(void);
 int  mix_effect_playing(void);
 
+/* An optional high-pass filter for a finished buffer: two one-pole stages
+ * (12 dB/octave) at hz, or off for hz <= 0. FRUA's music reaches down to
+ * ~26 Hz, which a Mac's speaker never reproduced; a full-range speaker
+ * does, as a deep drone under the tune. */
+void mix_set_highpass(int hz);
+void mix_highpass(char *buf, long n);
+
 #endif /* SOUND_MIX_H */

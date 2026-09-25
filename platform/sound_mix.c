@@ -349,3 +349,36 @@ int mix_effect_playing(void)
 {
 	return (g_sfx_pos < g_sfx_len) ? 1 : 0;
 }
+
+/* --- the high-pass filter (see sound_mix.h) --------------------------------
+ *
+ * Each stage is y[n] = a * (y[n-1] + x[n] - x[n-1]) with a = RC / (RC + dt)
+ * = fs / (fs + 2 pi fc), in integers: a in Q14 and the samples scaled up by
+ * 2^6, so a product stays below 2^30. */
+static long g_hp_a;                     /* Q14; 0 = off */
+static long g_hp_x1, g_hp_y1, g_hp_x2, g_hp_y2;
+
+void mix_set_highpass(int hz)
+{
+	g_hp_a = hz > 0 ? (16384L * mix_hz) / (mix_hz + (710L * hz) / 113) : 0;
+	g_hp_x1 = g_hp_y1 = g_hp_x2 = g_hp_y2 = 0;
+}
+
+void mix_highpass(char *buf, long n)
+{
+	long a = g_hp_a, x1 = g_hp_x1, y1 = g_hp_y1, x2 = g_hp_x2, y2 = g_hp_y2;
+	long i, x, v;
+
+	if (a == 0)
+		return;
+	for (i = 0; i < n; i++) {
+		x  = (long)(signed char)buf[i] << 6;
+		y1 = (a * (y1 + x - x1)) >> 14;
+		x1 = x;
+		y2 = (a * (y2 + y1 - x2)) >> 14;
+		x2 = y1;
+		v  = y2 >> 6;
+		buf[i] = (char)(v > 127 ? 127 : v < -128 ? -128 : v);
+	}
+	g_hp_x1 = x1; g_hp_y1 = y1; g_hp_x2 = x2; g_hp_y2 = y2;
+}
