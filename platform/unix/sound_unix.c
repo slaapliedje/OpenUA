@@ -11,14 +11,20 @@
  * nothing is. Without the device (AMIX, or a kernel without driver-snd)
  * plat_sound_init fails and the game runs silent, as it did before.
  *
- * The engine's Mac VBL task (VInstall, the sound sequencer, jt1091) still
- * runs from here: unix_vbl_poll(), called from the input pump, runs one
- * VBL per elapsed 60 Hz tick, and each VBL first tops up the device and
- * then runs the task, as the vertical blank does on the other ports.
+ * The engine's Mac VBL task (VInstall, the sound sequencer, jt1091) runs
+ * from here: unix_vbl_poll() runs one VBL per elapsed 60 Hz tick, each
+ * first topping up the device and then running the task, as the vertical
+ * blank does on the other ports. It is called from the input pump, and
+ * from FSRead between the pieces of a large read, so that loading a screen
+ * does not starve the sound. (A SIGALRM timer was tried and dropped: under
+ * amx on Atari System V the signals cost most of the machine, AMIX's libc
+ * re-issues an interrupted poll with its whole timeout, and the game
+ * stalled.)
  */
 #ifdef FRUA_UNIX
 
 #include <stddef.h>
+#include <stdlib.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
@@ -27,20 +33,26 @@
 #include "sound_mix.h"
 #include "input.h"
 #include "unix_vbl.h"
+#include "dbglog.h"
 
 /* atari-sysv-sp1 driver-snd/snd.h */
 #define SND_IOC		('A' << 8)
 #define SND_SETRATE	(SND_IOC | 1)	/* arg = Hz (nearest of 4); returns Hz */
 #define SND_SETSTEREO	(SND_IOC | 2)	/* 0 mono, 1 stereo */
 #define SND_GETDELAY	(SND_IOC | 5)	/* bytes before a new write plays */
+#define SND_GETUNDERRUNS (SND_IOC | 7)	/* times the queue ran dry */
+#define SND_SETVOLUME	(SND_IOC | 8)	/* master 0..40, 40 = 0 dB */
 
-#define LEAD_MS		100		/* how far ahead of the play position */
+#define LEAD_MS		150		/* how far ahead of the play position */
 #define CHUNK		4096		/* the most rendered per write */
+#define RESYNC		32		/* refills between asking the driver */
 
 static void (*s_vbl_hook)(void);
 static unsigned long s_last_tick;
 static int s_fd = -1;
+static int s_rec = -1;			/* OPENUA_SNDREC: a copy of the stream */
 static char s_buf[CHUNK];
+volatile int unix_in_vbl;
 
 int plat_sound_init(void)
 {
@@ -58,6 +70,13 @@ int plat_sound_init(void)
 	}
 	mix_hz = hz;
 	mix_reset_phases();
+	/* diagnostics: OPENUA_VOLUME=0..40 sets the TT's master volume (40 =
+	 * 0 dB, 2 dB steps); OPENUA_SNDREC=file keeps a copy of every sample
+	 * written (signed 8-bit mono at mix_hz) */
+	if (getenv("OPENUA_VOLUME") != NULL)
+		ioctl(s_fd, SND_SETVOLUME, atoi(getenv("OPENUA_VOLUME")));
+	if (getenv("OPENUA_SNDREC") != NULL)
+		s_rec = open(getenv("OPENUA_SNDREC"), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	return 0;
 }
 
@@ -68,29 +87,59 @@ void plat_sound_shutdown(void)
 	mix_effect_stop();
 	mix_tone_off();
 	if (s_fd >= 0) {
+		dbg_log_num("sound: /dev/audio ran dry this many times: ",
+		            (long)ioctl(s_fd, SND_GETUNDERRUNS, 0));
 		close(s_fd);			/* the driver lets queued samples play out */
 		s_fd = -1;
+	}
+	if (s_rec >= 0) {
+		close(s_rec);
+		s_rec = -1;
 	}
 }
 
 /* Keep LEAD_MS of samples queued while something is audible. While nothing
  * is, write nothing: the driver plays silence once its queue runs dry, and
- * the mixer and the ioctl cost nothing. */
+ * the mixer costs nothing.
+ *
+ * The queue level is estimated from what was written and the time since,
+ * and the driver is asked (an ioctl, which amx makes expensive) only every
+ * RESYNC refills or when the estimate says the queue ran dry. */
+static long s_queued;			/* samples queued, as of s_qtime */
+static unsigned long s_qtime;		/* unix_ticks() then */
+static int s_since_sync = RESYNC;
+
+static long queued_now(void)
+{
+	unsigned long now = unix_ticks();
+	long q = s_queued - (long)(now - s_qtime) * mix_hz / 60;
+
+	if (q <= 0 || ++s_since_sync >= RESYNC) {
+		long have = ioctl(s_fd, SND_GETDELAY, 0);
+
+		s_since_sync = 0;
+		q = have < 0 ? 0 : have;
+	}
+	s_queued = q;
+	s_qtime = now;
+	return q;
+}
+
 static void refill(void)
 {
-	long want, have, n;
+	long want, n;
 
 	if (s_fd < 0 || !mix_audible())
 		return;
-	have = ioctl(s_fd, SND_GETDELAY, 0);
-	if (have < 0)
-		return;
-	want = mix_hz * LEAD_MS / 1000 - have;
+	want = mix_hz * LEAD_MS / 1000 - queued_now();
 	while (want > 0) {
 		n = want < CHUNK ? want : CHUNK;
 		mix_render(s_buf, n);
 		if (write(s_fd, s_buf, (size_t)n) != n)
 			return;
+		if (s_rec >= 0)
+			(void)write(s_rec, s_buf, (size_t)n);
+		s_queued += n;
 		want -= n;
 	}
 }
@@ -150,18 +199,24 @@ void plat_sound_set_vbl_hook(void (*fn)(void))
 }
 
 /* One VBL per 60 Hz tick since the last call; a long stall (the process was
- * stopped, the machine busy) is not replayed in a burst beyond 4. */
+ * stopped, the machine busy) is not replayed in a burst beyond 4. Not
+ * re-entered: FSRead can be reached from inside a VBL. */
 void unix_vbl_poll(void)
 {
-	unsigned long now = unix_ticks();
+	unsigned long now;
 	int n = 0;
 
+	if (unix_in_vbl)
+		return;
+	unix_in_vbl = 1;
+	now = unix_ticks();
 	while (s_last_tick < now && n < 4) {
 		plat_sound_vbl();
 		s_last_tick++;
 		n++;
 	}
 	s_last_tick = now;
+	unix_in_vbl = 0;
 }
 
 #endif /* FRUA_UNIX */

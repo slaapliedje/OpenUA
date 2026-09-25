@@ -37,15 +37,27 @@ static struct timeval s_t0;
 /* elapsed time since the clock started, in ms */
 static long elapsed_ms(void)
 {
+	static long last;
 	struct timeval t;
+	long ms;
+	int tries;
 
-	gettimeofday(&t, 0);
+	/* AMIX's gettimeofday is an hrtcntl system call: if it ever fails, t
+	 * holds whatever the stack had and time jumps. Ask again, and never
+	 * let the clock run backwards. */
+	for (tries = 0; gettimeofday(&t, 0) < 0; tries++)
+		if (tries > 100)
+			return last;
 	if (s_t0.tv_sec == 0)
 		s_t0 = t;
 	/* whole seconds and the microsecond parts separately: a microsecond
 	 * total would overflow 32 bits after 35 minutes */
-	return (t.tv_sec - s_t0.tv_sec) * 1000L
-	     + (long)t.tv_usec / 1000 - (long)s_t0.tv_usec / 1000;
+	ms = (t.tv_sec - s_t0.tv_sec) * 1000L
+	   + (long)t.tv_usec / 1000 - (long)s_t0.tv_usec / 1000;
+	if (ms < last)
+		ms = last;
+	last = ms;
+	return ms;
 }
 
 unsigned long unix_ticks(void)
@@ -102,6 +114,11 @@ unsigned long plat_ticks(void)
 {
 	unsigned long now = unix_ticks();
 
+	/* The engine's VBL task asks for the time too (jt1091 -> jt1149): that
+	 * is not the engine waiting, so just the time - no flush, no idle
+	 * sleep. The TOS build does the same under g_plat_in_super. */
+	if (unix_in_vbl)
+		return now;
 	x11_flush_due();
 	idle_if_spinning(now);
 	return now;

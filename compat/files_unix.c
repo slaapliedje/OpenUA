@@ -29,6 +29,10 @@
 
 #include "files.h"
 
+/* platform/unix/sound_unix.c: the sound's VBL (see FSRead) */
+extern void unix_vbl_poll(void);
+#define FSREAD_PIECE	16384		/* bytes read between VBLs */
+
 /* refNum descriptor table: index 1..MAX_FH-1 -> fd + 1 (0 = free). refNum 0
  * is reserved (the Mac treats 0 as "no file"). */
 #define MAX_FH 32
@@ -234,16 +238,31 @@ OSErr FSRead(short refNum, long *count, void *buffPtr)
 	if (fd < 0) return rfNumErr;
 	if (count == NULL || buffPtr == NULL)
 		return paramErr;
-	n = read(fd, buffPtr, (unsigned)*count);
-	if (n < 0) {
-		*count = 0;
-		return unix_err();
+	/* A read can come back short without meaning end-of-file (a signal,
+	 * a pipe): loop until the count is met; only a read of 0 is the end.
+	 * Large reads go in pieces, with the sound's VBL between them, so
+	 * that loading a screen does not starve the music. */
+	for (n = 0; n < *count; ) {
+		long want = *count - n > FSREAD_PIECE ? FSREAD_PIECE : *count - n;
+		long k = read(fd, (char *)buffPtr + n, (unsigned)want);
+
+		if (k > 0 && n + k < *count)
+			unix_vbl_poll();
+
+		if (k < 0 && errno == EINTR)
+			continue;
+		if (k < 0) {
+			*count = 0;
+			return unix_err();
+		}
+		if (k == 0)
+			break;
+		n += k;
 	}
 	if (n < *count) {
 		*count = n;
-		return eofErr;                  /* short read = end-of-file hit */
+		return eofErr;                  /* end-of-file hit */
 	}
-	*count = n;
 	return noErr;
 }
 
@@ -255,12 +274,18 @@ OSErr FSWrite(short refNum, long *count, const void *buffPtr)
 	if (fd < 0) return rfNumErr;
 	if (count == NULL || buffPtr == NULL)
 		return paramErr;
-	n = write(fd, buffPtr, (unsigned)*count);
-	if (n < 0) {
-		*count = 0;
-		return unix_err();
+	/* as FSRead: a write can come back short */
+	for (n = 0; n < *count; ) {
+		long k = write(fd, (const char *)buffPtr + n, (unsigned)(*count - n));
+
+		if (k < 0 && errno == EINTR)
+			continue;
+		if (k <= 0) {
+			*count = n;
+			return k < 0 ? unix_err() : ioErr;
+		}
+		n += k;
 	}
-	*count = n;
 	return noErr;
 }
 
