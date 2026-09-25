@@ -1,8 +1,8 @@
 # Seurat hardware diagnostic (`novadiag=on`)
 
-The ATW800/2 blitter-present register model was derived from tracing xVDI
-against the hatari-et4000 fork's emulation of the card — and the first run
-on the real Mega STe ATW800/2 (v0.9.17) failed: full presents through the
+The first ATW800/2 blitter-present register model was built against the
+hatari-et4000 fork's emulation of the card — and the first run on the real
+Mega STe ATW800/2 (v0.9.17) failed: full presents through the
 2D engine drew garbage while CPU rect presents were fine. The model needs
 validating against the REAL FPGA, and this dump is the instrument.
 
@@ -92,8 +92,8 @@ Conclusions so far:
   half of the blit model is CORRECT on real hardware.
 - cmd 0x0003 with (w=64, rows=1): exactly one byte moved, at the correct
   src/dst — the width/row registers (or the command) mean something else
-  on V0205. The driver generation matched to this firmware is the
-  Sep 2025 xVDI; the model here was traced from the Jul 2026 xVDI.
+  on V0205. (Resolved 2026-09-24: 0x0003 is the DESCENDING copy; the
+  ascending one is 0x0001 - see display_nova.c.)
 
 Readings on the real card:
 

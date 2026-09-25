@@ -113,13 +113,12 @@ static short                    s_lut_saved;
  * video.cfg `novablit=on` (OPT-IN); a bounded poll falls back to CPU
  * presents for the session if the engine ever fails to go idle.
  *
- * History: the first model (2026-08-25) was traced from xVDI against our
- * own Hatari emulation - circular - and failed on the real Mega STe card:
+ * History: the first model (2026-08-25) was checked only against our own
+ * Hatari emulation - circular - and failed on the real Mega STe card:
  * it issued 0x0003 set up as an ASCENDING copy (on the card that walks
  * DOWN from the given start: 5 of 256 bytes land right) and waited for
  * the status word to read 0 (bit 1 toggles by itself). The model above
- * was re-derived from xVDI 20260730's scroll code and verified on a real
- * V0205 card from Atari System V by reading VRAM back (atari-sysv-sp1
+ * was verified on a real V0205 card from Atari System V by reading VRAM back (atari-sysv-sp1
  * tools/atw, 2026-09-24: 300 random unaligned copies and fills exact;
  * 38 MB/s copy against 0.9 MB/s for the CPU).
  *
@@ -309,7 +308,7 @@ static int nova_init(short want_w, short want_h)
 
 	/* Clear the whole card framebuffer to index 0. With the blitter armed
 	 * this is one fill blit from a zero row parked just past the visible
-	 * screen (xVDI's own desktop-fill idiom: cmd 0x0005, source stride 0)
+	 * screen (cmd 0x0005 fill, source stride 0)
 	 * instead of 512,000 CPU byte writes over the VME bus. */
 	n = (long)s_pitch * s_cardh;
 	{
@@ -634,9 +633,8 @@ static long bootdev_super(void)
  * Everything below writes to DBG.LOG only (dbg_file_str), so a hardware
  * run needs no console: boot once with novadiag=on, read C:\OPENUA\DBG.LOG.
  *
- * Purpose: the blitter-present register model was derived from tracing
- * xVDI against our own emulation of the card, and the real Seurat
- * rejected it (v0.9.17 field report). This dump captures what the REAL
+ * Purpose: the blitter-present register model was checked only against
+ * our own emulation of the card, and the real Seurat rejected it (v0.9.17 field report). This dump captures what the REAL
  * FPGA holds — info block (version string), VTG mode registers, the 2D
  * engine's register window — and then runs a fully-logged self-test in
  * OFFSCREEN VRAM: write the op registers and read them back (a shifted,
