@@ -43,6 +43,7 @@ PLATFORM_SRC := $(PLATFORM_SHARED) \
                 platform/display_sthigh.c \
                 platform/display_nova.c \
                 platform/sound_falcon.c \
+                platform/sound_mix.c \
                 platform/input.c \
                 platform/vdi.c \
                 platform/dbglog.c \
@@ -62,7 +63,8 @@ TARGET       := openua
 PLATFORM_SRC := platform/planar.c platform/mulprof.c \
                 platform/unix/display_x11.c \
                 platform/unix/input_x11.c \
-                platform/unix/sound_null.c \
+                platform/unix/sound_unix.c \
+                platform/sound_mix.c \
                 platform/unix/sys_unix.c \
                 platform/unix/dbglog_unix.c \
                 platform/unix/sysv_rt.c \
