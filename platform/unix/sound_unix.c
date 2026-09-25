@@ -54,6 +54,7 @@ static int s_fd = -1;
 static int s_rec = -1;			/* OPENUA_SNDREC: a copy of the stream */
 static char s_buf[CHUNK];
 volatile int unix_in_vbl;
+static int s_gaplog, s_ngaps;		/* OPENUA_SNDLOG */
 
 int plat_sound_init(void)
 {
@@ -77,9 +78,11 @@ int plat_sound_init(void)
 	                 ? atoi(getenv("OPENUA_HIGHPASS")) : HIGHPASS_HZ);
 	/* diagnostics: OPENUA_VOLUME=0..40 sets the TT's master volume (40 =
 	 * 0 dB, 2 dB steps); OPENUA_SNDREC=file keeps a copy of every sample
-	 * written (signed 8-bit mono at mix_hz) */
+	 * written (signed 8-bit mono at mix_hz); OPENUA_SNDLOG logs each gap
+	 * in the feeding longer than the queue lasts to DBG.LOG */
 	if (getenv("OPENUA_VOLUME") != NULL)
 		ioctl(s_fd, SND_SETVOLUME, atoi(getenv("OPENUA_VOLUME")));
+	s_gaplog = getenv("OPENUA_SNDLOG") != NULL;
 	if (getenv("OPENUA_SNDREC") != NULL)
 		s_rec = open(getenv("OPENUA_SNDREC"), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	return 0;
@@ -216,6 +219,14 @@ void unix_vbl_poll(void)
 		return;
 	unix_in_vbl = 1;
 	now = unix_ticks();
+	/* a gap longer than the queue lasts is a dropout: say when, and how
+	 * long (OPENUA_SNDLOG, the first 64) */
+	if (s_gaplog && s_fd >= 0 && now - s_last_tick > LEAD_MS * 60 / 1000
+	    && s_ngaps < 64) {
+		s_ngaps++;
+		dbg_log_num("sound: unfed at tick ", (long)now);
+		dbg_log_num("sound:   for ticks ", (long)(now - s_last_tick));
+	}
 	while (s_last_tick < now && n < 4) {
 		plat_sound_vbl();
 		s_last_tick++;
