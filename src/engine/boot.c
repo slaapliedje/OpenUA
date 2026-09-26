@@ -8286,11 +8286,17 @@ static void jt25(long entry, short page, short row, short style)
 	 * roster-name paint a corrupted node (a stray/wrapped next-link): with
 	 * e ~ 0xFFFFFFB8, &e[96] wraps to 0x18 and the jt94 %s below bus-errors
 	 * (observed: PC=$c0ec4, move.b (a2),d0 reading $18). A live record lives
-	 * in low heap, so reject an implausible pointer before any deref. The
+	 * in the heap, so reject an implausible pointer before any deref. The
 	 * stray link itself (why the AREA re-render produces it) is a separate
-	 * faithful fix — see docs/dungeon walk notes. */
+	 * faithful fix — see docs/dungeon walk notes.
+	 *
+	 * The top bound is the WRAP, not "low memory": this once rejected
+	 * everything from 0x04000000 up, which holds on TOS and AmigaOS but not
+	 * under Atari System V, where an AMIX program's heap sits above
+	 * 0x80000000 - so every unselected roster name was skipped (the
+	 * selected row is painted elsewhere and still showed). */
 	if ((unsigned long)(uintptr_t)e < 0x800UL ||
-	    (unsigned long)(uintptr_t)e >= 0x04000000UL) {
+	    (unsigned long)(uintptr_t)e >= 0xFFFF0000UL) {
 #ifdef FRUA_LEAKPROBE
 		dbg_file_num("jt25 WILD-GUARDED e=", (long)entry);
 #endif
