@@ -26,6 +26,7 @@
 #include "input.h"
 #include "x11_unix.h"
 #include "unix_vbl.h"
+#include "dbglog.h"
 
 extern int gettimeofday(struct timeval *, void *);
 extern int poll(struct pollfd *, unsigned long, int);
@@ -319,6 +320,12 @@ int plat_kb_poll(unsigned char *out_scan, unsigned char *out_ascii)
 		if ((kbs & 0x04) && (ascii & 0x40))
 			ascii &= 0x1F;              /* Ctrl-letter, TOS-style */
 	}
+#ifdef FRUA_BEEPTRACE
+	/* one line per key taken from X: two engine reads of one key show as
+	 * two ph5 lines after one of these (see the #11/#132 trace) */
+	dbg_file_num("beep: kb poll tick*1000+scan = ",
+	             (long)(unix_ticks() % 1000000L) * 1000L + scan);
+#endif
 	if (out_scan)  *out_scan  = scan;
 	if (out_ascii) *out_ascii = ascii;
 	return 1;
