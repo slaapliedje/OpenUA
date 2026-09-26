@@ -68,6 +68,7 @@ static void dump_sig(int sig);
 static unsigned char *s_frame;		/* the last presented frame (snapshot) */
 static unsigned char *s_shadow;		/* what the window last received */
 static unsigned char  s_rowforce[200];	/* rows to resend though unchanged */
+static short          s_dirty0 = 0, s_dirty1 = 200;	/* rows presented since the last flush */
 static int            s_pending;	/* s_frame not yet sent */
 static unsigned long  s_pending_tick;	/* the tick it was presented in */
 static dsp_surface_t  s_surface;
@@ -467,8 +468,15 @@ static void flush(void)
                                                s_shadow + (long)(y) * GW, GW) != 0)
 	s_pending = 0;
 	if (s_vram != NULL) {
-		/* straight into the card: only the columns that changed */
-		for (y = 0; y < GH; y++) {
+		short y1 = s_dirty1;
+
+		/* straight into the card: only the columns that changed, of the
+		 * rows presented since the last flush (typed text presents a
+		 * line at a time) */
+		y = s_dirty0;
+		s_dirty0 = GH;
+		s_dirty1 = 0;
+		for (; y < y1; y++) {
 			const unsigned char *f = s_frame + (long)y * GW;
 			unsigned char *sh = s_shadow + (long)y * GW;
 			short x0 = 0, x1 = GW;
@@ -548,6 +556,14 @@ void x11_flush_due(void)
 		flush();
 }
 
+static void mark_dirty(short y0, short y1)
+{
+	if (y0 < s_dirty0)
+		s_dirty0 = y0;
+	if (y1 > s_dirty1)
+		s_dirty1 = y1;
+}
+
 static void mark_presented(void)
 {
 	unsigned long now = unix_ticks();
@@ -570,9 +586,12 @@ static void x11_present_rect(short x, short y, short w, short h)
 	if (y + h > GH) h = (short)(GH - y);
 	if (w <= 0 || h <= 0)
 		return;
+	if (s_pending && unix_ticks() != s_pending_tick)
+		flush();		/* the frame owed from an earlier tick */
 	for (r = 0; r < h; r++)
 		memcpy(s_frame + (long)(y + r) * GW + x,
 		       s_chunky + (long)(y + r) * GW + x, (size_t)w);
+	mark_dirty(y, (short)(y + h));
 	mark_presented();
 }
 
@@ -580,7 +599,10 @@ static void x11_present(void)
 {
 	if (s_dpy == NULL)
 		return;
+	if (s_pending && unix_ticks() != s_pending_tick)
+		flush();		/* the frame owed from an earlier tick */
 	memcpy(s_frame, s_chunky, GW * GH);
+	mark_dirty(0, GH);
 	mark_presented();
 }
 
@@ -637,6 +659,12 @@ static void x11_set_palette(const dsp_color_t *colors, short first, short count)
 		count = (short)(256 - first);
 	if (s_pseudo) {
 		XColor xc[256];
+
+		/* the colormap is the card's LUT: a new palette shows at once, so
+		 * the frame it belongs with goes out first (else an outgoing
+		 * picture shows in the incoming colours until the next tick) */
+		if (s_pending)
+			flush();
 		for (i = 0; i < count; i++) {
 			xc[i].pixel = (unsigned long)(first + i);
 			xc[i].red   = (unsigned short)(colors[i].r * 257);
