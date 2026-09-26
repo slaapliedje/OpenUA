@@ -34,6 +34,9 @@
 #include <X11/Xutil.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #include "display.h"
 #include "dbglog.h"
@@ -58,6 +61,7 @@ static int            s_bg = -1;	/* PseudoColor: the black index the surround us
 static dsp_backend_t  s_x11_backend;	/* below */
 
 static unsigned char *s_chunky;		/* the engine's surface */
+static void dump_sig(int sig);
 static unsigned char *s_frame;		/* the last presented frame (snapshot) */
 static unsigned char *s_shadow;		/* what the window last received */
 static unsigned char  s_rowforce[200];	/* rows to resend though unchanged */
@@ -147,6 +151,8 @@ static int x11_init(short want_w, short want_h)
 	dbg_log_num("x11: scale = ", s_scale);
 
 	s_chunky = calloc(GW * GH, 1);
+	if (getenv("OPENUA_DUMPSIG") != NULL)
+		signal(SIGUSR1, dump_sig);
 	s_frame  = calloc(GW * GH, 1);
 	s_shadow = calloc(GW * GH, 1);
 	if (s_chunky == NULL || s_frame == NULL || s_shadow == NULL)
@@ -333,9 +339,10 @@ static void put_rect(const unsigned char *pix, int x, int y, int w, int h)
 	for (r = y; r < y + h; r++) {
 		/* a whole frame takes the TT's X server longer than the sound
 		 * queue lasts: keep the sound fed while it goes out */
-		if (((r - y) & 7) == 7)
+		if (((r - y) & 7) == 7) {
 			unix_vbl_site = "present";
 			unix_vbl_poll();
+		}
 		XPutImage(s_dpy, s_win, s_gc, s_img, x * S, r * S,
 		          s_ox + x * S, s_oy + r * S, w * S, 1);
 		for (k = 1; k < S; k++)
@@ -383,8 +390,36 @@ static void flush(void)
  * The snapshot keeps it the frame that was presented, whatever the
  * engine draws next.
  */
+/* DIAGNOSTIC: OPENUA_DUMPSIG set, a SIGUSR1 writes the engine's surface,
+ * the last presented frame and what the window was sent to
+ * /tmp/ua-{chunky,frame,shadow}.raw (GW x GH indices each). */
+static volatile int s_dump;
+
+static void dump_sig(int sig)
+{
+	(void)sig;
+	s_dump = 1;
+	signal(SIGUSR1, dump_sig);
+}
+
+static void dump_one(const char *path, const unsigned char *p)
+{
+	int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+
+	if (fd >= 0) {
+		(void)write(fd, p, (size_t)GW * GH);
+		close(fd);
+	}
+}
+
 void x11_flush_due(void)
 {
+	if (s_dump && s_chunky != NULL) {
+		s_dump = 0;
+		dump_one("/tmp/ua-chunky.raw", s_chunky);
+		dump_one("/tmp/ua-frame.raw", s_frame);
+		dump_one("/tmp/ua-shadow.raw", s_shadow);
+	}
 	if (s_dpy != NULL && s_pending && unix_ticks() != s_pending_tick)
 		flush();
 }
