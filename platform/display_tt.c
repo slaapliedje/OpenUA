@@ -447,6 +447,12 @@ static const dsp_backend_t tt_backend = {
 	                         * does the rest — a palette change cannot invalidate
 	                         * a converted row. See display.h for the proof and
 	                         * the measurement. */
+	0,                      /* palette_self_invalidates */
+	1,                      /* palette_with_present: the CLUT is live, so a new
+	                         * palette waits for the present that brings its
+	                         * pixels - else an outgoing big picture shows for a
+	                         * moment in the incoming screen's colours (as on
+	                         * AGA, TODO 25) */
 };
 
 const dsp_backend_t *dsp_backend_tt(void)
