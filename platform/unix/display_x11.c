@@ -32,11 +32,14 @@
 
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
+#include <X11/Xatom.h>
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/mman.h>
 
 #include "display.h"
 #include "dbglog.h"
@@ -73,6 +76,8 @@ static char          *s_img_data;	/* scaled (and/or converted) image */
 static XImage        *s_img;
 static int            s_bpp;		/* bytes per pixel of s_img */
 static unsigned long  s_pixel[256];	/* TrueColor: index -> pixel value */
+static volatile unsigned char *s_vram;	/* direct: the game area in the card */
+static long           s_vpitch;		/* direct: the card's bytes per line */
 static dsp_color_t    s_pal[256];	/* the logical palette */
 
 Display *x11_display(void) { return s_dpy; }
@@ -114,6 +119,99 @@ static void hide_pointer(void)
 	c = XCreatePixmapCursor(s_dpy, p, p, &black, &black, 0, 0);
 	XDefineCursor(s_dpy, s_win, c);
 	XFreePixmap(s_dpy, p);
+}
+
+/*
+ * Direct to the card. Every present through X is protocol, a copy in the
+ * server and then the server's own writes to the card; on the TT that made
+ * a full frame take most of a second. The ATW800/2's server (Xatw)
+ * publishes where its screen is (_ATW_FRAMEBUFFER on the root window), so
+ * a full-screen window over it can put the pixels into the card itself:
+ * mapped through /dev/mem, which needs root. X still does the rest - the
+ * colours (the window's colormap is the card's LUT), input, exposures and
+ * switching between servers. Xatw treats our invisible pointer as no
+ * pointer, so its software sprite never writes stale pixels over ours.
+ * Off with OPENUA_NODIRECT=1, and never for a managed window, which other
+ * windows could overlap.
+ */
+static void direct_init(int scr)
+{
+	Atom a, type;
+	int fmt, fd;
+	unsigned long n, after;
+	unsigned char *prop = NULL;
+	long *v;
+	char *map;
+
+	if (!s_full || !s_pseudo || getenv("OPENUA_NODIRECT") != NULL)
+		return;
+	a = XInternAtom(s_dpy, "_ATW_FRAMEBUFFER", True);
+	if (a == None)
+		return;
+	if (XGetWindowProperty(s_dpy, XRootWindow(s_dpy, scr), a, 0, 8, False,
+	                       XA_INTEGER, &type, &fmt, &n, &after, &prop) != Success
+	    || prop == NULL)
+		return;
+	v = (long *)prop;		/* format 32 comes back as longs */
+	if (fmt != 32 || n != 8 || v[6] != 8 || v[4] != s_winw || v[5] != s_winh) {
+		XFree((char *)prop);
+		return;
+	}
+	fd = open("/dev/mem", O_RDWR);
+	if (fd < 0) {
+		dbg_log("x11: /dev/mem not open to us: drawing through X");
+		XFree((char *)prop);
+		return;
+	}
+	map = (char *)mmap((void *)0, (size_t)v[1], PROT_READ | PROT_WRITE,
+	                   MAP_SHARED, fd, (off_t)v[0]);
+	close(fd);
+	if (map == (char *)-1) {
+		dbg_log("x11: cannot map the card: drawing through X");
+		XFree((char *)prop);
+		return;
+	}
+	s_vpitch = v[3];
+	/* our window is at the root's origin (override-redirect, 0,0) */
+	s_vram = (volatile unsigned char *)map + v[2] + (long)s_oy * s_vpitch + s_ox;
+	dbg_log_num("x11: drawing into the card directly, screen at VRAM + ", v[2]);
+	XFree((char *)prop);
+}
+
+/* Rows y..y+h-1, columns x..x+w-1 of pix into the card, each game pixel
+ * S x S. At 2x a pixel is one word, written to both of its rows. */
+static void direct_rect(const unsigned char *pix, int x, int y, int w, int h)
+{
+	int r, c, k, S = s_scale;
+
+	for (r = y; r < y + h; r++) {
+		const unsigned char *src = pix + (long)r * GW + x;
+		volatile unsigned char *d0 = s_vram + (long)r * S * s_vpitch + (long)x * S;
+
+		if (((r - y) & 7) == 7) {
+			unix_vbl_site = "present";
+			unix_vbl_poll();
+		}
+		if (S == 2 && ((unsigned long)d0 & 1) == 0 && (s_vpitch & 1) == 0) {
+			volatile unsigned short *a = (volatile unsigned short *)d0;
+			volatile unsigned short *b = (volatile unsigned short *)(d0 + s_vpitch);
+
+			for (c = 0; c < w; c++) {
+				unsigned short p = (unsigned short)(src[c] * 0x0101);
+				a[c] = p;
+				b[c] = p;
+			}
+			continue;
+		}
+		for (k = 0; k < S; k++) {
+			volatile unsigned char *d = d0 + (long)k * s_vpitch;
+			int i;
+
+			for (c = 0; c < w; c++)
+				for (i = 0; i < S; i++)
+					*d++ = src[c];
+		}
+	}
 }
 
 static int x11_init(short want_w, short want_h)
@@ -249,6 +347,7 @@ static int x11_init(short want_w, short want_h)
 		             ButtonPressMask | ButtonReleaseMask | PointerMotionMask,
 		             GrabModeAsync, GrabModeAsync, s_win, None, CurrentTime);
 		XSync(s_dpy, False);
+		direct_init(scr);
 	}
 
 	s_surface.width  = GW;
@@ -327,6 +426,10 @@ static void put_rect(const unsigned char *pix, int x, int y, int w, int h)
 {
 	int r, k, S = s_scale;
 
+	if (s_vram != NULL) {
+		direct_rect(pix, x, y, w, h);
+		return;
+	}
 	if (S == 1) {
 		if (s_pseudo)
 			s_img->data = (char *)pix;	/* the indices are the image */
@@ -363,6 +466,27 @@ static void flush(void)
 #define ROW_CHANGED(y) (s_rowforce[y] || memcmp(s_frame + (long)(y) * GW, \
                                                s_shadow + (long)(y) * GW, GW) != 0)
 	s_pending = 0;
+	if (s_vram != NULL) {
+		/* straight into the card: only the columns that changed */
+		for (y = 0; y < GH; y++) {
+			const unsigned char *f = s_frame + (long)y * GW;
+			unsigned char *sh = s_shadow + (long)y * GW;
+			short x0 = 0, x1 = GW;
+
+			if (!s_rowforce[y]) {
+				while (x0 < GW && f[x0] == sh[x0])
+					x0++;
+				if (x0 == GW)
+					continue;
+				while (f[x1 - 1] == sh[x1 - 1])
+					x1--;
+			}
+			s_rowforce[y] = 0;
+			direct_rect(s_frame, x0, y, x1 - x0, 1);
+			memcpy(sh + x0, f + x0, (size_t)(x1 - x0));
+		}
+		return;
+	}
 	for (y = 0; y < GH; ) {
 		if (!ROW_CHANGED(y)) {
 			y++;
