@@ -45,6 +45,7 @@
 #include "dbglog.h"
 #include "x11_unix.h"
 #include "unix_vbl.h"
+#include "planar.h"
 
 #define GW  320			/* the game's surface */
 #define GH  200
@@ -68,7 +69,7 @@ static void dump_sig(int sig);
 static unsigned char *s_frame;		/* the last presented frame (snapshot) */
 static unsigned char *s_shadow;		/* what the window last received */
 static unsigned char  s_rowforce[200];	/* rows to resend though unchanged */
-static short          s_dirty0 = 0, s_dirty1 = 200;	/* rows presented since the last flush */
+static unsigned char  s_rowdirty[200];	/* direct: rows presented since the last flush */
 static int            s_pending;	/* s_frame not yet sent */
 static unsigned long  s_pending_tick;	/* the tick it was presented in */
 static dsp_surface_t  s_surface;
@@ -468,20 +469,19 @@ static void flush(void)
                                                s_shadow + (long)(y) * GW, GW) != 0)
 	s_pending = 0;
 	if (s_vram != NULL) {
-		short y1 = s_dirty1;
-
-		/* straight into the card: only the columns that changed, of the
-		 * rows presented since the last flush (typed text presents a
-		 * line at a time) */
-		y = s_dirty0;
-		s_dirty0 = GH;
-		s_dirty1 = 0;
-		for (; y < y1; y++) {
+		/* straight into the card: of the rows presented since the last
+		 * flush, the columns that changed */
+		for (y = 0; y < GH; y++) {
 			const unsigned char *f = s_frame + (long)y * GW;
 			unsigned char *sh = s_shadow + (long)y * GW;
 			short x0 = 0, x1 = GW;
 
+			if (!s_rowdirty[y] && !s_rowforce[y])
+				continue;
+			s_rowdirty[y] = 0;
 			if (!s_rowforce[y]) {
+				if (memcmp(f, sh, GW) == 0)
+					continue;
 				while (x0 < GW && f[x0] == sh[x0])
 					x0++;
 				if (x0 == GW)
@@ -558,10 +558,8 @@ void x11_flush_due(void)
 
 static void mark_dirty(short y0, short y1)
 {
-	if (y0 < s_dirty0)
-		s_dirty0 = y0;
-	if (y1 > s_dirty1)
-		s_dirty1 = y1;
+	if (y1 > y0)
+		memset(s_rowdirty + y0, 1, (size_t)(y1 - y0));
 }
 
 static void mark_presented(void)
@@ -601,8 +599,27 @@ static void x11_present(void)
 		return;
 	if (s_pending && unix_ticks() != s_pending_tick)
 		flush();		/* the frame owed from an earlier tick */
-	memcpy(s_frame, s_chunky, GW * GH);
-	mark_dirty(0, GH);
+	/* Drawing into the card, take only the rows the engine says it drew
+	 * (the shim's dirty set, which the TT's present trusts too): a full
+	 * present copied and later compared all 64000 bytes, and that was a
+	 * third of the machine while text typed. Through X the whole frame
+	 * is taken, and flush finds the changed rows itself. */
+	{
+		const unsigned char *dr;
+		short y;
+
+		if (s_vram == NULL || planar_dirty_rows(&dr)) {
+			memcpy(s_frame, s_chunky, GW * GH);
+			mark_dirty(0, GH);
+		} else {
+			for (y = 0; y < GH; y++)
+				if (dr[y]) {
+					memcpy(s_frame + (long)y * GW,
+					       s_chunky + (long)y * GW, GW);
+					s_rowdirty[y] = 1;
+				}
+		}
+	}
 	mark_presented();
 }
 
