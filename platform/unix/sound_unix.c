@@ -40,10 +40,10 @@
 #define SND_SETRATE	(SND_IOC | 1)	/* arg = Hz (nearest of 4); returns Hz */
 #define SND_SETSTEREO	(SND_IOC | 2)	/* 0 mono, 1 stereo */
 #define SND_GETDELAY	(SND_IOC | 5)	/* bytes before a new write plays */
-#define SND_GETUNDERRUNS (SND_IOC | 7)	/* times the queue ran dry */
 #define SND_SETVOLUME	(SND_IOC | 8)	/* master 0..40, 40 = 0 dB */
+#define SND_GETRING	(SND_IOC | 6)	/* the ring's size in bytes */
 
-#define LEAD_MS		150		/* how far ahead of the play position */
+#define LEAD_MS		250		/* how far ahead of the play position */
 #define LOAD_LEAD_MS	1000		/* ... while a screen loads */
 #define LOAD_TICKS	90		/* how long a read counts as loading */
 #define CHUNK		4096		/* the most rendered per write */
@@ -55,10 +55,13 @@ static unsigned long s_last_tick;
 static unsigned long s_seq_tick;	/* ticks the sequencer has run */
 static long s_tick_frac;		/* 60ths of a sample owed */
 static int s_fd = -1;
+static int s_ch = 1;			/* channels: 2 = stereo frames */
 static int s_rec = -1;			/* OPENUA_SNDREC: a copy of the stream */
 static char s_buf[CHUNK];
 volatile int unix_in_vbl;
 static int s_gaplog, s_ngaps;		/* OPENUA_SNDLOG */
+static int s_fed;			/* the last refill queued sound */
+static long s_dry;			/* ... and the queue ran out after */
 const char *unix_vbl_site = "?";
 static const char *s_last_site = "?";
 
@@ -71,7 +74,14 @@ int plat_sound_init(void)
 	if (s_fd < 0)
 		return 1;			/* no sound: the shim continues silent */
 	hz = ioctl(s_fd, SND_SETRATE, 25033);	/* the STe/TT rate the Atari build uses */
-	if (hz <= 0 || ioctl(s_fd, SND_SETSTEREO, 0) < 0) {
+	/* Stereo (the voices panned apart) when the driver's ring holds the
+	 * stereo loading lead with room to spare; a 32 KB ring (the first
+	 * driver-snd) does not, and a write would then sleep. OPENUA_STEREO=0
+	 * keeps mono. */
+	s_ch = ioctl(s_fd, SND_GETRING, 0) >= 2L * hz * LOAD_LEAD_MS / 1000 + 8192
+	       && (getenv("OPENUA_STEREO") == NULL || atoi(getenv("OPENUA_STEREO")) != 0)
+	       ? 2 : 1;
+	if (hz <= 0 || ioctl(s_fd, SND_SETSTEREO, s_ch == 2) < 0) {
 		close(s_fd);
 		s_fd = -1;
 		return 1;
@@ -84,7 +94,7 @@ int plat_sound_init(void)
 	                 ? atoi(getenv("OPENUA_HIGHPASS")) : HIGHPASS_HZ);
 	/* diagnostics: OPENUA_VOLUME=0..40 sets the TT's master volume (40 =
 	 * 0 dB, 2 dB steps); OPENUA_SNDREC=file keeps a copy of every sample
-	 * written (signed 8-bit mono at mix_hz); OPENUA_SNDLOG logs each gap
+	 * written (signed 8-bit at mix_hz, stereo frames left first); OPENUA_SNDLOG logs each gap
 	 * in the feeding longer than the queue lasts to DBG.LOG */
 	if (getenv("OPENUA_VOLUME") != NULL)
 		ioctl(s_fd, SND_SETVOLUME, atoi(getenv("OPENUA_VOLUME")));
@@ -101,8 +111,9 @@ void plat_sound_shutdown(void)
 	mix_effect_stop();
 	mix_tone_off();
 	if (s_fd >= 0) {
-		dbg_log_num("sound: /dev/audio ran dry this many times: ",
-		            (long)ioctl(s_fd, SND_GETUNDERRUNS, 0));
+		/* the driver counts every time play passes the data, the end of
+		 * each tune included; s_dry only while there was more to play */
+		dbg_log_num("sound: ran dry while playing, times: ", s_dry);
 		close(s_fd);			/* the driver lets queued samples play out */
 		s_fd = -1;
 	}
@@ -119,7 +130,7 @@ void plat_sound_shutdown(void)
  * The queue level is estimated from what was written and the time since,
  * and the driver is asked (an ioctl, which amx makes expensive) only every
  * RESYNC refills or when the estimate says the queue ran dry. */
-static long s_queued;			/* samples queued, as of s_qtime */
+static long s_queued;			/* bytes queued, as of s_qtime */
 static unsigned long s_qtime;		/* unix_ticks() then */
 static int s_since_sync = RESYNC;
 static unsigned long s_loading_until;	/* unix_ticks() */
@@ -127,7 +138,7 @@ static unsigned long s_loading_until;	/* unix_ticks() */
 static long queued_now(void)
 {
 	unsigned long now = unix_ticks();
-	long q = s_queued - (long)(now - s_qtime) * mix_hz / 60;
+	long q = s_queued - (long)(now - s_qtime) * mix_hz * s_ch / 60;
 
 	if (q <= 0 || ++s_since_sync >= RESYNC) {
 		long have = ioctl(s_fd, SND_GETDELAY, 0);
@@ -140,10 +151,13 @@ static long queued_now(void)
 	return q;
 }
 
-/* Write n rendered samples from s_buf (high-passed) to the device. */
+/* Write n rendered bytes from s_buf (high-passed) to the device. */
 static int put(long n)
 {
-	mix_highpass(s_buf, n);
+	if (s_ch == 2)
+		mix_highpass_stereo(s_buf, n / 2);
+	else
+		mix_highpass(s_buf, n);
 	if (write(s_fd, s_buf, (size_t)n) != n)
 		return 0;
 	if (s_rec >= 0)
@@ -176,11 +190,16 @@ static void refill(void)
 {
 	long want, q, n, got = 0;
 
-	if (s_fd < 0 || !mix_audible())
+	if (s_fd < 0 || !mix_audible()) {
+		s_fed = 0;
 		return;
-	want = mix_hz * (unix_ticks() < s_loading_until ? LOAD_LEAD_MS : LEAD_MS)
-	     / 1000;
+	}
+	want = mix_hz * s_ch
+	     * (unix_ticks() < s_loading_until ? LOAD_LEAD_MS : LEAD_MS) / 1000;
 	q = queued_now();
+	if (s_fed && q == 0)
+		s_dry++;
+	s_fed = 1;
 	while (q + got < want && mix_audible()) {
 		n = mix_hz / 60;
 		s_tick_frac += mix_hz % 60;
@@ -188,14 +207,17 @@ static void refill(void)
 			s_tick_frac -= 60;
 			n++;
 		}
-		if (got + n > CHUNK) {
+		if (got + n * s_ch > CHUNK) {
 			if (!put(got))
 				return;
 			q += got;
 			got = 0;
 		}
-		mix_render(s_buf + got, n);
-		got += n;
+		if (s_ch == 2)
+			mix_render_stereo(s_buf + got, n);
+		else
+			mix_render(s_buf + got, n);
+		got += n * s_ch;
 		run_seq();
 	}
 	if (got > 0)

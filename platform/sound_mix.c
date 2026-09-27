@@ -259,6 +259,79 @@ void mix_render(char *dst, long n)
 		g_ft_phase[ix[v]] = pv[v];
 }
 
+/* Stereo: the same voices, tone and effect as mix_render, as interleaved
+ * left/right frames. The Mac synth is mono; here voice 0 leans left and
+ * voice 1 right (3:1), voices 2 and 3 sit in the middle, and the tone and
+ * the effect are centred. The weights on each side add up to the mono
+ * mix's, so the music alone still cannot clip, and the pan is adds and
+ * shifts (multiplies per sample cost a 68030 too much). Inactive voices
+ * read a flat wave rather than being compacted out: they have places. */
+static const unsigned char k_mid = 128;
+
+void mix_render_stereo(char *dst, long n)
+{
+	const unsigned char *rec = (const unsigned char *)g_ft_rec;
+	const unsigned char *w0, *w1, *w2, *w3, *wv[4];
+	unsigned long iv[4], pv[4], p0, p1, p2, p3, i0, i1, i2, i3;
+	int on[4], v, fx;
+	long i;
+
+	for (v = 0; v < 4; v++) {
+		unsigned long rate = 0, inc = 0;
+		const unsigned char *w = NULL;
+
+		if (rec != NULL) {
+			rate = rd_be32_p(rec + FT_RATE(v));
+			w    = (const unsigned char *)(uintptr_t)rd_be32_p(rec + FT_WAVE(v));
+		}
+		if (rate != 0 && w != NULL)
+			inc = (unsigned long)(((unsigned long long)rate
+			                       * (unsigned long long)MAC_SYNTH_HZ)
+			                      / (unsigned long long)SYNTH_HZ);
+		on[v] = inc != 0;
+		wv[v] = on[v] ? w : &k_mid;
+		iv[v] = inc;
+		pv[v] = on[v] ? g_ft_phase[v] : 0;
+	}
+	w0 = wv[0]; w1 = wv[1]; w2 = wv[2]; w3 = wv[3];
+	p0 = pv[0]; p1 = pv[1]; p2 = pv[2]; p3 = pv[3];
+	i0 = iv[0]; i1 = iv[1]; i2 = iv[2]; i3 = iv[3];
+	fx = g_tone_left > 0 || g_sfx_pos < g_sfx_len;
+
+	for (i = 0; i < n; i++) {
+		long a, b, m, l, r;
+
+		p0 += i0; p1 += i1; p2 += i2; p3 += i3;
+		a = (long)w0[(p0 >> 16) & 0xff] - 128;
+		b = (long)w1[(p1 >> 16) & 0xff] - 128;
+		m = ((long)w2[(p2 >> 16) & 0xff] + (long)w3[(p3 >> 16) & 0xff] - 256) << 1;
+		l = (a + (a << 1) + b + m) >> 3;
+		r = (a + b + (b << 1) + m) >> 3;
+		if (fx) {
+			long c = 0;
+
+			if (g_tone_left > 0) {
+				g_tone_phase += g_tone_inc;
+				c += ((g_tone_phase & 0x80000000UL)
+				      ? g_tone_amp : -g_tone_amp) >> 1;
+				g_tone_left--;
+			}
+			if (g_sfx_pos < g_sfx_len)
+				c += g_sfx_buf[g_sfx_pos++];
+			l += c;
+			r += c;
+			l = l > 127 ? 127 : l < -128 ? -128 : l;
+			r = r > 127 ? 127 : r < -128 ? -128 : r;
+		}
+		dst[2 * i] = (char)l;
+		dst[2 * i + 1] = (char)r;
+	}
+	if (on[0]) g_ft_phase[0] = p0;
+	if (on[1]) g_ft_phase[1] = p1;
+	if (on[2]) g_ft_phase[2] = p2;
+	if (on[3]) g_ft_phase[3] = p3;
+}
+
 void mix_reset_phases(void)
 {
 	int v;
@@ -358,14 +431,17 @@ int mix_effect_playing(void)
  * A multiplying version cost three times the whole mixer on the TT. The
  * samples are scaled up by 2^8 to keep the shifts' rounding out of the way. */
 static int  g_hp_k;                     /* 0 = off */
-static long g_hp_x1, g_hp_y1, g_hp_x2, g_hp_y2;
+static long g_hp[2][4];                 /* per channel: x1, y1, x2, y2 */
 
 void mix_set_highpass(int hz)
 {
 	long f;
+	int c, j;
 
 	g_hp_k = 0;
-	g_hp_x1 = g_hp_y1 = g_hp_x2 = g_hp_y2 = 0;
+	for (c = 0; c < 2; c++)
+		for (j = 0; j < 4; j++)
+			g_hp[c][j] = 0;
 	if (hz <= 0)
 		return;
 	/* the k whose corner mix_hz * 113 / (710 << k) is nearest hz, i.e.
@@ -377,16 +453,15 @@ void mix_set_highpass(int hz)
 	}
 }
 
-void mix_highpass(char *buf, long n)
+/* n samples, every step-th from buf, through channel c's filter */
+static void highpass(char *buf, long n, int step, long *st)
 {
 	int  k = g_hp_k;
-	long x1 = g_hp_x1, y1 = g_hp_y1, x2 = g_hp_x2, y2 = g_hp_y2;
+	long x1 = st[0], y1 = st[1], x2 = st[2], y2 = st[3];
 	long i, x, v;
 
-	if (k == 0)
-		return;
-	for (i = 0; i < n; i++) {
-		x  = (long)(signed char)buf[i] << 8;
+	for (i = 0; i < n; i++, buf += step) {
+		x  = (long)(signed char)*buf << 8;
 		v  = y1 + x - x1;
 		y1 = v - (v >> k);
 		x1 = x;
@@ -394,7 +469,21 @@ void mix_highpass(char *buf, long n)
 		y2 = v - (v >> k);
 		x2 = y1;
 		v  = y2 >> 8;
-		buf[i] = (char)(v > 127 ? 127 : v < -128 ? -128 : v);
+		*buf = (char)(v > 127 ? 127 : v < -128 ? -128 : v);
 	}
-	g_hp_x1 = x1; g_hp_y1 = y1; g_hp_x2 = x2; g_hp_y2 = y2;
+	st[0] = x1; st[1] = y1; st[2] = x2; st[3] = y2;
+}
+
+void mix_highpass(char *buf, long n)
+{
+	if (g_hp_k != 0)
+		highpass(buf, n, 1, g_hp[0]);
+}
+
+void mix_highpass_stereo(char *buf, long n)
+{
+	if (g_hp_k != 0) {
+		highpass(buf, n, 2, g_hp[0]);
+		highpass(buf + 1, n, 2, g_hp[1]);
+	}
 }

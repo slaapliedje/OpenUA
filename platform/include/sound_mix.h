@@ -26,6 +26,10 @@ int  mix_audible(void);
 /* Render n samples of voices + tone + effect into dst. */
 void mix_render(char *dst, long n);
 
+/* The same as n interleaved left/right frames (2n bytes), the voices
+ * panned apart (see sound_mix.c). */
+void mix_render_stereo(char *dst, long n);
+
 /* swMode: frequency = 783360 / count, amp 0..255, duration in ticks. */
 void mix_tone(int count, int amp, int duration_ticks);
 void mix_tone_off(void);
@@ -42,5 +46,6 @@ int  mix_effect_playing(void);
  * does, as a deep drone under the tune. */
 void mix_set_highpass(int hz);
 void mix_highpass(char *buf, long n);
+void mix_highpass_stereo(char *buf, long n);	/* n frames */
 
 #endif /* SOUND_MIX_H */
