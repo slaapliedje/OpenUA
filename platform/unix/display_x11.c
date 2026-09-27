@@ -507,6 +507,11 @@ static void flush(void)
 					x1--;
 			}
 			s_rowforce[y] = 0;
+			/* row by row, direct_rect's own feeding never fires */
+			if ((y & 7) == 7) {
+				unix_vbl_site = "flush";
+				unix_vbl_poll();
+			}
 			direct_rect(s_frame, x0, y, x1 - x0, 1);
 			memcpy(sh + x0, f + x0, (size_t)(x1 - x0));
 		}

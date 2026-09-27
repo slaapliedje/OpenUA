@@ -128,6 +128,8 @@ static void ci_resolve(const char *in, char *out, int max)
 			strncpy(dir, out, sizeof dir - 1);
 			dir[sizeof dir - 1] = '\0';
 		}
+		unix_vbl_site = "resolve";
+		unix_vbl_poll();
 		d = opendir(dir);
 		if (d != NULL) {
 			struct dirent *e;
@@ -197,6 +199,11 @@ OSErr FSOpen(ConstStr255Param fileName, short vRefNum, short *refNum)
 	(void)vRefNum;
 	if (refNum == NULL)
 		return paramErr;
+	/* opening a file usually starts a load: queue the loading lead now,
+	 * before the path lookup and whatever precedes the first read */
+	unix_sound_loading();
+	unix_vbl_site = "open";
+	unix_vbl_poll();
 	mac_path_to_c(fileName, path, sizeof path);
 
 	/* Mac FSOpen = open an EXISTING file read/write. A read-only file (the
@@ -241,6 +248,8 @@ OSErr FSRead(short refNum, long *count, void *buffPtr)
 	if (count == NULL || buffPtr == NULL)
 		return paramErr;
 	unix_sound_loading();
+	unix_vbl_site = "readstart";
+	unix_vbl_poll();
 	/* A read can come back short without meaning end-of-file (a signal,
 	 * a pipe): loop until the count is met; only a read of 0 is the end.
 	 * Large reads go in pieces, with the sound's VBL between them, so
