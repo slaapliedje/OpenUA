@@ -52,6 +52,8 @@
 
 static void (*s_vbl_hook)(void);
 static unsigned long s_last_tick;
+static unsigned long s_seq_tick;	/* ticks the sequencer has run */
+static long s_tick_frac;		/* 60ths of a sample owed */
 static int s_fd = -1;
 static int s_rec = -1;			/* OPENUA_SNDREC: a copy of the stream */
 static char s_buf[CHUNK];
@@ -64,7 +66,7 @@ int plat_sound_init(void)
 {
 	int hz;
 
-	s_last_tick = unix_ticks();
+	s_last_tick = s_seq_tick = unix_ticks();
 	s_fd = open("/dev/audio", O_WRONLY);
 	if (s_fd < 0)
 		return 1;			/* no sound: the shim continues silent */
@@ -138,25 +140,66 @@ static long queued_now(void)
 	return q;
 }
 
+/* Write n rendered samples from s_buf (high-passed) to the device. */
+static int put(long n)
+{
+	mix_highpass(s_buf, n);
+	if (write(s_fd, s_buf, (size_t)n) != n)
+		return 0;
+	if (s_rec >= 0)
+		(void)write(s_rec, s_buf, (size_t)n);
+	s_queued += n;
+	return 1;
+}
+
+/* Run the engine's sound task once: one 60 Hz tick of the sequencer. It
+ * counts as a VBL (plat_ticks is just the clock, FSRead does not refill). */
+static void run_seq(void)
+{
+	int was = unix_in_vbl;
+
+	unix_in_vbl = 1;
+	if (s_vbl_hook != NULL)
+		s_vbl_hook();
+	unix_in_vbl = was;
+	s_seq_tick++;
+}
+
+/* Queue sound up to the lead, ONE TICK AT A TIME with the sequencer run
+ * between ticks: the sequencer rewrites the voices once a tick and the
+ * mixer plays whatever they hold, so rendering a second in one go played
+ * one note for that second (the note that "dragged" while a screen
+ * loaded). The music is clocked by the samples written, as the other
+ * ports' VBL is clocked by the sound it refills; the sequencer runs up to
+ * the lead ahead of the wall clock. */
 static void refill(void)
 {
-	long want, n;
+	long want, q, n, got = 0;
 
 	if (s_fd < 0 || !mix_audible())
 		return;
 	want = mix_hz * (unix_ticks() < s_loading_until ? LOAD_LEAD_MS : LEAD_MS)
-	     / 1000 - queued_now();
-	while (want > 0) {
-		n = want < CHUNK ? want : CHUNK;
-		mix_render(s_buf, n);
-		mix_highpass(s_buf, n);
-		if (write(s_fd, s_buf, (size_t)n) != n)
-			return;
-		if (s_rec >= 0)
-			(void)write(s_rec, s_buf, (size_t)n);
-		s_queued += n;
-		want -= n;
+	     / 1000;
+	q = queued_now();
+	while (q + got < want && mix_audible()) {
+		n = mix_hz / 60;
+		s_tick_frac += mix_hz % 60;
+		if (s_tick_frac >= 60) {
+			s_tick_frac -= 60;
+			n++;
+		}
+		if (got + n > CHUNK) {
+			if (!put(got))
+				return;
+			q += got;
+			got = 0;
+		}
+		mix_render(s_buf + got, n);
+		got += n;
+		run_seq();
 	}
+	if (got > 0)
+		(void)put(got);
 }
 
 int plat_sound_play_mono8(const signed char *samples, long count, int rate_hz)
@@ -199,13 +242,21 @@ void plat_sound_tone(int count, int amp, int duration_ticks)
 	mix_tone(count, amp, duration_ticks);
 }
 
-/* Top up the device, then run the engine's sound task (refill first, so a
- * slow sequencer pass cannot starve the sound). */
+/* Top up the device (which runs the sequencer for each tick it renders);
+ * with nothing audible, run the sequencer by the wall clock instead - it
+ * is what starts the voices - but never while it is still ahead from
+ * rendering. */
 void plat_sound_vbl(void)
 {
+	unsigned long now = unix_ticks();
+	int n = 0;
+
 	refill();
-	if (s_vbl_hook != NULL)
-		s_vbl_hook();
+	if (s_seq_tick + 4 < now)
+		s_seq_tick = now - 4;	/* a long stall is not replayed in a burst */
+	while (s_seq_tick < now && n++ < 4 && !(s_fd >= 0 && mix_audible()))
+		run_seq();
+	refill();			/* a voice the task just started */
 }
 
 void plat_sound_set_vbl_hook(void (*fn)(void))
@@ -231,7 +282,6 @@ void unix_sound_loading(void)
 void unix_vbl_poll(void)
 {
 	unsigned long now;
-	int n = 0;
 
 	if (unix_in_vbl)
 		return;
@@ -248,11 +298,7 @@ void unix_vbl_poll(void)
 		dbg_log(s_last_site);
 		dbg_log(unix_vbl_site);
 	}
-	while (s_last_tick < now && n < 4) {
-		plat_sound_vbl();
-		s_last_tick++;
-		n++;
-	}
+	plat_sound_vbl();
 	s_last_tick = now;
 	s_last_site = unix_vbl_site;
 	unix_in_vbl = 0;
