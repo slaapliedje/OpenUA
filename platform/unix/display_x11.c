@@ -185,7 +185,24 @@ static void direct_init(int scr)
 static void direct_rect(const unsigned char *pix, int x, int y, int w, int h)
 {
 	int r, c, k, S = s_scale;
+	static int s_clipped;
 
+	/* the card holds the other server's screen and the LUT too: never
+	 * write outside our own (and say so the first time) */
+	if (x < 0 || y < 0 || x + w > GW || y + h > GH) {
+		if (!s_clipped++) {
+			dbg_log_num("x11: direct rect clipped, x = ", x);
+			dbg_log_num("x11:   y = ", y);
+			dbg_log_num("x11:   w = ", w);
+			dbg_log_num("x11:   h = ", h);
+		}
+		if (x < 0) { w += x; x = 0; }
+		if (y < 0) { h += y; y = 0; }
+		if (x + w > GW) w = GW - x;
+		if (y + h > GH) h = GH - y;
+		if (w <= 0 || h <= 0)
+			return;
+	}
 	for (r = y; r < y + h; r++) {
 		const unsigned char *src = pix + (long)r * GW + x;
 		volatile unsigned char *d0 = s_vram + (long)r * S * s_vpitch + (long)x * S;
