@@ -59,6 +59,7 @@ static int s_ch = 1;			/* channels: 2 = stereo frames */
 static int s_rec = -1;			/* OPENUA_SNDREC: a copy of the stream */
 static char s_buf[CHUNK];
 volatile int unix_in_vbl;
+unsigned long unix_seq_now;
 static int s_gaplog, s_ngaps;		/* OPENUA_SNDLOG */
 static int s_fed;			/* the last refill queued sound */
 static long s_dry;			/* ... and the queue ran out after */
@@ -69,7 +70,7 @@ int plat_sound_init(void)
 {
 	int hz;
 
-	s_last_tick = s_seq_tick = unix_ticks();
+	s_last_tick = s_seq_tick = unix_seq_now = unix_ticks();
 	s_fd = open("/dev/audio", O_WRONLY);
 	if (s_fd < 0)
 		return 1;			/* no sound: the shim continues silent */
@@ -167,16 +168,20 @@ static int put(long n)
 }
 
 /* Run the engine's sound task once: one 60 Hz tick of the sequencer. It
- * counts as a VBL (plat_ticks is just the clock, FSRead does not refill). */
+ * counts as a VBL (FSRead does not refill), and the time it reads is the
+ * SOUND's: the sequencer plays the notes due by TickCount, so a burst of
+ * ticks rendered ahead, all reading the wall clock, held a note and then
+ * caught up in a rush. plat_ticks returns unix_seq_now inside the task. */
 static void run_seq(void)
 {
 	int was = unix_in_vbl;
 
+	s_seq_tick++;
+	unix_seq_now = s_seq_tick;
 	unix_in_vbl = 1;
 	if (s_vbl_hook != NULL)
 		s_vbl_hook();
 	unix_in_vbl = was;
-	s_seq_tick++;
 }
 
 /* Queue sound up to the lead, ONE TICK AT A TIME with the sequencer run

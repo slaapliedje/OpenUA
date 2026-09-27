@@ -116,10 +116,11 @@ unsigned long plat_ticks(void)
 	unsigned long now = unix_ticks();
 
 	/* The engine's VBL task asks for the time too (jt1091 -> jt1149): that
-	 * is not the engine waiting, so just the time - no flush, no idle
-	 * sleep. The TOS build does the same under g_plat_in_super. */
+	 * is not the engine waiting, so no flush, no idle sleep (the TOS build
+	 * does the same under g_plat_in_super) - and the time is the sound's,
+	 * which the task runs by (sound_unix.c, run_seq). */
 	if (unix_in_vbl)
-		return now;
+		return unix_seq_now;
 	/* An engine waiting on the clock (a wipe, a pause, a picture paced
 	 * row by row) may not pump input for seconds: the VBL still has to
 	 * run, as the interrupt does on the Atari. */

@@ -20,6 +20,10 @@ extern const char *unix_vbl_site;
  * nested unix_vbl_poll does nothing. */
 extern volatile int unix_in_vbl;
 
+/* The tick the sound task is running for (the sound's clock, up to the
+ * lead ahead of the wall clock): what plat_ticks returns inside it. */
+extern unsigned long unix_seq_now;
+
 /* The 60 Hz tick count, for the port's own use: unlike plat_ticks() it
  * never counts as the engine waiting (see input_x11.c). */
 unsigned long unix_ticks(void);
