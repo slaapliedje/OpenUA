@@ -18,6 +18,7 @@
 #ifdef FRUA_UNIX
 
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -28,11 +29,13 @@
 #include <sys/statvfs.h>
 
 #include "files.h"
+#include "dbglog.h"
 
 /* platform/unix/sound_unix.c: the sound's VBL (see FSRead) */
 extern void unix_vbl_poll(void);
 extern const char *unix_vbl_site;
 extern void unix_sound_loading(void);
+extern unsigned long unix_ticks(void);
 #define FSREAD_PIECE	16384		/* bytes read between VBLs */
 
 /* refNum descriptor table: index 1..MAX_FH-1 -> fd + 1 (0 = free). refNum 0
@@ -205,6 +208,10 @@ OSErr FSOpen(ConstStr255Param fileName, short vRefNum, short *refNum)
 	unix_vbl_site = "open";
 	unix_vbl_poll();
 	mac_path_to_c(fileName, path, sizeof path);
+	if (getenv("OPENUA_SNDLOG") != NULL) {	/* to match the sound's quiet spells */
+		dbg_log_num("file: open at tick ", (long)unix_ticks());
+		dbg_log(path);
+	}
 
 	/* Mac FSOpen = open an EXISTING file read/write. A read-only file (the
 	 * installed game data may well be) still opens, for reading. */

@@ -184,6 +184,18 @@ static void run_seq(void)
 	unix_in_vbl = was;
 }
 
+/* OPENUA_SNDLOG: when the music stops and starts (the first 64), with how
+ * far the sequencer had run ahead of the wall clock */
+static void quiet_log(const char *what)
+{
+	static int n;
+
+	if (!s_gaplog || n++ >= 64)
+		return;
+	dbg_log_num(what, (long)unix_ticks());
+	dbg_log_num("sound:   sequencer ahead by ", (long)(s_seq_tick - unix_ticks()));
+}
+
 /* Queue sound up to the lead, ONE TICK AT A TIME with the sequencer run
  * between ticks: the sequencer rewrites the voices once a tick and the
  * mixer plays whatever they hold, so rendering a second in one go played
@@ -196,13 +208,19 @@ static void refill(void)
 	long want, q, n, got = 0;
 
 	if (s_fd < 0 || !mix_audible()) {
+		if (s_fed)
+			quiet_log("sound: quiet at tick ");
 		s_fed = 0;
 		return;
 	}
+	if (!s_fed)
+		quiet_log("sound: audible at tick ");
 	want = mix_hz * s_ch
 	     * (unix_ticks() < s_loading_until ? LOAD_LEAD_MS : LEAD_MS) / 1000;
 	q = queued_now();
-	if (s_fed && q == 0)
+	/* after running dry the driver restarts a little ahead (its LEAD,
+	 * 512 bytes of silence): "empty" is at most that much queued */
+	if (s_fed && q <= 1024)
 		s_dry++;
 	s_fed = 1;
 	while (q + got < want && mix_audible()) {
@@ -301,6 +319,18 @@ void unix_sound_loading(void)
 	s_loading_until = unix_ticks() + LOAD_TICKS;
 	if (!unix_in_vbl)
 		refill();
+}
+
+/* From every engine function (boot.c's PROBE): every 256th call, a poll
+ * - the clock read is a system call, the call itself nearly free. */
+void plat_probe_poll(const char *name)
+{
+	static unsigned n;
+
+	if ((++n & 255) != 0 || unix_in_vbl)
+		return;
+	unix_vbl_site = name;
+	unix_vbl_poll();
 }
 
 /* One VBL per 60 Hz tick since the last call; a long stall (the process was

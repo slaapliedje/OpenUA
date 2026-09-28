@@ -437,6 +437,13 @@ static void probe_once(const char *name)
 #  define PROBE(name) probe_once("stub: " name)
 #elif defined(FRUA_ENGINE_PROBE)
 #  define PROBE(name) dbg_log("stub: " name)
+#elif defined(FRUA_UNIX)
+/* No interrupt runs the sound under Unix: the port feeds it whenever the
+ * engine polls. Every engine function passes here, so a long stretch of
+ * engine work (a picture's teardown ran a second with no poll) still
+ * feeds it now and then, and OPENUA_SNDLOG can name the function. */
+extern void plat_probe_poll(const char *name);
+#  define PROBE(name) plat_probe_poll(name)
 #else
 #  define PROBE(name) ((void)0)
 #endif
