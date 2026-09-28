@@ -696,6 +696,15 @@ static void x11_set_palette(const dsp_color_t *colors, short first, short count)
 		return;
 	if (first + count > 256)
 		count = (short)(256 - first);
+	/* A whole new palette is a picture changing (to black, then to the
+	 * next picture's colours), and the teardown between them ran a third
+	 * of a second with nothing feeding the sound: queue the loading lead,
+	 * as a file open does. A colour cycle moves a few entries, not this. */
+	if (count >= 200) {
+		unix_sound_loading();
+		unix_vbl_site = "palette";
+		unix_vbl_poll();
+	}
 	if (s_pseudo) {
 		XColor xc[256];
 
