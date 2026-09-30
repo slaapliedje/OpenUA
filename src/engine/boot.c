@@ -19123,6 +19123,34 @@ static long  g_event_tail_base;         /* #8: qd_hold_swallowed() at arm time *
  * A frozen display is far worse than the flicker this was fixing, so the rule
  * is now: arm only inside the step dispatch, and drop any outstanding hold
  * before anything else draws or waits for the player. */
+/* Present only the rows announced dirty (the typewriter's line, #166), or
+ * the whole screen when no span can be derived - the conservative fallback.
+ * Shared by the typewriter (l435a) and the event-tail hold. */
+static void present_announced_rows(void)
+{
+	const unsigned char *drows = NULL;
+	int                  scan_all = qd_dirty_rows(&drows);
+
+	if (!scan_all && drows != NULL) {
+		short y0 = -1, y1 = -1, y;
+
+		for (y = 0; y < PLANAR_DIRTY_MAX; y++) {
+			if (!drows[y])
+				continue;
+			if (y0 < 0)
+				y0 = y;
+			y1 = y;
+		}
+		if (y0 >= 0)
+			qd_present_rect((short)0, y0, qd_surface_width(),
+			                (short)(y1 - y0 + 1));
+		else
+			qd_present();
+	} else {
+		qd_present();
+	}
+}
+
 static void port_event_tail_hold(void)
 {
 #ifdef FRUA_NOEVHOLD
@@ -19131,6 +19159,22 @@ static void port_event_tail_hold(void)
 	if (!g_event_step_ctx)
 		return;             /* not a walk step: nobody would release it */
 	if (!g_event_tail_hold) {
+		/* ★ LAND THE TEXT FIRST. The event's text has just been typed,
+		 * and the hold is about to swallow every present until the tail
+		 * is rebuilt. Where the typewriter keeps up it presents each
+		 * glyph itself, so the whole line is already on screen here. On
+		 * a machine where it runs BEHIND its budget (the TT under ASV:
+		 * ~3 ticks a glyph against 1) its own present never fires, the
+		 * text reaches the screen only through jt1134's 12-tick idle
+		 * present, and up to 12 ticks of glyphs are drawn but not yet
+		 * presented when the hold arms: "The Weary Wander", a second's
+		 * pause, then "er." at the release (OPENUA_TRACE, 2026-09-30:
+		 * last glyph at tick 9078, next present 9152). Announce the
+		 * pending rows and put them up; where they are already up this
+		 * finds nothing dirty and presents nothing. */
+		l4d88();
+		if (qd_dirty_any())
+			present_announced_rows();
 		g_event_tail_hold = 1;
 		g_event_tail_tick = TickCount();
 		g_event_tail_base = qd_hold_swallowed();
@@ -29215,8 +29259,6 @@ static void l435a(void)
 	{
 		static long s_text_present = -1;
 		long        now = TickCount();
-		const unsigned char *drows = NULL;
-		int                  scan_all;
 
 		/* ★ FLUSH FIRST. The glyph is drawn before l435a is called, but
 		 * its rows are not ANNOUNCED until the pending InvalRect is
@@ -29258,26 +29300,7 @@ static void l435a(void)
 			 * (a writer that did not narrow) or when no row span can
 			 * be derived — the conservative direction, and identical
 			 * to the old behaviour. */
-			scan_all = qd_dirty_rows(&drows);
-			if (!scan_all && drows != NULL) {
-				short y0 = -1, y1 = -1, y;
-
-				for (y = 0; y < PLANAR_DIRTY_MAX; y++) {
-					if (!drows[y])
-						continue;
-					if (y0 < 0)
-						y0 = y;
-					y1 = y;
-				}
-				if (y0 >= 0)
-					qd_present_rect((short)0, y0,
-					                qd_surface_width(),
-					                (short)(y1 - y0 + 1));
-				else
-					qd_present();
-			} else {
-				qd_present();
-			}
+			present_announced_rows();
 			s_text_present = now;
 			DBG_TRACE("text_glyph", now, g_a5_long(-17526));
 		}
