@@ -705,15 +705,6 @@ static void x11_set_palette(const dsp_color_t *colors, short first, short count)
 	if (first + count > 256)
 		count = (short)(256 - first);
 	DBG_TRACE("x11_pal", first, count);
-	/* A whole new palette is a picture changing (to black, then to the
-	 * next picture's colours), and the teardown between them ran a third
-	 * of a second with nothing feeding the sound: queue the loading lead,
-	 * as a file open does. A colour cycle moves a few entries, not this. */
-	if (count >= 200) {
-		unix_sound_loading();
-		unix_vbl_site = "palette";
-		unix_vbl_poll();
-	}
 	if (s_pseudo) {
 		XColor xc[256];
 
@@ -734,6 +725,18 @@ static void x11_set_palette(const dsp_color_t *colors, short first, short count)
 			s_pal[first + i] = colors[i];
 		surround_black();
 		XFlush(s_dpy);
+		/* A whole new palette is a picture changing (to black, then to
+		 * the next picture's colours), and the teardown between them ran
+		 * a third of a second with nothing feeding the sound: queue the
+		 * loading lead, as a file open does. AFTER the frame and its
+		 * palette are out - rendering a second of sound first held the
+		 * picture back by that long (OPENUA_TRACE, 2026-09-30). A colour
+		 * cycle moves a few entries, not this. */
+		if (count >= 200) {
+			unix_sound_loading();
+			unix_vbl_site = "palette";
+			unix_vbl_poll();
+		}
 	} else {
 		/* TrueColor: the window holds colours, so a changed entry means
 		 * resending the rows on screen that use it - only those, and
