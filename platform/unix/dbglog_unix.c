@@ -18,7 +18,10 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+#include <stdlib.h>
+
 #include "dbglog.h"
+#include "unix_vbl.h"
 
 static void num_to_dec(long v, char *out)
 {
@@ -73,6 +76,67 @@ void dbg_log(const char *msg)
 void dbg_log_num(const char *label, long value)
 {
 	dbg_file_num(label, value);
+}
+
+/* --- the in-memory event trace (OPENUA_TRACE) ------------------------------ */
+
+#define TRACE_MAX	8192		/* the last this many events are kept */
+
+static struct { unsigned long t; const char *tag; long a, b; } s_tr[TRACE_MAX];
+static long s_tr_n;
+static int  s_tr_on = -1;
+
+void dbg_trace(const char *tag, long a, long b)
+{
+	long i;
+
+	if (s_tr_on < 0)
+		s_tr_on = getenv("OPENUA_TRACE") != NULL;
+	if (!s_tr_on)
+		return;
+	i = s_tr_n++ % TRACE_MAX;
+	s_tr[i].t = unix_ticks();
+	s_tr[i].tag = tag;
+	s_tr[i].a = a;
+	s_tr[i].b = b;
+}
+
+/* "trace: <tick> <tag> <a> <b>" per event, oldest first, in one pass */
+void dbg_trace_dump(void)
+{
+	static char buf[4096];
+	char num[12];
+	long i, from = s_tr_n > TRACE_MAX ? s_tr_n - TRACE_MAX : 0;
+	int  fd, n = 0;
+
+	if (s_tr_on <= 0 || s_tr_n == 0)
+		return;
+	dbg_file_num("trace: events recorded = ", s_tr_n);
+	fd = open("DBG.LOG", O_WRONLY | O_APPEND);
+	if (fd < 0)
+		return;
+	for (i = from; i < s_tr_n; i++) {
+		const char *tag = s_tr[i % TRACE_MAX].tag;
+		int tl = (int)strlen(tag) > 40 ? 40 : (int)strlen(tag);
+
+		num_to_dec((long)s_tr[i % TRACE_MAX].t, num);
+		if (n > (int)sizeof buf - 128) {
+			write(fd, buf, n);
+			n = 0;
+		}
+		memcpy(buf + n, "trace: ", 7); n += 7;
+		memcpy(buf + n, num, strlen(num)); n += (int)strlen(num);
+		buf[n++] = ' ';
+		memcpy(buf + n, tag, tl); n += tl;
+		num_to_dec(s_tr[i % TRACE_MAX].a, num);
+		buf[n++] = ' '; memcpy(buf + n, num, strlen(num)); n += (int)strlen(num);
+		num_to_dec(s_tr[i % TRACE_MAX].b, num);
+		buf[n++] = ' '; memcpy(buf + n, num, strlen(num)); n += (int)strlen(num);
+		buf[n++] = '\n';
+	}
+	if (n)
+		write(fd, buf, n);
+	close(fd);
 }
 
 void dbg_log_screen_owned(void)

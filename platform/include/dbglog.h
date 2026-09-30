@@ -34,5 +34,19 @@ void dbg_file_str(const char *label, const char *value);
  */
 void dbg_log_screen_owned(void);
 
+/*
+ * Unix only: a timestamped event trace kept in MEMORY (OPENUA_TRACE=1) and
+ * written to DBG.LOG at exit - for timing bugs on the TT, where a log line
+ * mid-run is a disk write that would itself shift the timing. Elsewhere
+ * DBG_TRACE compiles to nothing. tag must be a string literal.
+ */
+void dbg_trace(const char *tag, long a, long b);
+void dbg_trace_dump(void);
+#ifdef FRUA_UNIX
+#define DBG_TRACE(tag, a, b) dbg_trace((tag), (long)(a), (long)(b))
+#else
+#define DBG_TRACE(tag, a, b) ((void)0)
+#endif
+
 
 #endif /* PLATFORM_DBGLOG_H */

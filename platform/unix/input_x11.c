@@ -321,6 +321,7 @@ int plat_kb_poll(unsigned char *out_scan, unsigned char *out_ascii)
 		if ((kbs & 0x04) && (ascii & 0x40))
 			ascii &= 0x1F;              /* Ctrl-letter, TOS-style */
 	}
+	DBG_TRACE("key", scan, ascii);
 #ifdef FRUA_BEEPTRACE
 	/* one line per key taken from X: two engine reads of one key show as
 	 * two ph5 lines after one of these (see the #11/#132 trace) */

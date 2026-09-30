@@ -266,6 +266,7 @@ void SysBeep(short duration)
 #ifdef FRUA_BEEPTRACE
 	dbg_file_num("beep: SysBeep dur = ", (long)duration);
 #endif
+	DBG_TRACE("SysBeep", duration, 0);
 	plat_sound_tone(710, 128, (int)duration);
 }
 

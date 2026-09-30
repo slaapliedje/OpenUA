@@ -107,6 +107,7 @@ int plat_sound_init(void)
 
 void plat_sound_shutdown(void)
 {
+	dbg_trace_dump();		/* OPENUA_TRACE: the run's events, at the end */
 	s_vbl_hook = NULL;
 	mix_set_record(NULL);
 	mix_effect_stop();
@@ -206,6 +207,8 @@ static void quiet_log(const char *what)
 static void refill(void)
 {
 	long want, q, n, got = 0;
+	int ticks = 0;
+	unsigned long t0 = unix_ticks();
 
 	if (s_fd < 0 || !mix_audible()) {
 		if (s_fed)
@@ -242,9 +245,12 @@ static void refill(void)
 			mix_render(s_buf + got, n);
 		got += n * s_ch;
 		run_seq();
+		ticks++;
 	}
 	if (got > 0)
 		(void)put(got);
+	if (ticks >= 10)		/* a big fill: how long did it take? */
+		DBG_TRACE("snd_fill", ticks, unix_ticks() - t0);
 }
 
 int plat_sound_play_mono8(const signed char *samples, long count, int rate_hz)
@@ -316,6 +322,7 @@ void plat_sound_set_vbl_hook(void (*fn)(void))
  * rest of the time the lead stays short, so an effect is heard promptly. */
 void unix_sound_loading(void)
 {
+	DBG_TRACE("snd_loading", 0, 0);
 	s_loading_until = unix_ticks() + LOAD_TICKS;
 	if (!unix_in_vbl)
 		refill();

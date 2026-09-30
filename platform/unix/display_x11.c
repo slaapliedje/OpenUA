@@ -486,6 +486,8 @@ static void flush(void)
                                                s_shadow + (long)(y) * GW, GW) != 0)
 	s_pending = 0;
 	if (s_vram != NULL) {
+		short nrows = 0, firsty = -1;
+
 		/* straight into the card: of the rows presented since the last
 		 * flush, the columns that changed */
 		for (y = 0; y < GH; y++) {
@@ -514,7 +516,11 @@ static void flush(void)
 			}
 			direct_rect(s_frame, x0, y, x1 - x0, 1);
 			memcpy(sh + x0, f + x0, (size_t)(x1 - x0));
+			if (firsty < 0)
+				firsty = y;
+			nrows++;
 		}
+		DBG_TRACE("flush", firsty, nrows);
 		return;
 	}
 	for (y = 0; y < GH; ) {
@@ -606,6 +612,7 @@ static void x11_present_rect(short x, short y, short w, short h)
 	if (y + h > GH) h = (short)(GH - y);
 	if (w <= 0 || h <= 0)
 		return;
+	DBG_TRACE("present_rect", y, h);
 	if (s_pending && unix_ticks() != s_pending_tick)
 		flush();		/* the frame owed from an earlier tick */
 	for (r = 0; r < h; r++)
@@ -619,6 +626,7 @@ static void x11_present(void)
 {
 	if (s_dpy == NULL)
 		return;
+	DBG_TRACE("present", 0, 0);
 	if (s_pending && unix_ticks() != s_pending_tick)
 		flush();		/* the frame owed from an earlier tick */
 	/* Drawing into the card, take only the rows the engine says it drew
@@ -696,6 +704,7 @@ static void x11_set_palette(const dsp_color_t *colors, short first, short count)
 		return;
 	if (first + count > 256)
 		count = (short)(256 - first);
+	DBG_TRACE("x11_pal", first, count);
 	/* A whole new palette is a picture changing (to black, then to the
 	 * next picture's colours), and the teardown between them ran a third
 	 * of a second with nothing feeding the sound: queue the loading lead,

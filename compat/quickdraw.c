@@ -32,10 +32,7 @@
 #ifdef FRUA_SLOWPRESENT
 #include "events.h"             /* TickCount — #8 slow-present simulator */
 #endif
-#if defined(FRUA_PRESENTCENSUS) || defined(FRUA_NCPROF) || defined(FRUA_REBAKEVERIFY) \
- || defined(FRUA_PALDIAG)
-#include "dbglog.h"             /* #61/#63 present census; #122 nc histogram */
-#endif
+#include "dbglog.h"             /* DBG_TRACE; #61/#63 present census; #122 nc histogram */
 
 void SetPt(Point *pt, short h, short v)
 {
@@ -573,6 +570,7 @@ static void qd_pal_pend_flush(void)
 
 	if (s_pal_pend_hi < s_pal_pend_lo)
 		return;
+	DBG_TRACE("qd_pal_flush", s_pal_pend_lo, s_pal_pend_hi);
 	d = dsp_detect();
 	if (d != NULL && d->set_palette != NULL)
 		d->set_palette(&g_palette[s_pal_pend_lo], s_pal_pend_lo,
@@ -2279,6 +2277,7 @@ void qd_set_palette(const RGBColor *colors, short first, short count)
 	    && !s_pal_blackout) {
 		/* rides with the next present — see display.h. g_palette above is
 		 * already current; remember the window to forward. */
+		DBG_TRACE("qd_pal_pend", first, count);
 		if (first < s_pal_pend_lo)
 			s_pal_pend_lo = first;
 		if ((short)(first + count - 1) > s_pal_pend_hi)

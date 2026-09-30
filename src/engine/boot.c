@@ -28322,6 +28322,7 @@ static void jt1080(void)
 	long start;
 
 	PROBE("jt1080");
+	DBG_TRACE("chime", 0, 0);
 #ifdef FRUA_BEEPTRACE
 	dbg_file_num("beep: jt1080 (unclaimed-key chime)", 1L);
 #endif
@@ -28922,6 +28923,7 @@ static short l2d3e(void)
 		if (g_walk_input)
 			dbg_file_num("acc: ph5 claimed item (count if none) ", (long)i * 100L + count);
 #endif
+		DBG_TRACE("ph5_key", sel_key, i < count);
 #ifdef FRUA_BEEPTRACE
 		dbg_file_num("beep: ph5 key*1000+claimed = ",
 		             (long)sel_key * 1000L + (i < count ? 1L : 0L));
@@ -29173,6 +29175,7 @@ static void l435a(void)
 	g_a5_long(-17526) = g_a5_long(-17526) + count;
 	t = jt1134();
 	if (t > g_a5_long(-17526)) {
+		DBG_TRACE("text_behind", t - g_a5_long(-17526), count);
 		g_a5_long(-17526) = t;          /* fell behind: catch the target up */
 		return;                         /* ...and do NOT add a present to it */
 	}
@@ -29276,6 +29279,7 @@ static void l435a(void)
 				qd_present();
 			}
 			s_text_present = now;
+			DBG_TRACE("text_glyph", now, g_a5_long(-17526));
 		}
 	}
 
