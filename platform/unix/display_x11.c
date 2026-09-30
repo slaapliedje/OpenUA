@@ -584,6 +584,18 @@ void x11_flush_due(void)
 		flush();
 }
 
+/* the rows the next flush will actually write */
+static int owed_rows(void)
+{
+	int y, n = 0;
+
+	for (y = 0; y < GH; y++)
+		if (s_rowforce[y] || (s_rowdirty[y]
+		    && memcmp(s_frame + (long)y * GW, s_shadow + (long)y * GW, GW) != 0))
+			n++;
+	return n;
+}
+
 static void mark_dirty(short y0, short y1)
 {
 	if (y1 > y0)
@@ -711,8 +723,33 @@ static void x11_set_palette(const dsp_color_t *colors, short first, short count)
 		/* the colormap is the card's LUT: a new palette shows at once, so
 		 * the frame it belongs with goes out first (else an outgoing
 		 * picture shows in the incoming colours until the next tick) */
-		if (s_pending)
+		if (s_pending) {
+			/* ★ A NEW PICTURE COMPOSES UNDER BLACK. Straight into the
+			 * card a picture's rows take ~12 ticks to write (OPENUA_TRACE,
+			 * 2026-09-30), and the old palette would show them garbled
+			 * the whole time before its own colours arrived. So when a
+			 * whole palette comes with a picture's worth of rows, the
+			 * changing entries go black first - and the server must have
+			 * DONE it (XSync) before a pixel lands - then the rows, then
+			 * the colours: a short black, and the picture appears whole.
+			 * The titles on the hw-palette machines settled the same way
+			 * (no ordering of a slow present and a live CLUT is
+			 * seam-free). Anything smaller - a colour cycle, a UI tweak,
+			 * a line of text - goes out as before. */
+			if (s_vram != NULL && count >= 200 && owed_rows() >= 64) {
+				XColor bk[256];
+
+				for (i = 0; i < count; i++) {
+					bk[i].pixel = (unsigned long)(first + i);
+					bk[i].red = bk[i].green = bk[i].blue = 0;
+					bk[i].flags = DoRed | DoGreen | DoBlue;
+				}
+				XStoreColors(s_dpy, s_cmap, bk, count);
+				XSync(s_dpy, False);
+				DBG_TRACE("pal_blackout", first, count);
+			}
 			flush();
+		}
 		for (i = 0; i < count; i++) {
 			xc[i].pixel = (unsigned long)(first + i);
 			xc[i].red   = (unsigned short)(colors[i].r * 257);
