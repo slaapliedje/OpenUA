@@ -27,6 +27,7 @@
 #include "input.h"             /* plat_ticks, plat_kb_poll, ... */
 #include "quickdraw.h"         /* qd_cursor_refresh (idle cursor tracking) */
 #include "plat_sys.h"          /* plat_get_datetime — GetDateTime's clock */
+extern void plat_midi_poll(void); /* MIDI music: send what the vblank queued */
 
 #define EVENT_QUEUE_CAP 16
 
@@ -331,6 +332,7 @@ Boolean GetNextEvent(short eventMask, EventRecord *theEvent)
 
 	if (theEvent == NULL)
 		return 0;
+	plat_midi_poll();       /* the main loop drains the MIDI queue; cheap when empty */
 	if (queue_pop(eventMask, theEvent))
 		return 1;
 	if (mouse_edge_to_event(&tmp, 1)) {

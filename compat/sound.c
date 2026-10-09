@@ -57,6 +57,11 @@ extern int  plat_sound_synth_start(const void *ftsoundrec);
 extern void plat_sound_synth_stop(void);
 extern void plat_sound_tone(int count, int amp, int duration_ticks);
 extern void plat_sound_set_vbl_hook(void (*fn)(void));
+/* MIDI music (platform/midi_seq.c; no-ops where there is no port) */
+extern int  plat_midi_enabled(void);
+extern int  plat_midi_song(const unsigned char *xmi, long len);
+extern void plat_midi_stop(void);
+extern void plat_midi_mute(int muted);
 
 /* Big-endian readers for the `snd ` resource. */
 static unsigned short rd_be16(const unsigned char *p)
@@ -352,6 +357,29 @@ int SndDriverBusy(void)
 void SndDriverStop(void)
 {
 	plat_sound_stop();
+}
+
+/* --- PORT: MIDI music ------------------------------------------------------
+ * The engine's song start (jt985), stop (jt984) and sound latch (jt1140)
+ * reach the MIDI player through these; see sound.h. */
+int SndMidiEnabled(void)
+{
+	return plat_midi_enabled();
+}
+
+OSErr SndMidiSong(const void *xmi, long len)
+{
+	return plat_midi_song((const unsigned char *)xmi, len) == 0 ? 0 : (OSErr)-1;
+}
+
+void SndMidiStop(void)
+{
+	plat_midi_stop();
+}
+
+void SndMidiMute(int muted)
+{
+	plat_midi_mute(muted);
 }
 
 OSErr SndDriverWrite(const void *ff_buffer, long byte_count)

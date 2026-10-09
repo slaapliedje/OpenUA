@@ -19,6 +19,8 @@ void mix_reset_phases(void);
 /* The LIVE FTSoundRec the sequencer rewrites while it plays (see
  * plat_sound.h), or NULL to silence the voices. */
 void mix_set_record(const void *ftsoundrec);
+/* 1 = render no music voices (the MIDI port carries the music). */
+void mix_music_mute(int mute);
 
 /* 1 if a voice, the tone or the effect would make a sound. */
 int  mix_audible(void);

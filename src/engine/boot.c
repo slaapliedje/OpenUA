@@ -28036,6 +28036,7 @@ static void jt984(void)
 	short i;
 
 	PROBE("jt984");
+	SndMidiStop();                          /* PORT: the MIDI port's notes off too */
 	g_a5_word(-4778) = -1;
 	for (i = 0; i < 5; i++)
 		*(long *)(g_a5_buf(-4848) + i * 14) = 0;
@@ -28101,6 +28102,66 @@ static void l11a2(short idx, long tickbase)
  * against the -4758 song count — in range [0, count) it loads via
  * L11a2(n, 0), otherwise prints "Song out of range (n/count)" — and
  * restore -4778. Full lift. */
+/* PORT — MIDI music. Slot n of the bank is DOS song q (tools/xmi2slb.py's
+ * SLOT_MAP: slots 0, 1 and 7 are the three DOS songs; the others are Mac-only
+ * compositions the DOS release never had). Hand the Roland (MT-32) score of
+ * that song to the MIDI port, design-first then root like the bank itself
+ * (ADR-0011); a fan module's DQK-named score serves as the fallback. Returns
+ * 1 when the port took the song, 0 when the four-tone synth keeps it. */
+static int port_music_midi(short n)
+{
+	static const unsigned char slot_q[8] = { 1, 2, 0, 0, 0, 0, 0, 3 };
+	static const char *const  stem[3]   = { "RODQ", "DQKQ", "DQK" };
+	const char   *dsn = (const char *)g_a5_buf(-31336);
+	unsigned char p[256];
+	int           q, s, pass, k = 0;
+
+	if (!SndMidiEnabled() || n < 0 || n > 7 || (q = slot_q[n]) == 0)
+		return 0;
+	for (s = 0; s < 3; s++) {
+		for (pass = 0; pass < 2; pass++) {      /* the design, then the root */
+			short refnum;
+			long  len = 0, count;
+			Ptr   buf;
+
+			k = 0;
+			if (pass == 0) {
+				size_t dl;
+				if (dsn == NULL || (dl = strlen(dsn)) == 0 || dl > 200)
+					continue;
+				memcpy(p + 1, dsn, dl);
+				k = (int)dl;
+				p[1 + k++] = ':';               /* HFS separator (jt431) */
+			}
+			memcpy(p + 1 + k, stem[s], strlen(stem[s]));
+			k += (int)strlen(stem[s]);
+			p[1 + k++] = (unsigned char)('0' + q);
+			memcpy(p + 1 + k, ".XMI", 4);
+			k += 4;
+			p[0] = (unsigned char)k;
+			if (FSOpen((ConstStr255Param)p, 0, &refnum) != noErr)
+				continue;
+			if (GetEOF(refnum, &len) != noErr || len <= 0 || len > 65536L
+			    || (buf = NewPtr(len)) == NULL) {
+				FSClose(refnum);
+				continue;
+			}
+			count = len;
+			if (FSRead(refnum, &count, buf) == noErr && count == len
+			    && SndMidiSong(buf, len) == noErr) {
+				FSClose(refnum);
+				DisposePtr(buf);
+				p[k + 1] = 0;
+				dbg_file_str("midi: playing ", (char *)p + 1);
+				return 1;
+			}
+			FSClose(refnum);
+			DisposePtr(buf);
+		}
+	}
+	return 0;
+}
+
 static void port_bank_recheck(void);   /* defined with jt986, below */
 static void jt985(short n) __attribute__((unused));
 static void jt985(short n)
@@ -28112,9 +28173,10 @@ static void jt985(short n)
 	count = (unsigned char)g_a5_byte(-4758);
 
 	l0f1e();
-	if ((unsigned short)count > (unsigned short)n && n >= 0)
+	if ((unsigned short)count > (unsigned short)n && n >= 0) {
+		(void)port_music_midi(n);   /* PORT: the MIDI port takes it when it can */
 		l11a2(n, 0);
-	else
+	} else
 		l036a(ua_strs_at(0x6d80) /* "Song out of range (%d/%d)" */,
 		      n, count);
 	g_a5_word(-4778) = saved;
@@ -29127,6 +29189,7 @@ static short jt1154_pg(void) { PROBE("jt1154"); return (short)(unsigned char)g_a
 static void  jt1140_pg(short v)
 {
 	PROBE("jt1140");
+	SndMidiMute((v & 0xff) == 0);           /* PORT: the sound latch mutes the port too */
 	if ((v & 0xff) == 0)
 		jt1151();                       /* L765c — scroll-state reset */
 	g_a5_byte(-806) = (unsigned char)v;

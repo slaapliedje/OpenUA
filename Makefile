@@ -32,6 +32,7 @@ PLATFORM_SRC := $(PLATFORM_SHARED) \
                 platform/amiga/input_amiga.c \
                 platform/amiga/dbglog_amiga.c \
                 platform/amiga/sys_amiga.c \
+                platform/midi_none.c \
                 platform/amiga/vdi_stub.c
 else ifeq ($(MACHINE),falcon)
 include toolchain/m68k-atari-mint.mk
@@ -44,6 +45,8 @@ PLATFORM_SRC := $(PLATFORM_SHARED) \
                 platform/display_nova.c \
                 platform/sound_falcon.c \
                 platform/sound_mix.c \
+                platform/midi_seq.c \
+                platform/midi_out_acia.c \
                 platform/input.c \
                 platform/vdi.c \
                 platform/dbglog.c \
@@ -65,6 +68,7 @@ PLATFORM_SRC := platform/planar.c platform/mulprof.c \
                 platform/unix/input_x11.c \
                 platform/unix/sound_unix.c \
                 platform/sound_mix.c \
+                platform/midi_none.c \
                 platform/unix/sys_unix.c \
                 platform/unix/dbglog_unix.c \
                 platform/unix/sysv_rt.c \

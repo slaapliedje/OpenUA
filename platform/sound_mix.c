@@ -31,6 +31,8 @@ long mix_hz = 24585L;
 #define FT_WAVE(v)      (34 + (v) * 4)
 
 static const unsigned char * volatile g_ft_rec; /* the LIVE record, or NULL     */
+static volatile int          g_ft_mute;         /* MIDI carries the music: the
+                                                 * four voices stay silent     */
 static unsigned long         g_ft_phase[4];
 
 /* An effect mixed into the loop while the synth owns the DMA. */
@@ -81,7 +83,7 @@ void plat_sound_prof_dump(void)
  * See g_quiet_run in plat_sound_vbl for why that mattered so much. */
 int mix_audible(void)
 {
-	const unsigned char *rec = (const unsigned char *)g_ft_rec;
+	const unsigned char *rec = g_ft_mute ? NULL : (const unsigned char *)g_ft_rec;
 	int v;
 
 	if (g_tone_left > 0 || g_sfx_pos < g_sfx_len)
@@ -110,7 +112,7 @@ int mix_audible(void)
  * strictly cheaper and keeps the two backends the same code shape. */
 void mix_render(char *dst, long n)
 {
-	const unsigned char *rec = (const unsigned char *)g_ft_rec;
+	const unsigned char *rec = g_ft_mute ? NULL : (const unsigned char *)g_ft_rec;
 	const unsigned char *wv[4];
 	unsigned long        iv[4], pv[4];
 	short                ix[4];
@@ -270,7 +272,7 @@ static const unsigned char k_mid = 128;
 
 void mix_render_stereo(char *dst, long n)
 {
-	const unsigned char *rec = (const unsigned char *)g_ft_rec;
+	const unsigned char *rec = g_ft_mute ? NULL : (const unsigned char *)g_ft_rec;
 	const unsigned char *w0, *w1, *w2, *w3, *wv[4];
 	unsigned long iv[4], pv[4], p0, p1, p2, p3, i0, i1, i2, i3;
 	int on[4], v, fx;
@@ -338,6 +340,14 @@ void mix_reset_phases(void)
 
 	for (v = 0; v < 4; v++)
 		g_ft_phase[v] = 0;
+}
+
+/* The MIDI player (midi_seq.c) takes the music over: the engine keeps
+ * writing its live record, nothing of it is rendered. Tone and effects are
+ * unaffected. */
+void mix_music_mute(int mute)
+{
+	g_ft_mute = mute;
 }
 
 void mix_set_record(const void *ftsoundrec)

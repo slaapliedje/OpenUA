@@ -150,6 +150,17 @@ void SysBeep(short duration);
  */
 OSErr SndDriverWrite(const void *ff_buffer, long byte_count);
 
+/*
+ * PORT — MIDI music (platform/midi_seq.c). Not a Mac call: the DOS release's
+ * XMIDI score goes out the machine's MIDI port in place of the four-tone
+ * synth when sound.cfg asks for it. SndMidiSong takes a whole .XMI file and
+ * keeps nothing of the buffer; noErr means the port has the song.
+ */
+int   SndMidiEnabled(void);
+OSErr SndMidiSong(const void *xmi, long len);
+void  SndMidiStop(void);
+void  SndMidiMute(int muted);
+
 /* 1 while the sound HAL is still playing (the driver-busy poll L7ee0
  * spins on before it queues the next effect). */
 int SndDriverBusy(void);

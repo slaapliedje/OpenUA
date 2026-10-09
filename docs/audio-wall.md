@@ -328,3 +328,42 @@ Implementation notes:
   Rendering to 16-bit (`AHIST_M16S`) is where Arne's quality actually shows, and
   the mixer already accumulates in `long` before the clamp.
 * This adds a second Amiga audio backend; **worth an ADR** alongside ADR-0012.
+
+## MIDI music (2026-10-09)
+
+The DOS release ships one XMIDI score per sound device, and `RODQ1-3.XMI`
+is the Roland MT-32 arrangement of the three songs. Every ST, STe, TT and
+Falcon has a MIDI port, so `platform/midi_seq.c` plays that score through
+it, with the four-tone synth's music voices muted (`mix_music_mute`);
+effects and the beep are untouched. Opt in with a `sound.cfg` next to the
+program:
+
+```
+music=midi      the music goes to the MIDI port (default: synth)
+midi=gm         MT-32 patch numbers mapped to General MIDI (the default)
+midi=mt32       patch numbers sent as they are, for a real MT-32
+```
+
+* **Hooks.** `jt985` (song start) hands the song's score to the port
+  through `SndMidiSong` before arming the synth voices; `jt984` (stop all)
+  and `jt1140` (the sound on/off latch) call `SndMidiStop`/`SndMidiMute`.
+  Slot n of the bank is DOS song q by xmi2slb's SLOT_MAP (0, 1, 7 -> 1, 2,
+  3; the Mac-only slots keep the synth). The score is resolved design-first
+  then root like the bank (`RODQ<q>.XMI`, then a fan module's `DQKQ<q>`/`DQK<q>`).
+* **Player.** XMIDI: delay bytes, note-on with a VLQ duration and no
+  note-offs, one tick = tempo/60 us (120 ticks/s at the default tempo —
+  the rule `tools/xmi2slb.py` validated). Events go into a byte FIFO; the
+  sound vblank advances the score by `_hz_200` and sends up to 12 bytes
+  (~4 ms at 31250 baud), the main loop (`GetNextEvent` -> `plat_midi_poll`)
+  drains the rest under Supexec, since the ACIA at $FFFC04/06 is
+  supervisor-only. XMIDI's own controllers (110-120) stay off the wire.
+* **Verified in Hatari** (`--midi-in /dev/null --midi-out file`: the
+  default input device does not exist and its open failure disables MIDI
+  entirely, silently): 1690 note-ons with 1690 matching offs, no stray
+  bytes, the program changes per channel exactly the GM map of the score's
+  MT-32 patches; with `--trace midi_raw` the note-on frame stamps fit the
+  score's ticks at 50.05 Hz (mean jitter 0.3 frames, worst 3.3 when a
+  burst queues behind the per-vblank budget during the title load).
+* **Not yet:** the plain ST (no DMA sound, so no sound vblank to ride —
+  the pump needs its own VBL slot there), the Amiga and the Unix build
+  (`platform/midi_none.c` stubs), and a listening test on hardware.

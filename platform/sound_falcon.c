@@ -33,6 +33,7 @@
 #include "display.h"           /* dsp_vdo_cookie: Falcon-vs-TT gate */
 #include "plat_sys.h"          /* plat_stram_alloc: Mxalloc is TOS 2.01+ */
 #include "sound_mix.h"         /* the mixer: music, tone, effect */
+#include "plat_midi.h"         /* the MIDI port carrying the music instead */
 
 static char *g_buf      = NULL;
 static long  g_buf_size = 0;
@@ -136,6 +137,8 @@ int plat_sound_init(void)
 			Unlocksnd();
 		return -1;
 	}
+	/* MIDI music rides the vblank just installed; sound.cfg opts in. */
+	(void)plat_midi_init();
 	return 0;
 }
 
@@ -275,6 +278,10 @@ void plat_sound_vbl(void)
 		hook();
 		g_plat_in_super = 0;
 	}
+
+	/* MIDI music: advance the score by the 200 Hz counter (_hz_200, readable
+	 * here: a VBL handler is supervisor) and send a few queued bytes. */
+	plat_midi_vbl(*(volatile unsigned long *)0x4BAUL);
 }
 
 /* Our own VBL slot: the display's VBL only exists when it triple-buffers, and
@@ -512,6 +519,7 @@ void plat_sound_shutdown(void)
 {
 	if (!g_locked)
 		return;
+	plat_midi_shutdown();                   /* notes off while the vblank still runs */
 	if (g_snd_vbl_slot >= 0) {              /* unhook before freeing the ring */
 		Supexec(snd_vbl_remove_super);
 		g_snd_vbl_slot = -1;
