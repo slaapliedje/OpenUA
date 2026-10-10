@@ -22,6 +22,13 @@
  * against the Mac bank). Controllers 110-120 are XMIDI's own and stay off
  * the wire. There is no SysEx in these scores; the MT-32 patch numbers are
  * either sent as they are (midi=mt32) or mapped to General MIDI (midi=gm).
+ *
+ * A port that keeps time itself (midi_hw_lead_us() > 0: Atari System V's
+ * /dev/midit) gets a timed stream: before a tick's bytes goes $F9 n,
+ * "wait n ms", the score time since the previous emitting tick, and the
+ * scheduler runs that lead ahead of the clock. The port then plays in
+ * time however rarely the engine polls; a stop, mute or song change
+ * discards what the port holds unplayed before its notes-off.
  */
 #include <string.h>
 #include "plat_midi.h"
@@ -31,6 +38,7 @@
 #define MAX_EVENTS   6144            /* the retail scores need ~2700 */
 #define MAX_ACTIVE   64              /* sounding notes awaiting their off */
 #define FIFO_SIZE    4096            /* power of two: ~40 s of the average flow */
+#define WAIT         0xF9            /* the timed stream's wait command */
 #define TICK_ROOM    512             /* the most one tick queues: the loop's
                                         notes-off and the restart's patches */
 /* per vblank: midi_hw_vbl_bytes(), ~4 ms worth — 12 at 31250 baud */
@@ -48,6 +56,10 @@ static unsigned long g_end_tick;     /* the score restarts here */
 static unsigned long g_tempo_us;     /* at the start of the score */
 
 static int          g_enabled, g_gm = 1;
+static long         g_lead_us;       /* timed port: how far ahead the score runs */
+static int          g_timed;
+static unsigned long g_wait_us;      /* timed: score time since the last emitted wait */
+static int          g_wait_pending;  /* ... a tick passed: emit it before the next bytes */
 static int          g_hushed;        /* All Notes Off sent once, see plat_midi_song */
 static volatile int g_playing, g_muted, g_busy;
 
@@ -117,25 +129,62 @@ static void fifo_put(unsigned char b)
  * arrives is a note that never stops. The scheduler keeps TICK_ROOM free
  * before it fires a tick, so these only drop when a stop or mute hits a
  * queue the port is far behind on. */
+/* timed port: the wait since the previous emitting tick, in ms, in
+ * chunks of up to 255; the sub-ms remainder carries over */
+static void emit_wait(void)
+{
+	unsigned long ms;
+
+	if (!g_timed || !g_wait_pending)
+		return;
+	g_wait_pending = 0;
+	ms = g_wait_us / 1000;
+	g_wait_us -= ms * 1000;
+	while (ms > 255) {
+		fifo_put(WAIT);
+		fifo_put(255);
+		ms -= 255;
+	}
+	fifo_put(WAIT);
+	fifo_put((unsigned char)ms);
+}
+
 static void send2(unsigned char st, unsigned char d1)
 {
-	if (fifo_room() < 2) {
+	if (fifo_room() < 2 + 16) {
 		g_drops++;
 		return;
 	}
+	emit_wait();
 	fifo_put(st);
 	fifo_put(d1);
 }
 
 static void send3(unsigned char st, unsigned char d1, unsigned char d2)
 {
-	if (fifo_room() < 3) {
+	if (fifo_room() < 3 + 16) {
 		g_drops++;
 		return;
 	}
+	emit_wait();
 	fifo_put(st);
 	fifo_put(d1);
 	fifo_put(d2);
+}
+
+/* What the port holds unplayed is dropped before a stop or a change: on
+ * a timed port that is up to the lead of future music; on an immediate
+ * port it is a few ms of the present, sent on. The notes-off that follow
+ * go out at once (no wait precedes them). */
+static void discard_or_flush(void)
+{
+	if (g_timed) {
+		midi_hw_discard();
+		g_fh = g_ft = 0;
+		g_wait_us = 0;
+		g_wait_pending = 0;
+	} else
+		midi_hw_flush();
 }
 
 int midi_seq_pending(void)
@@ -156,12 +205,13 @@ void midi_seq_drain(long budget, long wait_iters)
 		while (!(ready = midi_hw_ready()) && w-- > 0)
 			;
 		if (!ready)
-			return;                 /* the port is slow: try again later */
+			break;                  /* the port is slow: try again later */
 		midi_hw_put(g_fifo[g_fh]);
 		g_fh = (g_fh + 1) & (FIFO_SIZE - 1);
 		if (budget > 0)
 			budget--;
 	}
+	midi_hw_commit();
 }
 
 /* --- sounding notes ------------------------------------------------------- */
@@ -460,9 +510,12 @@ int plat_midi_song(const unsigned char *xmi, long len)
 	if (!g_enabled || xmi == NULL || len <= 0)
 		return -1;
 	g_busy = 1;
+	g_lead_us = midi_hw_lead_us();
+	g_timed   = g_lead_us > 0;
 	if (g_playing) {
-		midi_hw_flush();                /* what is queued goes out whole */
+		discard_or_flush();
 		notes_off_all();
+		midi_hw_flush();
 		g_playing = 0;
 	}
 	if (parse_xmi(xmi, len) != 0) {
@@ -472,10 +525,12 @@ int plat_midi_song(const unsigned char *xmi, long len)
 	}
 	g_pos       = 0;
 	g_tick      = 0;
-	g_acc_us    = 0;
+	g_acc_us    = (unsigned long)g_lead_us; /* a timed port: start this far ahead */
 	g_tick_us   = g_tempo_us / 60;
 	g_have_last = 0;
 	g_nact      = 0;
+	g_wait_us   = 0;
+	g_wait_pending = 0;
 	g_hw_last200 = 0;
 	g_hw_logged  = 0;
 	if (!g_hushed) {
@@ -499,8 +554,9 @@ void plat_midi_stop(void)
 		return;
 	g_busy = 1;
 	if (g_playing) {
-		midi_hw_flush();                /* what is queued goes out whole */
+		discard_or_flush();
 		notes_off_all();
+		midi_hw_flush();
 		g_playing = 0;
 	}
 	mix_music_mute(0);
@@ -514,8 +570,9 @@ void plat_midi_mute(int muted)
 	g_busy = 1;
 	g_muted = muted;
 	if (muted) {
-		midi_hw_flush();
+		discard_or_flush();
 		notes_off_all();
+		midi_hw_flush();
 	}
 	g_busy = 0;
 }
@@ -533,7 +590,9 @@ void plat_midi_vbl(unsigned long hz200)
 		}
 		dt = hz200 - g_last200;
 		g_last200 = hz200;
-		if (dt > 100)                   /* after a stall: no catching up */
+		/* after a stall: no catching up - except on a timed port, where
+		 * the stream carries its own time and the port resumes at speed */
+		if (dt > 100 && !g_timed)
 			dt = 100;
 		if (hz200 - g_hw_last200 >= 1000) {
 			g_hw_last200 = hz200;
@@ -550,6 +609,8 @@ void plat_midi_vbl(unsigned long hz200)
 			}
 			g_acc_us -= g_tick_us;
 			g_tick++;
+			g_wait_us += g_tick_us;     /* timed port: the wait before this tick's bytes */
+			g_wait_pending = 1;
 			fire();
 		}
 	}

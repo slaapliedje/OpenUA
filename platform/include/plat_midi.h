@@ -34,8 +34,17 @@ void plat_midi_shutdown(void);
 int  midi_hw_ready(void);               /* transmitter empty (supervisor) */
 void midi_hw_put(unsigned char b);      /* one byte to the port (supervisor) */
 void midi_hw_flush(void);               /* drain the queue from normal context */
-/* How many bytes one vblank may send: what the port moves in a few ms. */
+/* How many bytes one vblank may send: what the port moves in a few ms
+ * (-1: everything queued). */
 int  midi_hw_vbl_bytes(void);
+/* A port that keeps time itself (Atari System V's /dev/midit): the stream
+ * carries $F9 n, "wait n ms", and the scheduler runs this far ahead of
+ * the clock. 0 = the port plays what it gets at once. */
+long midi_hw_lead_us(void);
+/* After a drain: hand over what midi_hw_put staged (one write). */
+void midi_hw_commit(void);
+/* Drop what the port holds unplayed (a timed port, on stop or a change). */
+void midi_hw_discard(void);
 
 /* --- what midi_seq.c offers the platform half ---------------------------- */
 void plat_midi_configure(int enabled, int gm);

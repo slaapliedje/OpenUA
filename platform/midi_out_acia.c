@@ -32,6 +32,19 @@ int midi_hw_vbl_bytes(void)
 	return 12;                          /* ~4 ms of the port's time */
 }
 
+long midi_hw_lead_us(void)
+{
+	return 0;                           /* the ACIA plays at once */
+}
+
+void midi_hw_commit(void)
+{
+}
+
+void midi_hw_discard(void)
+{
+}
+
 /* The whole queue, from the main loop. One byte takes 320 us at 31250
  * baud, a few hundred status reads; 8000 bounds a dead port to a few
  * milliseconds per poll instead of a hang. */
