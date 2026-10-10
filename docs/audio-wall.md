@@ -394,9 +394,23 @@ midi=mt32       patch numbers sent as they are, for a real MT-32
   while a screen loads), counted in DBG.LOG as "score waited for the
   port". A stop or mute flushes the queue before its notes-off, so those
   are never the ones dropped. `sound.cfg` is the same
-  file; `midi_cfg_apply` in `midi_seq.c` reads it for both ports. The
-  proper fix for the cost is a `/dev/midi` driver in atari-sysv-sp1 (one
-  `write` per burst, the kernel pumps the ACIA from its clock).
+  file; `midi_cfg_apply` in `midi_seq.c` reads it for both ports.
+* **The kernel driver (2026-10-10, atari-sysv-sp1 `driver-midi`).** The
+  `/dev/mem` port stayed structurally late: it can only move bytes when
+  the engine polls, and a picture decode polls nothing for 0.4 s, so the
+  queue's high-water mark ran to 290 bytes in the title and 90 at the
+  menu, 0.3 to 0.6 s of lateness. The driver gives ASV `/dev/midi` (raw)
+  and `/dev/midit` (timed): the ACIA's transmit interrupt moves the bytes
+  on the keyboard ACIA's shared line (the handler serves both chips, as
+  TOS does), and the timed minor honours `$F9 n`, "wait n ms", from the
+  kernel's clock. The Unix port opens `/dev/midit` first; the sequencer
+  then runs a second ahead and puts the wait before each tick's bytes
+  (`midi_hw_lead_us`), one `write` per poll, and a stop, mute or song
+  change discards what the kernel holds (`midi_hw_discard`) before its
+  notes-off. First run on the TT: 13,137 bytes, 1,416 waits honoured, 8
+  already due, 6 timeline restarts, and the recording's alignment within
+  46 ms across the song. The driver's statistics are logged every 10 s
+  ("midi: driver ...").
 * **Not yet:** the plain ST (no DMA sound, so no sound vblank to ride —
   the pump needs its own VBL slot there), the Amiga (`platform/midi_none.c`
   stubs), and a listening test on hardware.
