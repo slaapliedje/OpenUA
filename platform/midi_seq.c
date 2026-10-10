@@ -64,6 +64,12 @@ static unsigned char     g_fifo[FIFO_SIZE];
 static volatile unsigned g_fh, g_ft; /* head = next to send, tail = next free */
 static long g_stalls, g_drops;       /* the score waited for the port; messages lost */
 static long g_stalls_logged, g_drops_logged;
+/* how far the port fell behind: the queue's high-water mark per 5 s of
+ * play, reported from the main loop for the first two minutes of a song
+ * (bytes waiting x the port's time per byte = how late the music is) */
+static unsigned      g_hiwater;
+static unsigned long g_hw_last200;
+static int           g_hw_due, g_hw_logged;
 
 /* MT-32 preset -> General MIDI program, by instrument name. Only used for
  * midi=gm; channel 10 (the rhythm part) is not mapped. */
@@ -102,6 +108,8 @@ static void fifo_put(unsigned char b)
 {
 	g_fifo[g_ft] = b;
 	g_ft = (g_ft + 1) & (FIFO_SIZE - 1);
+	if (fifo_count() > g_hiwater)
+		g_hiwater = fifo_count();
 }
 
 /* Whole messages or nothing: a message short of a byte leaves the
@@ -468,6 +476,8 @@ int plat_midi_song(const unsigned char *xmi, long len)
 	g_tick_us   = g_tempo_us / 60;
 	g_have_last = 0;
 	g_nact      = 0;
+	g_hw_last200 = 0;
+	g_hw_logged  = 0;
 	if (!g_hushed) {
 		/* a run that was killed leaves its notes sounding on the
 		 * instrument; the first song of a run silences every channel */
@@ -525,6 +535,10 @@ void plat_midi_vbl(unsigned long hz200)
 		g_last200 = hz200;
 		if (dt > 100)                   /* after a stall: no catching up */
 			dt = 100;
+		if (hz200 - g_hw_last200 >= 1000) {
+			g_hw_last200 = hz200;
+			g_hw_due = 1;
+		}
 		g_acc_us += dt * 5000UL;
 		while (g_playing && g_acc_us >= g_tick_us) {
 			if (fifo_room() < TICK_ROOM) {
@@ -555,6 +569,12 @@ void plat_midi_poll(void)
 	if (g_drops != g_drops_logged && g_drops_logged < 8) {
 		g_drops_logged = g_drops;
 		dbg_file_num("midi: messages dropped, queue full: ", g_drops);
+	}
+	if (g_hw_due && g_hw_logged < 24) {
+		g_hw_due = 0;
+		g_hw_logged++;
+		dbg_file_num("midi: queue high-water, last 5 s: ", (long)g_hiwater);
+		g_hiwater = fifo_count();
 	}
 	if (fifo_count() == 0)
 		return;
