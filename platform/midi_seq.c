@@ -31,7 +31,7 @@
 #define MAX_EVENTS   6144            /* the retail scores need ~2700 */
 #define MAX_ACTIVE   64              /* sounding notes awaiting their off */
 #define FIFO_SIZE    1024            /* power of two */
-#define VBL_BYTES    12              /* per vblank: ~4 ms at 31250 baud */
+/* per vblank: midi_hw_vbl_bytes(), ~4 ms worth — 12 at 31250 baud */
 #define VBL_WAIT     1500            /* status reads to wait for one byte */
 
 struct ev {
@@ -46,6 +46,7 @@ static unsigned long g_end_tick;     /* the score restarts here */
 static unsigned long g_tempo_us;     /* at the start of the score */
 
 static int          g_enabled, g_gm = 1;
+static int          g_hushed;        /* All Notes Off sent once, see plat_midi_song */
 static volatile int g_playing, g_muted, g_busy;
 
 /* play position */
@@ -118,9 +119,10 @@ void midi_seq_drain(long budget, long wait_iters)
 {
 	while (fifo_count() != 0 && budget != 0) {
 		long w = wait_iters;
-		while (!midi_hw_ready() && w-- > 0)
+		int  ready;
+		while (!(ready = midi_hw_ready()) && w-- > 0)
 			;
-		if (!midi_hw_ready())
+		if (!ready)
 			return;                 /* the port is slow: try again later */
 		midi_hw_put(g_fifo[g_fh]);
 		g_fh = (g_fh + 1) & (FIFO_SIZE - 1);
@@ -440,6 +442,14 @@ int plat_midi_song(const unsigned char *xmi, long len)
 	g_tick_us   = g_tempo_us / 60;
 	g_have_last = 0;
 	g_nact      = 0;
+	if (!g_hushed) {
+		/* a run that was killed leaves its notes sounding on the
+		 * instrument; the first song of a run silences every channel */
+		int ch;
+		for (ch = 0; ch < 16; ch++)
+			send3((unsigned char)(0xB0 | ch), 123, 0);
+		g_hushed = 1;
+	}
 	mix_music_mute(1);                  /* the port carries the music now */
 	g_playing = 1;
 	fire();                             /* the score's tick 0: patches, first notes */
@@ -493,7 +503,7 @@ void plat_midi_vbl(unsigned long hz200)
 			fire();
 		}
 	}
-	midi_seq_drain(VBL_BYTES, VBL_WAIT);
+	midi_seq_drain(midi_hw_vbl_bytes(), VBL_WAIT);
 }
 
 void plat_midi_poll(void)

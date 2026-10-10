@@ -304,7 +304,9 @@ void plat_sound_tone(int count, int amp, int duration_ticks)
  * rendering. */
 void plat_sound_vbl(void)
 {
-	unsigned long now = unix_ticks();
+	static unsigned long s_midi_ms;
+	unsigned long ms = unix_ms();
+	unsigned long now = ms * 60 / 1000;	/* = unix_ticks(), one clock read */
 	int n = 0;
 
 	refill();
@@ -314,8 +316,15 @@ void plat_sound_vbl(void)
 		run_seq();
 	refill();			/* a voice the task just started */
 	/* MIDI music: advance the score by the wall clock in 200 Hz units (what
-	 * the Atari's _hz_200 gives it) and send a few queued bytes */
-	plat_midi_vbl(unix_ms() / 5);
+	 * the Atari's _hz_200 gives it) and send a few queued bytes - ONCE a
+	 * tick. Each byte is system calls (midi_out_unix.c); a poll that paid
+	 * for them on every turn of the engine's wait loop kept the turn too
+	 * long for idle_if_spinning to see six in one tick, and an idle menu
+	 * took the whole machine. */
+	if (ms - s_midi_ms >= 16) {
+		s_midi_ms = ms;
+		plat_midi_vbl(ms / 5);
+	}
 }
 
 void plat_sound_set_vbl_hook(void (*fn)(void))

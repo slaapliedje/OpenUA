@@ -27,6 +27,11 @@ void midi_hw_put(unsigned char b)
 	MIDI_ACIA_DATA = b;
 }
 
+int midi_hw_vbl_bytes(void)
+{
+	return 12;                          /* ~4 ms of the port's time */
+}
+
 /* The whole queue, from the main loop. One byte takes 320 us at 31250
  * baud, a few hundred status reads; 8000 bounds a dead port to a few
  * milliseconds per poll instead of a hang. */

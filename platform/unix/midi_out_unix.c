@@ -10,6 +10,17 @@
  *   devmem  lseek + read/write of single bytes, two system calls a go.
  * OPENUA_MIDI=mmap|devmem forces one, OPENUA_MIDI=off keeps the port shut.
  *
+ * System calls are slow here: on the real TT one costs 500-800 us, so a
+ * status read before every byte would make a byte cost 3 ms, four times
+ * what the port needs. Through devmem the write itself is two system calls,
+ * so consecutive writes are already further apart than a byte takes to
+ * leave the transmit register (320 us at 31250 baud), and the status read
+ * tells nothing new. When a status read measures at least PACE_MIN_US at
+ * open, the port runs paced: no status read per byte. A faster machine
+ * keeps the per-byte check. The vblank's budget shrinks with it: the input
+ * pump only sleeps when a poll fits in a tick, so a poll that spent 50 ms
+ * on MIDI bytes turned an idle menu into a spinning one.
+ *
  * TOS leaves the MIDI ACIA with its receive interrupt enabled, on the line
  * it shares with the keyboard ACIA. Nothing under ASV services it, so a
  * byte arriving on MIDI IN would hold the line down and silence the
@@ -24,19 +35,27 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/mman.h>
+#include <sys/time.h>
 #include "plat_midi.h"
 #include "dbglog.h"
+
+extern int gettimeofday(struct timeval *, void *);   /* 1991 headers: no prototype */
 
 #define IO_PAGE_32  0xFFFFF000UL    /* the 32-bit I/O mirror */
 #define IO_PAGE_24  0x00FFF000UL    /* the ST image mirror */
 #define OFF_CTRL    0xC04
 #define OFF_DATA    0xC06
+#define PACE_MIN_US 700             /* a status read this slow (2.2 byte times):
+                                       writes pace themselves */
+#define VBL_US      8000            /* MIDI time per tick: half of one */
 
 enum { PORT_NONE, PORT_MMAP, PORT_DEVMEM };
 static int s_port = PORT_NONE;
 static int s_fd = -1;
 static volatile unsigned char *s_map;
 static unsigned long s_base;
+static int s_paced;                 /* devmem: no status read per byte (see the top) */
+static int s_vbl_bytes = 12;        /* what VBL_US buys */
 
 static int rd(unsigned long off, unsigned char *b)
 {
@@ -64,7 +83,7 @@ int midi_hw_ready(void)
 {
 	unsigned char s;
 
-	if (s_port == PORT_NONE)
+	if (s_port == PORT_NONE || s_paced)
 		return 1;                   /* nothing to wait for */
 	return rd(OFF_CTRL, &s) == 0 && (s & 0x02) != 0;
 }
@@ -73,6 +92,11 @@ void midi_hw_put(unsigned char b)
 {
 	if (s_port != PORT_NONE)
 		(void)wr(OFF_DATA, b);
+}
+
+int midi_hw_vbl_bytes(void)
+{
+	return s_vbl_bytes;
 }
 
 /* The whole queue. A byte takes 320 us; through devmem each status read
@@ -140,6 +164,29 @@ static int open_port(void)
 		(void)rd(OFF_DATA, &d);
 	(void)wr(OFF_CTRL, 0x15);
 	dbg_file_str("midi: port=", s_port == PORT_MMAP ? "mmap" : "devmem");
+	if (s_port == PORT_DEVMEM) {
+		struct timeval t0, t1;
+		long us;
+		int  i;
+
+		gettimeofday(&t0, 0);
+		for (i = 0; i < 8; i++)
+			(void)rd(OFF_CTRL, &s);
+		gettimeofday(&t1, 0);
+		us = ((t1.tv_sec - t0.tv_sec) * 1000000L + (t1.tv_usec - t0.tv_usec)) / 8;
+		s_paced = us >= PACE_MIN_US;
+		/* a byte is a write pair (paced) or two pairs; never below 2 */
+		if (us > 0) {
+			s_vbl_bytes = (int)(VBL_US / (s_paced ? us : 2 * us));
+			if (s_vbl_bytes < 2)
+				s_vbl_bytes = 2;
+			if (s_vbl_bytes > 12)
+				s_vbl_bytes = 12;
+		}
+		dbg_file_num("midi: devmem status read us=", us);
+		dbg_file_str("midi: devmem ", s_paced ? "paced" : "checked");
+		dbg_file_num("midi: bytes per poll=", s_vbl_bytes);
+	}
 	return 0;
 }
 

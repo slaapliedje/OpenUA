@@ -34,6 +34,8 @@ void plat_midi_shutdown(void);
 int  midi_hw_ready(void);               /* transmitter empty (supervisor) */
 void midi_hw_put(unsigned char b);      /* one byte to the port (supervisor) */
 void midi_hw_flush(void);               /* drain the queue from normal context */
+/* How many bytes one vblank may send: what the port moves in a few ms. */
+int  midi_hw_vbl_bytes(void);
 
 /* --- what midi_seq.c offers the platform half ---------------------------- */
 void plat_midi_configure(int enabled, int gm);

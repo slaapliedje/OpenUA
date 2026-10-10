@@ -369,14 +369,25 @@ midi=mt32       patch numbers sent as they are, for a real MT-32
   the keyboard ACIA — so the game reaches the MIDI ACIA through `/dev/mem`:
   the I/O page mapped into the process (as the ATW800/2 framebuffer is),
   or, failing that, `lseek` + single-byte `read`/`write` (`OPENUA_MIDI=mmap|
-  devmem|off` forces one). The pump is `plat_sound_vbl` (the cooperative
-  Unix VBL), clocked by the wall clock in 200 Hz units, so a long stretch
-  without a poll (a picture decoding) stalls the music until the next poll
-  and catches up at most half a second. The port is opened with control =
-  $15: TOS leaves the receive interrupt on, on the line shared with the
-  keyboard ACIA, and nothing under ASV would service a byte arriving on
-  MIDI IN — the keyboard would go dead. `sound.cfg` is the same file;
-  `midi_cfg_apply` in `midi_seq.c` reads it for both ports.
+  devmem|off` forces one). On the real TT the mmap is refused (ENXIO, the
+  page base is not decoded) and the byte path works on both mirrors — at
+  about 1 ms per system-call pair, so a status-checked byte would cost
+  3 ms. When a status read measures at least 700 us the port runs *paced*:
+  a write pair already takes longer than a byte does to leave the transmit
+  register, so no status read per byte (2 system calls a byte, ~1-1.3 ms);
+  the per-tick budget is what 8 ms buys (4-8 bytes). The pump runs once a
+  tick from `plat_sound_vbl`, clocked by the wall clock in 200 Hz units —
+  on every poll it kept the engine's wait-loop turns too long for the idle
+  sleep to trigger. A long stretch without a poll (a picture decoding)
+  stalls the music until the next poll and catches up at most half a
+  second. The port is opened with control = $15: TOS leaves the receive
+  interrupt on, on the line shared with the keyboard ACIA, and nothing
+  under ASV would service a byte arriving on MIDI IN — the keyboard would
+  go dead. The first song of a run sends All Notes Off on every channel,
+  since a killed run leaves its notes sounding. `sound.cfg` is the same
+  file; `midi_cfg_apply` in `midi_seq.c` reads it for both ports. The
+  proper fix for the cost is a `/dev/midi` driver in atari-sysv-sp1 (one
+  `write` per burst, the kernel pumps the ACIA from its clock).
 * **Not yet:** the plain ST (no DMA sound, so no sound vblank to ride —
   the pump needs its own VBL slot there), the Amiga (`platform/midi_none.c`
   stubs), and a listening test on hardware.
