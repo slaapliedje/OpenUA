@@ -43,6 +43,7 @@ void plat_midi_configure(int enabled, int gm);
  * 0 when MIDI music is on. */
 int  midi_cfg_apply(char *buf, long n);
 int  midi_seq_pending(void);
+unsigned midi_seq_queued(void);         /* bytes waiting for the port */
 /* Send up to `budget` bytes (-1 = all), waiting at most `wait_iters` status
  * reads for each. Supervisor context. */
 void midi_seq_drain(long budget, long wait_iters);

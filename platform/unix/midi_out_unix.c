@@ -95,9 +95,12 @@ void midi_hw_put(unsigned char b)
 		s_wfail++;
 }
 
+/* When the queue has fallen behind - a dense passage while the engine
+ * draws, polling rarely - the music's timing matters more than the
+ * engine's pace: four times the budget until it has caught up. */
 int midi_hw_vbl_bytes(void)
 {
-	return s_vbl_bytes;
+	return midi_seq_queued() > 64 ? 4 * s_vbl_bytes : s_vbl_bytes;
 }
 
 /* The whole queue. A byte takes 320 us; through devmem each status read

@@ -135,6 +135,11 @@ int midi_seq_pending(void)
 	return fifo_count() != 0;
 }
 
+unsigned midi_seq_queued(void)
+{
+	return fifo_count();
+}
+
 void midi_seq_drain(long budget, long wait_iters)
 {
 	while (fifo_count() != 0 && budget != 0) {

@@ -320,8 +320,10 @@ void plat_sound_vbl(void)
 	 * tick. Each byte is system calls (midi_out_unix.c); a poll that paid
 	 * for them on every turn of the engine's wait loop kept the turn too
 	 * long for idle_if_spinning to see six in one tick, and an idle menu
-	 * took the whole machine. */
-	if (ms - s_midi_ms >= 16) {
+	 * took the whole machine. Once the queue has fallen behind, though,
+	 * every poll pumps: a dense passage played a second late and then
+	 * rushed is worse than a busy wait loop. */
+	if (ms - s_midi_ms >= 16 || midi_seq_queued() > 32) {
 		s_midi_ms = ms;
 		plat_midi_vbl(ms / 5);
 	}
