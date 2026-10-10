@@ -30,7 +30,9 @@
 
 #define MAX_EVENTS   6144            /* the retail scores need ~2700 */
 #define MAX_ACTIVE   64              /* sounding notes awaiting their off */
-#define FIFO_SIZE    1024            /* power of two */
+#define FIFO_SIZE    4096            /* power of two: ~40 s of the average flow */
+#define TICK_ROOM    512             /* the most one tick queues: the loop's
+                                        notes-off and the restart's patches */
 /* per vblank: midi_hw_vbl_bytes(), ~4 ms worth — 12 at 31250 baud */
 #define VBL_WAIT     1500            /* status reads to wait for one byte */
 
@@ -60,6 +62,8 @@ static int        g_nact;
 
 static unsigned char     g_fifo[FIFO_SIZE];
 static volatile unsigned g_fh, g_ft; /* head = next to send, tail = next free */
+static long g_stalls, g_drops;       /* the score waited for the port; messages lost */
+static long g_stalls_logged, g_drops_logged;
 
 /* MT-32 preset -> General MIDI program, by instrument name. Only used for
  * midi=gm; channel 10 (the rhythm part) is not mapped. */
@@ -89,22 +93,38 @@ static unsigned fifo_count(void)
 	return (g_ft - g_fh) & (FIFO_SIZE - 1);
 }
 
+static unsigned fifo_room(void)
+{
+	return FIFO_SIZE - 1 - fifo_count();
+}
+
 static void fifo_put(unsigned char b)
 {
-	if (fifo_count() >= FIFO_SIZE - 1)
-		return;                         /* full: drop rather than corrupt */
 	g_fifo[g_ft] = b;
 	g_ft = (g_ft + 1) & (FIFO_SIZE - 1);
 }
 
+/* Whole messages or nothing: a message short of a byte leaves the
+ * instrument parsing the next one wrong, and a note-off that never
+ * arrives is a note that never stops. The scheduler keeps TICK_ROOM free
+ * before it fires a tick, so these only drop when a stop or mute hits a
+ * queue the port is far behind on. */
 static void send2(unsigned char st, unsigned char d1)
 {
+	if (fifo_room() < 2) {
+		g_drops++;
+		return;
+	}
 	fifo_put(st);
 	fifo_put(d1);
 }
 
 static void send3(unsigned char st, unsigned char d1, unsigned char d2)
 {
+	if (fifo_room() < 3) {
+		g_drops++;
+		return;
+	}
 	fifo_put(st);
 	fifo_put(d1);
 	fifo_put(d2);
@@ -428,6 +448,7 @@ int plat_midi_song(const unsigned char *xmi, long len)
 		return -1;
 	g_busy = 1;
 	if (g_playing) {
+		midi_hw_flush();                /* what is queued goes out whole */
 		notes_off_all();
 		g_playing = 0;
 	}
@@ -463,6 +484,7 @@ void plat_midi_stop(void)
 		return;
 	g_busy = 1;
 	if (g_playing) {
+		midi_hw_flush();                /* what is queued goes out whole */
 		notes_off_all();
 		g_playing = 0;
 	}
@@ -476,8 +498,10 @@ void plat_midi_mute(int muted)
 		return;
 	g_busy = 1;
 	g_muted = muted;
-	if (muted)
+	if (muted) {
+		midi_hw_flush();
 		notes_off_all();
+	}
 	g_busy = 0;
 }
 
@@ -498,6 +522,13 @@ void plat_midi_vbl(unsigned long hz200)
 			dt = 100;
 		g_acc_us += dt * 5000UL;
 		while (g_playing && g_acc_us >= g_tick_us) {
+			if (fifo_room() < TICK_ROOM) {
+				/* the port is behind (the Unix port while a screen
+				 * loads): the score waits rather than lose a byte */
+				g_acc_us = 0;
+				g_stalls++;
+				break;
+			}
 			g_acc_us -= g_tick_us;
 			g_tick++;
 			fire();
@@ -508,7 +539,19 @@ void plat_midi_vbl(unsigned long hz200)
 
 void plat_midi_poll(void)
 {
-	if (!g_enabled || g_busy || fifo_count() == 0)
+	if (!g_enabled || g_busy)
+		return;
+	/* the vblank cannot write a log (interrupt context on the Atari):
+	 * its counters are reported from here, the first few times */
+	if (g_stalls != g_stalls_logged && g_stalls_logged < 8) {
+		g_stalls_logged = g_stalls;
+		dbg_file_num("midi: score waited for the port, times: ", g_stalls);
+	}
+	if (g_drops != g_drops_logged && g_drops_logged < 8) {
+		g_drops_logged = g_drops;
+		dbg_file_num("midi: messages dropped, queue full: ", g_drops);
+	}
+	if (fifo_count() == 0)
 		return;
 	g_busy = 1;
 	midi_hw_flush();

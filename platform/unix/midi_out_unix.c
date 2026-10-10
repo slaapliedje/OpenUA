@@ -56,6 +56,7 @@ static volatile unsigned char *s_map;
 static unsigned long s_base;
 static int s_paced;                 /* devmem: no status read per byte (see the top) */
 static int s_vbl_bytes = 12;        /* what VBL_US buys */
+static long s_wfail, s_wfail_logged; /* writes the kernel refused */
 
 static int rd(unsigned long off, unsigned char *b)
 {
@@ -90,8 +91,8 @@ int midi_hw_ready(void)
 
 void midi_hw_put(unsigned char b)
 {
-	if (s_port != PORT_NONE)
-		(void)wr(OFF_DATA, b);
+	if (s_port != PORT_NONE && wr(OFF_DATA, b) < 0)
+		s_wfail++;
 }
 
 int midi_hw_vbl_bytes(void)
@@ -104,6 +105,10 @@ int midi_hw_vbl_bytes(void)
  * ready than on the Atari. */
 void midi_hw_flush(void)
 {
+	if (s_wfail != s_wfail_logged && s_wfail_logged < 8) {
+		s_wfail_logged = s_wfail;
+		dbg_file_num("midi: devmem writes refused: ", s_wfail);
+	}
 	midi_seq_drain(-1, s_port == PORT_MMAP ? 8000L : 400L);
 }
 

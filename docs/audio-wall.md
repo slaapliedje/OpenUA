@@ -384,7 +384,16 @@ midi=mt32       patch numbers sent as they are, for a real MT-32
   interrupt on, on the line shared with the keyboard ACIA, and nothing
   under ASV would service a byte arriving on MIDI IN — the keyboard would
   go dead. The first song of a run sends All Notes Off on every channel,
-  since a killed run leaves its notes sounding. `sound.cfg` is the same
+  since a killed run leaves its notes sounding. **Hanging notes on the TT
+  were the queue overflowing:** the score's busiest second carries 420
+  bytes and the port drains 4-8 a tick, so the backlog peaked at ~1100
+  bytes and the 1024-byte FIFO dropped single bytes — a note-off short of
+  a byte is a note that never stops. The FIFO is 4096 now, messages go in
+  whole or not at all, and the scheduler does not fire a tick unless 512
+  bytes are free: the score waits for the port instead (a short pause
+  while a screen loads), counted in DBG.LOG as "score waited for the
+  port". A stop or mute flushes the queue before its notes-off, so those
+  are never the ones dropped. `sound.cfg` is the same
   file; `midi_cfg_apply` in `midi_seq.c` reads it for both ports. The
   proper fix for the cost is a `/dev/midi` driver in atari-sysv-sp1 (one
   `write` per burst, the kernel pumps the ACIA from its clock).
