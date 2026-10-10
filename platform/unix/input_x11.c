@@ -66,6 +66,11 @@ unsigned long unix_ticks(void)
 	return (unsigned long)(elapsed_ms() * 60 / 1000);
 }
 
+unsigned long unix_ms(void)
+{
+	return (unsigned long)elapsed_ms();
+}
+
 /*
  * The engine waits the way it did on the Atari: it polls TickCount and the
  * input until something changes. On a TOS machine that only burns an idle

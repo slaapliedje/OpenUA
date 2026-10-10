@@ -28,4 +28,7 @@ extern unsigned long unix_seq_now;
  * never counts as the engine waiting (see input_x11.c). */
 unsigned long unix_ticks(void);
 
+/* The same clock in milliseconds (the MIDI player keeps 200 Hz time). */
+unsigned long unix_ms(void);
+
 #endif /* PLATFORM_UNIX_VBL_H */

@@ -26,6 +26,7 @@
 #include <string.h>
 #include "plat_midi.h"
 #include "sound_mix.h"
+#include "dbglog.h"
 
 #define MAX_EVENTS   6144            /* the retail scores need ~2700 */
 #define MAX_ACTIVE   64              /* sounding notes awaiting their off */
@@ -362,6 +363,51 @@ void plat_midi_configure(int enabled, int gm)
 {
 	g_enabled = enabled;
 	g_gm      = gm;
+}
+
+/* sound.cfg, as the platform half read it: n bytes in buf (which has room
+ * for one more), whitespace-separated key=value tokens, case-insensitive.
+ *   music=midi      the music goes to the MIDI port (default: synth)
+ *   midi=gm         MT-32 patches mapped to General MIDI (the default)
+ *   midi=mt32       patch numbers sent as they are, for a real MT-32
+ * Configures the player and logs the result; 0 when MIDI music is on. */
+int midi_cfg_apply(char *buf, long n)
+{
+	int i, enabled = 0, gm = 1;
+
+	if (n < 0)
+		n = 0;
+	buf[n] = '\0';
+	for (i = 0; buf[i]; i++)
+		if (buf[i] >= 'A' && buf[i] <= 'Z')
+			buf[i] = (char)(buf[i] - 'A' + 'a');
+	for (i = 0; buf[i]; ) {
+		int j = i;
+		while (buf[j] && buf[j] != ' ' && buf[j] != '\t'
+		       && buf[j] != '\r' && buf[j] != '\n')
+			j++;
+		if (j > i) {
+			char save = buf[j];
+			buf[j] = '\0';
+			if (strcmp(buf + i, "music=midi") == 0)
+				enabled = 1;
+			else if (strcmp(buf + i, "music=synth") == 0)
+				enabled = 0;
+			else if (strcmp(buf + i, "midi=gm") == 0)
+				gm = 1;
+			else if (strcmp(buf + i, "midi=mt32") == 0)
+				gm = 0;
+			buf[j] = save;
+		}
+		i = j;
+		while (buf[i] == ' ' || buf[i] == '\t' || buf[i] == '\r' || buf[i] == '\n')
+			i++;
+	}
+	plat_midi_configure(enabled, gm);
+	dbg_file_str("midi: sound.cfg music=", enabled ? "midi" : "synth");
+	if (enabled)
+		dbg_file_str("midi: patches=", gm ? "gm" : "mt32");
+	return enabled ? 0 : -1;
 }
 
 int plat_midi_enabled(void)

@@ -364,6 +364,19 @@ midi=mt32       patch numbers sent as they are, for a real MT-32
   MT-32 patches; with `--trace midi_raw` the note-on frame stamps fit the
   score's ticks at 50.05 Hz (mean jitter 0.3 frames, worst 3.3 when a
   burst queues behind the per-vblank budget during the title load).
+* **Atari System V (the Unix build, `platform/unix/midi_out_unix.c`).**
+  ASV has no MIDI driver — its keyboard driver sets up and services only
+  the keyboard ACIA — so the game reaches the MIDI ACIA through `/dev/mem`:
+  the I/O page mapped into the process (as the ATW800/2 framebuffer is),
+  or, failing that, `lseek` + single-byte `read`/`write` (`OPENUA_MIDI=mmap|
+  devmem|off` forces one). The pump is `plat_sound_vbl` (the cooperative
+  Unix VBL), clocked by the wall clock in 200 Hz units, so a long stretch
+  without a poll (a picture decoding) stalls the music until the next poll
+  and catches up at most half a second. The port is opened with control =
+  $15: TOS leaves the receive interrupt on, on the line shared with the
+  keyboard ACIA, and nothing under ASV would service a byte arriving on
+  MIDI IN — the keyboard would go dead. `sound.cfg` is the same file;
+  `midi_cfg_apply` in `midi_seq.c` reads it for both ports.
 * **Not yet:** the plain ST (no DMA sound, so no sound vblank to ride —
-  the pump needs its own VBL slot there), the Amiga and the Unix build
-  (`platform/midi_none.c` stubs), and a listening test on hardware.
+  the pump needs its own VBL slot there), the Amiga (`platform/midi_none.c`
+  stubs), and a listening test on hardware.

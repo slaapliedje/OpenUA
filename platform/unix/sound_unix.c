@@ -34,6 +34,7 @@
 #include "input.h"
 #include "unix_vbl.h"
 #include "dbglog.h"
+#include "plat_midi.h"
 
 /* atari-sysv-sp1 driver-snd/snd.h */
 #define SND_IOC		('A' << 8)
@@ -71,6 +72,9 @@ int plat_sound_init(void)
 	int hz;
 
 	s_last_tick = s_seq_tick = unix_seq_now = unix_ticks();
+	/* MIDI music (sound.cfg) is pumped from plat_sound_vbl, which runs
+	 * with or without /dev/audio */
+	(void)plat_midi_init();
 	s_fd = open("/dev/audio", O_WRONLY);
 	if (s_fd < 0)
 		return 1;			/* no sound: the shim continues silent */
@@ -108,6 +112,7 @@ int plat_sound_init(void)
 void plat_sound_shutdown(void)
 {
 	dbg_trace_dump();		/* OPENUA_TRACE: the run's events, at the end */
+	plat_midi_shutdown();		/* notes off, and the port drained */
 	s_vbl_hook = NULL;
 	mix_set_record(NULL);
 	mix_effect_stop();
@@ -308,6 +313,9 @@ void plat_sound_vbl(void)
 	while (s_seq_tick < now && n++ < 4 && !(s_fd >= 0 && mix_audible()))
 		run_seq();
 	refill();			/* a voice the task just started */
+	/* MIDI music: advance the score by the wall clock in 200 Hz units (what
+	 * the Atari's _hz_200 gives it) and send a few queued bytes */
+	plat_midi_vbl(unix_ms() / 5);
 }
 
 void plat_sound_set_vbl_hook(void (*fn)(void))

@@ -37,6 +37,9 @@ void midi_hw_flush(void);               /* drain the queue from normal context *
 
 /* --- what midi_seq.c offers the platform half ---------------------------- */
 void plat_midi_configure(int enabled, int gm);
+/* Parse n bytes of sound.cfg in buf (room for one more) and configure;
+ * 0 when MIDI music is on. */
+int  midi_cfg_apply(char *buf, long n);
 int  midi_seq_pending(void);
 /* Send up to `budget` bytes (-1 = all), waiting at most `wait_iters` status
  * reads for each. Supervisor context. */

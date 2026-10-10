@@ -68,7 +68,8 @@ PLATFORM_SRC := platform/planar.c platform/mulprof.c \
                 platform/unix/input_x11.c \
                 platform/unix/sound_unix.c \
                 platform/sound_mix.c \
-                platform/midi_none.c \
+                platform/midi_seq.c \
+                platform/unix/midi_out_unix.c \
                 platform/unix/sys_unix.c \
                 platform/unix/dbglog_unix.c \
                 platform/unix/sysv_rt.c \
