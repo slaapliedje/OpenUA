@@ -23,6 +23,13 @@
 #     alignment: its build passes -mno-align-int (a later flag wins) and
 #     keeps to structures whose fields are all 4 bytes wide (stat, timeval,
 #     dirent, pollfd, XEvent, XImage, XColor... are) - not FILE.
+#   - -mno-strict-align: this mint GCC defaults to -mstrict-align (right
+#     for a 68000), and with -malign-int that makes it split every 32-bit
+#     stack access into two 16-bit ones, since its stack is only known to
+#     be 2-byte aligned: calls cost 3-10x more (found by the Manx browser
+#     build). Both targets are 68030s, which do misaligned accesses in
+#     hardware. OpenUA's own -mno-align-int build is unaffected either
+#     way (checked: identical code), the default -malign-int one is not.
 # Everything but -c/-S compilation is handed to GCC unchanged (-E, -M).
 #
 #   AMIX_SYSROOT   AMIX's usr/include, usr/lib, usr/ccs/lib and usr/X
@@ -45,6 +52,7 @@ sys=(-nostdinc
 	-Dm68k -Dunix -D__amix -DSVR4 -DSYSV
 	-A 'system(unix)'				# GCC asserts machine/cpu m68k
 	-malign-int					# SVR4 structure layout
+	-mno-strict-align				# (see above)
 	-fno-leading-underscore -fno-asynchronous-unwind-tables
 	-fno-dwarf2-cfi-asm)
 
