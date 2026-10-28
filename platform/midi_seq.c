@@ -178,13 +178,27 @@ static void send3(unsigned char st, unsigned char d1, unsigned char d2)
  * go out at once (no wait precedes them). */
 static void discard_or_flush(void)
 {
-	if (g_timed) {
-		midi_hw_discard();
-		g_fh = g_ft = 0;
-		g_wait_us = 0;
-		g_wait_pending = 0;
-	} else
+	int ch;
+
+	if (!g_timed) {
 		midi_hw_flush();
+		return;
+	}
+	midi_hw_discard();
+	g_fh = g_ft = 0;
+	g_wait_us = 0;
+	g_wait_pending = 0;
+	/* The queue just dropped held up to a second of the score: among it
+	 * the Note Offs of notes the instrument is sounding NOW, which the
+	 * sequencer fired (and forgot, see note_off_at) up to a second ago.
+	 * notes_off_all below only knows the notes still in its table, so
+	 * every channel is silenced outright: All Notes Off, and All Sound
+	 * Off for a GM instrument holding a sustain pedal (an MT-32 ignores
+	 * the latter). No wait precedes these: they play at once. */
+	for (ch = 0; ch < 16; ch++) {
+		send3((unsigned char)(0xB0 | ch), 123, 0);
+		send3((unsigned char)(0xB0 | ch), 120, 0);
+	}
 }
 
 int midi_seq_pending(void)
