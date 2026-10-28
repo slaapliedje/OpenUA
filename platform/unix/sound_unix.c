@@ -369,6 +369,7 @@ void unix_vbl_poll(void)
 	if (unix_in_vbl)
 		return;
 	unix_in_vbl = 1;
+	unix_clock_hold();		/* one clock read for the whole VBL */
 	now = unix_ticks();
 	/* a gap longer than the queue lasts is a dropout: say when, and how
 	 * long (OPENUA_SNDLOG, the first 64) */
@@ -384,6 +385,7 @@ void unix_vbl_poll(void)
 	plat_sound_vbl();
 	s_last_tick = now;
 	s_last_site = unix_vbl_site;
+	unix_clock_release();
 	unix_in_vbl = 0;
 }
 

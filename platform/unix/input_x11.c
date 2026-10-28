@@ -22,6 +22,7 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <poll.h>
+#include <stdlib.h>
 
 #include "input.h"
 #include "x11_unix.h"
@@ -61,14 +62,72 @@ static long elapsed_ms(void)
 	return ms;
 }
 
+/*
+ * One clock read per entry. On the real TT a system call costs ~0.4 ms
+ * under amx and gettimeofday (an hrtcntl) 0.7 ms; an engine call used to
+ * read the clock five or six times on its way down (the ticks, the VBL,
+ * the sound's refill, the MIDI statistics, the X flush), 4 ms of kernel
+ * time per TickCount, 87% of the machine in a menu. The entry points
+ * take one sample and hold it; everything below reads the sample.
+ */
+static int  s_held;
+static long s_held_ms;
+
+/* the loop's rate (OPENUA_LOOPLOG=1), logged every 5 s for the first
+ * minute: how many times the engine came in, asked X, got an event,
+ * slept, read the clock */
+static long s_n_pump, s_n_xask, s_n_xev, s_n_sleep, s_n_clock, s_n_ticks;
+static long s_rate_ms;
+static int  s_rate_logged;
+static int  s_rate_on = -1;
+
+static void rate_log(long ms)
+{
+	if (s_rate_on < 0)
+		s_rate_on = getenv("OPENUA_LOOPLOG") != NULL;
+	if (!s_rate_on || s_rate_logged >= 12 || ms - s_rate_ms < 5000)
+		return;
+	if (s_rate_ms != 0) {
+		dbg_file_num("loop: per 5 s, engine polls ", s_n_pump);
+		dbg_file_num("loop:   asked X ", s_n_xask);
+		dbg_file_num("loop:   X events ", s_n_xev);
+		dbg_file_num("loop:   slept ", s_n_sleep);
+		dbg_file_num("loop:   clock reads ", s_n_clock);
+		dbg_file_num("loop:   ticks seen by plat_ticks ", s_n_ticks);
+		s_rate_logged++;
+	}
+	s_rate_ms = ms;
+	s_n_pump = s_n_xask = s_n_xev = s_n_sleep = s_n_clock = s_n_ticks = 0;
+}
+
+static long sample_ms(void)
+{
+	return s_held ? s_held_ms : elapsed_ms();
+}
+
+void unix_clock_hold(void)
+{
+	if (s_held++ == 0) {
+		s_held_ms = elapsed_ms();
+		s_n_clock++;
+		rate_log(s_held_ms);
+	}
+}
+
+void unix_clock_release(void)
+{
+	if (s_held > 0)
+		s_held--;
+}
+
 unsigned long unix_ticks(void)
 {
-	return (unsigned long)(elapsed_ms() * 60 / 1000);
+	return (unsigned long)(sample_ms() * 60 / 1000);
 }
 
 unsigned long unix_ms(void)
 {
-	return (unsigned long)elapsed_ms();
+	return (unsigned long)sample_ms();
 }
 
 /*
@@ -82,12 +141,16 @@ unsigned long unix_ms(void)
  * menu (emulated TT): the wait loop asks ~15 times per tick, each turn
  * nearly all system calls; with the limit at 6 the machine went from 0%
  * to 98% idle, and the boot to the menu (real work) took as long as
- * before.
+ * before. On the real TT each ask is a 0.7 ms system call, so six of
+ * them were a third of every tick before the sleep began: 3 now, one
+ * turn of the engine's wait loop (its input polls and TickCount).
  */
-#define SPIN_LIMIT	6
+#define SPIN_LIMIT	3
 
 static unsigned long s_spin_tick;
 static int           s_spin_n;
+static unsigned long s_xchk_tick;	/* the tick X was last asked in */
+static int           s_x_due = 1;	/* ask X again before the next tick */
 
 static void idle_if_spinning(unsigned long now)
 {
@@ -105,20 +168,26 @@ static void idle_if_spinning(unsigned long now)
 	s_spin_n = 0;
 	x11_flush_due();
 	d = x11_display();
-	if (d != NULL && XPending(d) > 0)
-		return;				/* input already waiting */
-	ms = (long)((now + 1) * 1000 / 60) - elapsed_ms() + 1;
+	/* events Xlib has already read need no system call to see; the
+	 * socket itself is what poll watches */
+	if (d != NULL && XEventsQueued(d, QueuedAlready) > 0) {
+		s_x_due = 1;			/* input already waiting */
+		return;
+	}
+	ms = (long)((now + 1) * 1000 / 60) - sample_ms() + 1;
 	if (ms <= 0)
 		return;
 	pfd.fd = d != NULL ? ConnectionNumber(d) : -1;
 	pfd.events = POLLIN;
 	pfd.revents = 0;
-	poll(&pfd, d != NULL ? 1 : 0, (int)ms);
+	s_n_sleep++;
+	if (poll(&pfd, d != NULL ? 1 : 0, (int)ms) > 0)
+		s_x_due = 1;			/* woken by X: drain it next */
 }
 
 unsigned long plat_ticks(void)
 {
-	unsigned long now = unix_ticks();
+	unsigned long now;
 
 	/* The engine's VBL task asks for the time too (jt1091 -> jt1149): that
 	 * is not the engine waiting, so no flush, no idle sleep (the TOS build
@@ -126,6 +195,9 @@ unsigned long plat_ticks(void)
 	 * which the task runs by (sound_unix.c, run_seq). */
 	if (unix_in_vbl)
 		return unix_seq_now;
+	unix_clock_hold();
+	now = unix_ticks();
+	s_n_ticks++;
 	/* An engine waiting on the clock (a wipe, a pause, a picture paced
 	 * row by row) may not pump input for seconds: the VBL still has to
 	 * run, as the interrupt does on the Atari. */
@@ -133,6 +205,7 @@ unsigned long plat_ticks(void)
 	unix_vbl_poll();
 	x11_flush_due();
 	idle_if_spinning(now);
+	unix_clock_release();
 	return now;
 }
 
@@ -237,22 +310,41 @@ static void pump(void)
 {
 	Display *d = x11_display();
 	int scale = x11_scale(), ox, oy;
+	unsigned long now;
 
 	x11_origin(&ox, &oy);
 
+	unix_clock_hold();
+	now = unix_ticks();
+	s_n_pump++;
 	unix_vbl_site = "input";
 	unix_vbl_poll();		/* the engine's VBL task, 60 Hz */
 	x11_flush_due();
-	if (d == NULL)
+	if (d == NULL) {
+		unix_clock_release();
 		return;
+	}
+	/* X is asked once a tick (a system call, 0.4 ms on the TT): the
+	 * Atari polls its input at the VBL too. The idle sleep wakes on X
+	 * input and marks it due. */
+	if (!s_x_due && now == s_xchk_tick) {
+		idle_if_spinning(now);
+		unix_clock_release();
+		return;
+	}
+	s_xchk_tick = now;
+	s_x_due = 0;
+	s_n_xask++;
 	if (XPending(d) == 0) {
-		idle_if_spinning(unix_ticks());	/* asked again, nothing new */
+		idle_if_spinning(now);		/* asked again, nothing new */
+		unix_clock_release();
 		return;
 	}
 	s_spin_n = 0;
 	while (XPending(d) > 0) {
 		XEvent ev;
 		XNextEvent(d, &ev);
+		s_n_xev++;
 		switch (ev.type) {
 		case KeyPress: {
 			char buf[8];
@@ -298,6 +390,7 @@ static void pump(void)
 	if (s_my < 0) s_my = 0;
 	if (s_mx >= s_scr_w) s_mx = (short)(s_scr_w - 1);
 	if (s_my >= s_scr_h) s_my = (short)(s_scr_h - 1);
+	unix_clock_release();
 }
 
 int plat_kb_poll(unsigned char *out_scan, unsigned char *out_ascii)

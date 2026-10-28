@@ -31,4 +31,10 @@ unsigned long unix_ticks(void);
 /* The same clock in milliseconds (the MIDI player keeps 200 Hz time). */
 unsigned long unix_ms(void);
 
+/* Between hold and release, unix_ticks/unix_ms return the one sample taken
+ * at the hold: a clock read is a system call, 0.7 ms on the real TT, and
+ * an engine call used to make five on its way down (input_x11.c). Nests. */
+void unix_clock_hold(void);
+void unix_clock_release(void);
+
 #endif /* PLATFORM_UNIX_VBL_H */
