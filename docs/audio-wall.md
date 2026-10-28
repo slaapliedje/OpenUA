@@ -411,6 +411,16 @@ midi=mt32       patch numbers sent as they are, for a real MT-32
   already due, 6 timeline restarts, and the recording's alignment within
   46 ms across the song. The driver's statistics are logged every 10 s
   ("midi: driver ...").
+  Two things the first real-hardware sessions turned up. A stop that
+  discards the queue drops the Note Offs of notes the instrument is
+  sounding right now (the sequencer fired them up to a second ago and has
+  forgotten them), so notes hung after every menu: the timed stop now
+  sends All Notes Off and All Sound Off on all sixteen channels, at once.
+  And a clock read is a system call on ASV (0.7 ms on the TT); an engine
+  call made five or six on its way down (ticks, VBL, sound refill, MIDI
+  statistics, X flush) and the menu ran at 0% idle. The Unix entry points
+  take one sample per call (`unix_clock_hold`) and X is asked once a tick:
+  76% idle at the menu, the same music.
 * **Not yet:** the plain ST (no DMA sound, so no sound vblank to ride —
   the pump needs its own VBL slot there), the Amiga (`platform/midi_none.c`
   stubs), and a listening test on hardware.
