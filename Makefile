@@ -32,7 +32,8 @@ PLATFORM_SRC := $(PLATFORM_SHARED) \
                 platform/amiga/input_amiga.c \
                 platform/amiga/dbglog_amiga.c \
                 platform/amiga/sys_amiga.c \
-                platform/midi_none.c \
+                platform/midi_seq.c \
+                platform/amiga/midi_out_amiga.c \
                 platform/amiga/vdi_stub.c
 else ifeq ($(MACHINE),falcon)
 include toolchain/m68k-atari-mint.mk

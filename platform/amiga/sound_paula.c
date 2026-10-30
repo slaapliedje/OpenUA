@@ -30,6 +30,8 @@
  */
 
 #include "plat_sound.h"
+#include "plat_midi.h"         /* the serial port carrying the music instead */
+#include "sound_mix.h"         /* mix_music_mute: ours here, the mixer's elsewhere */
 #include "dbglog.h"
 
 #ifdef FRUA_AMIGA
@@ -78,6 +80,8 @@ static volatile long         g_ring_w;          /* next sample to render      */
 static volatile long         g_ring_play;       /* modeled DMA play cursor    */
 static volatile int          g_ring_live;
 static const unsigned char * volatile g_ft_rec; /* the LIVE record, or NULL   */
+static volatile int g_ft_mute;          /* MIDI carries the music: render
+                                           no voices (midi_seq.c's switch) */
 static unsigned long         g_ft_phase[4];
 
 /* An effect mixed into the loop. */
@@ -108,7 +112,7 @@ static unsigned long rd_be32_p(const unsigned char *p)
  * backend's synth_audible() exactly — same record, same fields. */
 static int synth_audible(void)
 {
-	const unsigned char *rec = (const unsigned char *)g_ft_rec;
+	const unsigned char *rec = g_ft_mute ? NULL : (const unsigned char *)g_ft_rec;
 	int v;
 
 	if (g_tone_left > 0 || g_sfx_pos < g_sfx_len)
@@ -143,7 +147,7 @@ static int synth_audible(void)
  *    clamp as before — output is byte-identical to the old mixer. */
 static void synth_render(signed char *dst, long n)
 {
-	const unsigned char *rec = (const unsigned char *)g_ft_rec;
+	const unsigned char *rec = g_ft_mute ? NULL : (const unsigned char *)g_ft_rec;
 	const unsigned char *wv[4];
 	unsigned long        iv[4], pv[4];
 	short                ix[4];
@@ -497,6 +501,7 @@ int plat_sound_init(void)
 		 * thing that separates "AHI opened" from "AHI was absent and
 		 * the Paula fix carried it". */
 		dbg_log("snd: AHI backend up (ahi.device)");
+		(void)plat_midi_init();         /* MIDI music rides the VERTB server; sound.cfg opts in */
 		return 0;
 	}
 	dbg_log("snd: no AHI - Paula fallback (AUD0+AUD1 centred)");
@@ -550,6 +555,7 @@ int plat_sound_init(void)
 	g_play_tod  = bard_tod();
 	g_ring_live = 1;
 	g_inited    = 1;
+	(void)plat_midi_init();                 /* as above, on the Paula path */
 	return 0;
 }
 
@@ -887,6 +893,7 @@ void plat_sound_shutdown(void)
 {
 	if (!g_inited)
 		return;
+	midi_amiga_shutdown();                  /* notes off while the vblank still runs */
 	g_ring_live = 0;
 	g_ft_rec    = NULL;
 
@@ -911,6 +918,14 @@ void plat_sound_shutdown(void)
 		g_bard_wave = NULL;
 	}
 	g_inited = 0;
+}
+
+/* The MIDI player (midi_seq.c) takes the music over: the engine keeps
+ * writing its live record, nothing of it is rendered. Tone and effects
+ * are unaffected. The same entry the shared mixer (sound_mix.c) offers. */
+void mix_music_mute(int mute)
+{
+	g_ft_mute = mute;
 }
 
 int plat_sound_synth_start(const void *ftsoundrec)
@@ -1027,6 +1042,11 @@ void plat_sound_set_vbl_hook(void (*fn)(void))
 void plat_sound_vbl(void)
 {
 	unsigned long b0 = vbl_beamline();
+
+	/* MIDI music first and unconditionally: a port that stops being fed
+	 * mid-note holds the note, so the score keeps time through the bard
+	 * and the silence gate alike. Cheap when nothing plays. */
+	midi_amiga_vbl();
 
 	bard_vbl();
 

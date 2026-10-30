@@ -2,7 +2,8 @@
  * MIDI music — the DOS release's XMIDI scores (RODQ1-3.XMI, the Roland
  * MT-32 arrangement) played out the machine's MIDI port instead of the Mac
  * four-tone synth. The generic half is platform/midi_seq.c; the port is
- * platform/midi_out_acia.c on Atari and platform/midi_none.c elsewhere.
+ * platform/midi_out_acia.c on Atari, platform/unix/midi_out_unix.c on
+ * Atari System V / AMIX and platform/amiga/midi_out_amiga.c on the Amiga.
  *
  * Opt-in through sound.cfg next to the program (see midi_out_acia.c).
  */
@@ -56,5 +57,11 @@ unsigned midi_seq_queued(void);         /* bytes waiting for the port */
 /* Send up to `budget` bytes (-1 = all), waiting at most `wait_iters` status
  * reads for each. Supervisor context. */
 void midi_seq_drain(long budget, long wait_iters);
+
+/* --- Amiga only (platform/amiga/midi_out_amiga.c) ----------------------- */
+/* The VERTB server has no 200 Hz counter: derive one from the vblank rate
+ * and run plat_midi_vbl. And the shutdown that also releases the UART. */
+void midi_amiga_vbl(void);
+void midi_amiga_shutdown(void);
 
 #endif /* PLAT_MIDI_H */

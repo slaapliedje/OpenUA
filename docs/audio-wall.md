@@ -421,6 +421,18 @@ midi=mt32       patch numbers sent as they are, for a real MT-32
   statistics, X flush) and the menu ran at 0% idle. The Unix entry points
   take one sample per call (`unix_clock_hold`) and X is asked once a tick:
   76% idle at the menu, the same music.
+* **The Amiga (2026-10-30, `platform/amiga/midi_out_amiga.c`).** Paula's
+  UART is the port: every Amiga MIDI interface is a level shifter on the
+  serial connector, and the ROM's serial.device is not involved — it cannot
+  be driven from the VERTB server where the sequencer sends, and a request
+  per byte would not keep a dense score in time, which is why the Amiga
+  MIDI programs of the day banged SERDAT too. SERPER 113 (PAL) or 114
+  (NTSC) is 31250 baud, TBE in SERDATR is the ready test, and the TBE
+  interrupt is masked for the run and restored on exit. The sequencer's
+  200 Hz count is derived from the vblank (4 a frame on PAL, 3-3-4 on
+  NTSC) the same way the Mac tempo is. The vblank half runs before the
+  bard and the silence gate so a note never hangs through a conversion.
+  Same sound.cfg, same scores, both AHI and Paula paths.
 * **Not yet:** the plain ST (no DMA sound, so no sound vblank to ride —
-  the pump needs its own VBL slot there), the Amiga (`platform/midi_none.c`
-  stubs), and a listening test on hardware.
+  the pump needs its own VBL slot there), and a listening test on Amiga
+  hardware (the user has a serial MIDI interface for it).

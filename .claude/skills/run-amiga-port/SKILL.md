@@ -223,6 +223,46 @@ the emulator directly. A slot that does not exist logs `autoload: no such
 slot` and falls back to the normal menu boot, so an armed-but-wrong
 configuration looks like an ordinary boot, not a hang.
 
+## MIDI music out of the emulated serial port
+
+`platform/amiga/midi_out_amiga.c` drives Paula's UART; amiberry forwards the
+emulated serial output to a host MIDI device through PortMidi, so the stream
+can be captured and checked (verified 2026-10-30: one full loop of RODQ1
+note-for-note at tempo 1.0015, see `tools/midi_tempo.py`).
+
+```bash
+cp data/work/gamedata/RODQ?.XMI data/work/amiga-mount/      # the DOS scores
+printf 'music=midi\nmidi=gm\n' > data/work/amiga-mount/sound.cfg
+timeout -s INT 400 arecordmidi -p 'Midi Through' /tmp/rec.mid &   # a port to aim at
+cp ~/Amiberry/Configurations/openua.uae ~/Amiberry/Configurations/openua-midi.uae
+echo 'amiberry.midiout_device_name=arecordmidi port 0' >> ~/Amiberry/Configurations/openua-midi.uae
+AMIBERRY_CONF=~/Amiberry/Configurations/openua-midi.uae "$D" start
+# ... >= 70 s later (the title tune is the only music before play; the main menu is silent)
+pkill -INT -x arecordmidi
+python3 tools/midi_tempo.py data/work/gamedata/RODQ1.XMI /tmp/rec.mid
+rm data/work/amiga-mount/sound.cfg        # or the synth stays muted on a MIDI-less boot
+```
+
+- The key is **`amiberry.midiout_device_name=`** (amiberry prefixes its own
+  keys; a bare `midiout_device_name=` is "unknown config entry"). The value
+  is the PortMidi device name as `amiberry.log` lists it (`MIDI: 2: 'ALSA',
+  'arecordmidi port 0'`), and the device must exist BEFORE amiberry starts.
+- **Do not aim at `Midi Through Port-0`.** amiberry also opens the first
+  MIDI IN it finds, which is the Through port's input, so everything it sends
+  loops straight back into it: `MIDI IN: buffer overflow!` every second.
+  `amiberry.midiin_device_name=none` did not stop it. A receiver's own port
+  (arecordmidi's, aseqdump's) takes direct writes and loops nothing back.
+- `amiberry.log` prints the UART setting the game programmed: `SERIAL:
+  period=113/1026, baud=31400` is SERPER 113 = 31250 baud on PAL.
+- `aseqdump -p <port>` shows the messages live but without timestamps;
+  `arecordmidi` writes the SMF only when it gets SIGINT.
+- The "stream stops after a minute" reading is the MENU coming up: the title
+  screen plays RODQ1 (song 0, `jt919`), and the main-menu loop's first act is
+  `jt52(255)` = stop all voices, so the menu is SILENT on every target — the
+  port goes quiet because the engine stopped the song, not because anything
+  failed. `DBG.LOG` shows `menu: modal up` right after the last `midi: queue
+  high-water` line.
+
 ## Test
 
 `make test` (host pytest) covers the Amiga c2p transpose
