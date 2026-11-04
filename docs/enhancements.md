@@ -354,9 +354,12 @@ this section was stale until 2026-07-24 and is kept as a pointer to the proofs.
 
 ## ⚠️ Verification gap — read before tagging
 
-**Superseded 2026-08-22.** This section was written when everything had only
-ever run in Hatari. Since then a Falcon030 has played the game (2026-08-03,
-`docs/milestone.md` §2a — five bugs found that Hatari never showed), a Mega STe
-has run the ST/STE build, and an A1200 has had a brief AGA test. The TT030,
-Amiga ECS and Amiga RTG builds remain emulator-validated only; the release
-notes say which is which, per platform.
+**Superseded 2026-08-22, updated 2026-11-03.** This section was written when
+everything had only ever run in Hatari. Since then a Falcon030 has played the
+game (2026-08-03, `docs/milestone.md` §2a — five bugs found that Hatari never
+showed), a Mega STe has run the ST/STE build and, with an ATW800/2 card, carried
+most of the field reports of August and September, a TT030 boots the Falcon/TT
+binary from its own hard-disk install, an A500 + ACA500plus has reported on the
+ECS build since v0.9.21 and an A1200 + IceDrake on the AGA build since
+v0.9.22. Only the Amiga RTG build remains emulator-validated; the release notes
+say which is which, per platform.

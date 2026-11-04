@@ -2,12 +2,13 @@
 
 An open reimplementation of SSI's *Unlimited Adventures* engine — the 1993 Gold
 Box adventure **construction set** — for Motorola 68k retro machines. One engine,
-six display backends across the Atari and Amiga lines: the Atari **Falcon030**,
-**TT030**, and **ST/STE**; the **Amiga AGA** (A1200/A4000), a **RTG** path so a
-classic Amiga with a graphics card runs the full 256-colour game, and a native
-**ECS** path for a bare classic Amiga. The lower-colour targets (ST/STE 16, ECS
-32) run a runtime median-cut **quantizer** that reduces the engine's 256-colour
-frame to the machine's palette.
+eight display backends across the Atari and Amiga lines: the Atari **Falcon030**,
+**TT030**, and **ST/STE**, plus any Atari with a **Nova-class graphics card**;
+the **Amiga AGA** (A1200/A4000), a **RTG** path so a classic Amiga with a
+graphics card runs the full 256-colour game, and a native **ECS** path for a
+bare classic Amiga; and an **X11** build for Atari System V and AMIX. The
+lower-colour targets (ST/STE 16, ECS 32) run a runtime median-cut **quantizer**
+that reduces the engine's 256-colour frame to the machine's palette.
 
 *OpenUA* = **Open** + **U**nlimited **A**dventures.
 
@@ -32,12 +33,13 @@ machines.
 [releases page](https://github.com/slaapliedje/OpenUA/releases) — the binaries
 are redistributable (no game data inside; you supply your own, below).
 
-The runtime plays a real adventure end to end. **A real Atari Falcon030 has now
-played it** — installed to hard disk, VGA monitor, through the dungeon, the
-area map, events and encampment — so the Falcon column below is no longer a
-claim about an emulator. The other five backends are still
-**emulator-validated only** (Hatari for the Atari builds, amiberry for the
-Amiga); treat those accordingly.
+The runtime plays a real adventure end to end, and **five real machines have
+run it**: a Falcon030 (hard-disk install, VGA monitor, through the dungeon, the
+area map, events and encampment), a TT030, a Mega STe (most sessions with an
+ATW800/2 graphics card), an A500 with an ACA500plus, and an A1200 with an Apollo
+IceDrake. The field reports from those machines fixed bugs no emulator showed.
+Only the **Amiga RTG** backend is still emulator-validated (amiberry); treat
+that one accordingly.
 
 Three things the real machine found that no emulator had: the AREA map drew
 every wall transposed, the Falcon never restored the desktop's video mode on
@@ -48,11 +50,13 @@ are wanted.
 | Target | Backend | Status |
 |---|---|---|
 | **Atari Falcon030** | VIDEL 16bpp | Playable beta — the original target. **Verified on real hardware** (Falcon030@50, VGA, hard-disk install) as well as in Hatari. Pick the video mode with `video.cfg` if your monitor dislikes the automatic choice. |
-| **Atari TT030** | TT-low 8bpl, 320×200 line-doubled into a 320×400 letterbox | Verified in Hatari + EmuTOS: menu → load → caravan event → 3D town walk; STE-DMA sound (music + SFX). |
-| **Atari ST/STE** | ST-low 4bpl, quantized to 16 colours with a Timer-B raster split (per-band palette) | Verified in Hatari `--machine ste` + EmuTOS: the menu renders in 16 colours, quantizer live, STE 4-bit palette, per-band colours via an MFP raster interrupt. A 68000 build (runs on any Atari), and a **stock non-e ST** is verified too (`--machine st` + TOS 1.04): the STE 4-bit palette encoding carries the extra bit in bit 3, so a plain ST reads a correct 3-bit approximation for free — fewer distinct colours (15 vs 23 in a walk frame), but measurably no more band-boundary artefacts. On an **accelerated** ST/STE run the Falcon/TT binary instead; it downgrades to this same backend but keeps 020 codegen (~12-17x on a step render). *Faint band-boundary seams at 16 colours remain.* |
-| **Amiga AGA** (A1200/A4000) | Direct copper list, AGA bank palette, hardware-sprite pointer | Playable — verified in amiberry through **combat**: save-load, the caravan event, the town walk, the animated fireplace, and a full fight. Keyboard, mouse and audio all live. **Verified on a real A1200 + Apollo IceDrake** (2026-09-05): the Workbench installer, and the **AHI** sound backend opening and tearing down cleanly (with Paula as the fallback on a stock machine). |
+| **Atari TT030** | TT-low 8bpl, 320×200 line-doubled into a 320×400 letterbox | **Boots on a real TT030** from its own hard-disk install, refreshed at every release since v0.9.26. Verified in Hatari + EmuTOS through menu → load → caravan event → 3D town walk; STE-DMA sound (music + SFX). |
+| **Atari ST/STE** | ST-low 4bpl, quantized to 16 colours with a Timer-B raster split (per-band palette) | **Runs on a real Mega STe** (the 68000 build, since 2026-08). Verified in Hatari `--machine ste` + EmuTOS: the menu renders in 16 colours, quantizer live, STE 4-bit palette, per-band colours via an MFP raster interrupt. A 68000 build (runs on any Atari), and a **stock non-e ST** is verified too (`--machine st` + TOS 1.04): the STE 4-bit palette encoding carries the extra bit in bit 3, so a plain ST reads a correct 3-bit approximation for free — fewer distinct colours (15 vs 23 in a walk frame), but measurably no more band-boundary artefacts. On an **accelerated** ST/STE run the Falcon/TT binary instead; it downgrades to this same backend but keeps 020 codegen (~12-17x on a step render). *Faint band-boundary seams at 16 colours remain.* |
+| **Atari + Nova-class graphics card** (e.g. an ATW800/2) | Nova/NVDI chunky 8-bit screen through the VDI | **Verified on a real Mega STe + ATW800/2** — the machine most of the field reports since 2026-08 came from. Hardware only: no emulator models the card, so this path is debugged on the machine (`docs/nova-card.md`). |
+| **Amiga AGA** (A1200/A4000) | Direct copper list, AGA bank palette, hardware-sprite pointer | Playable — verified in amiberry through **combat**: save-load, the caravan event, the town walk, the animated fireplace, and a full fight. Keyboard, mouse and audio all live. **Verified on a real A1200 + Apollo IceDrake** (2026-09-05): the Workbench installer, and the **AHI** sound backend opening and tearing down cleanly (with Paula as the fallback on a stock machine), followed by a month of field reports playing DOS fan modules on it — the title-art, event-picture and palette fixes of v0.9.26–v0.9.29. |
 | **Amiga RTG** (classic Amiga + graphics card) | Picasso96 chunky 8-bit screen | Verified — the full 256-colour menu renders on a live Picasso96 320×200×8 RTG screen (amiberry, accelerated A2000 + uaegfx board, Workbench 3.2). A classic non-AGA Amiga with an accelerator and an RTG card runs the game at full colour, no bitplanes. |
-| **Amiga ECS/OCS** (bare classic Amiga) | Native 5bpl copper, quantized to 32 colours with a per-band copper palette | Verified in amiberry on a bare OCS A2000: the menu renders in 32 colours, quantizer live, per-band palette (the copper reloads all 32 registers each band boundary for free), software cursor. The granite chrome renders as clean grey stone. |
+| **Amiga ECS/OCS** (bare classic Amiga) | Native 5bpl copper, quantized to 32 colours with a per-band copper palette | **Verified on a real A500 + ACA500plus** (field reports from v0.9.21-beta on). Verified in amiberry on a bare OCS A2000: the menu renders in 32 colours, quantizer live, per-band palette (the copper reloads all 32 registers each band boundary for free), software cursor. The granite chrome renders as clean grey stone. |
+| **Atari System V / AMIX** (SVR4 Unix on 68k) | X11, or full screen straight into an ATW800/2 framebuffer; `/dev/audio` sound; MIDI through the kernel's driver | Source build only (`make MACHINE=amix`, no release zip). **Runs on a real TT030 under Atari System V**: menu, play, sound and MIDI music. |
 
 One binary serves each family — one `frua.prg` for Falcon **and** TT (plus a
 68000 `frua.prg` that also covers ST/STE); one `frua` for AGA **and** RTG (plus a
@@ -67,6 +71,11 @@ follow the machine. That matters if you have an **accelerated ST** — see
 On the paletted targets (TT, ST/STE, AGA, RTG, ECS) the palette lives in
 hardware, so colour-cycle animation like the tavern fireplace is free (on the
 quantized targets that lands with the palette banding).
+
+The Falcon/TT binary, the Amiga binary and the Unix build can also send the DOS
+release's MT-32 score out the machine's MIDI or serial port instead of playing
+the Mac synth — `music=midi` in a `sound.cfg` beside the program; see
+`docs/audio-wall.md`.
 
 What works (on every target unless noted):
 

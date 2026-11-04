@@ -1,12 +1,14 @@
 # Installing OpenUA on real hardware
 
-**A real Falcon030 has now done this**, from a hard-disk install, on a VGA
-monitor, and played — so the Falcon route below is walked, not theoretical. The
-ST/STE build has run on a Mega STe and the AGA build has had a brief test on
-an A1200 (both 2026-08); the TT, Amiga ECS and Amiga RTG builds are still
-untested on real machines, and the floppy/Gotek media have been verified as
-filesystems rather than by booting a physical drive. If you get further than this document expects, or less far,
-that is worth reporting either way.
+**Five real machines have done this.** A Falcon030 from a hard-disk install on
+a VGA monitor, played through; a Mega STe (the ST/STE build, and the 020 build
+on an ATW800/2 graphics card — the machine most of the field reports came from);
+a TT030 from its own hard-disk install; an A500 with an ACA500plus (the ECS
+build); and an A1200 with an Apollo IceDrake (AGA: the installer, AHI sound, and
+a month of fan-module play). Only the Amiga RTG build is still untested on a
+real card, and the floppy/Gotek media have been verified as filesystems rather
+than by booting a physical drive. If you get further than this document expects,
+or less far, that is worth reporting either way.
 
 What the first real machine changed, so you know what to look for: the AREA map
 was drawing every wall transposed, quitting did not restore the desktop's video
@@ -155,7 +157,7 @@ Delete DH0:frua.00 DH0:frua.01
 
 **Atari Falcon030 / TT030** — `openua-falcon-*.zip`, 4 MB, TOS 4.04 (Falcon) or
 3.0x (TT). One binary serves both; the display and sound paths are chosen at
-runtime.
+runtime. Both machines have run it from a hard-disk install.
 
 **Atari ST / STE / Mega ST** — `openua-atari-st-*.zip`, 2 MB, **colour
 monitor**. ST-low, 16 colours, native bitplanes. Tested on TOS 2.06, EmuTOS and
@@ -187,7 +189,8 @@ machine is detected at runtime. **Verified on a real A1200 + Apollo IceDrake**
 
 **Amiga ECS/OCS (A500+ / A600 / A2000, bare 68000)** — `openua-amiga-ecs-*.zip`,
 Kickstart **2.0 or later** (1.3 will not work), 2 MB. Native 5-bitplane
-32-colour display with a per-band copper palette. Playable at 7 MHz for the
+32-colour display with a per-band copper palette. **Verified on a real A500 +
+ACA500plus** (field reports from v0.9.21-beta on). Playable at 7 MHz for the
 patient; comfortable with an accelerator (an ACA500Plus at 14 MHz is marginal,
 42 MHz is fine).
 
