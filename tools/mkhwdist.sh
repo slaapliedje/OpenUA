@@ -14,7 +14,7 @@
 #
 #     Atari DD (Mega ST)      737,280   binary is 1,063,312 — DOES NOT FIT
 #     Atari HD (Falcon)     1,474,560   binary is 1,047,134 — fits raw
-#     Amiga DD                901,120   AGA 691,092 fits raw; ECS 993,296 does not
+#     Amiga DD                901,120   AGA 723,512 fits raw (without uaconv); ECS 1,019,676 does not
 #
 #   So the Falcon and AGA disks carry the binary as-is and are ready to run,
 #   while the Mega ST and ECS disks carry a compressed payload. That asymmetry
@@ -265,7 +265,6 @@ EOS
 		if [ "$variant" = aga ]; then
 			echo '(copyfiles (source "OpenUA-AGA:frua") (dest uadir) (infos))'
 			echo '(copyfiles (source "OpenUA-AGA:uainst") (dest uadir) (infos))'
-			echo '(copyfiles (source "OpenUA-AGA:uaconv") (dest uadir) (infos))'
 		else
 			echo '(copyfiles (source "OpenUA-ECS-1:frua.00") (dest uadir))'
 			echo '(copyfiles (source "OpenUA-ECS-1:uainst") (dest uadir) (infos))'
@@ -314,7 +313,8 @@ say "Amiga AGA (A1200/A4000) — 880 KB, binary raw"
 readme "$WORK/README" "Amiga AGA (A1200 / A4000)" \
 	"frua    the engine. Needs Kickstart 3.0+ and about 4 MB." \
 	"uainst  installs a DOS fan module from its ZIP." \
-	"uaconv  (optional) pre-converts all DOS art + reclaims ~5 MB (-d)." \
+	"(uaconv, the optional art pre-converter, no longer fits on this disk:" \
+	" it is in the zip and the .lha hard-drive package.)" \
 	"" \
 	"TO INSTALL: double-click the Install icon (Workbench). It uses the" \
 	"AmigaOS Installer if the machine has one; Workbench 3.1 never shipped" \
@@ -322,10 +322,13 @@ readme "$WORK/README" "Amiga AGA (A1200 / A4000)" \
 	"Or run instdisk from data disk 1 — it installs the data and then asks" \
 	"for this disk to install the engine."
 amiga_install_files aga 6
-printf '1 1 OpenUA engine (AGA)\nfrua frua\nfrua.info frua.info\nuainst uainst\nuainst.info uainst.info\nuaconv uaconv\nuaconv.info uaconv.info\n' > "$WORK/ENGINE.LST"
-cp "$WORK/uaconv" "$AGA/uaconv"; cp "$WORK/uaconv.info" "$AGA/uaconv.info"
+# ★ No uaconv on the AGA floppy since 1.0.0-beta: frua grew to 723,512 with the
+# MIDI player and the disk was left 7 KB short of holding instdisk. uaconv is
+# optional and ships in the zip and the .lha; the ECS set keeps it (disk 1
+# holds only half the binary).
+printf '1 1 OpenUA engine (AGA)\nfrua frua\nfrua.info frua.info\nuainst uainst\nuainst.info uainst.info\n' > "$WORK/ENGINE.LST"
 amiga_img "$OUT/openua-amiga-aga-$VERSION.adf" "OpenUA-AGA" "$AGA" \
-	frua frua.info uainst uainst.info uaconv uaconv.info
+	frua frua.info uainst uainst.info
 for f in README ENGINE.LST Install Install.info Install.script instdisk; do
 	"$XDFTOOL" "$OUT/openua-amiga-aga-$VERSION.adf" write "$WORK/$f" >/dev/null
 done
