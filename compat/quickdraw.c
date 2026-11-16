@@ -988,6 +988,8 @@ static Boolean qd_effective_clip(GrafPtr port, Rect *out)
 static const unsigned char *s_dcm_base;      /* dt->chunky the memo is for   */
 static long                 s_dcm_lo, s_dcm_hi = -1;
 static short                s_dcm_sy, s_dcm_band, s_dcm_nb, s_dcm_h;
+static short                s_dcm_pitch;     /* the pitch [lo, hi) was cut at */
+static long                 s_dcm_rem;       /* (sy * nbands) mod h           */
 
 static int dc_map(const dsp_planar_dt_t *dt, const unsigned char *p,
                   short *sx, short *sy, short *band)
@@ -999,15 +1001,40 @@ static int dc_map(const dsp_planar_dt_t *dt, const unsigned char *p,
 	if (off < s_dcm_lo || off >= s_dcm_hi
 	 || dt->chunky != s_dcm_base
 	 || dt->nbands != s_dcm_nb || dt->h != s_dcm_h) {
-		short r = (short)(off / dt->chunky_pitch);
+		/* The memo made this per-ROW, and the 2026-11-16 division histogram
+		 * says per-row is still the largest divider left: 359,680 of 877,172
+		 * software divides in a walk window (41%), two per miss. But a miss is
+		 * almost always THE NEXT ROW of the same surface — a glyph, a span
+		 * stack, a blit walking down — and for that step both quotients follow
+		 * from the last ones with no division: sy + 1, and the band by carrying
+		 * the remainder of sy*nbands/h (add nbands, wrap at h). Exact, not an
+		 * estimate: floor((sy+1)*nb/h) is floor(sy*nb/h) plus the carries.
+		 * Anything else (a jump, a new surface, a re-band) divides as before
+		 * and re-seeds the remainder. FRUA_DCMAPVERIFY checks every call. */
+		if (dt->chunky == s_dcm_base && dt->chunky_pitch == s_dcm_pitch
+		 && dt->nbands == s_dcm_nb && dt->h == s_dcm_h && dt->h > 0
+		 && off >= s_dcm_hi && off < s_dcm_hi + s_dcm_pitch) {
+			s_dcm_sy++;
+			s_dcm_lo   = s_dcm_hi;
+			s_dcm_hi  += s_dcm_pitch;
+			s_dcm_rem += s_dcm_nb;
+			while (s_dcm_rem >= s_dcm_h) {
+				s_dcm_rem -= s_dcm_h;
+				s_dcm_band++;
+			}
+		} else {
+			short r = (short)(off / dt->chunky_pitch);
 
-		s_dcm_base = dt->chunky;
-		s_dcm_nb   = dt->nbands;
-		s_dcm_h    = dt->h;
-		s_dcm_sy   = r;
-		s_dcm_lo   = (long)r * dt->chunky_pitch;
-		s_dcm_hi   = s_dcm_lo + dt->chunky_pitch;
-		s_dcm_band = (short)((long)r * dt->nbands / dt->h);
+			s_dcm_base  = dt->chunky;
+			s_dcm_pitch = dt->chunky_pitch;
+			s_dcm_nb    = dt->nbands;
+			s_dcm_h     = dt->h;
+			s_dcm_sy    = r;
+			s_dcm_lo    = (long)r * dt->chunky_pitch;
+			s_dcm_hi    = s_dcm_lo + dt->chunky_pitch;
+			s_dcm_band  = (short)((long)r * dt->nbands / dt->h);
+			s_dcm_rem   = (long)r * dt->nbands - (long)s_dcm_band * dt->h;
+		}
 	}
 	*sy   = s_dcm_sy;
 	*sx   = (short)(off - s_dcm_lo);
