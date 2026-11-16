@@ -2798,7 +2798,7 @@ static long qd_bake_dist(short r, short g, short b, short i)
 /* Re-decide cursor colour `c` over the WHOLE palette. Semantics must match
  * qd_nearest_color exactly: strict `<` keeps the LOWEST index among equal
  * minima, and an exact match short-circuits. */
-static void qd_bake_full_one(short c)
+static void __attribute__((unused)) qd_bake_full_one(short c)
 {
 #ifdef FRUA_PALDIAG
 	pd_rb_fullone++;
@@ -2817,6 +2817,61 @@ static void qd_bake_full_one(short c)
 			best   = i;
 			if (d == 0)
 				break;
+		}
+	}
+	s_bake_idx[c] = (unsigned char)best;
+	s_bake_d[c]   = best_d;
+}
+
+/* The distance from every cursor colour to every palette entry, kept current
+ * by qd_rebake_range. Exists because of what the walk actually does: a profile
+ * of the STE play loop (2026-11-16) put qd_bake_full_one at 13.0% of program
+ * cycles, the single largest function, and FRUA_PALDIAG said why — 4,600
+ * palette writes of which only 49 were byte-identical, 4,393 re-bakes, 9,214
+ * full rescans and 4,368 re-bakes that MOVED a baked index. The walk
+ * colour-cycles, a couple of cursor colours resolve into the cycling entries,
+ * and each cycle step therefore moves "its own entry" and forces a full
+ * 256-entry rescan at three table lookups and two adds per entry.
+ *
+ * Nothing about that rescan needs recomputing: an entry outside the written
+ * range has the distance it had last time. So cache them. A write refreshes
+ * 16 x count cells (work the incremental path already did) and a rescan
+ * becomes a minimum over 256 longs. Same answer, by construction — the cells
+ * ARE qd_bake_dist's values, and g_palette has exactly one writer
+ * (qd_set_palette), which is what feeds the range here. 16 KB of BSS. */
+static long s_bake_tab[16][256];
+
+/* Refresh cursor colour `c`'s cached distances for palette [first, lim). */
+static void qd_bake_fill(short c, short first, short lim)
+{
+	short r = (short)g_color_cursor.pal[c * 3 + 0];
+	short g = (short)g_color_cursor.pal[c * 3 + 1];
+	short b = (short)g_color_cursor.pal[c * 3 + 2];
+	long *t = &s_bake_tab[c][first];
+	short i;
+
+	for (i = first; i < lim; i++)
+		*t++ = qd_bake_dist(r, g, b, i);
+}
+
+/* Re-decide cursor colour `c` from the cached distances. Same rule as
+ * qd_bake_full_one: strict `<` keeps the LOWEST index among equal minima (the
+ * exact-match early-out there is only a shortcut to that same index). */
+static void qd_bake_min_one(short c)
+{
+	const long *t = s_bake_tab[c];
+	long  best_d = 0x7FFFFFFFL;
+	short best = 0, i;
+
+#ifdef FRUA_PALDIAG
+	pd_rb_fullone++;
+#endif
+	for (i = 0; i < 256; i++) {
+		long d = *t++;
+
+		if (d < best_d) {
+			best_d = d;
+			best   = i;
 		}
 	}
 	s_bake_idx[c] = (unsigned char)best;
@@ -2873,8 +2928,14 @@ static void qd_rebake_range(short first, short count)
 #ifdef FRUA_PALDIAG
 		pd_rb_fullpath++;
 #endif
-		for (c = 0; c < 16; c++)
+		for (c = 0; c < 16; c++) {
+#ifdef FRUA_NOBAKETAB
 			qd_bake_full_one(c);
+#else
+			qd_bake_fill(c, 0, 256);
+			qd_bake_min_one(c);
+#endif
+		}
 		s_bake_valid = 1;
 		qd_bake_apply();
 		return;
@@ -2883,17 +2944,24 @@ static void qd_rebake_range(short first, short count)
 	for (c = 0; c < 16; c++) {
 		short r, g, b, i, lim;
 
+		lim = (short)(first + count);
 		if (s_bake_idx[c] >= first && s_bake_idx[c] < first + count) {
-			qd_bake_full_one(c);    /* its own entry moved */
+			/* its own entry moved: nothing local says by how much */
+#ifdef FRUA_NOBAKETAB
+			qd_bake_full_one(c);
+#else
+			qd_bake_fill(c, first, lim);
+			qd_bake_min_one(c);
+#endif
 			continue;
 		}
 		r = (short)g_color_cursor.pal[c * 3 + 0];
 		g = (short)g_color_cursor.pal[c * 3 + 1];
 		b = (short)g_color_cursor.pal[c * 3 + 2];
-		lim = (short)(first + count);
 		for (i = first; i < lim; i++) {
 			long d = qd_bake_dist(r, g, b, i);
 
+			s_bake_tab[c][i] = d;
 			if (d < s_bake_d[c]
 			 || (d == s_bake_d[c] && i < (short)s_bake_idx[c])) {
 				s_bake_d[c]   = d;
