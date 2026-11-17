@@ -19,7 +19,10 @@ HARNESS = r"""
 
 #define W  64
 #define H  16
-#define NP 4
+#ifndef NP
+#define NP 4                         /* ST-Low; the TT is built with -DNP=8 */
+#endif
+#define SM ((1 << NP) - 1)          /* the slots NP planes can hold */
 #define LB (W / 16 * NP * 2)        /* 32 bytes/line */
 
 static unsigned s_rng = 12345u;
@@ -46,7 +49,7 @@ int main(void)
 	/* planar_put_stlow: exactly one pixel changes, to `slot`. */
 	for (trial = 0; trial < 5000; trial++) {
 		int px = rnd() % W, py = rnd() % H;
-		unsigned char sl = (unsigned char)(rnd() & 15);
+		unsigned char sl = (unsigned char)(rnd() & SM);
 		memset(scr, 0, sizeof scr);
 		planar_put_stlow(scr, LB, NP, (short)px, (short)py, sl);
 		for (y = 0; y < H; y++) for (x = 0; x < W; x++) {
@@ -62,8 +65,8 @@ int main(void)
 	/* planar_fill_stlow: a fg rect over a bg fill; clipping (negative origin,
 	 * oversize extent) must never touch a pixel outside [rx,rx+rw)x[ry,ry+rh). */
 	for (trial = 0; trial < 3000; trial++) {
-		unsigned char bg = (unsigned char)(rnd() & 15);
-		unsigned char fg = (unsigned char)(rnd() & 15);
+		unsigned char bg = (unsigned char)(rnd() & SM);
+		unsigned char fg = (unsigned char)(rnd() & SM);
 		int rx = (int)(signed char)rnd() % W;   /* may be negative -> clip */
 		int ry = (int)(signed char)rnd() % H;
 		int rw = rnd() % (W + 8), rh = rnd() % (H + 4);
@@ -85,7 +88,7 @@ int main(void)
 	for (trial = 0; trial < 3000; trial++) {
 		unsigned char ascr[NP * (W / 8) * H];
 		int px = rnd() % W, py = rnd() % H, p;
-		unsigned char sl = (unsigned char)(rnd() & 15);
+		unsigned char sl = (unsigned char)(rnd() & SM);
 		memset(ascr, 0, sizeof ascr);
 		planar_put_amiga(ascr, W / 8, (long)(W / 8) * H, NP,
 		                 (short)px, (short)py, sl);
@@ -108,9 +111,9 @@ int main(void)
 	 * bits -> bg when opaque, else the bg fill shows through. Clipping (negative
 	 * origin, oversize glyph) must never touch a pixel outside the screen. */
 	for (trial = 0; trial < 4000; trial++) {
-		unsigned char bg  = (unsigned char)(rnd() & 15);
-		unsigned char fg  = (unsigned char)(rnd() & 15);
-		unsigned char sfil = (unsigned char)(rnd() & 15);   /* prior surface fill */
+		unsigned char bg  = (unsigned char)(rnd() & SM);
+		unsigned char fg  = (unsigned char)(rnd() & SM);
+		unsigned char sfil = (unsigned char)(rnd() & SM);   /* prior surface fill */
 		int opaque = rnd() & 1;
 		int gw = 1 + rnd() % 20, gh = 1 + rnd() % 12;       /* glyph up to 20x12 */
 		int gstride = (gw + 7) / 8;
@@ -152,7 +155,7 @@ int main(void)
 
 		if (x0 > x1) { int t = x0; x0 = x1; x1 = t; }
 		for (i = 0; i < W; i++)   chunky[i] = rnd();
-		for (i = 0; i < 256; i++) lut[i] = (unsigned char)(rnd() & 15);
+		for (i = 0; i < 256; i++) lut[i] = (unsigned char)(rnd() & SM);
 		for (i = 0; i < (int)sizeof scr; i++) scr[i] = rnd();
 		memcpy(ref, scr, sizeof ref);
 		/* reference: the per-pixel form this replaces */
@@ -183,12 +186,12 @@ int main(void)
 		unsigned char ascr[NP * (W / 8) * H], aref[NP * (W / 8) * H];
 		unsigned char chunky[W], lut[256];
 		int x0 = rnd() % W, x1 = rnd() % W, y = rnd() % H;
-		unsigned char sl = (unsigned char)(rnd() & 15);
+		unsigned char sl = (unsigned char)(rnd() & SM);
 		int i, solid = (trial & 1);
 
 		if (x0 > x1) { int t = x0; x0 = x1; x1 = t; }
 		for (i = 0; i < W; i++)   chunky[i] = rnd();
-		for (i = 0; i < 256; i++) lut[i] = (unsigned char)(rnd() & 15);
+		for (i = 0; i < 256; i++) lut[i] = (unsigned char)(rnd() & SM);
 		for (i = 0; i < (int)sizeof ascr; i++) ascr[i] = rnd();
 		memcpy(aref, ascr, sizeof aref);
 		for (i = x0; i < x1; i++)
@@ -251,13 +254,18 @@ int main(void)
 """
 
 
+# 4 planes is ST-Low; 8 is TT-Low, which has its own fast paths in
+# planar_c2p_span_stlow (a 32-pixel transpose and an aligned-group
+# accumulate). Until 2026-11-16 this ran at 4 only, so those 8-plane paths
+# would have had no test at all.
 @pytest.mark.skipif(shutil.which("cc") is None, reason="no host C compiler")
-def test_planar_fill_matches_decoder(tmp_path):
+@pytest.mark.parametrize("nplanes", [4, 8])
+def test_planar_fill_matches_decoder(tmp_path, nplanes):
 	harness = tmp_path / "h.c"
 	harness.write_text(HARNESS)
 	exe = tmp_path / "t"
 	subprocess.run(
-		["cc", "-O2", "-Wall", "-o", str(exe), str(harness),
+		["cc", "-O2", "-Wall", "-DNP=%d" % nplanes, "-o", str(exe), str(harness),
 		 "-I", os.path.join(REPO, "platform", "include"),
 		 "-I", os.path.join(REPO, "third_party", "c2p-68k", "include")],
 		check=True, capture_output=True, text=True)

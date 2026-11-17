@@ -490,6 +490,64 @@ static inline void planar_c2p_span_stlow(unsigned char *dst, short line_bytes,
 			n = (short)(x1 - x);
 		grp = row + (long)g * nplanes * 2;
 
+		/* TT-Low is this same interleaved layout with EIGHT planes, and until
+		 * 2026-11-16 it had no fast path here at all: every group took the
+		 * per-pixel, per-plane loop at the bottom. A TT walk profile put this
+		 * function at 6.6 s of a 38.8 s walk (17%), nearly all of it the
+		 * compass's two FRAME pieces bridged after every key. Two paths: */
+		if (nplanes == 8 && bit == 0 && (short)(x1 - x) >= 32) {
+			/* (a) two whole groups at once: the subtree's bit-matrix
+			 * transpose, as planar_c2p_span_amiga does (#129). out[p] is
+			 * plane p's 32 bits — the high word is this group's, the low
+			 * word the next group's. Any GROUP-aligned x will do; unlike the
+			 * Amiga's byte-addressed planes there is nothing special about
+			 * a multiple of 32 here (requiring one, as the first cut did,
+			 * sent every span that starts on an odd group down path (b) and
+			 * left most of the cost in place). */
+			c2p_u32       c[8], out[8];
+			unsigned char tmp[32];
+
+			for (i = 0; i < 32; i++)
+				tmp[i] = lut[src[x + i]];
+			c2p_load32(tmp, c);
+			c2p_transpose32(c, out);
+			for (p = 0; p < 8; p++) {
+				c2p_u32 v = out[p];
+
+				grp[p * 2]          = (unsigned char)(v >> 24);
+				grp[p * 2 + 1]      = (unsigned char)(v >> 16);
+				grp[16 + p * 2]     = (unsigned char)(v >> 8);
+				grp[16 + p * 2 + 1] = (unsigned char)v;
+			}
+			x = (short)(x + 32);
+			continue;
+		}
+		if (nplanes == 8 && bit == 0 && n == 16) {
+			/* (b) one aligned group: the four-accumulator loop below, run
+			 * once for planes 0..3 and once for planes 4..7. Two passes of
+			 * four keep the accumulators in registers on a 68030, which
+			 * eight at once would not. */
+			short q;
+
+			for (q = 0; q < 8; q += 4) {
+				unsigned short w0 = 0, w1 = 0, w2 = 0, w3 = 0;
+
+				for (i = 0; i < 16; i++) {
+					unsigned char s = (unsigned char)(lut[src[x + i]] >> q);
+					w0 = (unsigned short)((w0 << 1) | (s & 1));
+					w1 = (unsigned short)((w1 << 1) | ((s >> 1) & 1));
+					w2 = (unsigned short)((w2 << 1) | ((s >> 2) & 1));
+					w3 = (unsigned short)((w3 << 1) | ((s >> 3) & 1));
+				}
+				grp[q * 2]     = (unsigned char)(w0 >> 8); grp[q * 2 + 1] = (unsigned char)w0;
+				grp[q * 2 + 2] = (unsigned char)(w1 >> 8); grp[q * 2 + 3] = (unsigned char)w1;
+				grp[q * 2 + 4] = (unsigned char)(w2 >> 8); grp[q * 2 + 5] = (unsigned char)w2;
+				grp[q * 2 + 6] = (unsigned char)(w3 >> 8); grp[q * 2 + 7] = (unsigned char)w3;
+			}
+			x = (short)(x + 16);
+			continue;
+		}
+
 		if (nplanes == 4 && bit == 0 && n == 16) {
 			/* The common case on ST-Low: a whole aligned group, four
 			 * planes, no mask and no read. Shift-accumulate so the
@@ -511,15 +569,42 @@ static inline void planar_c2p_span_stlow(unsigned char *dst, short line_bytes,
 			continue;
 		}
 
-		for (p = 0; p < nplanes; p++)
-			built[p] = 0;
-		for (i = 0; i < n; i++) {
-			unsigned char  s = lut[src[x + i]];
-			unsigned short b = (unsigned short)(0x8000u >> (bit + i));
+		if (nplanes == 4 || nplanes == 8) {
+			/* A PARTIAL group (a span's ragged head or tail, or a span
+			 * narrower than a group). Same four-accumulator gather as the
+			 * whole-group paths, then one shift puts the n bits where they
+			 * belong; the masked merge below is unchanged. The per-plane
+			 * bit test this replaces ran nplanes times per pixel, and on
+			 * the TT's compass pieces — mostly ragged spans — it was still
+			 * most of this function after the aligned paths went in. */
+			short q, sh = (short)(16 - bit - n);
 
+			for (q = 0; q < nplanes; q += 4) {
+				unsigned short w0 = 0, w1 = 0, w2 = 0, w3 = 0;
+
+				for (i = 0; i < n; i++) {
+					unsigned char s = (unsigned char)(lut[src[x + i]] >> q);
+					w0 = (unsigned short)((w0 << 1) | (s & 1));
+					w1 = (unsigned short)((w1 << 1) | ((s >> 1) & 1));
+					w2 = (unsigned short)((w2 << 1) | ((s >> 2) & 1));
+					w3 = (unsigned short)((w3 << 1) | ((s >> 3) & 1));
+				}
+				built[q]     = (unsigned short)(w0 << sh);
+				built[q + 1] = (unsigned short)(w1 << sh);
+				built[q + 2] = (unsigned short)(w2 << sh);
+				built[q + 3] = (unsigned short)(w3 << sh);
+			}
+		} else {
 			for (p = 0; p < nplanes; p++)
-				if ((s >> p) & 1)
-					built[p] = (unsigned short)(built[p] | b);
+				built[p] = 0;
+			for (i = 0; i < n; i++) {
+				unsigned char  s = lut[src[x + i]];
+				unsigned short b = (unsigned short)(0x8000u >> (bit + i));
+
+				for (p = 0; p < nplanes; p++)
+					if ((s >> p) & 1)
+						built[p] = (unsigned short)(built[p] | b);
+			}
 		}
 		mask = (unsigned short)(((0xFFFFUL >> bit)
 		                       & ~(0xFFFFUL >> (bit + n))) & 0xFFFFUL);
