@@ -46,6 +46,12 @@ static int host_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 	printf("\n");
 	if (ins->opcode == ECL_OP_COMBAT)
 		return ECL_HOST_COMBAT;
+	if (ins->opcode == 0x23)        /* the short dialects' "clear and exit" */
+		return ECL_HOST_EXIT;
+	if (ins->opcode == 0x22) {      /* ... and their yes/no: answer yes     */
+		ecl_set_cmp(vm, 0, 0);
+		vm->cmp[2] = vm->cmp[3] = vm->cmp[4] = vm->cmp[5] = 0;
+	}
 	return ECL_HOST_OK;
 }
 

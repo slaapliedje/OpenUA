@@ -86,11 +86,22 @@ GEN1_OPCODES = {
 
 # The Dark Queen of Krynn: operand counts as its own handlers declare them
 # (Greybox, "the whole Gen2 operand table was read out of DQK.EXE").
+#
+# Three of the zero-operand ones kept their Champions NAMES in Greybox's table
+# but not their meaning. Read out of DQK.EXE's handlers (file offsets 0x330a3,
+# 0x330e4, 0x33122, 0x33169) and borne out by every script that uses them:
+#   0x1d  CONTINUE    "press Return", then the text box is cleared
+#   0x22  YES_NO      asks; yes sets the == flag, no the != flag, and the
+#                     ordering flags are cleared
+#   0x23  CLEAR_EXIT  clears the text box and ends the script
+#   0x29  NOP_29      only steps over itself
+# Death Knights uses 0x1d and 0x22 the same way in its scripts; its 0x23 and
+# 0x29 are taken to match and have not been read out of that game's code.
 GEN2_OVERRIDES = {
-    0x0c: ("SETUP_MONSTER", 4, None),   0x1d: ("PARTYSTRENGTH", 0, None),
+    0x0c: ("SETUP_MONSTER", 4, None),   0x1d: ("CONTINUE", 0, None),
     0x1f: ("UNKNOWN_1F", 1, None),      0x21: ("LOAD_FILES", 2, None),
-    0x22: ("PARTY_SURPRISE", 0, None),  0x23: ("SURPRISE", 0, None),
-    0x27: ("TREASURE", 4, 3),           0x29: ("ENCOUNTER_MENU", 0, None),
+    0x22: ("YES_NO", 0, None),          0x23: ("CLEAR_EXIT", 0, None),
+    0x27: ("TREASURE", 4, 3),           0x29: ("NOP_29", 0, None),
     0x2c: ("PARLAY", 1, None),          0x31: ("SHORT_MENU", 2, 1),
     0x37: ("LOAD_PIECES", 2, None),     0x41: ("GEN2_EXT_41", 2, None),
 }

@@ -264,11 +264,16 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
 - **A cell's four edge bytes are N, E, S, W** (the engine reads byte
   `facing >> 1`), and `tools/geo.py`'s `row` is the east-west axis. A square
   test room cannot tell the orders apart — use an asymmetric map.
-- **Wired so far:** text, menus (on the engine's button bar, JT[182]), script
-  chains, map loads, party placement (Dark Queen's position variables only).
-  Number input is wired too (JT[891]). **Not wired:** pictures, string
-  input, combat, treasure; script
-  memory is not saved. A script that needs one of those takes a wrong turn.
+- **Wired so far:** text, menus (on the engine's button bar, JT[182]), yes/no,
+  number input (JT[891]), script chains, map loads, party placement (Dark
+  Queen's position variables only). **Not wired:** pictures, string input,
+  combat, treasure; script memory is not saved. A script that needs one of
+  those takes a wrong turn.
+- **Three opcode NAMES in Greybox's table are Champions' and wrong for Death
+  Knights and Dark Queen:** 0x1d is "press Return", 0x22 a yes/no that sets
+  the == / != flags, 0x23 "clear the text box and EXIT" (read out of
+  DQK.EXE; about 2,900 uses in Dark Queen). Skipping 0x23 runs a script on
+  into the next cell's code. Read the handler before trusting a mnemonic.
 - Game data is the user's own (the Steam DOS releases work); never commit it.
 
 ## Toolchain flags (non-negotiable)

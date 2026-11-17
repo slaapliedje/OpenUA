@@ -43,12 +43,12 @@ static void frame_set(ecl_dialect *d, unsigned op, unsigned fixed, int count_at)
 static void frames_short(ecl_dialect *d)
 {
 	frame_set(d, 0x0c, 4, -1);      /* SETUP_MONSTER                         */
-	frame_set(d, 0x1d, 0, -1);      /* PARTYSTRENGTH                         */
+	frame_set(d, 0x1d, 0, -1);      /* "press Return" here, not PARTYSTRENGTH */
 	frame_set(d, 0x1f, 1, -1);
-	frame_set(d, 0x22, 0, -1);      /* PARTY_SURPRISE                        */
-	frame_set(d, 0x23, 0, -1);      /* SURPRISE                              */
+	frame_set(d, 0x22, 0, -1);      /* a yes/no question that sets the flags */
+	frame_set(d, 0x23, 0, -1);      /* clear the text box and EXIT           */
 	frame_set(d, 0x27, 4, 3);       /* TREASURE: three coin piles + N items  */
-	frame_set(d, 0x29, 0, -1);      /* ENCOUNTER_MENU                        */
+	frame_set(d, 0x29, 0, -1);      /* does nothing in The Dark Queen        */
 	frame_set(d, 0x2c, 1, -1);      /* ★ PARLAY: 6 in Champions. Read wrong, */
 	                                /*   it swallows the COMBAT behind it.   */
 	frame_set(d, 0x31, 2, 1);       /* a menu here, SPRITE_OFF in Champions  */
@@ -309,6 +309,7 @@ static int call_host(ecl_vm *vm, const ecl_insn *ins, int *status)
 	case ECL_HOST_UNHANDLED: vm->unhandled++; return 0;
 	case ECL_HOST_WAIT:      *status = ECL_WAIT;   return 1;
 	case ECL_HOST_COMBAT:    *status = ECL_COMBAT; return 1;
+	case ECL_HOST_EXIT:      *status = ECL_EXITED; return 1;
 	default:                 *status = fault(vm, ins->offset); return 1;
 	}
 }

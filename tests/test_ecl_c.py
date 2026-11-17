@@ -343,6 +343,24 @@ def test_a_pause_resumes_after_the_instruction(cbin, tmp_path):
     assert pauses == [int(COMBAT)] and st["status"] == EXITED and m[0x90] == 1
 
 
+def test_the_host_can_end_the_script_from_an_instruction(cbin, tmp_path):
+    # The Dark Queen's 0x23 clears the text box and exits; what follows it in
+    # the block is another cell's code and must not run.
+    code = (bytes([0x23])
+            + bytes([0x09]) + imm(1) + mem(0x90) + b"\x00")
+    host, m, st, _ = c_run(cbin, tmp_path, code)
+    assert st["status"] == EXITED and [h[0] for h in host] == [0x23]
+    assert m.get(0x90, 0) == 0
+
+
+def test_a_host_answer_steers_the_next_if(cbin, tmp_path):
+    # 0x22 asks yes/no and leaves the answer in the flags: yes is ==.
+    code = (bytes([0x22, 0x17, 0x00])                             # YES_NO; IF_NE; EXIT
+            + bytes([0x09]) + imm(7) + mem(0x90) + b"\x00")
+    _, m, st, _ = c_run(cbin, tmp_path, code)
+    assert st["status"] == EXITED and m[0x90] == 7
+
+
 def test_a_jump_into_another_block_is_skipped_not_followed(cbin, tmp_path):
     code = bytes([0x01]) + mem(0x0042) + bytes([0x09]) + imm(1) + mem(0x90) + b"\x00"
     _, m, st, _ = c_run(cbin, tmp_path, code)

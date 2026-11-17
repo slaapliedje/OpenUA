@@ -51,7 +51,8 @@ enum { ECL_HOST_OK = 0,         /* done, carry on                            */
        ECL_HOST_UNHANDLED,      /* not implemented: skipped, and counted     */
        ECL_HOST_WAIT,           /* pause; ecl_run() again to resume          */
        ECL_HOST_COMBAT,
-       ECL_HOST_FAULT };
+       ECL_HOST_FAULT,
+       ECL_HOST_EXIT };         /* the instruction also ends the script      */
 
 /* Opcodes the core itself executes, plus the few a host has to recognise. */
 enum { ECL_OP_EXIT = 0x00, ECL_OP_GOTO = 0x01, ECL_OP_GOSUB = 0x02,

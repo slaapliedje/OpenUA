@@ -106496,10 +106496,10 @@ static void jt500(short rings, short art, short sound)
  * spine FRUA's own stairs event (l5676) uses. The FRUA event dispatcher still
  * runs too; a converted map has no events, so it finds nothing.
  *
- * STILL NARROW. The host answers text, menus, map loads and script chains.
- * Pictures, number and string input, combat, treasure and the rest are
- * counted as unhandled and skipped, so a script that depends on one takes a
- * wrong turn. Script memory lives for the session and is not written to a
+ * STILL NARROW. The host answers text, menus, yes/no, number input, map
+ * loads and script chains. Pictures, string input, combat, treasure and the
+ * rest are counted as unhandled and skipped, so a script that depends on one
+ * takes a wrong turn. Script memory lives for the session and is not written to a
  * saved game. Party position is only exchanged for the Dark Queen dialect;
  * where Champions and Death Knights keep it is not pinned down yet.
  * ============================================================================ */
@@ -106701,9 +106701,46 @@ static void gbs_input_number(ecl_vm *vm, short digits, unsigned short dest)
 	g_gbs_shown = 1;
 }
 
+/* The short dialects' yes/no question (0x22), on the engine's own Yes/No
+ * bar. The original (DQK.EXE, the handler at file offset 0x330e4) clears the
+ * first four compare flags and then sets == for yes or != for no, so the
+ * script's next IF_EQ / IF_NE is the answer. Escape answers no. */
+static void gbs_yes_no(ecl_vm *vm)
+{
+	short pick;
+
+	gbs_draw(0);                    /* the question stays up above the bar */
+	jt179(1);
+	pick = jt182("", (long)(uintptr_t)"Yes No", 0, g_a5_22281);
+	vm->cmp[0] = (unsigned char)(pick == 0);
+	vm->cmp[1] = (unsigned char)(pick != 0);
+	vm->cmp[2] = vm->cmp[3] = 0;
+	g_gbs_shown = 1;
+}
+
 static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 {
 	(void)ctx;
+	/* Death Knights and The Dark Queen reuse three Champions opcode numbers
+	 * for something else entirely (tools/ecl.py, GEN2_OVERRIDES). Skipping
+	 * them, as this did at first, ran every script past its own ending. */
+	if (g_gbs_dialect != ECL_GEN1) {
+		switch (ins->opcode) {
+		case 0x1d:                  /* CONTINUE: Return, then the box clears */
+			gbs_show();
+			return ECL_HOST_OK;
+		case 0x22:                  /* YES_NO */
+			gbs_yes_no(vm);
+			return ECL_HOST_OK;
+		case 0x23:                  /* CLEAR_EXIT */
+			gbs_show();
+			return ECL_HOST_EXIT;
+		case 0x29:                  /* does nothing */
+			return ECL_HOST_OK;
+		default:
+			break;
+		}
+	}
 	switch (ins->opcode) {
 	case ECL_OP_PRINTCLEAR:
 		gbs_show();                 /* what was there is read before it goes */
