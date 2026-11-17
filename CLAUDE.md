@@ -216,6 +216,18 @@ What the 2026-11-16 pass found, so it is not rediscovered:
   is a table lookup now (`third_party/c2p-68k`): viewport present 24 -> 18
   ticks on an A500 build, 5 -> 2 on an A1200 build. The table is slower than
   the transpose for whole frames, even on a 68000 — do not swap them.
+- **The 3D view was the walk on every machine, and three per-pixel loops
+  were most of it** (2026-11-17, `render_3d_faithful` and the tile blit):
+  the static backdrop was rescaled and stored through a bounds-checked
+  `map_px` every step (now scaled once and laid down by rows;
+  `-DFRUA_NOBDCACHE` opts out); a coverage bitmap only `FRUA_VPPLANAR`
+  reads was filled per pixel in shipping ST builds; and `planar_tile_blit`
+  folded its clip into the mask one pixel at a time. Scripted walk: 68000
+  ST 452 -> 255 s, Falcon 50.8 -> 39.5 s, TT 31.0 -> 25.1 s; step render
+  on the A500 build 24-29 -> 13 ticks, on the A1200 build 6 -> 3. To find
+  the next one, list the hot instructions inside a function from the Hatari
+  per-address dump rather than trusting the per-function table — inlined
+  loops hide in the caller's exclusive time.
 - **`FRUA_DIRTYCHECK` on ECS reports 63 unannounced rows (24..95) once in
   the HEIRS walk, right after a reband cache hit.** It predates the
   2026-11-17 changes (the unmodified build reports the same 63) and is not
@@ -254,7 +266,8 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   test room cannot tell the orders apart — use an asymmetric map.
 - **Wired so far:** text, menus (on the engine's button bar, JT[182]), script
   chains, map loads, party placement (Dark Queen's position variables only).
-  **Not wired:** pictures, number and string input, combat, treasure; script
+  Number input is wired too (JT[891]). **Not wired:** pictures, string
+  input, combat, treasure; script
   memory is not saved. A script that needs one of those takes a wrong turn.
 - Game data is the user's own (the Steam DOS releases work); never commit it.
 

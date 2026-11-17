@@ -12810,6 +12810,10 @@ static void bd_scale_maps(short bw, short bh, short sw_, short sh_)
 		g_bd_by[i] = (short)(((long)i * sh_) / bh);
 	g_bd_mw = bw; g_bd_mh = bh; g_bd_sw = sw_; g_bd_sh = sh_;
 }
+/* The backdrop, scaled to the viewport hole, kept between renders. */
+#define BD_CACHE_MAX (88 * 88)
+static unsigned char g_bdc_img[BD_CACHE_MAX];
+static short g_bdc_gen = -1, g_bdc_w, g_bdc_h, g_bdc_sw, g_bdc_sh;
 static short g_view_hud_only = 0;
 #ifdef FRUA_R3DPROF
 long g_r3d_t0, g_r3d_t1, g_r3d_t2, g_r3d_t3, g_r3d_t4, g_r3d_tb;  /* #132 phases */
@@ -12846,11 +12850,9 @@ static void  port_event_tail_expire(void);
 #define BACK_PAL_BASE 144
 static unsigned char g_back_img[BACK_W * BACK_H];
 static short g_back_w = 0, g_back_h = 0;   /* loaded dims (0 = none)       */
-#ifdef FRUA_VPP_WRITE
 /* Bumped by load_backdrop whenever g_back_img changes — the planar mirror's
- * backdrop cache keys on this, since nothing else about the blit does. */
+ * backdrop cache and the scaled-backdrop cache both key on this. */
 static short g_back_gen = 0;
-#endif
 static short g_back_set = 1;               /* 1-based backdrop index       */
 static short g_back_max = 19;
 static short g_back_auto = 1;              /* 1 = pick per-cell from the map;
@@ -13393,9 +13395,7 @@ static int load_backdrop(short n)
 	            (long)n * 10000 + (TickCount() - bp_t0));
 	dbg_log_num("backdrop: load count     = ", ++bp_n);
 #endif
-#ifdef FRUA_VPP_WRITE
 	g_back_gen++;
-#endif
 
 	/* item 0 = the backdrop's RGB-triple palette -> clut[BACK_PAL_BASE..]. */
 	p0 = l37aa(sub, 0);
@@ -14189,10 +14189,22 @@ static void l309c_tile(unsigned char *page, short top, short left,
 			 * machine whose stack the engine does not own. It is also
 			 * one less frame to set up per tile. */
 			static unsigned short lut[256];
+			/* What the table was last built from. The step draws ~22
+			 * tiles and nearly all share a wall set, so rebuilding 256
+			 * entries for each was 16% of this function (2026-11-17
+			 * profile). Compared by VALUE — slot, base and the set's key
+			 * colours themselves — so a wall reload still cannot leave
+			 * it stale. */
+			static short lut_slot = -1, lut_base = -1;
+			static unsigned char lut_strans[CW_BAND];
 			short c0 = (short)(g_cwf_clip_l - x0);
 			short c1 = (short)(g_cwf_clip_r - x0);
 			short k;
 
+			if (lut_slot != slot || lut_base != base
+			 || memcmp(lut_strans, g_cw_strans[slot], CW_BAND) != 0) {
+			lut_slot = slot; lut_base = base;
+			memcpy(lut_strans, g_cw_strans[slot], CW_BAND);
 			for (k = 0; k < 256; k++) {
 				short off = (short)(k - 32);
 
@@ -14205,6 +14217,7 @@ static void l309c_tile(unsigned char *page, short top, short left,
 				else
 					lut[k] = (unsigned short)(0x100 | k);
 			}
+			}
 			if (c0 < 0) c0 = 0;
 			if (c1 > w)  c1 = w;
 			for (r = 0; r < h; r++) {
@@ -14216,6 +14229,21 @@ static void l309c_tile(unsigned char *page, short top, short left,
 					continue;
 				srow = body + (long)r * w;
 				drow = g_cwf_px + (long)dy * g_cwf_pitch + x0;
+#ifndef FRUA_TILEVERIFY
+				{
+					const unsigned char *sp = srow + c0;
+					unsigned char       *dp = drow + c0;
+					short n;
+
+					for (n = (short)(c1 - c0); n > 0; n--, dp++) {
+						unsigned short t = lut[*sp++];
+
+						if (t)
+							*dp = (unsigned char)t;
+					}
+					continue;
+				}
+#endif
 				for (c = c0; c < c1; c++) {
 					unsigned short t = lut[srow[c]];
 #ifdef FRUA_TILEVERIFY
@@ -15875,10 +15903,14 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 						                  yy, xa, xb,
 						                  rmf[(long)bf * 256
 						                      + (unsigned char)fill]);
+#ifdef FRUA_VPPLANAR     /* only the verifier reads the coverage map */
 						for (xc = xa; xc < xb; xc++)
 							g_vpp_cov[(long)yy * VPP_COVW
 							          + (xc >> 3)] |=
 							    (unsigned char)(0x80u >> (xc & 7));
+#else
+						(void)xc;
+#endif
 						g_tf_px += (long)(xb - xa);
 						if (g_back_w > 0 && g_back_h > 0
 						 && yy >= (short)g_a5_3054
@@ -15936,8 +15968,50 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 		 * cheap either way but tables for the same reason. Cached across
 		 * frames — the viewport and backdrop dimensions rarely change. */
 		{
+			/* ★ AND THE SCALED PICTURE IS THE SAME EVERY STEP. With the divide
+			 * gone this was still 7,744 bounds-checked stores a render, each
+			 * with its own row multiply: 36% of this function's own time in
+			 * the 2026-11-17 68000 walk profile, about 0.19 s a step. The
+			 * backdrop only changes with the zone (g_back_gen) or the hole,
+			 * so scale it once into a small buffer and lay it down a row at
+			 * a time. -DFRUA_NOBDCACHE keeps the per-pixel form for A/B. */
 			bd_scale_maps(bw, bh, g_back_w, g_back_h);
 			if (bw > 0 && bh > 0 && bw <= BD_MAP_MAX && bh <= BD_MAP_MAX) {
+#ifndef FRUA_NOBDCACHE
+				if ((long)bw * bh <= (long)BD_CACHE_MAX) {
+					short cx0 = 0, cx1 = bw;
+
+					if (g_bdc_gen != g_back_gen || g_bdc_w != bw
+					 || g_bdc_h != bh || g_bdc_sw != g_back_w
+					 || g_bdc_sh != g_back_h) {
+						for (yy = 0; yy < bh; yy++) {
+							const unsigned char *srow = g_back_img
+							    + (long)g_bd_by[yy] * g_back_w;
+							unsigned char *drow =
+							    g_bdc_img + (long)yy * bw;
+
+							for (xx = 0; xx < bw; xx++)
+								drow[xx] = srow[g_bd_bx[xx]];
+						}
+						g_bdc_gen = g_back_gen;
+						g_bdc_w = bw; g_bdc_h = bh;
+						g_bdc_sw = g_back_w; g_bdc_sh = g_back_h;
+					}
+					/* map_px's clip, once for the rect instead of per pixel */
+					if (bvl < 0) cx0 = (short)-bvl;
+					if (bvl + cx1 > sw) cx1 = (short)(sw - bvl);
+					if (cx1 > cx0)
+						for (yy = 0; yy < bh; yy++) {
+							short dy = (short)(bvt + yy);
+
+							if (dy < 0 || dy >= sh)
+								continue;
+							memcpy(vtgt + (long)dy * vpitch + bvl + cx0,
+							       g_bdc_img + (long)yy * bw + cx0,
+							       (size_t)(cx1 - cx0));
+						}
+				} else
+#endif
 				for (yy = 0; yy < bh; yy++) {
 					const unsigned char *srow =
 						g_back_img + (long)g_bd_by[yy] * g_back_w;
@@ -16103,13 +16177,19 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 				if (strip == NULL) {
 					g_vpb_nocache++;
 				} else {
-					short rr, cc;
-
 					g_vpb_strips++;
 					planar_tile_blit(g_vpp_dst, g_vpp_dpitch, strip,
 					                 kw, hh, kvl, sy,
 					                 g_cwf_clip_l, g_cwf_clip_r,
 					                 g_cwf_clip_t, g_cwf_clip_b);
+#ifdef FRUA_VPPLANAR
+					/* ★ VERIFIER ONLY. g_vpp_cov is read by the FRUA_VPPLANAR
+					 * proof and by nothing else, but this loop ran in every
+					 * shipping ST build: a bounds test, a multiply and an OR
+					 * for each of the hole's 7,744 pixels, every render —
+					 * another 36% of this function's own time. */
+					short rr, cc;
+
 					for (rr = 0; rr < hh; rr++) {
 						short dy2 = (short)(sy + rr);
 
@@ -16129,9 +16209,13 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 							    (unsigned char)(0x80u >> (dx2 & 7));
 						}
 					}
+#endif
 				}
 				sy = ey;
 			}
+#ifdef FRUA_VPPLANAR
+			/* The two band-agreement censuses below feed counters that only
+			 * the FRUA_VPPLANAR dump prints. */
 			{
 				short b2, q2;
 
@@ -16192,6 +16276,9 @@ static void render_3d_faithful(unsigned char *px, short pitch, short sw, short s
 						g_vpb_bworst = d;
 				}
 			}
+#else
+			(void)band0; (void)bandlist; (void)nband;
+#endif
 		}
 	}
 #endif
