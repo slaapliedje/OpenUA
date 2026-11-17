@@ -207,8 +207,19 @@ What the 2026-11-16 pass found, so it is not rediscovered:
   On AGA the write was free but a full 200-row present still followed it;
   `aga_present` now keeps per-page row debt and copies only what a page
   owes (`-DFRUA_AGAVERIFY` is its police; `video.cfg` `agarowdebt=off`
-  restores the old present). ECS ignores small writes but still presents —
-  measured, not yet fixed.
+  restores the old present). ECS ignores small writes but still presents;
+  that present now costs about 21 ms instead of 200, because the ink-hold
+  and ink-adoption scans walk only announced rows that CHANGED (the pointer
+  announces 16 rows every present).
+- **The 88-pixel walk viewport is two 32-pixel transposes and a 24-pixel
+  tail on every row**, and the tail was a per-pixel, per-plane bit loop. It
+  is a table lookup now (`third_party/c2p-68k`): viewport present 24 -> 18
+  ticks on an A500 build, 5 -> 2 on an A1200 build. The table is slower than
+  the transpose for whole frames, even on a 68000 — do not swap them.
+- **`FRUA_DIRTYCHECK` on ECS reports 63 unannounced rows (24..95) once in
+  the HEIRS walk, right after a reband cache hit.** It predates the
+  2026-11-17 changes (the unmodified build reports the same 63) and is not
+  yet explained.
 - **`l2d4e` announces the piece's rows, not the clip.** The compass's
   full-screen clip had every walk key marking all 200 rows.
 - **The software cursor's 16 rows stay announced across a present** — the

@@ -606,6 +606,18 @@ static unsigned long vbl_beamline(void)
 	return (((vp >> 16) & 1UL) << 8) + ((vp >> 8) & 0xFFUL);
 }
 
+/* Beam lines since `from`, within one frame. A compare and an add rather than
+ * `% 313`: on the 68000 the modulo is a library call, and this runs several
+ * times in every vertical blank (it was 81% of the play loop's divides in the
+ * 2026-11-16 profile). Both readings are below 313, so one wrap is all there
+ * can be. */
+static long vbl_lines_since(unsigned long from)
+{
+	long d = (long)vbl_beamline() - (long)from;
+
+	return d < 0 ? d + 313 : d;
+}
+
 static unsigned long g_bard_tod;         /* last CIA-A TOD reading            */
 static unsigned long g_bard_tod0;        /* window start, for WALL duration   */
 static unsigned long bard_tod(void);
@@ -1067,7 +1079,7 @@ void plat_sound_vbl(void)
 	 * resync in plat_bard_stop re-seats the write point. */
 	if (g_bard_on) {
 		g_vblprof_calls++;
-		g_vblprof_lines += (long)((vbl_beamline() - b0 + 313UL) % 313UL);
+		g_vblprof_lines += vbl_lines_since(b0);
 		return;
 	}
 
@@ -1077,7 +1089,7 @@ void plat_sound_vbl(void)
 
 	if (!g_ring_live) {
 		g_vblprof_calls++;
-		g_vblprof_lines += (long)((vbl_beamline() - b0 + 313UL) % 313UL);
+		g_vblprof_lines += vbl_lines_since(b0);
 		return;
 	}
 
@@ -1142,7 +1154,7 @@ void plat_sound_vbl(void)
 		 * sequencer hook below still runs — it is what arms the voices. */
 	} else if (!audible && g_quiet_run >= RING_SAMPLES) {
 		g_vblprof_calls++;
-		g_vblprof_lines += (long)((vbl_beamline() - b0 + 313UL) % 313UL);
+		g_vblprof_lines += vbl_lines_since(b0);
 		/* Hold the write point exactly half a ring ahead rather than
 		 * leaving it where it was. Letting it drift would make `lead`
 		 * wrap on the next audible frame, `todo` go negative, and the
@@ -1176,7 +1188,7 @@ void plat_sound_vbl(void)
 		 * fill cannot wrap mod one frame (the trap that hid 2.4 frames
 		 * as "103 lines" once already) */
 		g_prof_fill_lines += (long)((bard_tod() - ft0) & 0xFFFFFFUL) * 313
-		                   + (long)((vbl_beamline() - f0 + 313UL) % 313UL);
+		                   + vbl_lines_since(f0);
 	}
 
 	hook = s_vbl_hook;
@@ -1200,10 +1212,10 @@ void plat_sound_vbl(void)
 		g_amiga_in_int = 0;
 		g_prof_hook_calls++;
 		g_prof_hook_lines += (long)((bard_tod() - ht0) & 0xFFFFFFUL) * 313
-		                   + (long)((vbl_beamline() - h0 + 313UL) % 313UL);
+		                   + vbl_lines_since(h0);
 	}
 	g_vblprof_calls++;
-	g_vblprof_lines += (long)((vbl_beamline() - b0 + 313UL) % 313UL);
+	g_vblprof_lines += vbl_lines_since(b0);
 }
 
 #endif /* FRUA_AMIGA */

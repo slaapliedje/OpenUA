@@ -816,6 +816,25 @@ static void remap_rect(short x, short y, short w, short h)
 		unsigned char *dst = s_remap_buf + (long)yy * ECS_W + x;
 		short c;
 
+#ifndef FRUA_ECSINK
+		/* The shipping loop: walking pointers, one load of the pixel, the
+		 * new-ink count kept in a register. This runs for every pixel of
+		 * every step's viewport on a 7 MHz 68000. */
+		{
+			const unsigned char *used = e_used_idx;
+			short ink = 0;
+
+			for (c = w; c > 0; c--) {
+				unsigned char v = *src++;
+
+				if (!used[v])
+					ink++;
+				*dst++ = lut[v];
+			}
+			e_new_ink += ink;
+			continue;
+		}
+#endif
 		for (c = 0; c < w; c++) {
 			if (!e_used_idx[src[c]])
 				e_new_ink++;
@@ -1673,6 +1692,24 @@ static void ecs_prof_dump(void)
  * Per-band, because a colour absent HERE may be present one band down. */
 #define ECS_INK_NEAR 256        /* bucket this close: leave it alone */
 
+/* e_chg[y] = "row y was announced AND no longer matches what was converted". */
+static void ecs_mark_changed(void)
+{
+	short y;
+
+	for (y = 0; y < ECS_H; y++) {
+		e_chg[y] = 0;
+		if (!e_pend[y])
+			continue;
+#ifdef FRUA_AMIGAPROF
+		ap_scanned_rows++;
+#endif
+		if (ecs_row_differs(s_chunky + (long)y * ECS_W,
+		                    s_shadow + (long)y * ECS_W, ECS_W))
+			e_chg[y] = 1;
+	}
+}
+
 static short ecs_ink_adopt_scan(void)
 {
 	short y, adopted = 0;
@@ -1681,14 +1718,21 @@ static short ecs_ink_adopt_scan(void)
 		return 0;
 
 	for (y = 0; y < ECS_H; y++) {
-		short band = (short)((long)y * ECS_NBANDS / ECS_H);
-		const unsigned char *row = s_chunky + (long)y * ECS_W;
-		unsigned char *bpal = s_band_pal + (long)band * ECS_NCOL * 3;
-		unsigned char *brem = s_band_remap + (long)band * 256;
+		short band;
+		const unsigned char *row;
+		unsigned char *bpal, *brem;
 		short x;
 
-		if (!e_pend[y])
+		/* Only a row that CHANGED can hold ink the band has not met: an
+		 * unchanged row was scanned by the present that showed it. Tested
+		 * before anything else, because the band arithmetic below is a
+		 * library multiply and divide on the 68000. */
+		if (!e_chg[y])
 			continue;
+		band = (short)((long)y * ECS_NBANDS / ECS_H);
+		row  = s_chunky + (long)y * ECS_W;
+		bpal = s_band_pal + (long)band * ECS_NCOL * 3;
+		brem = s_band_remap + (long)band * 256;
 
 		for (x = 0; x < ECS_W; x++) {
 			unsigned char c = row[x];
@@ -2000,6 +2044,16 @@ static void ecs_present(void)
 		 * Threshold 8, not the scheduler's 4: a false fire here delays a
 		 * paint by one present, but chrome/glyph updates should never trip
 		 * it. One table lookup per pixel of the announced rows. */
+		/* WHICH ANNOUNCED ROWS ACTUALLY CHANGED — asked first, and once.
+		 * The ink-hold and the ink adoption below used to walk every
+		 * ANNOUNCED row a pixel at a time, and the software pointer
+		 * announces its 16 rows on every present, so a colour-cycle present
+		 * that changed nothing still cost two per-pixel passes (31% of the
+		 * walk's wall time on the A500, 2026-11-16 profile). A longword
+		 * compare against the shadow settles it for the unchanged rows.
+		 * e_pend is left alone here: a held present must keep it. */
+		ecs_mark_changed();
+
 		if (ecs_ink_hold && s_have_pal && !e_held_once) {
 			long ink = 0;
 			short yy;
@@ -2008,7 +2062,7 @@ static void ecs_present(void)
 				const unsigned char *row;
 				short xx;
 
-				if (!e_pend[yy])
+				if (!e_chg[yy])
 					continue;
 				row = s_chunky + (long)yy * ECS_W;
 				for (xx = 0; xx < ECS_W; xx++)
@@ -2026,8 +2080,10 @@ static void ecs_present(void)
 		}
 		e_held_once = 0;
 
-		/* #dim: before converting, give any new ink a free slot. */
-		ecs_ink_adopt_scan();
+		/* #dim: before converting, give any new ink a free slot. An
+		 * adoption re-announces its whole band, so the marks are redone. */
+		if (ecs_ink_adopt_scan())
+			ecs_mark_changed();
 
 		/* ★ #165 SCENE CHANGES GO THROUGH THE FLIP, NOT THE VISIBLE PAGE.
 		 * This loop converts changed rows STRAIGHT INTO s_planes[s_front]
@@ -2061,18 +2117,7 @@ static void ecs_present(void)
 			short nchg = 0;
 
 			for (y = 0; y < ECS_H; y++) {
-				e_chg[y] = 0;
-				if (!e_pend[y])
-					continue;
-#ifdef FRUA_AMIGAPROF
-				ap_scanned_rows++;
-#endif
-				if (ecs_row_differs(s_chunky + (long)y * ECS_W,
-				                    s_shadow + (long)y * ECS_W,
-				                    ECS_W)) {
-					e_chg[y] = 1;
-					nchg++;
-				}
+				nchg += e_chg[y];       /* marked above */
 				e_pend[y] = 0;
 			}
 			if (nchg >= ECS_TEARFREE_ROWS) {
