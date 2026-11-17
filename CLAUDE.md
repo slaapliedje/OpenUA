@@ -266,9 +266,25 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   test room cannot tell the orders apart — use an asymmetric map.
 - **Wired so far:** text, menus (on the engine's button bar, JT[182]), yes/no,
   number input (JT[891]), script chains, map loads, party placement (Dark
-  Queen's position variables only), pictures. **Not wired:** string input,
-  combat, treasure; script memory is not saved. A script that needs one of
-  those takes a wrong turn.
+  Queen's position variables only), pictures, fights. **Not wired:** string
+  input, treasure, the temple/shop screens, surprise and approach distance;
+  script memory is not saved. A script that needs one of those takes a wrong
+  turn.
+- **Fights run through `l159a`, FRUA's combat event handler,** on a 20-byte
+  record built from the groups LOAD_MONSTER queued (`gbs_combat`). The
+  monsters are the game's OWN: `tools/gbmon.py` rewrites each Dark Queen
+  record (MONCHA.GLB) in FRUA's 450-byte layout as the design's
+  `MONSTnnn.DAT`, which the engine reads before the stock library. The field
+  map is in that file's docstring and was derived from the 29 monsters both
+  games share, not guessed — re-run `gbmon.py --compare MONST.GLB` after
+  touching it. COMBAT with no monsters queued is a temple, a second screen
+  or a treasure hand-out in the original (flags 0x14 / 0x31 of the area
+  block); none of the three is wired.
+- **To test a script opcode in the engine, write a script.** `tests/test_ecl.py`
+  has the assembler (`block`, `imm`, `text`); "GBS2", the dialect byte, three
+  zeros and the block is an `ECLnnn.DAT`. Build with `-DFRUA_CBTPLAY` to have
+  the fight play itself — it also answers every text prompt, so make the
+  script end somewhere visible (a NEWECL into a menu).
 - **Pictures go through `l442e`, FRUA's own event-picture painter.** Dark
   Queen's PICA/PICB/PICC/BIGPIC/SPRIT are FRUA's container and names, so
   `gbgeo.py --pictures DISK2` only converts them into the design folder. The

@@ -106503,7 +106503,7 @@ static void jt500(short rings, short art, short sound)
  * runs too; a converted map has no events, so it finds nothing.
  *
  * STILL NARROW. The host answers text, menus, yes/no, number input,
- * pictures, map loads and script chains. String input, combat, treasure and
+ * pictures, fights, map loads and script chains. String input, treasure and
  * the rest are counted as unhandled and skipped, so a script that depends on one
  * takes a wrong turn. Script memory lives for the session and is not written to a
  * saved game. Party position is only exchanged for the Dark Queen dialect;
@@ -106541,6 +106541,8 @@ static char           g_gbs_text[GBS_TEXT_MAX];
 static short          g_gbs_textlen;
 static char           g_gbs_shown;
 static char           g_gbs_pic;                    /* a script picture is up  */
+static unsigned char  g_gbs_mon[6][2];              /* {number, count} queued  */
+static short          g_gbs_nmon;
 static ecl_vm         g_gbs_vm;
 static ecl_host       g_gbs_host;
 
@@ -106762,6 +106764,45 @@ static void gbs_picture(short id)
 	g_gbs_shown = 1;
 }
 
+/* COMBAT, against the groups LOAD_MONSTER has queued. FRUA's own fight is
+ * l159a, the handler behind its combat event, and it reads everything from a
+ * 20-byte event record: six {count, monster number} slots from byte 8. So the
+ * roster goes into a record of our own and the engine does the rest —
+ * spawning (through jt588, which reads the design's MONSTnnn.DAT first, and
+ * tools/gbmon.py has put the game's own monsters there), the fight, then
+ * experience and the death of the party.
+ *
+ * Returns 1 when the party was destroyed: the walk loop is about to end the
+ * game, and the script must not run on.
+ *
+ * NOT DONE: surprise and starting distance (SETUP_MONSTER / APPROACH), the
+ * picture number LOAD_MONSTER carries (FRUA shows CPIC by monster number),
+ * and what the original does when COMBAT finds no monsters queued — a temple,
+ * a second screen, or handing out the TREASURE a script has just set up. */
+static int gbs_combat(void)
+{
+	unsigned char ev[20];
+	short s;
+
+	if (g_gbs_nmon == 0)
+		return -1;
+	gbs_draw(0);
+	g_gbs_pic = 0;
+	jt399(ev, (short)sizeof ev, 0);
+	ev[0] = 1;
+	for (s = 0; s < g_gbs_nmon; s++) {
+		ev[8 + 2 * s] = (unsigned char)(g_gbs_mon[s][1] & 31);
+		ev[9 + 2 * s] = g_gbs_mon[s][0];
+	}
+	g_gbs_nmon = 0;
+	g_a5_byte(-22311) = 8;          /* the spawn loop counts slots from here */
+	g_a5_long(-13030) = (long)(uintptr_t)ev;
+	l159a(ev, 0);
+	g_a5_long(-13030) = 0;
+	g_gbs_shown = 1;
+	return g_a5_byte(-27982) != 0;
+}
+
 static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 {
 	(void)ctx;
@@ -106796,6 +106837,29 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 	case ECL_OP_CLEAR_BOX:
 		gbs_show();
 		return ECL_HOST_OK;
+	case 0x1c:                      /* CLEARMONSTERS */
+		g_gbs_nmon = 0;
+		return ECL_HOST_OK;
+	case 0x0b:                      /* LOAD_MONSTER number, count, picture */
+		if (ins->argc < 2)
+			return ECL_HOST_UNHANDLED;
+		if (g_gbs_nmon >= 6) {
+			dbg_log("gbs: more than six monster groups; the rest are left out");
+			return ECL_HOST_OK;
+		}
+		g_gbs_mon[g_gbs_nmon][0] = (unsigned char)ecl_rvalue(vm, &ins->arg[0]);
+		g_gbs_mon[g_gbs_nmon][1] = (unsigned char)ecl_rvalue(vm, &ins->arg[1]);
+		if (g_gbs_mon[g_gbs_nmon][1] == 0)
+			g_gbs_mon[g_gbs_nmon][1] = 1;
+		if (g_gbs_mon[g_gbs_nmon][0] != 0)
+			g_gbs_nmon++;
+		return ECL_HOST_OK;
+	case ECL_OP_COMBAT:
+		switch (gbs_combat()) {
+		case 1:  return ECL_HOST_EXIT;
+		case 0:  return ECL_HOST_OK;
+		default: return ECL_HOST_UNHANDLED;
+		}
 	case ECL_OP_PICTURE:
 		if (ins->argc < 1)
 			return ECL_HOST_UNHANDLED;

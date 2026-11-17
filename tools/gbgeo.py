@@ -50,6 +50,8 @@ Containers handled:
                                                       # Dark Queen from its own start-up script
     python3 tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --pictures DISK2
                                                       # ...and the pictures its scripts show
+    python3 tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --monsters MONCHA.GLB,ITEM.DAT
+                                                      # ...and its own monsters (tools/gbmon.py)
 
 No game data is needed to use or test the module (tests/test_gbgeo.py builds
 its own maps); pointing it at a real file is the user's own copy.
@@ -368,7 +370,7 @@ def build_design(maps, name="GOLDBOX", title="Imported Gold Box maps", start=0):
 # converter reads, so they only have to be converted and put in the design
 # folder. The frame, wall and combat libraries are left alone on purpose:
 # FRUA's screens are built from FRUA's own pieces of those.
-PICTURE_LIBS = ("PICA", "PICB", "PICC", "BIGPIC", "SPRIT")
+PICTURE_LIBS = ("PICA", "PICB", "PICC", "BIGPIC", "SPRIT", "CPIC")
 
 
 def write_pictures(folder, dirs, convert=None, libs=PICTURE_LIBS):
@@ -437,6 +439,16 @@ def main(argv):
         if "--pictures" in args:
             got = write_pictures(folder, args[args.index("--pictures") + 1].split(","))
             print("  pictures: %s" % (", ".join(got) or "none found"))
+        if "--monsters" in args:
+            import gbmon
+            parts = args[args.index("--monsters") + 1].split(",")
+            with open(parts[0], "rb") as f:
+                mons = gbmon.load_library(f.read())
+            items = None
+            if len(parts) > 1:
+                with open(parts[1], "rb") as f:
+                    items = gbmon.item_index(f.read())
+            print("  monsters: %d" % gbmon.write_design(folder, mons, items))
         m = maps[start]
         e = m.find_entry()
         print("  %d areas; starting in area %d (source id %s), party at x=%d y=%d facing %s"
