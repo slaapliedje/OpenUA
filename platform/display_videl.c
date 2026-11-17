@@ -30,9 +30,11 @@
 
 #include "display.h"
 #include "dbglog.h"
+#include "planar.h"           /* planar_dirty_rows: the shim's announced rows */
 #include "input.h"              /* plat_mouse_pos — the VBL cursor reads it */
 #include "plat_sys.h"          /* plat_stram_alloc: Mxalloc is TOS 2.01+ */
 
+#define ENGINE_H_MAX 200        /* the engine frame is 320x200 on every mode */
 static dsp_surface_t  g_surface;          /* the 8-bit chunky buffer the game draws */
 
 /* Double-buffered 16bpp screen in ST-RAM. present() always writes the back
@@ -48,6 +50,7 @@ static short          g_nbuf;             /* 2 (no VBL) or 3 (VBL triple-buf)  *
  * producer (present) / single consumer (the VBL) — no locks. */
 static volatile short g_disp;             /* index the VIDEL is showing       */
 static volatile short g_next = -1;        /* published frame, -1 = none new    */
+static volatile short g_prev_disp;        /* the page shown before the last flip */
 static short          g_draw = 1;         /* present's private write buffer    */
 static int            g_vbl_installed;
 static long           g_vbl_slot = -1;
@@ -103,6 +106,55 @@ static short          g_save_stpal[16];
 /* 8-bit palette index -> RGB565 word. Rebuilt by videl_set_palette. */
 static unsigned short g_lut[256];
 
+/* --- PARTIAL PRESENT (2026-11-16) -----------------------------------------
+ *
+ * Measured first (Hatari 030 cycle profile, HEIRS walk, 30,000 VBL):
+ * lutblit_span was 58.3% of program cycles, and FRUA_VIDELPROF said why —
+ * of every 200 presents ~190 were asked for by a PALETTE WRITE and nothing
+ * else. The dungeon colour-cycles a handful of CLUT entries every 11 ticks,
+ * and on a truecolour screen a new palette entry means new screen words, so
+ * each cycle step re-blitted all 64,000 pixels to change the few that use the
+ * cycling colours. About half the machine, standing still.
+ *
+ * So do only the work the change implies. Each page carries its own debt,
+ * because the three pages are written at different times and each is one or
+ * two presents stale when its turn comes (the reason the old comment on
+ * videl_present_rect called a partial present "wrong under triple-buffering"):
+ *
+ *   s_pg_all[p]  the page owes a full blit (init, or the shim said "all rows")
+ *   s_pg_row[p]  rows the engine drew since page p was last written
+ *   s_pg_pal[p]  colour GROUPS (index >> 3) whose RGB565 word changed since
+ *
+ * and each surface row keeps a lazily-built summary of which groups it uses,
+ * per 80-pixel segment, so a palette-only present blits just the segments
+ * that contain a changed colour. A drawn row invalidates its summary.
+ *
+ * What makes it exact rather than approximate: a page pixel is
+ * g_lut[surface byte]. It can only be stale if the byte changed (the shim
+ * announces the row — the same announcements the TT's dirty-row present has
+ * shipped on since #99, in this same binary) or its LUT word changed (the
+ * group is in s_pg_pal, and the row summary is a superset of the groups
+ * present). FRUA_VIDELVERIFY checks every written page against a from-scratch
+ * blit, pixel for pixel; video.cfg `partial=off` restores the full blit.
+ *
+ * Only with the VBL cursor. Without the VBL handler the shim composites the
+ * pointer INTO the surface around each present, and those rows are not
+ * announced — so that fallback keeps the full blit it always had. */
+#define VP_SEGS   4                       /* 320 px in 80-px segments        */
+#define VP_SEGW   80
+static unsigned char  s_pg_all[3] = { 1, 1, 1 };
+static unsigned char  s_pg_row[3][ENGINE_H_MAX];
+static unsigned long  s_pg_pal[3];
+static unsigned long  s_row_use[ENGINE_H_MAX][VP_SEGS];
+static unsigned char  s_row_ok[ENGINE_H_MAX];
+static short          g_partial = 1;      /* video.cfg partial=off clears it  */
+#ifdef FRUA_VIDELVERIFY
+static unsigned long  s_vv_checks, s_vv_bad;
+#endif
+#ifdef FRUA_VIDELPROF
+static unsigned long  s_vp_full, s_vp_part, s_vp_segs;
+#endif
+
 /* Hand-asm 8->16 LUT blit (c2p.S) + the self-test gate. count is a multiple
  * of 4 and src must be 4-aligned; videl_lut_blit only takes the asm path when
  * both hold, else the portable C loop. */
@@ -146,6 +198,7 @@ void vbl_flip_handler(void)
 		*(volatile unsigned char *)0xFFFF8201UL = (unsigned char)((a >> 16) & 0xff);
 		*(volatile unsigned char *)0xFFFF8203UL = (unsigned char)((a >> 8) & 0xff);
 		*(volatile unsigned char *)0xFFFF820DUL = (unsigned char)(a & 0xff);
+		g_prev_disp = g_disp;
 		g_disp = n;
 		g_next = -1;
 		flipped = 1;
@@ -260,6 +313,10 @@ static short videl_cfg_mode(void)
 		if (buf[j] >= 'A' && buf[j] <= 'Z')
 			buf[j] = (char)(buf[j] - 'A' + 'a');
 	videl_cfg_exit(buf);
+	if (strstr(buf, "partial=off") != NULL) {
+		g_partial = 0;          /* field A/B: the old full blit every present */
+		dbg_log("  videl_init: video.cfg partial=off - full blit every present");
+	}
 
 	while (buf[i] == ' ' || buf[i] == '\t')
 		i++;
@@ -274,8 +331,9 @@ static short videl_cfg_mode(void)
 
 	if (strcmp(buf + i, "auto") == 0)
 		return 0;
-	if (strncmp(buf + i, "exit=", 5) == 0)
-		return 0;               /* an exit-only config: mode stays automatic */
+	if (strncmp(buf + i, "exit=", 5) == 0
+	 || strncmp(buf + i, "partial=", 8) == 0)
+		return 0;               /* an option-only config: mode stays automatic */
 	if (strcmp(buf + i, "rgb200") == 0)      /* no VGA bit: RGB/TV timing */
 		return (short)((VsetMode(-1) & PAL) | BPS16);
 	if (strcmp(buf + i, "vga240") == 0)
@@ -460,6 +518,10 @@ mode_chosen:
 	g_disp = 0;
 	g_draw = 1;
 	g_next = -1;
+	s_pg_all[0] = s_pg_all[1] = s_pg_all[2] = 1;   /* every page owes a frame */
+	s_pg_pal[0] = s_pg_pal[1] = s_pg_pal[2] = 0;
+	memset(s_pg_row, 0, sizeof s_pg_row);
+	memset(s_row_ok, 0, sizeof s_row_ok);
 	VsetScreen(g_screen[0], g_screen[0], -1, -1);
 	/* ★ From HERE the console's logical base IS our displayed page — unlike
 	 * the TT/STe/ST-high backends, which pass their saved log base to
@@ -733,6 +795,14 @@ static void vbl_cursor_update(short flipped)
 	py  = (short)(my - g_cur_hoty);
 
 	if (flipped) {
+		/* Lift the pointer off the page that just left the screen. A full
+		 * repaint used to wipe it "for free" at that page's next present; a
+		 * partial present repaints only what changed, so the page must go
+		 * back into the pool clean. The save-under still holds exactly that
+		 * page's pixels — it is overwritten by the cur_draw below, not before.
+		 * present() never writes the displayed page, so nothing races this. */
+		if (g_cur_drawn)
+			cur_erase(g_screen[g_prev_disp], g_cur_px, g_cur_py);
 		if (vis) { cur_draw(scr, px, py); g_cur_px = px; g_cur_py = py; g_cur_drawn = 1; }
 		else     { g_cur_drawn = 0; }
 		return;
@@ -788,9 +858,148 @@ static void videl_flip(unsigned short *back)
 	VsetScreen(back, back, -1, -1);
 }
 
+/* Which colour groups does surface row y use, per segment? Built on demand
+ * and kept until the row is drawn again. */
+static void videl_row_summary(short y)
+{
+	const unsigned char *p = g_surface.pixels + (long)y * g_surface.pitch;
+	short seg, x;
+
+	for (seg = 0; seg < VP_SEGS; seg++) {
+		unsigned long m = 0;
+
+		for (x = 0; x < VP_SEGW; x++)
+			m |= 1UL << (*p++ >> 3);
+		s_row_use[y][seg] = m;
+	}
+	s_row_ok[y] = 1;
+}
+
+/* Bring page `pg` up to date with (surface, LUT), doing only what it owes. */
+static void videl_blit_page(short pg)
+{
+	const unsigned char *drows;
+	unsigned short *dst = g_screen[pg];
+	short h = g_surface.height, y, k;
+	int   all = planar_dirty_rows(&drows);
+
+	/* 1. charge what the engine drew since the last present to EVERY page */
+	if (all) {
+		for (k = 0; k < 3; k++)
+			s_pg_all[k] = 1;
+		memset(s_row_ok, 0, sizeof s_row_ok);
+	} else {
+		for (y = 0; y < h; y++)
+			if (drows[y]) {
+				s_pg_row[0][y] = s_pg_row[1][y] = s_pg_row[2][y] = 1;
+				s_row_ok[y] = 0;
+			}
+	}
+
+	/* 2. pay this page's share */
+	if (s_pg_all[pg] || !g_partial || !g_vbl_installed
+	 || h > ENGINE_H_MAX || g_surface.width != VP_SEGS * VP_SEGW) {
+		videl_lut_blit(dst, 0, h, 0, g_surface.width);
+#ifdef FRUA_VIDELPROF
+		s_vp_full++;
+#endif
+	} else {
+		unsigned long pal = s_pg_pal[pg];
+
+#ifdef FRUA_VIDELPROF
+		s_vp_part++;
+#endif
+		for (y = 0; y < h; y++) {
+			if (s_pg_row[pg][y]) {
+				videl_lut_blit(dst, y, (short)(y + 1), 0, g_surface.width);
+#ifdef FRUA_VIDELPROF
+				s_vp_segs += VP_SEGS;
+#endif
+				continue;
+			}
+			if (pal == 0)
+				continue;
+			if (!s_row_ok[y])
+				videl_row_summary(y);
+			for (k = 0; k < VP_SEGS; k++)
+				if (s_row_use[y][k] & pal) {
+					videl_lut_blit(dst, y, (short)(y + 1),
+					               (short)(k * VP_SEGW),
+					               (short)((k + 1) * VP_SEGW));
+#ifdef FRUA_VIDELPROF
+					s_vp_segs++;
+#endif
+				}
+		}
+	}
+	s_pg_all[pg] = 0;
+	s_pg_pal[pg] = 0;
+	memset(s_pg_row[pg], 0, sizeof s_pg_row[pg]);
+
+#ifdef FRUA_VIDELVERIFY
+	/* The whole claim, checked: after paying its debt the page must equal a
+	 * from-scratch blit of the surface through the live LUT, every pixel.
+	 * The page is not on screen, so the VBL cursor is not in it. */
+	{
+		short x;
+
+		for (y = 0; y < h; y++) {
+			const unsigned char  *sp = g_surface.pixels
+			                         + (long)y * g_surface.pitch;
+			const unsigned short *dp = SCR_ROW(dst, y);
+
+			for (x = 0; x < g_surface.width; x++)
+				if (dp[x] != g_lut[sp[x]]) {
+					if (s_vv_bad++ < 8) {
+						dbg_log_num("vverify: MISMATCH y = ", (long)y);
+						dbg_log_num("vverify:          x = ", (long)x);
+					}
+					break;
+				}
+		}
+		if ((++s_vv_checks % 500) == 0) {
+			dbg_log_num("vverify: pages checked = ", (long)s_vv_checks);
+			dbg_log_num("vverify: bad rows      = ", (long)s_vv_bad);
+		}
+	}
+#endif
+}
+
 static void videl_present(void)
 {
-	videl_lut_blit(g_screen[g_draw], 0, g_surface.height, 0, g_surface.width);
+#ifdef FRUA_VIDELPROF
+	/* WHO asks for a Falcon present? Build with -DFRUA_VIDELPROF -DFRUA_TTPROF
+	 * (the latter compiles the shim's QDT touch counters into an 020 build).
+	 * Every full present is a 64,000-pixel LUT blit, so the count and the
+	 * reason are the whole cost model of this backend. Cumulative: read
+	 * window-to-window deltas. */
+	{
+		static long s_vp_n;
+		extern long g_qdt_hits[8];
+		extern long g_qdt_site[32][2];
+
+		if ((++s_vp_n % 200) == 0) {
+			int i;
+
+			dbg_log_num("vprof: presents      = ", s_vp_n);
+			dbg_log_num("vprof: full blits    = ", (long)s_vp_full);
+			dbg_log_num("vprof: partial       = ", (long)s_vp_part);
+			dbg_log_num("vprof: segs blitted  = ", (long)s_vp_segs);
+			dbg_log_num("vprof: 0 pointer grab= ", g_qdt_hits[0]);
+			dbg_log_num("vprof: 1 pixmap fill = ", g_qdt_hits[1]);
+			dbg_log_num("vprof: 2 CopyBits    = ", g_qdt_hits[2]);
+			dbg_log_num("vprof: 3 set_palette = ", g_qdt_hits[3]);
+			dbg_log_num("vprof: 4 cursor track= ", g_qdt_hits[4]);
+			dbg_log_num("vprof: 5 DrawChar    = ", g_qdt_hits[5]);
+			dbg_log_num("vprof: 6 skipped     = ", g_qdt_hits[6]);
+			for (i = 0; i < 32 && g_qdt_site[i][0]; i++) {
+				dbg_log_num("vprof: grab line     = ", g_qdt_site[i][0]);
+				dbg_log_num("vprof:      hits     = ", g_qdt_site[i][1]);
+			}
+		}
+	}
+#endif
+	videl_blit_page(g_draw);
 
 	if (g_vbl_installed) {
 		/* Publish g_draw for the VBL handler, then take a fresh private
@@ -811,11 +1020,23 @@ static void videl_present(void)
 	}
 }
 
-/* The LUT blit is fast, so a partial present buys little and is wrong under
- * triple-buffering (the three pages diverge); just do a full present. */
+/* A rect present NAMES its rows instead of announcing them through the shim's
+ * row set (the caller wrote the surface through a raw pointer and says so
+ * here), so charge them to every page before presenting. The first verifying
+ * run caught exactly this: clean through boot and the menus, then stale rows
+ * at (24,24) — the 3D viewport, which arrives by rect present. Columns are
+ * not narrowed; a row is the unit of debt. */
 static void videl_present_rect(short x, short y, short w, short h)
 {
-	(void)x; (void)y; (void)w; (void)h;
+	short r, r1 = (short)(y + h);
+
+	(void)x; (void)w;
+	if (y < 0) y = 0;
+	if (r1 > ENGINE_H_MAX) r1 = ENGINE_H_MAX;
+	for (r = y; r < r1; r++) {
+		s_pg_row[0][r] = s_pg_row[1][r] = s_pg_row[2][r] = 1;
+		s_row_ok[r] = 0;
+	}
 	videl_present();
 }
 
@@ -832,9 +1053,20 @@ static void videl_set_palette(const dsp_color_t *colors, short first,
 		unsigned short r = colors[i].r;
 		unsigned short g = colors[i].g;
 		unsigned short b = colors[i].b;
-		g_lut[first + i] = (unsigned short)(((r & 0xf8) << 8)
+		unsigned short w = (unsigned short)(((r & 0xf8) << 8)
 		                                  | ((g & 0xfc) << 3)
 		                                  | (b >> 3));
+
+		/* Only a CHANGED screen word is a debt — compared at RGB565, so a
+		 * fade step too small to move 5/6/5 bits costs nothing either. */
+		if (g_lut[first + i] != w) {
+			unsigned long bit = 1UL << ((first + i) >> 3);
+
+			g_lut[first + i] = w;
+			s_pg_pal[0] |= bit;
+			s_pg_pal[1] |= bit;
+			s_pg_pal[2] |= bit;
+		}
 	}
 }
 
@@ -847,6 +1079,11 @@ static const dsp_backend_t videl_backend = {
 	videl_present_rect,
 	videl_set_palette,
 	2,                      /* page-flipped: two presents seed both pages (#103) */
+	/* A palette write changes screen WORDS here, but re-reading every chunky
+	 * row is not what fixes them: videl_set_palette records which colour
+	 * groups moved and the present re-blits the segments that use them. So
+	 * the shim must not blanket-mark the rows (see display.h). */
+	.palette_self_invalidates = 1,
 };
 
 /* _VDO cookie: video hardware id in the high word (0 ST shifter, 1 STE,
