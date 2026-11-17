@@ -266,10 +266,26 @@ static int tt_dt_ready_row(short y)
  * any row the writers already stamped: t_dt holds the planes and the present is
  * two row copies. The LINE DOUBLING stays here either way — it is a property of
  * the TT screen, not of the frame, so the writers never see it. */
+#ifdef FRUA_TTCHK
+/* THE POLICE for the dirty-row present (the TT's FRUA_DIRTYCHECK). s_chk is the
+ * chunky image of what is ON SCREEN: every span tt_blit_rows converts is copied
+ * into it. At each full present, a row nobody announced must still equal it —
+ * if it does not, some writer changed pixels without saying so and that row
+ * stays stale on screen until something else happens to mark it. Diagnostic
+ * only; it costs a 64 KB compare per present. */
+static unsigned char s_chk[TT_W * ENGINE_H];
+static long          s_chk_bad, s_chk_presents;
+#endif
+
 static void tt_blit_rows(short x0, short w, short y0, short h)
 {
 	short y;
 
+#ifdef FRUA_TTCHK
+	for (y = 0; y < h; y++)
+		memcpy(s_chk + (long)(y0 + y) * TT_W + x0,
+		       g_chunky + (long)(y0 + y) * TT_W + x0, (size_t)w);
+#endif
 	for (y = 0; y < h; y++) {
 		const unsigned char *src =
 		    g_chunky + (long)(y0 + y) * TT_W + x0;
@@ -343,6 +359,51 @@ static void tt_present(void)
 {
 	const unsigned char *drows;
 	short y, y0;
+#ifdef FRUA_TTCHK
+	if (s_seeded && !planar_dirty_rows(&drows)) {
+		for (y = 0; y < ENGINE_H; y++) {
+			const unsigned char *a = s_chk + (long)y * TT_W;
+			const unsigned char *b = g_chunky + (long)y * TT_W;
+			short xa = -1, xb = -1, x;
+
+			if (drows[y] || memcmp(a, b, TT_W) == 0)
+				continue;
+			for (x = 0; x < TT_W; x++)
+				if (a[x] != b[x]) {
+					if (xa < 0) xa = x;
+					xb = x;
+				}
+			if (s_chk_bad++ < 40) {
+				dbg_file_num("ttchk: UNANNOUNCED row ", (long)y);
+				dbg_file_num("ttchk:    x first*1000+last ", (long)xa * 1000 + xb);
+				dbg_file_num("ttchk:    at present ", s_chk_presents);
+				/* what WAS announced, as runs — the bad row's neighbours
+				 * usually name the writer (a box one row short) */
+				{
+					short q, q0 = -1;
+
+					for (q = 0; q <= ENGINE_H; q++) {
+						int d = (q < ENGINE_H) && drows[q];
+
+						if (d && q0 < 0)
+							q0 = q;
+						if (!d && q0 >= 0) {
+							dbg_file_num("ttchk:    announced y0*1000+y1 ",
+							             (long)q0 * 1000 + q);
+							q0 = -1;
+						}
+					}
+				}
+				dbg_file_num("ttchk:    screen has*1000+surface has ",
+				             (long)a[xa] * 1000 + b[xa]);
+			}
+		}
+	}
+	if ((++s_chk_presents & 63) == 0) {
+		dbg_file_num("ttchk: presents ", s_chk_presents);
+		dbg_file_num("ttchk: bad rows ", s_chk_bad);
+	}
+#endif
 #ifdef FRUA_TTPROF
 	long conv = 0;
 #endif

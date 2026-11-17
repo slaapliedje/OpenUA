@@ -613,8 +613,15 @@ int qd_palette_deferred_pending(void)
 	return s_pal_def_on || s_pal_pend_hi >= s_pal_pend_lo;
 }
 
+/* The software cursor's save-under state (defined with the compositor, far
+ * below); the present needs to know whether the pointer went out and where. */
+static short g_cursor_save_x, g_cursor_save_y;
+static int   g_cursor_saved;
+
 static char qd_present_body(void)
 {
+	int had_cursor;
+
 	if (g_present_suppress || g_present_hold) {
 #ifdef FRUA_KBTRACE
 		g_kbt_qdsuppressed++;
@@ -669,6 +676,7 @@ static char qd_present_body(void)
 			;
 	}
 #endif
+	had_cursor = g_cursor_saved;    /* the pointer went out in this frame */
 	cursor_restore();
 	/* #152: frame on screen is current. Cleared LAST — cursor_composite/
 	 * cursor_restore above grab the pixel pointer (marking touched) but
@@ -679,6 +687,20 @@ static char qd_present_body(void)
 	 * page, so those rows must stay dirty until a full present has given the
 	 * other page its turn. */
 	planar_dirty_reset();
+	/* ...EXCEPT the pointer's rows. The screen now shows the software cursor
+	 * and the surface, after cursor_restore, does not — so those 16 rows are
+	 * the one place the two disagree by design, and they must stay announced
+	 * until the next present has re-read them. The reset above used to wipe
+	 * cursor_restore's own mark. It mostly went unnoticed because the next
+	 * present composites the pointer back at the same place; but a new SHAPE
+	 * with a different hot spot draws a box shifted by a row, and the row of
+	 * the old box that the new one no longer covers kept the old pointer's
+	 * pixels on a dirty-row backend. The TT police (FRUA_TTCHK) caught
+	 * exactly that: one row, x 165..169, fifteen presents into the boot — a
+	 * sliver of the previous cursor. Blanket row marks elsewhere had been
+	 * hiding it. Rows only: the #152 "nothing to present" flag stays clear. */
+	if (had_cursor)
+		planar_touch_rows(g_cursor_save_y, (short)(g_cursor_save_y + 16));
 	return 'P';
 }
 
