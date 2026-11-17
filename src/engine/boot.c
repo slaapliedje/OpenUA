@@ -6875,10 +6875,22 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 	if (left < 0)    left = 0;
 	if (bottom > sh) bottom = sh;
 	if (right > sw)  right = sw;
-	/* #63: every row loop below rejects dy outside [top, bottom), so that
-	 * span is a proven superset of what this blit writes — announce it
-	 * instead of letting the grab mark the whole surface. */
-	qd_touch_rows(top, bottom);
+	/* #63: announce the rows this blit can write instead of letting the grab
+	 * mark the whole surface.
+	 *
+	 * That used to be the CLIP span [top, bottom) — a proven superset, and far
+	 * too generous: the compass (port_draw_compass) blits two small FRAME
+	 * pieces under a full-screen clip after EVERY walk key, so every key
+	 * announced all 200 rows and the full present that follows re-verified
+	 * and re-copied the whole screen. A TT walk profile put that at 39% of
+	 * the walk (tools/profile/walk_profile.sh, 2026-11-16).
+	 *
+	 * Every row loop below computes dy = y + r for r in [0, height) and
+	 * rejects dy outside [top, bottom) — all nine of them, audited — so the
+	 * PIECE's own rows, clipped, are exactly what can be written. (The mode-3
+	 * arm above returns before this and marks through jt1185's own path.) */
+	qd_touch_rows(y > top ? y : top,
+	              (short)(y + height) < bottom ? (short)(y + height) : bottom);
 
 	if (mode == 7) {
 		/* transparency RLE (Mac L2b9a / JT[1195]): decode the whole piece
