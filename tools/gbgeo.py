@@ -48,6 +48,8 @@ Containers handled:
                                                       # ...with each area's script
     python3 tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --start 2 --boot-script 1
                                                       # Dark Queen from its own start-up script
+    python3 tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --pictures DISK2
+                                                      # ...and the pictures its scripts show
 
 No game data is needed to use or test the module (tests/test_gbgeo.py builds
 its own maps); pointing it at a real file is the user's own copy.
@@ -361,6 +363,35 @@ def build_design(maps, name="GOLDBOX", title="Imported Gold Box maps", start=0):
     return d
 
 
+# The picture libraries a script's PICTURE opcode draws from. The Dark Queen
+# ships them under the names FRUA uses and in the DOS container FRUA's own
+# converter reads, so they only have to be converted and put in the design
+# folder. The frame, wall and combat libraries are left alone on purpose:
+# FRUA's screens are built from FRUA's own pieces of those.
+PICTURE_LIBS = ("PICA", "PICB", "PICC", "BIGPIC", "SPRIT")
+
+
+def write_pictures(folder, dirs, convert=None, libs=PICTURE_LIBS):
+    """Convert the game's picture libraries found in `dirs` into `folder`.
+    Returns the names written. A library the game does not have is skipped."""
+    if convert is None:
+        import art_convert
+        convert = art_convert.convert
+    done = []
+    for lib in libs:
+        for d in dirs:
+            hit = [n for n in sorted(os.listdir(d)) if n.upper() == lib + ".TLB"]
+            if not hit:
+                continue
+            with open(os.path.join(d, hit[0]), "rb") as f:
+                out = convert(f.read())
+            with open(os.path.join(folder, lib + ".CTL"), "wb") as f:
+                f.write(out)
+            done.append(lib + ".CTL")
+            break
+    return done
+
+
 def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
@@ -403,6 +434,9 @@ def main(argv):
                 boot = (start, int(args[args.index("--boot-script") + 1], 0))
             nm, nb = write_scripts(folder, maps, blocks, boot=boot)
             print("  %d maps, %d scripts (%s)" % (nm, nb, blocks[0].dialect.name))
+        if "--pictures" in args:
+            got = write_pictures(folder, args[args.index("--pictures") + 1].split(","))
+            print("  pictures: %s" % (", ".join(got) or "none found"))
         m = maps[start]
         e = m.find_entry()
         print("  %d areas; starting in area %d (source id %s), party at x=%d y=%d facing %s"

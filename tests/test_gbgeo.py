@@ -251,3 +251,17 @@ def test_scripts_are_keyed_by_the_games_number_and_maps_by_slot(tmp_path):
         "GBD005.DAT", "GBD006.DAT", "GBMAP.DAT"]
     index = (tmp_path / "GBMAP.DAT").read_bytes()
     assert index == b"GBM1" + bytes([2, 24, 5, 30, 6])
+
+
+def test_pictures_are_converted_by_name_and_missing_ones_skipped(tmp_path):
+    src = tmp_path / "disk2"
+    out = tmp_path / "design"
+    src.mkdir()
+    out.mkdir()
+    (src / "pica.tlb").write_bytes(b"raw-a")          # any case
+    (src / "BIGPIC.TLB").write_bytes(b"raw-big")
+    (src / "FRAME.TLB").write_bytes(b"not a picture library")
+    got = gbgeo.write_pictures(str(out), [str(src)], convert=lambda b: b"C:" + b)
+    assert got == ["PICA.CTL", "BIGPIC.CTL"]
+    assert (out / "PICA.CTL").read_bytes() == b"C:raw-a"
+    assert sorted(p.name for p in out.iterdir()) == ["BIGPIC.CTL", "PICA.CTL"]

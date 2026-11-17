@@ -96379,6 +96379,10 @@ static void l68ae(short flag)
  * the frame count, then set the static-last flag and the PIC category globals
  * (-24206/-24207, mode-dependent for a handful of ids). flag (fp@14) is unused
  * in the Mac body. */
+static char g_gbs_pic_letter;   /* PORT: a Gold Box script's picture names its
+                                 * own library — the Dark Queen splits its
+                                 * pictures over PICA/B/C at other numbers
+                                 * than FRUA does (gbs_picture) */
 static void l541a(const char *type, short id, short flag, void *buf)
 {
 	unsigned char *b   = (unsigned char *)buf;
@@ -96410,6 +96414,8 @@ static void l541a(const char *type, short id, short flag, void *buf)
 		else if (idb < 193) letter = 68;
 		else if (idb < 227) letter = 69;
 		else                letter = 70; /* 'F' */
+		if (g_gbs_pic_letter)
+			letter = g_gbs_pic_letter;
 		name = jt488(ua_strs_at(0x736), letter);        /* "PIC%c1" */
 	} else {
 		name = jt488(ua_strs_at(0x73e), type, num);     /* "%s%s" */
@@ -106496,9 +106502,9 @@ static void jt500(short rings, short art, short sound)
  * spine FRUA's own stairs event (l5676) uses. The FRUA event dispatcher still
  * runs too; a converted map has no events, so it finds nothing.
  *
- * STILL NARROW. The host answers text, menus, yes/no, number input, map
- * loads and script chains. Pictures, string input, combat, treasure and the
- * rest are counted as unhandled and skipped, so a script that depends on one
+ * STILL NARROW. The host answers text, menus, yes/no, number input,
+ * pictures, map loads and script chains. String input, combat, treasure and
+ * the rest are counted as unhandled and skipped, so a script that depends on one
  * takes a wrong turn. Script memory lives for the session and is not written to a
  * saved game. Party position is only exchanged for the Dark Queen dialect;
  * where Champions and Death Knights keep it is not pinned down yet.
@@ -106534,6 +106540,7 @@ static char           g_gbs_switching;              /* our own jt198 in flight *
 static char           g_gbs_text[GBS_TEXT_MAX];
 static short          g_gbs_textlen;
 static char           g_gbs_shown;
+static char           g_gbs_pic;                    /* a script picture is up  */
 static ecl_vm         g_gbs_vm;
 static ecl_host       g_gbs_host;
 
@@ -106576,7 +106583,8 @@ static void gbs_draw(int confirm)
 	g_gbs_text[g_gbs_textlen] = 0;
 	port_event_tail_show();
 	jt20();
-	l40b4();
+	if (!g_gbs_pic)                 /* l40b4 redraws the 3D view — over the */
+		l40b4();                    /* picture, if one is up                */
 	g_a5_byte(-27911) = 17;
 	g_a5_byte(-27912) = 1;
 	g_a5_byte(-27981) = 1;
@@ -106718,6 +106726,42 @@ static void gbs_yes_no(ecl_vm *vm)
 	g_gbs_shown = 1;
 }
 
+/* PICTURE n. The Dark Queen's picture libraries are the same files FRUA
+ * reads (PICA/PICB/PICC by picture number, BIGPIC from 240), so the picture
+ * goes up through l442e, the painter behind every FRUA event's picture, on a
+ * record that holds nothing but the number. 255 takes the picture down. */
+static void gbs_picture(short id)
+{
+	unsigned char ev[20];
+
+	gbs_draw(0);                    /* text printed so far goes up first */
+	if (id <= 0 || id >= 255) {
+		if (g_gbs_pic) {
+			g_gbs_pic = 0;
+			jt399(&g_a5_byte(-22302), 2, 0);
+			if (g_a5_byte(-27990) == 4) {
+				jt23();
+				jt935();
+				jt937(g_a5_long(-27932));
+				jt938();
+			}
+		}
+		return;
+	}
+	jt399(ev, (short)sizeof ev, 0);
+	ev[0] = 2;
+	ev[6] = (unsigned char)id;
+	ev[7] = 0x80;                   /* the PIC libraries; clear means SPRIT */
+	/* The Dark Queen's own split, read off its three libraries' id tables:
+	 * PICA holds 5..116, PICB 128..150, PICC 151..174 and 239. */
+	if (id < 240)
+		g_gbs_pic_letter = (char)(id < 128 ? 'A' : id < 151 ? 'B' : 'C');
+	l442e(ev);
+	g_gbs_pic_letter = 0;
+	g_gbs_pic = 1;
+	g_gbs_shown = 1;
+}
+
 static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 {
 	(void)ctx;
@@ -106751,6 +106795,11 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 		return ECL_HOST_OK;
 	case ECL_OP_CLEAR_BOX:
 		gbs_show();
+		return ECL_HOST_OK;
+	case ECL_OP_PICTURE:
+		if (ins->argc < 1)
+			return ECL_HOST_UNHANDLED;
+		gbs_picture((short)ecl_rvalue(vm, &ins->arg[0]));
 		return ECL_HOST_OK;
 	case ECL_OP_LOAD_FILES:         /* operand 0 is the map; honoured after the run */
 		if (ins->argc > 0)
@@ -106996,6 +107045,7 @@ static void gbs_after(void)
 	if (!g_gbs_shown)
 		return;
 	g_gbs_shown = 0;
+	g_gbs_pic = 0;                  /* the rebuild below takes it down */
 	jt399(&g_a5_byte(-22302), 2, 0);
 	port_event_tail_hold();
 	if (g_a5_byte(-27990) == 4) {

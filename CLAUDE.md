@@ -266,9 +266,16 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   test room cannot tell the orders apart — use an asymmetric map.
 - **Wired so far:** text, menus (on the engine's button bar, JT[182]), yes/no,
   number input (JT[891]), script chains, map loads, party placement (Dark
-  Queen's position variables only). **Not wired:** pictures, string input,
+  Queen's position variables only), pictures. **Not wired:** string input,
   combat, treasure; script memory is not saved. A script that needs one of
   those takes a wrong turn.
+- **Pictures go through `l442e`, FRUA's own event-picture painter.** Dark
+  Queen's PICA/PICB/PICC/BIGPIC/SPRIT are FRUA's container and names, so
+  `gbgeo.py --pictures DISK2` only converts them into the design folder. The
+  one difference is which numbers live in which file (Dark Queen: PICA below
+  128, PICB to 150, PICC from 151), bridged by `g_gbs_pic_letter`. Do NOT
+  copy the game's FRAME/wall/combat libraries into the design: FRUA's screen
+  is built from its own pieces of those and the button bar loses its plates.
 - **Three opcode NAMES in Greybox's table are Champions' and wrong for Death
   Knights and Dark Queen:** 0x1d is "press Return", 0x22 a yes/no that sets
   the == / != flags, 0x23 "clear the text box and EXIT" (read out of
