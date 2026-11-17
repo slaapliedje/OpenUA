@@ -469,6 +469,31 @@ int ecl_run(ecl_vm *vm, long budget)
 			break;
 		}
 
+		case ECL_OP_GETTABLE: {         /* GETTABLE base, index, destination */
+			/* A table is either script memory or — when its address falls
+			 * inside this block — bytes of the block itself, which is how a
+			 * script carries constant data. The original has one address
+			 * space, so a SAVE_TABLE into the block's own range would change
+			 * what a later GETTABLE reads; here the write lands in script
+			 * memory, and a NON-ZERO cell there is taken in preference. (A
+			 * zero written over a non-zero block byte is the one case this
+			 * cannot tell from "never written".) */
+			unsigned addr = (a[0].word + (ecl_rvalue(vm, &a[1]) & 0xFF)) & 0xFFFFU;
+			unsigned short v = ecl_peek(vm, (unsigned short)addr);
+
+			if (v == 0 && addr >= vm->d->vbase && in_code(vm, addr - vm->d->vbase))
+				v = vm->raw[addr - vm->d->vbase];
+			if (!ecl_poke(vm, a[2].word, v))
+				return fault(vm, at);
+			break;
+		}
+
+		case ECL_OP_SAVE_TABLE:         /* SAVE_TABLE value, base, index */
+			if (!ecl_poke(vm, (unsigned short)(a[1].word + ecl_rvalue(vm, &a[2])),
+			              ecl_rvalue(vm, &a[0])))
+				return fault(vm, at);
+			break;
+
 		case ECL_OP_NEWECL:
 			vm->chain_block = ecl_rvalue(vm, &a[0]);
 			return ECL_CHAIN;

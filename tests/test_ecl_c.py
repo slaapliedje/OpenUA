@@ -290,6 +290,26 @@ def test_random_stays_in_range_and_zero_range_is_safe(cbin, tmp_path):
     assert max(rolls) <= 5 and len(set(rolls)) > 2
 
 
+def test_save_table_and_gettable_index_script_memory(cbin, tmp_path):
+    code = (bytes([0x09]) + imm(3) + mem(0x40)                          # index = 3
+            + bytes([0x35]) + imm(77) + mem(0x0200) + mem(0x40)         # [0x200+3] = 77
+            + bytes([0x2a]) + mem(0x0200) + mem(0x40) + mem(0x50)       # [0x50] = table[3]
+            + bytes([0x2a]) + mem(0x0200) + imm(4) + mem(0x51)          # unset -> 0
+            + b"\x00")
+    host, m, st, _ = c_run(cbin, tmp_path, code)
+    assert st["status"] == EXITED and host == [] and st["unhandled"] == "0"
+    assert m[0x0203] == 77 and m[0x50] == 77 and 0x51 not in m
+
+
+def test_gettable_reads_constant_data_out_of_the_block(cbin, tmp_path):
+    # GETTABLE table, #2, [0x50] ; EXIT ; table: 11 22 33 44
+    head = bytes([0x2a]) + mem(vaddr(GEN2, 10)) + imm(2) + mem(0x50) + b"\x00"
+    assert len(head) == 10
+    code = head + bytes([11, 22, 33, 44])
+    _, m, st, _ = c_run(cbin, tmp_path, code)
+    assert st["status"] == EXITED and m[0x50] == 33
+
+
 def test_newecl_reports_the_block_to_chain_to(cbin, tmp_path):
     code = bytes([0x09]) + imm(34) + mem(0x10) + bytes([0x20]) + mem(0x10)
     _, m, st, _ = c_run(cbin, tmp_path, code)

@@ -61,8 +61,9 @@ enum { ECL_OP_EXIT = 0x00, ECL_OP_GOTO = 0x01, ECL_OP_GOSUB = 0x02,
        ECL_OP_PRINTCLEAR = 0x12, ECL_OP_RETURN = 0x13,
        ECL_OP_COMPARE_AND = 0x14, ECL_OP_IF_EQ = 0x16, ECL_OP_IF_GE = 0x1b,
        ECL_OP_NEWECL = 0x20, ECL_OP_LOAD_FILES = 0x21, ECL_OP_COMBAT = 0x24,
-       ECL_OP_ON_GOTO = 0x25, ECL_OP_ON_GOSUB = 0x26, ECL_OP_AND = 0x2f,
-       ECL_OP_OR = 0x30, ECL_OP_PRINT_RETURN = 0x33, ECL_OP_CLEAR_BOX = 0x3d };
+       ECL_OP_ON_GOTO = 0x25, ECL_OP_ON_GOSUB = 0x26, ECL_OP_GETTABLE = 0x2a,
+       ECL_OP_AND = 0x2f, ECL_OP_OR = 0x30, ECL_OP_PRINT_RETURN = 0x33,
+       ECL_OP_SAVE_TABLE = 0x35, ECL_OP_CLEAR_BOX = 0x3d };
 
 /* Operand codes (the first byte of an operand). */
 enum { ECL_C_IMM8 = 0x00,       /* literal 0..255                            */
