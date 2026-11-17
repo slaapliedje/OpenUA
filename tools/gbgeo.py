@@ -46,6 +46,8 @@ Containers handled:
     python3 tools/gbgeo.py GEO.GLB --design data/work/gamedata --current
     python3 tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --start 4
                                                       # ...with each area's script
+    python3 tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --start 2 --boot-script 1
+                                                      # Dark Queen from its own start-up script
 
 No game data is needed to use or test the module (tests/test_gbgeo.py builds
 its own maps); pointing it at a real file is the user's own copy.
@@ -293,15 +295,18 @@ def load_maps(data):
 SCRIPT_DIALECT_ID = {"gen1": 0, "gen1-dok": 1, "gen2": 2}
 
 
-def map_descriptor(m):
+def map_descriptor(m, boot_script=0):
     """GBDnnn.DAT — what makes area slot nnn a SCRIPT AREA (src/engine/boot.c,
     "GOLD BOX SCRIPT AREAS"): the map's cell-descriptor plane, which the
     scripts dispatch on and the engine's own cells have no room for, with the
-    map's size and the game's own number for it."""
-    if not (m.width < 256 and m.height < 256 and 0 < (m.area_id or 0) < 256):
+    map's size and the game's own number for it. `boot_script` names the
+    script to run when the ENGINE opens this area (a new game); 0 means the
+    script numbered like the map."""
+    if not (m.width < 256 and m.height < 256 and 0 < (m.area_id or 0) < 256
+            and 0 <= boot_script < 256):
         raise GbGeoError("map does not fit a descriptor header")
     desc = bytes(m.backdrop[y][x] for y in range(m.height) for x in range(m.width))
-    return b"GBD1" + bytes([m.width, m.height, m.area_id, 0]) + desc
+    return b"GBD1" + bytes([m.width, m.height, m.area_id, boot_script]) + desc
 
 
 def script_file(block):
@@ -318,12 +323,13 @@ def map_index(maps, first_area=5):
         bytes([m.area_id, first_area + i]) for i, m in enumerate(maps))
 
 
-def write_scripts(folder, maps, blocks, first_area=5):
+def write_scripts(folder, maps, blocks, first_area=5, boot=None):
     """Write the descriptor of every map, every script, and the index.
-    Returns (maps written, scripts written)."""
+    `boot` is (map index, script number): that map's descriptor names the
+    script to start with. Returns (maps written, scripts written)."""
     for i, m in enumerate(maps):
         with open(os.path.join(folder, "GBD%03d.DAT" % (first_area + i)), "wb") as f:
-            f.write(map_descriptor(m))
+            f.write(map_descriptor(m, boot[1] if boot and boot[0] == i else 0))
     for b in blocks:
         data = script_file(b)
         if len(data) > 16384:                      # GBS_MAX in the engine
@@ -392,7 +398,10 @@ def main(argv):
             for path in args[args.index("--ecl") + 1].split(","):
                 with open(path, "rb") as f:
                     blocks += ecl.load_blocks(f.read())
-            nm, nb = write_scripts(folder, maps, blocks)
+            boot = None
+            if "--boot-script" in args:
+                boot = (start, int(args[args.index("--boot-script") + 1], 0))
+            nm, nb = write_scripts(folder, maps, blocks, boot=boot)
             print("  %d maps, %d scripts (%s)" % (nm, nb, blocks[0].dialect.name))
         m = maps[start]
         e = m.find_entry()

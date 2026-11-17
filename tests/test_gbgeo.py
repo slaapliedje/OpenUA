@@ -214,6 +214,14 @@ def test_map_descriptor_is_the_plane_row_major():
     assert desc[1] == 0x07 and desc[9 * 12 + 11] == 0x5A and sum(desc) == 0x61
 
 
+def test_boot_script_rides_in_the_start_maps_descriptor(tmp_path):
+    a = one_cell((1, 0, 0, 0)); a.area_id = 2
+    b = one_cell((2, 0, 0, 0)); b.area_id = 4
+    gbgeo.write_scripts(str(tmp_path), [a, b], [_script_block()], boot=(0, 1))
+    assert (tmp_path / "GBD005.DAT").read_bytes()[4:8] == bytes([16, 16, 2, 1])
+    assert (tmp_path / "GBD006.DAT").read_bytes()[4:8] == bytes([16, 16, 4, 0])
+
+
 def test_script_file_is_the_dialect_and_the_untouched_block():
     blk = _script_block("gen1-dok")
     data = gbgeo.script_file(blk)

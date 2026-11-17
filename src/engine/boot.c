@@ -106387,8 +106387,9 @@ static void jt500(short rings, short art, short sound)
  * (tools/gbgeo.py writes all of it from the game's own files):
  *
  *   GBDnnn.DAT   one per AREA SLOT nnn — what makes that area a script area:
- *                  "GBD1", u8 width, u8 height, u8 map number, u8 0,
- *                  then the map's cell-descriptor plane, row-major, north first
+ *                  "GBD1", u8 width, u8 height, u8 map number, u8 boot script
+ *                  (0 = the script numbered like the map), then the map's
+ *                  cell-descriptor plane, row-major, north first
  *   ECLnnn.DAT   one per SCRIPT, nnn = the game's own script number:
  *                  "GBS2", u8 dialect (ecl.h), 3 x u8 0, then the ECL block
  *                  exactly as the game ships it
@@ -106597,6 +106598,22 @@ static void gbs_menu(ecl_vm *vm, const ecl_insn *ins, int first, int n,
 	g_gbs_shown = 1;
 }
 
+/* INPUT_NUMBER: the engine's own "how much?" field (JT[891], the widget the
+ * temple and the money screens use), under whatever question the script has
+ * just printed. The first operand is the number of digits the script expects
+ * ("X POSITION : 0-27" passes 2, "FACING" passes 1), so it sets the cap.
+ * Escape answers 0, as it does everywhere else in the engine. */
+static void gbs_input_number(ecl_vm *vm, short digits, unsigned short dest)
+{
+	long cap = 9;
+
+	while (--digits > 0 && cap < 9999)
+		cap = cap * 10 + 9;
+	gbs_draw(0);                    /* the question stays up */
+	ecl_poke(vm, dest, (unsigned short)jt891(cap, "Number: ", 7));
+	g_gbs_shown = 1;
+}
+
 static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 {
 	(void)ctx;
@@ -106614,6 +106631,12 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 	case ECL_OP_LOAD_FILES:         /* operand 0 is the map; honoured after the run */
 		if (ins->argc > 0)
 			g_gbs_want_map = (unsigned char)ecl_rvalue(vm, &ins->arg[0]);
+		return ECL_HOST_OK;
+	case 0x0f:                      /* INPUT_NUMBER digits, dest */
+		if (ins->argc < 2)
+			return ECL_HOST_UNHANDLED;
+		gbs_input_number(vm, (short)ecl_rvalue(vm, &ins->arg[0]),
+		                 ins->arg[1].word);
 		return ECL_HOST_OK;
 	case 0x2b:                      /* HORIZONTAL_MENU dest, count, items...     */
 	case 0x31:                      /* the same menu in the short dialects; in   */
@@ -106701,8 +106724,11 @@ static void gbs_area_load(short geo_num)
 	if (g_gbs_switching)
 		return;                     /* a script asked for this map: it carries on */
 	/* The engine brought us here (a new game, a saved game): start the script
-	 * that goes with this map. */
-	g_gbs_init_pending = (char)gbs_script_load((short)g_gbs_map);
+	 * that goes with this map — or the one the design names instead, which is
+	 * how a game's own start-up script (Dark Queen's is number 1, and has no
+	 * map of its own) gets to run first. */
+	g_gbs_init_pending = (char)gbs_script_load(
+	    (short)(g_gbs_desc[7] ? g_gbs_desc[7] : g_gbs_map));
 }
 
 static short gbs_slot_of(unsigned char map)
