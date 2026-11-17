@@ -106280,47 +106280,74 @@ static void jt500(short rings, short art, short sound)
  * GOLD BOX SCRIPT AREAS (ADR-0023) — PORT-LOCAL, no Mac counterpart.
  *
  * FRUA drives an area from the event table in its GEO file. Every other Gold
- * Box game drives one from an ECL script. An area is a SCRIPT AREA when the
- * design folder holds an ECLnnn.DAT beside its GEOnnn.DAT (tools/gbgeo.py
- * writes both from the game's own files):
+ * Box game drives one from ECL scripts, and numbers its scripts and its maps
+ * SEPARATELY (The Dark Queen of Krynn has 47 scripts over 20 maps: several
+ * scripts play on one map, and some have no map at all). So a converted game
+ * is a design folder holding, beside the ordinary GEOnnn.DAT areas
+ * (tools/gbgeo.py writes all of it from the game's own files):
  *
- *     "GBS1"            magic
- *     u8  dialect       ECL_GEN1 / ECL_GEN1_DOK / ECL_GEN2  (ecl.h)
- *     u8  width, height the source map's, in cells
- *     u8  area id       the game's own number for this area
- *     u8  desc[w*h]     the map's cell-descriptor plane, row-major, north first
- *     ...               the ECL block, exactly as the game ships it
+ *   GBDnnn.DAT   one per AREA SLOT nnn — what makes that area a script area:
+ *                  "GBD1", u8 width, u8 height, u8 map number, u8 0,
+ *                  then the map's cell-descriptor plane, row-major, north first
+ *   ECLnnn.DAT   one per SCRIPT, nnn = the game's own script number:
+ *                  "GBS2", u8 dialect (ecl.h), 3 x u8 0, then the ECL block
+ *                  exactly as the game ships it
+ *   GBMAP.DAT    "GBM1", u8 count, then count x { u8 map number, u8 area slot }
  *
- * The descriptor plane rides here rather than in the GEO cells because it is
- * the SCRIPT's data, not the renderer's: before every run the host puts the
- * party cell's descriptor, the facing and the area number where the script
- * expects them, and the script dispatches on those. (Greybox's finding, and
- * the reason a converted map alone is only geometry.)
+ * The descriptor plane rides in its own file because it is the SCRIPT's data,
+ * not the renderer's: before every run the host puts the party cell's
+ * descriptor, its position and facing where the script reads them, and the
+ * script dispatches on those. (Greybox's finding, and the reason a converted
+ * map alone is only geometry.)
  *
- * What runs when: the area's initial entry on arrival, then vmRun1 and
- * searchLocation after every step. The FRUA event dispatcher still runs too;
- * a converted map has no events, so it finds nothing.
+ * What runs when: on arrival in a script area, the script whose number equals
+ * the map's; then its vmRun1 and searchLocation after every step. A script
+ * hands over to another with NEWECL (script memory carries across), asks for
+ * a map with LOAD_FILES, and places the party by writing its position
+ * variables — all three are honoured when the run ends, through the same
+ * spine FRUA's own stairs event (l5676) uses. The FRUA event dispatcher still
+ * runs too; a converted map has no events, so it finds nothing.
  *
- * THIS IS THE FIRST WIRING AND IT IS DELIBERATELY NARROW. The host below
- * answers the text opcodes and nothing else: pictures, menus, input, combat,
- * treasure, NEWECL chaining and LOAD_FILES are counted as unhandled and
- * skipped, so a script that depends on one of them will take a wrong turn.
- * Script memory lives for the session and is not yet written to a saved game.
+ * STILL NARROW. The host answers text, menus, map loads and script chains.
+ * Pictures, number and string input, combat, treasure and the rest are
+ * counted as unhandled and skipped, so a script that depends on one takes a
+ * wrong turn. Script memory lives for the session and is not written to a
+ * saved game. Party position is only exchanged for the Dark Queen dialect;
+ * where Champions and Death Knights keep it is not pinned down yet.
  * ============================================================================ */
 #define GBS_MAX        16384     /* largest block is 12,000 bytes (Dark Queen) */
 #define GBS_HDR        8
 #define GBS_BUDGET     20000L    /* instructions per run before giving up      */
 #define GBS_TEXT_MAX   400
+#define GBS_MAPS       40
+#define GBS_CHAINS     8         /* NEWECL hops in one run before giving up    */
 
-static unsigned char       *g_gbs_buf;
-static const unsigned char *g_gbs_desc;
-static unsigned char        g_gbs_w, g_gbs_h, g_gbs_dialect, g_gbs_area_id;
-static char                 g_gbs_ready, g_gbs_active, g_gbs_init_pending;
-static char                 g_gbs_text[GBS_TEXT_MAX];
-static short                g_gbs_textlen;
-static char                 g_gbs_shown;
-static ecl_vm               g_gbs_vm;
-static ecl_host             g_gbs_host;
+/* The Dark Queen's script variables, read off the developers' own debug menu
+ * in script 1 ("INITIAL X,Y POSITION" prints 0x34 and 0x35; "FACING : 0=N,
+ * 1=E, 2=S, 3=W" prints 0x11; "JUMPING TO ECL NUMBER" compares 0x16), and the
+ * cell descriptor and area from Greybox. */
+#define GBS2_X         0x0034
+#define GBS2_Y         0x0035
+#define GBS2_FACING    0x0011
+#define GBS2_ECL       0x0016
+#define GBS2_DESC      0x002D
+#define GBS2_AREA      0x001B
+
+static unsigned char *g_gbs_buf;                    /* the loaded ECL file     */
+static unsigned char  g_gbs_desc[GBS_HDR + 784];    /* the loaded GBD file     */
+static unsigned char  g_gbs_w, g_gbs_h, g_gbs_dialect;
+static unsigned char  g_gbs_map;                    /* the game's map number   */
+static unsigned char  g_gbs_script;                 /* the loaded script, or 0 */
+static unsigned char  g_gbs_want_map;               /* LOAD_FILES, pending     */
+static unsigned char  g_gbs_index[GBS_MAPS][2];
+static short          g_gbs_nindex = -1;            /* -1: not read yet        */
+static char           g_gbs_ready, g_gbs_active, g_gbs_init_pending;
+static char           g_gbs_switching;              /* our own jt198 in flight */
+static char           g_gbs_text[GBS_TEXT_MAX];
+static short          g_gbs_textlen;
+static char           g_gbs_shown;
+static ecl_vm         g_gbs_vm;
+static ecl_host       g_gbs_host;
 
 static void *gbs_alloc(void *ctx, unsigned long bytes)
 {
@@ -106330,6 +106357,24 @@ static void *gbs_alloc(void *ctx, unsigned long bytes)
 	if (p != NULL)
 		jt399(p, (short)bytes, (short)0);
 	return p;
+}
+
+/* Read a file from the current design folder, as jt127 does. Returns the byte
+ * count, or -1 when there is no such file. */
+static short gbs_read(const char *name, void *buf, short max)
+{
+	char  dpath[202];
+	short refnum, n;
+
+	dpath[0] = 0;
+	jt431(dpath, &g_a5_31336);
+	jt431(dpath, name);
+	refnum = jt398(dpath, 0);
+	if (refnum < 0)
+		return -1;
+	n = jt401(refnum, buf, max);
+	jt411(refnum);
+	return n;
 }
 
 /* Draw what is in the text buffer in the play screen's message box — the
@@ -106363,6 +106408,32 @@ static void gbs_draw(int confirm)
 static void gbs_show(void)
 {
 	gbs_draw(1);
+}
+
+static void gbs_text_put(const char *t, short n)
+{
+	short i;
+
+	if (g_gbs_textlen > 0 && g_gbs_textlen < GBS_TEXT_MAX - 1)
+		g_gbs_text[g_gbs_textlen++] = ' ';
+	for (i = 0; i < n && g_gbs_textlen < GBS_TEXT_MAX - 1; i++)
+		g_gbs_text[g_gbs_textlen++] = t[i];
+}
+
+/* PRINT's operand: inline text, or a script variable printed as a number
+ * (the debug menu's `PRINT [0x0034]`). String-table and runtime strings are
+ * not wired yet. */
+static void gbs_text_add(const ecl_vm *vm, const ecl_opnd *a)
+{
+	char buf[GBS_TEXT_MAX];
+
+	if (a->code == ECL_C_TEXT) {
+		gbs_text_put(buf, (short)ecl_text(vm->raw, a->text_off, a->text_len,
+		                                  buf, sizeof buf));
+	} else if (a->code == ECL_C_MEM || a->code == ECL_C_MEM3
+	        || a->code == ECL_C_GAMEVAR) {
+		gbs_text_put(buf, (short)jt394(buf, "%d", (int)ecl_rvalue(vm, a)));
+	}
 }
 
 /* A script menu: `n` inline-text items starting at ins->arg[first]; the
@@ -106426,20 +106497,6 @@ static void gbs_menu(ecl_vm *vm, const ecl_insn *ins, int first, int n,
 	g_gbs_shown = 1;
 }
 
-static void gbs_text_add(const ecl_vm *vm, const ecl_opnd *a)
-{
-	char  buf[GBS_TEXT_MAX];
-	short n, i;
-
-	if (a->code != ECL_C_TEXT)
-		return;                     /* string-table and runtime strings: not yet */
-	n = (short)ecl_text(vm->raw, a->text_off, a->text_len, buf, sizeof buf);
-	if (g_gbs_textlen > 0 && g_gbs_textlen < GBS_TEXT_MAX - 1)
-		g_gbs_text[g_gbs_textlen++] = ' ';
-	for (i = 0; i < n && g_gbs_textlen < GBS_TEXT_MAX - 1; i++)
-		g_gbs_text[g_gbs_textlen++] = buf[i];
-}
-
 static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 {
 	(void)ctx;
@@ -106453,6 +106510,10 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 		return ECL_HOST_OK;
 	case ECL_OP_CLEAR_BOX:
 		gbs_show();
+		return ECL_HOST_OK;
+	case ECL_OP_LOAD_FILES:         /* operand 0 is the map; honoured after the run */
+		if (ins->argc > 0)
+			g_gbs_want_map = (unsigned char)ecl_rvalue(vm, &ins->arg[0]);
 		return ECL_HOST_OK;
 	case 0x2b:                      /* HORIZONTAL_MENU dest, count, items...     */
 	case 0x31:                      /* the same menu in the short dialects; in   */
@@ -106471,43 +106532,29 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 	}
 }
 
-/* Is GEO `geo_num` a script area? Called from jt198 once the map is loaded. */
-static void gbs_area_load(short geo_num)
+/* Load script `id` (ECLnnn.DAT) into the machine. Script memory is kept. */
+static int gbs_script_load(short id)
 {
-	char  path[64];
-	char  dpath[202];
-	short refnum, n;
-	long  desc_len;
+	char  name[24];
+	short n;
 
-	g_gbs_active = 0;
-	g_gbs_init_pending = 0;
-	g_gbs_textlen = 0;
-	jt394(path, "ECL%03d.DAT", (int)(unsigned char)geo_num);
-	dpath[0] = 0;
-	jt431(dpath, &g_a5_31336);      /* the current design, as jt127 does */
-	jt431(dpath, path);
-	refnum = jt398(dpath, 0);
-	if (refnum < 0)
-		return;                     /* an ordinary FRUA area */
+	g_gbs_script = 0;
+	if (id <= 0 || id > 255)
+		return 0;
 	if (g_gbs_buf == NULL)
 		g_gbs_buf = (unsigned char *)(uintptr_t)jt387((short)GBS_MAX);
-	n = (g_gbs_buf != NULL) ? jt401(refnum, g_gbs_buf, (short)GBS_MAX) : 0;
-	jt411(refnum);
-	if (n < GBS_HDR || g_gbs_buf[0] != 'G' || g_gbs_buf[1] != 'B'
-	 || g_gbs_buf[2] != 'S' || g_gbs_buf[3] != '1') {
-		dbg_log("gbs: ECL file is not a GBS1 script area");
-		return;
+	if (g_gbs_buf == NULL)
+		return 0;
+	jt394(name, "ECL%03d.DAT", (int)id);
+	n = gbs_read(name, g_gbs_buf, (short)GBS_MAX);
+	if (n < 0)
+		return 0;                   /* this map has no script of its own */
+	if (n <= GBS_HDR || g_gbs_buf[0] != 'G' || g_gbs_buf[1] != 'B'
+	 || g_gbs_buf[2] != 'S' || g_gbs_buf[3] != '2'
+	 || ecl_dialect_get(g_gbs_buf[4]) == NULL) {
+		dbg_log_num("gbs: not a GBS2 script file, number ", (long)id);
+		return 0;
 	}
-	g_gbs_dialect = g_gbs_buf[4];
-	g_gbs_w       = g_gbs_buf[5];
-	g_gbs_h       = g_gbs_buf[6];
-	g_gbs_area_id = g_gbs_buf[7];
-	desc_len      = (long)g_gbs_w * g_gbs_h;
-	if (ecl_dialect_get(g_gbs_dialect) == NULL || GBS_HDR + desc_len >= n) {
-		dbg_log("gbs: script area header does not fit its file");
-		return;
-	}
-	g_gbs_desc = g_gbs_buf + GBS_HDR;
 	if (!g_gbs_ready) {
 		g_gbs_host.ctx   = NULL;
 		g_gbs_host.alloc = gbs_alloc;
@@ -106515,21 +106562,74 @@ static void gbs_area_load(short geo_num)
 		ecl_init(&g_gbs_vm, &g_gbs_host);
 		g_gbs_ready = 1;
 	}
-	if (!ecl_load(&g_gbs_vm, g_gbs_desc + desc_len,
-	              (unsigned)(n - GBS_HDR - desc_len),
+	g_gbs_dialect = g_gbs_buf[4];
+	if (!ecl_load(&g_gbs_vm, g_gbs_buf + GBS_HDR, (unsigned)(n - GBS_HDR),
 	              ecl_dialect_get(g_gbs_dialect))) {
-		dbg_log("gbs: the script block did not load");
-		return;
+		dbg_log_num("gbs: script block did not load, number ", (long)id);
+		return 0;
 	}
-	g_gbs_active = 1;
-	g_gbs_init_pending = 1;
-	dbg_log_num("gbs: script area, source id = ", (long)g_gbs_area_id);
+	g_gbs_script = (unsigned char)id;
+	dbg_log_num("gbs: script ", (long)id);
+	return 1;
 }
 
-/* Tell the script where the party is. Greybox's addresses: the Dark Queen
- * reads the cell descriptor at 0x002D, the facing (N=0 E=1 S=2 W=3) at 0x0011
- * and the area at 0x001B; Champions and Death Knights read the descriptor at
- * 0xC04F and its low six bits at 0x7F79. */
+/* Is area slot `geo_num` a script area? Called from jt198 once the map is in. */
+static void gbs_area_load(short geo_num)
+{
+	char  name[24];
+	short n;
+
+	g_gbs_active = 0;
+	g_gbs_textlen = 0;
+	jt394(name, "GBD%03d.DAT", (int)(unsigned char)geo_num);
+	n = gbs_read(name, g_gbs_desc, (short)sizeof g_gbs_desc);
+	if (n < 0) {
+		g_gbs_init_pending = 0;
+		return;                     /* an ordinary FRUA area */
+	}
+	if (n < GBS_HDR || g_gbs_desc[0] != 'G' || g_gbs_desc[1] != 'B'
+	 || g_gbs_desc[2] != 'D' || g_gbs_desc[3] != '1'
+	 || GBS_HDR + (long)g_gbs_desc[4] * g_gbs_desc[5] != n) {
+		dbg_log("gbs: GBD file is not a descriptor plane for this map");
+		return;
+	}
+	g_gbs_w   = g_gbs_desc[4];
+	g_gbs_h   = g_gbs_desc[5];
+	g_gbs_map = g_gbs_desc[6];
+	g_gbs_active = 1;
+	dbg_log_num("gbs: script area, map ", (long)g_gbs_map);
+	if (g_gbs_switching)
+		return;                     /* a script asked for this map: it carries on */
+	/* The engine brought us here (a new game, a saved game): start the script
+	 * that goes with this map. */
+	g_gbs_init_pending = (char)gbs_script_load((short)g_gbs_map);
+}
+
+static short gbs_slot_of(unsigned char map)
+{
+	short i;
+
+	if (g_gbs_nindex < 0) {
+		unsigned char raw[5 + 2 * GBS_MAPS];
+		short n = gbs_read("GBMAP.DAT", raw, (short)sizeof raw);
+
+		g_gbs_nindex = 0;
+		if (n >= 5 && raw[0] == 'G' && raw[1] == 'B' && raw[2] == 'M'
+		 && raw[3] == '1' && raw[4] <= GBS_MAPS && 5 + 2 * raw[4] <= n) {
+			g_gbs_nindex = raw[4];
+			for (i = 0; i < g_gbs_nindex; i++) {
+				g_gbs_index[i][0] = raw[5 + 2 * i];
+				g_gbs_index[i][1] = raw[6 + 2 * i];
+			}
+		}
+	}
+	for (i = 0; i < g_gbs_nindex; i++)
+		if (g_gbs_index[i][0] == map)
+			return (short)g_gbs_index[i][1];
+	return 0;
+}
+
+/* Tell the script where the party is. */
 static void gbs_seed(void)
 {
 	/* -12288 is the east-west coordinate and -12287 the north-south one (see
@@ -106539,39 +106639,106 @@ static void gbs_seed(void)
 	unsigned char d = 0;
 
 	if (x >= 0 && x < g_gbs_w && y >= 0 && y < g_gbs_h)
-		d = g_gbs_desc[(long)y * g_gbs_w + x];
+		d = g_gbs_desc[GBS_HDR + (long)y * g_gbs_w + x];
 	if (g_gbs_dialect == ECL_GEN2) {
+		ecl_poke(&g_gbs_vm, GBS2_DESC, d);
+		ecl_poke(&g_gbs_vm, GBS2_X, (unsigned short)x);
+		ecl_poke(&g_gbs_vm, GBS2_Y, (unsigned short)y);
 		/* the engine's facing is 2=E 4=S 6=W 8=N after l1908 normalises it */
-		ecl_poke(&g_gbs_vm, 0x002D, d);
-		ecl_poke(&g_gbs_vm, 0x0011,
+		ecl_poke(&g_gbs_vm, GBS2_FACING,
 		         (unsigned short)(((unsigned char)g_a5_byte(-12286) >> 1) & 3));
-		ecl_poke(&g_gbs_vm, 0x001B, g_gbs_area_id);
 	} else {
+		/* Champions / Death Knights: the descriptor and its low six bits */
 		ecl_poke(&g_gbs_vm, 0xC04F, d);
 		ecl_poke(&g_gbs_vm, 0x7F79, (unsigned short)(d & 63));
 	}
 }
 
+/* Do what the script asked of the WORLD: another map, and/or the party
+ * somewhere else. The spine is l5676's (FRUA's stairs/teleport event): set the
+ * target level and load it, set the landing cell and facing, then l4184 /
+ * l3ef8 and the party record. */
+static void gbs_apply(void)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char *lvl;
+	short x, y, f, slot;
+	int   moved = 0;
+
+	if (g_gbs_want_map != 0 && g_gbs_want_map != g_gbs_map) {
+		slot = gbs_slot_of(g_gbs_want_map);
+		if (slot == 0) {
+			dbg_log_num("gbs: LOAD_FILES wants a map this design lacks: ",
+			            (long)g_gbs_want_map);
+		} else {
+			if (slot != g_a5_word(-18878)) {
+				g_a5_byte(-5221)  = 1;
+				g_a5_byte(-18484) = 0;
+			}
+			g_a5_word(-18878) = slot;
+			g_gbs_switching = 1;
+			jt198(slot);
+			g_gbs_switching = 0;
+			if (slot > 4) l0ba2(); else l0b88();
+			l0006_20();
+			moved = 1;
+		}
+	}
+	g_gbs_want_map = 0;
+	if (g_gbs_dialect != ECL_GEN2 || rec == NULL)
+		return;                     /* position exchange: Dark Queen only so far */
+	lvl = (unsigned char *)(uintptr_t)g_a5_long(-12300);
+	if (lvl == NULL)
+		return;
+	x = (short)ecl_peek(&g_gbs_vm, GBS2_X);
+	y = (short)ecl_peek(&g_gbs_vm, GBS2_Y);
+	f = (short)(ecl_peek(&g_gbs_vm, GBS2_FACING) & 3);
+	if (!moved
+	 && x == (short)(signed char)g_a5_byte(-12288)
+	 && y == (short)(signed char)g_a5_byte(-12287)
+	 && f == (short)(((unsigned char)g_a5_byte(-12286) >> 1) & 3))
+		return;                     /* the script left the party where it was */
+	g_a5_byte(-4940)  = (unsigned char)jt413(x, (short)(lvl[3] - 1));
+	g_a5_byte(-4939)  = (unsigned char)jt413(y, (short)(lvl[2] - 1));
+	g_a5_byte(-12286) = (unsigned char)(f * 2);
+	l4184();
+	rec[23] = g_a5_byte(-4940);
+	rec[24] = g_a5_byte(-4939);
+	l3ef8();
+	g_gbs_shown = 1;                /* the view changed: rebuild the screen */
+}
+
 static void gbs_run(int entry)
 {
-	int status;
+	int status, hops;
 
-	if (!ecl_enter(&g_gbs_vm, entry))
+	if (g_gbs_script == 0 || !ecl_enter(&g_gbs_vm, entry))
 		return;
 	gbs_seed();
-	status = ecl_run(&g_gbs_vm, GBS_BUDGET);
+	for (hops = 0; ; hops++) {
+		status = ecl_run(&g_gbs_vm, GBS_BUDGET);
+		if (status != ECL_CHAIN)
+			break;
+		/* NEWECL: the next script takes over from its initial entry, with
+		 * the same memory. */
+		if (hops >= GBS_CHAINS
+		 || !gbs_script_load((short)g_gbs_vm.chain_block)
+		 || !ecl_enter(&g_gbs_vm, ECL_ENTRY_INIT)) {
+			dbg_log_num("gbs: NEWECL could not be followed -> ",
+			            (long)g_gbs_vm.chain_block);
+			break;
+		}
+	}
 	gbs_show();                     /* whatever the script left unshown */
 	if (status == ECL_FAULT)
 		dbg_log_num("gbs: script FAULT at offset ", (long)g_gbs_vm.fault_pc);
-	else if (status == ECL_CHAIN)
-		dbg_log_num("gbs: NEWECL (not followed yet) -> ",
-		            (long)g_gbs_vm.chain_block);
 	else if (status == ECL_BUDGET)
 		dbg_log("gbs: script spent its budget (waiting on an opcode not wired yet)");
+	gbs_apply();
 }
 
-/* After any script text: the play screen is rebuilt exactly as l4d26 leaves it
- * to be after a Return-prompted message. */
+/* After any script text or move: the play screen is rebuilt exactly as l4d26
+ * leaves it to be after a Return-prompted message. */
 static void gbs_after(void)
 {
 	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);

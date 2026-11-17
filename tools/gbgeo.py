@@ -293,35 +293,49 @@ def load_maps(data):
 SCRIPT_DIALECT_ID = {"gen1": 0, "gen1-dok": 1, "gen2": 2}
 
 
-def script_area(m, block):
-    """The ECLnnn.DAT that makes an area a SCRIPT AREA (src/engine/boot.c,
-    "GOLD BOX SCRIPT AREAS"): a small header, the map's cell-descriptor plane —
-    which the script dispatches on and the engine's own cells have no room for —
-    and the ECL block exactly as the game ships it. `block` is a tools/ecl.Block."""
-    if not (m.width < 256 and m.height < 256 and 0 <= (m.area_id or 0) < 256):
-        raise GbGeoError("map does not fit a script-area header")
+def map_descriptor(m):
+    """GBDnnn.DAT — what makes area slot nnn a SCRIPT AREA (src/engine/boot.c,
+    "GOLD BOX SCRIPT AREAS"): the map's cell-descriptor plane, which the
+    scripts dispatch on and the engine's own cells have no room for, with the
+    map's size and the game's own number for it."""
+    if not (m.width < 256 and m.height < 256 and 0 < (m.area_id or 0) < 256):
+        raise GbGeoError("map does not fit a descriptor header")
     desc = bytes(m.backdrop[y][x] for y in range(m.height) for x in range(m.width))
-    return (b"GBS1" + bytes([SCRIPT_DIALECT_ID[block.dialect.name], m.width,
-                             m.height, m.area_id or 0]) + desc + block.raw)
+    return b"GBD1" + bytes([m.width, m.height, m.area_id, 0]) + desc
+
+
+def script_file(block):
+    """ECLnnn.DAT, nnn = the game's own script number: the dialect and the
+    block exactly as the game ships it. `block` is a tools/ecl.Block."""
+    return b"GBS2" + bytes([SCRIPT_DIALECT_ID[block.dialect.name], 0, 0, 0]) + block.raw
+
+
+def map_index(maps, first_area=5):
+    """GBMAP.DAT — the game's map numbers against the design's area slots, so a
+    script's "load map N" can find it. Scripts and maps are numbered separately
+    in these games (Dark Queen has 47 scripts over 20 maps)."""
+    return b"GBM1" + bytes([len(maps)]) + b"".join(
+        bytes([m.area_id, first_area + i]) for i, m in enumerate(maps))
 
 
 def write_scripts(folder, maps, blocks, first_area=5):
-    """Write ECLnnn.DAT for every map that has a script with the same area id.
-    Returns the FRUA area numbers written."""
-    by_id = {b.block_id: b for b in blocks}
-    done = []
+    """Write the descriptor of every map, every script, and the index.
+    Returns (maps written, scripts written)."""
     for i, m in enumerate(maps):
-        b = by_id.get(m.area_id)
-        if b is None:
-            continue
-        data = script_area(m, b)
+        with open(os.path.join(folder, "GBD%03d.DAT" % (first_area + i)), "wb") as f:
+            f.write(map_descriptor(m))
+    for b in blocks:
+        data = script_file(b)
         if len(data) > 16384:                      # GBS_MAX in the engine
-            raise GbGeoError("script area %s is %d bytes; the engine reads 16384"
-                             % (m.area_id, len(data)))
-        with open(os.path.join(folder, "ECL%03d.DAT" % (first_area + i)), "wb") as f:
+            raise GbGeoError("script %s is %d bytes; the engine reads 16384"
+                             % (b.block_id, len(data)))
+        if not 0 < b.block_id < 256:
+            raise GbGeoError("script number %s does not fit a file name" % b.block_id)
+        with open(os.path.join(folder, "ECL%03d.DAT" % b.block_id), "wb") as f:
             f.write(data)
-        done.append(first_area + i)
-    return done
+    with open(os.path.join(folder, "GBMAP.DAT"), "wb") as f:
+        f.write(map_index(maps, first_area))
+    return len(maps), len(blocks)
 
 
 def build_design(maps, name="GOLDBOX", title="Imported Gold Box maps", start=0):
@@ -378,9 +392,8 @@ def main(argv):
             for path in args[args.index("--ecl") + 1].split(","):
                 with open(path, "rb") as f:
                     blocks += ecl.load_blocks(f.read())
-            done = write_scripts(folder, maps, blocks)
-            print("  %d of %d areas are script areas (%s)"
-                  % (len(done), len(maps), blocks[0].dialect.name))
+            nm, nb = write_scripts(folder, maps, blocks)
+            print("  %d maps, %d scripts (%s)" % (nm, nb, blocks[0].dialect.name))
         m = maps[start]
         e = m.find_entry()
         print("  %d areas; starting in area %d (source id %s), party at x=%d y=%d facing %s"

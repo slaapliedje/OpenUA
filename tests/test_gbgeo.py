@@ -200,20 +200,24 @@ def _script_block(dialect_name="gen2"):
     return ecl.Block(block(bytes([0x00]), d), d, block_id=34)
 
 
-def test_script_area_carries_the_descriptor_plane_row_major():
+def test_map_descriptor_is_the_plane_row_major():
     n = 12 * 10
     p2 = bytearray(n)
     p2[9 * 12 + 11] = 0x5A                      # (x=11, y=9), the last cell
     p2[1] = 0x07                                # (x=1, y=0)
     raw = bytes(n) + bytes(n) + bytes(p2) + bytes(n)
     m = GbMap.from_planes(raw, width=12, height=10, area_id=34)
-    blk = _script_block()
-    data = gbgeo.script_area(m, blk)
-    assert data[:4] == b"GBS1"
-    assert tuple(data[4:8]) == (2, 12, 10, 34)  # dialect gen2, w, h, area id
-    desc = data[8:8 + n]
+    data = gbgeo.map_descriptor(m)
+    assert data[:4] == b"GBD1" and tuple(data[4:8]) == (12, 10, 34, 0)
+    desc = data[8:]
+    assert len(desc) == n
     assert desc[1] == 0x07 and desc[9 * 12 + 11] == 0x5A and sum(desc) == 0x61
-    assert data[8 + n:] == blk.raw              # the game's block, untouched
+
+
+def test_script_file_is_the_dialect_and_the_untouched_block():
+    blk = _script_block("gen1-dok")
+    data = gbgeo.script_file(blk)
+    assert data[:8] == b"GBS2" + bytes([1, 0, 0, 0]) and data[8:] == blk.raw
 
 
 def test_script_dialect_ids_match_the_engine_header():
@@ -226,9 +230,16 @@ def test_script_dialect_ids_match_the_engine_header():
     assert gbgeo.SCRIPT_DIALECT_ID == {"gen1": 0, "gen1-dok": 1, "gen2": 2}
 
 
-def test_scripts_are_written_only_for_maps_that_have_one(tmp_path):
-    a = one_cell((1, 0, 0, 0)); a.area_id = 34
-    b = one_cell((2, 0, 0, 0)); b.area_id = 24          # no script for 24
-    done = gbgeo.write_scripts(str(tmp_path), [b, a], [_script_block()])
-    assert done == [6]                                   # second map -> area 6
-    assert sorted(os.listdir(tmp_path)) == ["ECL006.DAT"]
+def test_scripts_are_keyed_by_the_games_number_and_maps_by_slot(tmp_path):
+    a = one_cell((1, 0, 0, 0)); a.area_id = 30
+    b = one_cell((2, 0, 0, 0)); b.area_id = 24
+    # three scripts over two maps: 30 and 31 both live on map 30
+    blocks = [_script_block() for _ in range(3)]
+    for blk, n in zip(blocks, (30, 31, 2)):
+        blk.block_id = n
+    assert gbgeo.write_scripts(str(tmp_path), [b, a], blocks) == (2, 3)
+    assert sorted(os.listdir(tmp_path)) == [
+        "ECL002.DAT", "ECL030.DAT", "ECL031.DAT",
+        "GBD005.DAT", "GBD006.DAT", "GBMAP.DAT"]
+    index = (tmp_path / "GBMAP.DAT").read_bytes()
+    assert index == b"GBM1" + bytes([2, 24, 5, 30, 6])
