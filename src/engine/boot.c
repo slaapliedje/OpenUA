@@ -106332,9 +106332,11 @@ static void *gbs_alloc(void *ctx, unsigned long bytes)
 	return p;
 }
 
-/* Put what is in the text buffer into the play screen's message box and wait
- * for Return — the same sequence l4d26 uses for a confirm-paged event line. */
-static void gbs_show(void)
+/* Draw what is in the text buffer in the play screen's message box — the
+ * sequence l4d26 uses for an event line. With `confirm`, wait for Return and
+ * clear the box, as l4d26 does for a confirm-paged line; without, leave the
+ * text standing for whatever asks the question next (a menu). */
+static void gbs_draw(int confirm)
 {
 	if (g_gbs_textlen == 0)
 		return;
@@ -106346,13 +106348,81 @@ static void gbs_show(void)
 	g_a5_byte(-27912) = 1;
 	g_a5_byte(-27981) = 1;
 	jt96(1, 17, 38, 22, 7, 0, 0, (long)(uintptr_t)g_gbs_text, 17);
-	l1806(0);
-	g_a5_byte(-27911) = 17;
-	g_a5_byte(-27912) = 1;
-	jt20();
-	jt176();
+	if (confirm) {
+		l1806(0);
+		g_a5_byte(-27911) = 17;
+		g_a5_byte(-27912) = 1;
+		jt20();
+		jt176();
+	}
 	g_a5_byte(-27981) = 0;
 	g_gbs_textlen = 0;
+	g_gbs_shown = 1;
+}
+
+static void gbs_show(void)
+{
+	gbs_draw(1);
+}
+
+/* A script menu: `n` inline-text items starting at ins->arg[first]; the
+ * chosen item's ZERO-BASED index goes to the script variable `dest`, which
+ * the script then usually feeds to an ON_GOTO.
+ *
+ * Shown on the engine's own button bar through JT[182], the routine behind
+ * every Yes/No and verb bar, which returns the index picked. Its label string
+ * has a grammar of its own (l2184), and the first cut of this function got a
+ * blank bar by ignoring it:
+ *   * a button is a word that STARTS AT AN UPPERCASE LETTER, so the labels
+ *     are "Yes No" style — one capital, the rest lower case (the font draws
+ *     both the same). "PALACE TEMPLE" reads as twelve one-letter words;
+ *   * which words appear is the slot table JT[179] primes: words 0..n-1.
+ * So items are re-cased, inner spaces become underscores (a space would end
+ * the button), and a menu too long for the 40-column bar is cut at the last
+ * item that fits — logged, because the script can then never be told the
+ * items that fell off. */
+static void gbs_menu(ecl_vm *vm, const ecl_insn *ins, int first, int n,
+                     unsigned short dest)
+{
+	char  bar[80];
+	char  item[64];
+	short len = 0, shown = 0, pick, i, k;
+
+	for (i = 0; i < n && first + i < (int)ins->argc; i++) {
+		const ecl_opnd *a = &ins->arg[first + i];
+		short m;
+
+		if (a->code != ECL_C_TEXT)
+			break;
+		m = (short)ecl_text(vm->raw, a->text_off, a->text_len, item, sizeof item);
+		if (len + m + 1 >= 40)          /* the bar is 40 columns */
+			break;
+		if (len > 0)
+			bar[len++] = ' ';
+		for (k = 0; k < m; k++) {
+			char c = item[k];
+
+			if (c == ' ')
+				c = '_';
+			else if (k > 0 && c >= 'A' && c <= 'Z')
+				c = (char)(c - 'A' + 'a');
+			bar[len++] = c;
+		}
+		shown++;
+	}
+	bar[len] = 0;
+	if (shown < n)
+		dbg_log_num("gbs: menu cut to fit the bar, items shown = ", (long)shown);
+	if (shown == 0) {
+		ecl_poke(vm, dest, 0);
+		return;
+	}
+	gbs_draw(0);                    /* the question stays up above the bar */
+	jt179((short)(shown - 1));
+	pick = jt182("", (long)(uintptr_t)bar, 0, g_a5_22281);
+	if (pick < 0 || pick >= shown)  /* Escape and friends: the last item, */
+		pick = (short)(shown - 1);  /* which is where LEAVE / EXIT lives  */
+	ecl_poke(vm, dest, (unsigned short)pick);
 	g_gbs_shown = 1;
 }
 
@@ -106383,6 +106453,18 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 		return ECL_HOST_OK;
 	case ECL_OP_CLEAR_BOX:
 		gbs_show();
+		return ECL_HOST_OK;
+	case 0x2b:                      /* HORIZONTAL_MENU dest, count, items...     */
+	case 0x31:                      /* the same menu in the short dialects; in   */
+		if (ins->argc < 2)          /* Champions 0x31 is SPRITE_OFF, no operands */
+			return ECL_HOST_UNHANDLED;
+		gbs_menu(vm, ins, 2, (int)ins->arg[1].word, ins->arg[0].word);
+		return ECL_HOST_OK;
+	case 0x15:                      /* VERTICAL_MENU dest, prompt, count, items  */
+		if (ins->argc < 3)
+			return ECL_HOST_UNHANDLED;
+		gbs_text_add(vm, &ins->arg[1]);
+		gbs_menu(vm, ins, 3, (int)ins->arg[2].word, ins->arg[0].word);
 		return ECL_HOST_OK;
 	default:
 		return ECL_HOST_UNHANDLED;
