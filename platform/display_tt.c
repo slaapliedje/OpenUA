@@ -113,6 +113,27 @@ static int tt_dt_target(struct dsp_planar_dt *dt)
  * planes at `dst` (8 words per 16-pixel group: plane 0..7), then the caller
  * duplicates the line. `w` and the source offset are multiples of 32 except
  * a possible 16-pixel tail. */
+/* Two rows of TT_W chunky pixels, compared a longword at a time. libc's memcmp
+ * cost 4,050 cycles a row here (2026-11-16 TT profile); the rows are always
+ * TT_W long and longword-aligned, so there is nothing for it to be general
+ * about. */
+static int tt_row_same(const unsigned char *a, const unsigned char *b)
+{
+	const unsigned long *pa = (const unsigned long *)a;
+	const unsigned long *pb = (const unsigned long *)b;
+	short n = TT_W / 4;
+
+	do {
+		if (*pa++ != *pb++)
+			return 0;
+	} while (--n);
+	return 1;
+}
+
+/* `flatten`: GCC otherwise leaves c2p_transpose32 out of line and turns
+ * c2p_load32 into a jsr to memcpy for 32 bytes — 196,000 calls and 2.7 s of
+ * a 58 s walk in the same profile. */
+__attribute__((flatten))
 static void tt_c2p_span(const unsigned char *src, unsigned char *dst, short w)
 {
 	short x;
@@ -122,7 +143,15 @@ static void tt_c2p_span(const unsigned char *src, unsigned char *dst, short w)
 		unsigned short *d = (unsigned short *)(dst + (long)(x / 16) * 16);
 		short p;
 
-		c2p_load32(src + x, c);
+		/* c2p_load32 packs four chunky bytes big-endian into each lane.
+		 * This file only ever runs on a 68k, where that is a plain
+		 * longword load — and the callers' spans are 4-aligned. */
+		{
+			const c2p_u32 *s4 = (const c2p_u32 *)(src + x);
+
+			c[0] = s4[0]; c[1] = s4[1]; c[2] = s4[2]; c[3] = s4[3];
+			c[4] = s4[4]; c[5] = s4[5]; c[6] = s4[6]; c[7] = s4[7];
+		}
 		c2p_transpose32(c, o);
 		for (p = 0; p < 8; p++) {
 			d[p]     = (unsigned short)(o[p] >> 16);   /* pixels 0-15  */
@@ -249,7 +278,7 @@ static int tt_dt_ready_row(short y)
 	const unsigned char *crow = g_chunky + (long)y * TT_W;
 
 	if (t_dt_rowcov[y] == TT_W
-	    && memcmp(t_dt_idx + (long)y * TT_W, crow, TT_W) == 0)
+	    && tt_row_same(t_dt_idx + (long)y * TT_W, crow))
 		return 0;                       /* writer-stamped: t_dt is correct */
 
 	tt_c2p_span(crow, t_dt + (long)y * LINE_BYTES, TT_W);
