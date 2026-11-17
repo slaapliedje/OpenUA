@@ -265,3 +265,28 @@ def test_pictures_are_converted_by_name_and_missing_ones_skipped(tmp_path):
     assert got == ["PICA.CTL", "BIGPIC.CTL"]
     assert (out / "PICA.CTL").read_bytes() == b"C:raw-a"
     assert sorted(p.name for p in out.iterdir()) == ["BIGPIC.CTL", "PICA.CTL"]
+
+
+def test_shop_tables_are_found_by_shape_and_written(tmp_path):
+    first = [1, 4, 5, 6, 7, 8, 9, 10, 11]
+    last = [3, 4, 5, 6, 7, 8, 9, 10, 12]
+    items = [7, 8, 9, 20, 21, 22, 23, 24, 25, 26, 255, 30]
+    exe = (b"MZ" + bytes(98) + struct.pack("<9H", 1, 2, 3, 4, 5, 6, 7, 8, 9)  # a decoy
+           + bytes(40)
+           + struct.pack("<9H", *first) + struct.pack("<9H", *last)
+           + struct.pack("<12H", *items) + b"tail")
+    shops = gbgeo.find_shops(exe + bytes(len(exe) % 2))
+    assert shops == [[7, 8, 9], [20], [21], [22], [23], [24], [25], [26], [255, 30]]
+    gbgeo.write_shops(str(tmp_path), shops)
+    raw = (tmp_path / "GBSHOP.DAT").read_bytes()
+    assert raw[:5] == b"GBP1" + bytes([9]) and raw[5:9] == bytes([3, 7, 8, 9])
+    assert gbgeo.find_shops(b"MZ" + bytes(400)) is None
+
+
+def test_item_table_gains_one_byte_an_entry_and_is_always_254_long():
+    src = bytes(range(17)) + bytes(range(100, 117))
+    out = gbgeo.item_table(src)
+    assert len(out) == 254 * 18
+    assert out[:18] == bytes(range(17)) + b"\0"
+    assert out[18:36] == bytes(range(100, 117)) + b"\0"
+    assert out[36:54] == b"\xff" * 17 + b"\0"          # past the source: "no item"

@@ -106503,8 +106503,9 @@ static void jt500(short rings, short art, short sound)
  * runs too; a converted map has no events, so it finds nothing.
  *
  * STILL NARROW. The host answers text, menus, yes/no, number input,
- * pictures, fights, treasure, temples, map loads and script chains. String
- * input, shops and the rest are counted as unhandled and skipped, so a script that depends on one
+ * pictures, fights, treasure, temples, shops, inns, training halls, map
+ * loads and script chains. String input and the rest are counted as
+ * unhandled and skipped, so a script that depends on one
  * takes a wrong turn. Script memory lives for the session and is not written to a
  * saved game. Party position is only exchanged for the Dark Queen dialect;
  * where Champions and Death Knights keep it is not pinned down yet.
@@ -106863,6 +106864,120 @@ static void gbs_temple(void)
 	g_gbs_shown = 1;
 }
 
+/* The shop opcode (0x3c in the Dark Queen; Champions calls the number
+ * PROTECTION): one operand, a shop type 1..9. What each type stocks is three
+ * tables in the game's executable, which tools/gbgeo.py --exe copies into the
+ * design as GBSHOP.DAT ("GBP1", u8 count, then per shop u8 n + n item
+ * numbers). The price level is the area byte 0x28 the script sets first —
+ * 16 in an ordinary shop, 8, 24 and 32 elsewhere — read here as sixteenths
+ * of list price, which is an inference from those four values, not something
+ * read out of the game's shop code.
+ *
+ * FRUA's shop is jt183, which sells whatever is in the treasure pile at the
+ * price band in rec[40]. Its bands are a table of its own (jt932), so the
+ * band is found by asking jt932 what each one makes of 1000 and taking the
+ * nearest. Item 255 (a random item in the original) is left out. */
+static int gbs_shop(ecl_vm *vm, short type)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char  raw[5 + 9 * 256 / 4];
+	short          n, i, k, off, count, best = 10;
+	long           want, err, e;
+
+	n = gbs_read("GBSHOP.DAT", raw, (short)sizeof raw);
+	if (rec == NULL || n < 5 || raw[0] != 'G' || raw[1] != 'B'
+	 || raw[2] != 'P' || raw[3] != '1')
+		return 0;
+	if (type < 1)
+		type = 1;
+	if (type > (short)raw[4])
+		return 0;
+	off = 5;
+	for (i = 1; i < type; i++) {
+		if (off >= n)
+			return 0;
+		off = (short)(off + 1 + raw[off]);
+	}
+	if (off >= n || off + 1 + raw[off] > n)
+		return 0;
+	count = raw[off];
+
+	want = 1000L * (long)(ecl_peek(vm, 0x0028) ? ecl_peek(vm, 0x0028) : 16) / 16;
+	err = 0x7fffffffL;
+	for (k = 1; k <= 20; k++) {
+		e = jt932(1000, k, 1) - want;
+		if (e < 0)
+			e = -e;
+		if (e < err) {
+			err = e;
+			best = k;
+		}
+	}
+
+	gbs_draw(0);
+	g_gbs_pic = 0;
+	jt73();                         /* the shop sells the pile: start it empty */
+	for (i = count; i >= 1; i--)    /* jt187 prepends, so last first */
+		if (raw[off + i] >= 1 && raw[off + i] <= 254)
+			jt187((short)raw[off + i], 1);
+	rec[40] = (unsigned char)best;
+	jt183();
+	jt73();
+	g_gbs_shown = 1;
+	return 1;
+}
+
+/* PROGRAM 9: rest in safety. l398a, FRUA's inn event, without the line it
+ * prints on the way in — the script has said its own. */
+static void gbs_inn(void)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char  mode = g_a5_byte(-27990);
+
+	if (rec == NULL)
+		return;
+	gbs_draw(0);
+	g_gbs_pic = 0;
+	g_a5_byte(-27989) = mode;
+	g_a5_byte(-18486) = 1;
+	rec[49] = 0;
+	l473e(0);
+	g_a5_byte(-18486) = 0;
+	g_a5_byte(-27990) = mode;
+	g_gbs_shown = 1;
+}
+
+/* PROGRAM 0: the training hall. l2d32, FRUA's training event, from the point
+ * where the player has said yes — the script's own menu was the question.
+ * The area byte 0x30 the script sets first is which classes the hall trains
+ * (255 everywhere but two halls with 127), handed to FRUA's hall as its own
+ * class mask on the strength of that resemblance. 1000 a level at list price
+ * is FRUA's figure.
+ *
+ * Returns 1 when the hall asks for the game to be reloaded, as l2d32 does. */
+static int gbs_training(ecl_vm *vm)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+
+	if (rec == NULL)
+		return 0;
+	gbs_draw(0);
+	g_gbs_pic = 0;
+	jt176();
+	rec[48] = (unsigned char)ecl_peek(vm, 0x0030);
+	g_a5_long(-18480) = jt932(1000, 10, 1);
+	g_a5_byte(-18486) = 1;
+	rec[49] = 0;
+	if (jt918(1) == 0)
+		g_a5_byte(-27982) = 1;
+	g_a5_byte(-18486) = 0;
+	rec[49] = 0;
+	g_a5_byte(-4918) = 0;
+	jt20();
+	g_gbs_shown = 1;
+	return g_a5_byte(-27982) != 0;
+}
+
 /* COMBAT, against the groups LOAD_MONSTER has queued. FRUA's own fight is
  * l159a, the handler behind its combat event, and it reads everything from a
  * 20-byte event record: six {count, monster number} slots from byte 8. So the
@@ -106972,6 +107087,23 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 		if (g_gbs_mon[g_gbs_nmon][0] != 0)
 			g_gbs_nmon++;
 		return ECL_HOST_OK;
+	case 0x3c:                      /* a shop, in the Dark Queen */
+		if (g_gbs_dialect != ECL_GEN2 || ins->argc < 1)
+			return ECL_HOST_UNHANDLED;
+		return gbs_shop(vm, (short)ecl_rvalue(vm, &ins->arg[0]))
+		       ? ECL_HOST_OK : ECL_HOST_UNHANDLED;
+	case 0x38:                      /* PROGRAM n: 0 training hall, 9 rest */
+		if (g_gbs_dialect != ECL_GEN2 || ins->argc < 1)
+			return ECL_HOST_UNHANDLED;
+		switch (ecl_rvalue(vm, &ins->arg[0])) {
+		case 0:
+			return gbs_training(vm) ? ECL_HOST_EXIT : ECL_HOST_OK;
+		case 9:
+			gbs_inn();
+			return ECL_HOST_OK;
+		default:
+			return ECL_HOST_UNHANDLED;
+		}
 	case 0x27:                      /* TREASURE: the short dialects' frame only */
 		if (g_gbs_dialect == ECL_GEN1 || ins->argc < 4)
 			return ECL_HOST_UNHANDLED;
@@ -107056,6 +107188,43 @@ static int gbs_script_load(short id)
 	return 1;
 }
 
+/* The item table. FRUA loads item.dat once, at session start, and a design
+ * cannot replace it. A converted game brings its own (GBITEM.DAT: the same
+ * 254 entries, 18 bytes each, with that game's prices and statistics), so it
+ * is read over the engine's table when a script area comes up and FRUA's is
+ * put back when an ordinary area does. The read and the two word swaps are
+ * jt87's. The item TYPE table (ITEMS.DAT) is left as FRUA's. */
+static char g_gbs_items;            /* the table in memory is a design's own */
+
+static void gbs_items(int want)
+{
+	unsigned char *base = (unsigned char *)(uintptr_t)g_a5_long(-27920);
+	short i;
+
+	if (base == NULL)
+		return;
+	if (!want) {
+		if (g_gbs_items) {
+			g_gbs_items = 0;
+			l5304();
+		}
+		return;
+	}
+	if (g_gbs_items)
+		return;
+	if (gbs_read("GBITEM.DAT", base + 18, (short)4572) != 4572) {
+		l5304();                    /* none, or short: FRUA's, whole */
+		return;
+	}
+	for (i = 1; i <= 254; i++) {
+		unsigned char *rec = base + (long)i * 18;
+
+		*(short *)(void *)(rec + 4) = jt1180(*(short *)(void *)(rec + 4));
+		*(short *)(void *)(rec + 6) = jt1180(*(short *)(void *)(rec + 6));
+	}
+	g_gbs_items = 1;
+}
+
 /* Is area slot `geo_num` a script area? Called from jt198 once the map is in. */
 static void gbs_area_load(short geo_num)
 {
@@ -107066,6 +107235,7 @@ static void gbs_area_load(short geo_num)
 	g_gbs_textlen = 0;
 	jt394(name, "GBD%03d.DAT", (int)(unsigned char)geo_num);
 	n = gbs_read(name, g_gbs_desc, (short)sizeof g_gbs_desc);
+	gbs_items(n >= 0);
 	if (n < 0) {
 		g_gbs_init_pending = 0;
 		return;                     /* an ordinary FRUA area */

@@ -52,6 +52,8 @@ Containers handled:
                                                       # ...and the pictures its scripts show
     python3 tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --monsters MONCHA.GLB,ITEM.DAT
                                                       # ...and its own monsters (tools/gbmon.py)
+    python3 tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --exe DQK.EXE
+                                                      # ...and what its shops sell
 
 No game data is needed to use or test the module (tests/test_gbgeo.py builds
 its own maps); pointing it at a real file is the user's own copy.
@@ -394,6 +396,53 @@ def write_pictures(folder, dirs, convert=None, libs=PICTURE_LIBS):
     return done
 
 
+def item_table(table):
+    """The Dark Queen's ITEM.DAT (17 bytes an entry) as FRUA's (18): the same
+    fields in the same places with one byte more on the end, which the 254
+    entries the two games share show to be zero. Always 254 entries."""
+    out = bytearray()
+    for k in range(254):
+        out += table[k * 17:k * 17 + 17].ljust(17, b"\xff") + b"\0"
+    return bytes(out)
+
+
+def find_shops(exe):
+    """The shop stock lists out of the game's executable: [[item number, ...], ...].
+
+    The Dark Queen's shop opcode takes a shop type 1..9 and reads three tables
+    that sit together in its data: nine first-indexes, nine last-indexes, then
+    the list of ITEM.DAT numbers those index (all 16-bit, the list 1-based).
+    Nothing fixes their address, so they are found by shape: the first table
+    starts at 1 and each shop starts one past where the one before it ended."""
+    for at in range(0, len(exe) - 38, 2):
+        first = struct.unpack_from("<9H", exe, at)
+        if first[0] != 1:
+            continue
+        last = struct.unpack_from("<9H", exe, at + 18)
+        if any(not f <= l < 1024 for f, l in zip(first, last)):
+            continue
+        if any(last[i] + 1 != first[i + 1] for i in range(8)):
+            continue
+        n = last[8]
+        if at + 36 + 2 * n > len(exe):
+            continue
+        items = struct.unpack_from("<%dH" % n, exe, at + 36)
+        if any(v == 0 or v > 255 for v in items):
+            continue
+        return [list(items[f - 1:l]) for f, l in zip(first, last)]
+    return None
+
+
+def write_shops(folder, shops):
+    """GBSHOP.DAT: "GBP1", u8 shop count, then per shop u8 n and n item numbers."""
+    out = bytearray(b"GBP1") + bytes([len(shops)])
+    for stock in shops:
+        stock = stock[:255]
+        out += bytes([len(stock)]) + bytes(stock)
+    with open(os.path.join(folder, "GBSHOP.DAT"), "wb") as f:
+        f.write(out)
+
+
 def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
@@ -447,8 +496,20 @@ def main(argv):
             items = None
             if len(parts) > 1:
                 with open(parts[1], "rb") as f:
-                    items = gbmon.item_index(f.read())
+                    table = f.read()
+                items = gbmon.item_index(table)
+                with open(os.path.join(folder, "GBITEM.DAT"), "wb") as f:
+                    f.write(item_table(table))
             print("  monsters: %d" % gbmon.write_design(folder, mons, items))
+        if "--exe" in args:
+            with open(args[args.index("--exe") + 1], "rb") as f:
+                shops = find_shops(f.read())
+            if shops is None:
+                print("  shops: no stock tables found in that executable")
+            else:
+                write_shops(folder, shops)
+                print("  shops: %d (%s items)" % (len(shops),
+                      ", ".join(str(len(x)) for x in shops)))
         m = maps[start]
         e = m.find_entry()
         print("  %d areas; starting in area %d (source id %s), party at x=%d y=%d facing %s"

@@ -266,10 +266,23 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   test room cannot tell the orders apart — use an asymmetric map.
 - **Wired so far:** text, menus (on the engine's button bar, JT[182]), yes/no,
   number input (JT[891]), script chains, map loads, party placement (Dark
-  Queen's position variables only), pictures, fights, treasure, temples.
-  **Not wired:** string input, shops/inns/training (PROGRAM), surprise and
-  approach distance, random treasure items; script memory is not saved. A
-  script that needs one of those takes a wrong turn.
+  Queen's position variables only), pictures, fights, treasure, temples,
+  shops, inns, training halls. **Not wired:** string input, surprise and
+  approach distance, random items, PROGRAM 1 and 3; script memory is not
+  saved. A script that needs one of those takes a wrong turn.
+- **Shops are opcode 0x3c** (PROTECTION in Greybox's table) with a shop type
+  1..9; the stock lists live in DQK.EXE and `gbgeo.py --exe` copies them out
+  as GBSHOP.DAT (found by shape, not address). They are sold through `jt183`,
+  FRUA's shop. **Inn = PROGRAM 9** (`l473e`), **training = PROGRAM 0**
+  (`jt918`). Each keeps the script's own picture and greeting. The price
+  level (area byte 0x28) is read as sixteenths of list price and the
+  training class mask (0x30) is passed to FRUA's hall as-is — both are
+  inferences from the scripts, not read out of the game's code.
+- **A converted game uses its OWN item table.** FRUA loads item.dat once and
+  a design cannot replace it, so `gbs_items` reads the design's GBITEM.DAT
+  over it when a script area comes up and restores FRUA's when an ordinary
+  one does. Monster items, treasure and shop stock are all numbers into it.
+  The item TYPE table (ITEMS.DAT, 64 bytes differ) is still FRUA's.
 - **Fights run through `l159a`, FRUA's combat event handler,** on a 20-byte
   record built from the groups LOAD_MONSTER queued (`gbs_combat`). The
   monsters are the game's OWN: `tools/gbmon.py` rewrites each Dark Queen
