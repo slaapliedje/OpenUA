@@ -24,6 +24,9 @@ void c2p_amiga(const unsigned char *chunky, unsigned char *const planes[8],
 void c2p_amiga_rect(const unsigned char *chunky, short chunky_pitch,
                     unsigned char *const planes[8], short plane_pitch,
                     short x0, short y0, short w, short h);
+void c2p_amiga_n_rect(const unsigned char *chunky, short chunky_pitch,
+                      unsigned char *const planes[], short plane_pitch,
+                      short x0, short y0, short w, short h, short nplanes);
 
 #define W 320
 #define H 200
@@ -74,19 +77,48 @@ int main(void)
 	c2p_amiga_rect(chunky, W, pp, PITCH, 24,  53,  296, 147);
 	for (p = 0; p < 8; p++)
 		if (memcmp(ref[p], part[p], PITCH*H)) { printf("RECT MISMATCH plane %d\n", p); return 1; }
+	/* N-plane forms: only the low n planes are written, and the rest of the
+	 * destination is left alone. Widths 8/16/24 are tails; 40 and 88 mix a
+	 * transpose with a tail (88 is the walk viewport). */
+	{
+		static const short widths[] = { 8, 16, 24, 32, 40, 88, 320 };
+		short n, wi;
+
+		for (n = 1; n <= 8; n++)
+			for (wi = 0; wi < 7; wi++) {
+				short w = widths[wi], x0 = (short)(((320 - w) / 2) & ~7);
+
+				for (p = 0; p < 8; p++) memset(part[p], 0xA5, PITCH*H);
+				c2p_amiga_n_rect(chunky, W, pp, PITCH, x0, 7, w, 90, n);
+				for (p = 0; p < 8; p++)
+					for (i = 0; i < PITCH*H; i++) {
+						int y = i / PITCH, xb = i % PITCH;
+						int in = p < n && y >= 7 && y < 97
+						      && xb >= x0/8 && xb < (x0 + w)/8;
+						unsigned char want = in ? ref[p][i] : 0xA5;
+						if (part[p][i] != want) {
+							printf("N MISMATCH n %d w %d plane %d\n", n, w, p);
+							return 1;
+						}
+					}
+			}
+	}
 	printf("OK\n");
 	return 0;
 }
 """
 
 
+# 0: transposes with a table tail (what ships); 1: the table throughout.
+@pytest.mark.parametrize("table", [0, 1])
 @pytest.mark.skipif(shutil.which("cc") is None, reason="no host C compiler")
-def test_c2p_transpose_matches_naive_scatter(tmp_path):
+def test_c2p_transpose_matches_naive_scatter(tmp_path, table):
     harness = tmp_path / "harness.c"
     harness.write_text(HARNESS)
     exe = tmp_path / "c2p_test"
     subprocess.run(
-        ["cc", "-O2", "-o", str(exe), str(harness),
+        ["cc", "-O2", "-Wall", "-Werror", f"-DC2P_AMIGA_TABLE={table}",
+         "-o", str(exe), str(harness),
          os.path.join(REPO, "src", "c2p_amiga.c"),
          "-I", os.path.join(REPO, "include")],
         check=True, capture_output=True, text=True)
