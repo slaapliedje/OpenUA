@@ -266,10 +266,10 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   test room cannot tell the orders apart — use an asymmetric map.
 - **Wired so far:** text, menus (on the engine's button bar, JT[182]), yes/no,
   number input (JT[891]), script chains, map loads, party placement (Dark
-  Queen's position variables only), pictures, fights. **Not wired:** string
-  input, treasure, the temple/shop screens, surprise and approach distance;
-  script memory is not saved. A script that needs one of those takes a wrong
-  turn.
+  Queen's position variables only), pictures, fights, treasure, temples.
+  **Not wired:** string input, shops/inns/training (PROGRAM), surprise and
+  approach distance, random treasure items; script memory is not saved. A
+  script that needs one of those takes a wrong turn.
 - **Fights run through `l159a`, FRUA's combat event handler,** on a 20-byte
   record built from the groups LOAD_MONSTER queued (`gbs_combat`). The
   monsters are the game's OWN: `tools/gbmon.py` rewrites each Dark Queen
@@ -277,9 +277,15 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   `MONSTnnn.DAT`, which the engine reads before the stock library. The field
   map is in that file's docstring and was derived from the 29 monsters both
   games share, not guessed — re-run `gbmon.py --compare MONST.GLB` after
-  touching it. COMBAT with no monsters queued is a temple, a second screen
-  or a treasure hand-out in the original (flags 0x14 / 0x31 of the area
-  block); none of the three is wired.
+  touching it.
+- **TREASURE stages, COMBAT hands out.** The original adds to a pending pile
+  and shows nothing until the next COMBAT; FRUA has the same pile (-25314
+  money, -25310 gems, -25306 jewelry, items at -25302), so the script stages
+  into it with `jt187` and `jt930` shows it — alone when COMBAT has no
+  monsters, with the monsters' own loot when it has. With no monsters and
+  area byte 0x14 set, COMBAT is a temple instead (`l216a`; the level and
+  price band are this port's choice, the game has neither). Area byte 0x31
+  selects a third screen that is not identified yet.
 - **To test a script opcode in the engine, write a script.** `tests/test_ecl.py`
   has the assembler (`block`, `imm`, `text`); "GBS2", the dialect byte, three
   zeros and the block is an `ECLnnn.DAT`. Build with `-DFRUA_CBTPLAY` to have

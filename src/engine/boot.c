@@ -106503,8 +106503,8 @@ static void jt500(short rings, short art, short sound)
  * runs too; a converted map has no events, so it finds nothing.
  *
  * STILL NARROW. The host answers text, menus, yes/no, number input,
- * pictures, fights, map loads and script chains. String input, treasure and
- * the rest are counted as unhandled and skipped, so a script that depends on one
+ * pictures, fights, treasure, temples, map loads and script chains. String
+ * input, shops and the rest are counted as unhandled and skipped, so a script that depends on one
  * takes a wrong turn. Script memory lives for the session and is not written to a
  * saved game. Party position is only exchanged for the Dark Queen dialect;
  * where Champions and Death Knights keep it is not pinned down yet.
@@ -106541,6 +106541,7 @@ static char           g_gbs_text[GBS_TEXT_MAX];
 static short          g_gbs_textlen;
 static char           g_gbs_shown;
 static char           g_gbs_pic;                    /* a script picture is up  */
+static unsigned char  g_gbs_pic_id;                 /* ... and its number      */
 static unsigned char  g_gbs_mon[6][2];              /* {number, count} queued  */
 static short          g_gbs_nmon;
 static ecl_vm         g_gbs_vm;
@@ -106732,6 +106733,15 @@ static void gbs_yes_no(ecl_vm *vm)
  * reads (PICA/PICB/PICC by picture number, BIGPIC from 240), so the picture
  * goes up through l442e, the painter behind every FRUA event's picture, on a
  * record that holds nothing but the number. 255 takes the picture down. */
+/* The Dark Queen's own split, read off its three libraries' id tables: PICA
+ * holds 5..116, PICB 128..150, PICC 151..174 and 239. 0 leaves FRUA's rule. */
+static char gbs_pic_letter(short id)
+{
+	if (id >= 240)
+		return 0;
+	return (char)(id < 128 ? 'A' : id < 151 ? 'B' : 'C');
+}
+
 static void gbs_picture(short id)
 {
 	unsigned char ev[20];
@@ -106754,13 +106764,102 @@ static void gbs_picture(short id)
 	ev[0] = 2;
 	ev[6] = (unsigned char)id;
 	ev[7] = 0x80;                   /* the PIC libraries; clear means SPRIT */
-	/* The Dark Queen's own split, read off its three libraries' id tables:
-	 * PICA holds 5..116, PICB 128..150, PICC 151..174 and 239. */
-	if (id < 240)
-		g_gbs_pic_letter = (char)(id < 128 ? 'A' : id < 151 ? 'B' : 'C');
+	g_gbs_pic_letter = gbs_pic_letter(id);
 	l442e(ev);
 	g_gbs_pic_letter = 0;
 	g_gbs_pic = 1;
+	g_gbs_pic_id = (unsigned char)id;
+	g_gbs_shown = 1;
+}
+
+/* TREASURE money, gems, jewelry, count, items...
+ *
+ * The original (DQK.EXE, the handler at file offset 0x423e7) ADDS the three
+ * amounts to a pending pile and appends each item — an ITEM.DAT entry by
+ * number — to the pile's list; nothing is shown until the script's next
+ * COMBAT. FRUA has the same pile (-25314 money, -25310 gems, -25306 jewelry,
+ * the item list at -25302) and fills it the same way, so this stages straight
+ * into it with jt187, the routine FRUA's own treasure event uses for an item.
+ * The two games' ITEM.DAT hold the same entries in the same order.
+ *
+ * Krynn's coin is steel and FRUA's is platinum; the amount goes across one
+ * for one. Item 255 asks the original for a random item, which is not done. */
+static void gbs_treasure(ecl_vm *vm, const ecl_insn *ins)
+{
+	short n = (short)ecl_rvalue(vm, &ins->arg[3]);
+	short i;
+
+	g_a5_long(-25314) += (long)ecl_rvalue(vm, &ins->arg[0]);
+	g_a5_long(-25310) += (long)ecl_rvalue(vm, &ins->arg[1]);
+	g_a5_long(-25306) += (long)ecl_rvalue(vm, &ins->arg[2]);
+	for (i = 0; i < n && 4 + i < (short)ins->argc; i++) {
+		short id = (short)ecl_rvalue(vm, &ins->arg[4 + i]);
+
+		if (id >= 1 && id <= 254)
+			jt187(id, 0);
+		else if (id == 255)
+			dbg_log("gbs: TREASURE asked for a random item (not wired)");
+	}
+}
+
+/* Is anything waiting in the treasure pile? */
+static int gbs_treasure_pending(void)
+{
+	return g_a5_long(-25314) != 0 || g_a5_long(-25310) != 0
+	    || g_a5_long(-25306) != 0 || g_a5_long(-25302) != 0;
+}
+
+/* Hand the pile to the party now: the tail of l28b0, FRUA's treasure event,
+ * which is jt930 — the screen that follows a fight — between a save and a
+ * restore of the play state. */
+static void gbs_treasure_show(void)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char  saved;
+
+	gbs_draw(0);
+	g_gbs_pic = 0;
+	if (rec != NULL)
+		rec[30] = 0;
+	saved = g_a5_byte(-22268);
+	g_a5_byte(-27987) = 0;
+	g_a5_byte(-22268) = 0;
+	jt930();
+	g_a5_byte(-27990) = (rec != NULL && rec[34] == 0 && rec[36] == 1) ? 3 : 4;
+	if (rec != NULL)
+		rec[25] &= 1;
+	jt399(&g_a5_byte(-22302), 2, 0);
+	g_a5_byte(-22281) = 0;
+	jt23();
+	g_a5_byte(-22268) = saved;
+	g_a5_byte(-4918) = 0;
+	g_gbs_shown = 1;
+}
+
+/* A temple: l216a, FRUA's temple event, on the record its city event builds
+ * for the same purpose (l5bde). The Dark Queen has no temple levels or price
+ * bands; 7 is the lowest level FRUA offers every service at, and 10 is list
+ * price. Both are this port's choice, not the game's. */
+static void gbs_temple(void)
+{
+	unsigned char ev[20];
+
+	gbs_draw(0);
+	jt399(ev, (short)sizeof ev, 0);
+	/* Not type 22: that is FRUA's own "Welcome to our temple", and the script
+	 * has just said its own. The picture stays the script's too, when it put
+	 * one up; FRUA's stock priest (220) otherwise. */
+	ev[4] = 7;
+	ev[5] = 10;
+	ev[6] = (unsigned char)(g_gbs_pic ? g_gbs_pic_id : 0xdc);
+	ev[7] = 0x80;
+	if (g_gbs_pic)
+		g_gbs_pic_letter = gbs_pic_letter(g_gbs_pic_id);
+	g_a5_long(-13030) = (long)(uintptr_t)ev;
+	(void)l216a(ev);
+	g_a5_long(-13030) = 0;
+	g_gbs_pic_letter = 0;
+	g_gbs_pic = 0;
 	g_gbs_shown = 1;
 }
 
@@ -106775,17 +106874,36 @@ static void gbs_picture(short id)
  * Returns 1 when the party was destroyed: the walk loop is about to end the
  * game, and the script must not run on.
  *
- * NOT DONE: surprise and starting distance (SETUP_MONSTER / APPROACH), the
- * picture number LOAD_MONSTER carries (FRUA shows CPIC by monster number),
- * and what the original does when COMBAT finds no monsters queued — a temple,
- * a second screen, or handing out the TREASURE a script has just set up. */
-static int gbs_combat(void)
+ * With NO monsters queued the original's COMBAT (file offset 0x3253b) is
+ * something else, chosen by two bytes of the area block that scripts set just
+ * before it: 0x31 = 1 a screen not identified yet, 0x14 = 1 a temple, and
+ * otherwise the treasure pile is handed out. Both bytes are cleared.
+ *
+ * Treasure staged before a fight rides into it: FRUA shows the pile together
+ * with what the monsters carried.
+ *
+ * NOT DONE: surprise and starting distance (SETUP_MONSTER / APPROACH), and
+ * the picture number LOAD_MONSTER carries (FRUA shows CPIC by monster
+ * number). */
+static int gbs_combat(ecl_vm *vm)
 {
 	unsigned char ev[20];
 	short s;
 
-	if (g_gbs_nmon == 0)
-		return -1;
+	if (g_gbs_nmon == 0) {
+		if (g_gbs_dialect == ECL_GEN2 && ecl_peek(vm, 0x0031) == 1) {
+			ecl_poke(vm, 0x0031, 0);
+			return -1;
+		}
+		if (g_gbs_dialect == ECL_GEN2 && ecl_peek(vm, 0x0014) == 1) {
+			ecl_poke(vm, 0x0014, 0);
+			gbs_temple();
+			return 0;
+		}
+		if (gbs_treasure_pending())
+			gbs_treasure_show();
+		return 0;
+	}
 	gbs_draw(0);
 	g_gbs_pic = 0;
 	jt399(ev, (short)sizeof ev, 0);
@@ -106854,8 +106972,13 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 		if (g_gbs_mon[g_gbs_nmon][0] != 0)
 			g_gbs_nmon++;
 		return ECL_HOST_OK;
+	case 0x27:                      /* TREASURE: the short dialects' frame only */
+		if (g_gbs_dialect == ECL_GEN1 || ins->argc < 4)
+			return ECL_HOST_UNHANDLED;
+		gbs_treasure(vm, ins);
+		return ECL_HOST_OK;
 	case ECL_OP_COMBAT:
-		switch (gbs_combat()) {
+		switch (gbs_combat(vm)) {
 		case 1:  return ECL_HOST_EXIT;
 		case 0:  return ECL_HOST_OK;
 		default: return ECL_HOST_UNHANDLED;
