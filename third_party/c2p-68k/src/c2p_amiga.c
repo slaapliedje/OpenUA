@@ -42,7 +42,7 @@ void c2p_amiga_n_rect(const unsigned char *chunky, short chunky_pitch,
 /* ---- the table converter -------------------------------------------------
  *
  * One 8-pixel group at a time: for pixel k of the group (k = 0 leftmost) and
- * chunky value v, s_tab[k][v] holds the eight bytes that pixel contributes,
+ * chunky value v, s_tab[v][k] holds the eight bytes that pixel contributes,
  * one per plane — byte p is (0x80 >> k) if bit p of v is set. OR the eight
  * entries together and byte p IS the group's byte of plane p. The entry is
  * kept as two 32-bit halves so that the ORs are longword operations; it is
@@ -68,23 +68,32 @@ typedef union c2p_tab_entry {
 	unsigned char b[8];
 } c2p_tab_entry;
 
-static c2p_tab_entry s_tab[8][256];
+/* [value][position], so one scaled index (value * 64) reaches all eight of a
+ * value's entries with a small constant displacement — which is the only
+ * kind of displacement a 68000's indexed addressing has. */
+static c2p_tab_entry s_tab[256][8];
 static char          s_tab_ready;
 
 static void tab_build(void)
 {
 	short k, v, p;
 
-	for (k = 0; k < 8; k++)
-		for (v = 0; v < 256; v++)
+	for (v = 0; v < 256; v++)
+		for (k = 0; k < 8; k++)
 			for (p = 0; p < 8; p++)
-				s_tab[k][v].b[p] = (v & (1 << p))
+				s_tab[v][k].b[p] = (v & (1 << p))
 				    ? (unsigned char)(0x80u >> k) : 0;
 	s_tab_ready = 1;
 }
 
+/* Entry for pixel i of the group at s. */
+#define C2P_E(s, i) \
+	((const c2p_tab_entry *)(const void *) \
+	 ((const char *)s_tab + ((unsigned short)(s)[i] << 6)) + (i))
+
 /* Convert `groups` 8-pixel groups of one row. `off` is the first group's byte
- * offset within each plane. */
+ * offset within each plane. Three bodies, so that the 5-plane case (ECS)
+ * carries one longword and one byte rather than two longwords. */
 static void tab_row(const unsigned char *src, unsigned char *const planes[],
                     long off, short groups, short nplanes)
 {
@@ -92,14 +101,38 @@ static void tab_row(const unsigned char *src, unsigned char *const planes[],
 
 	if (!s_tab_ready)
 		tab_build();
+	if (nplanes == 5) {
+		unsigned char *p0 = planes[0] + off, *p1 = planes[1] + off;
+		unsigned char *p2 = planes[2] + off, *p3 = planes[3] + off;
+		unsigned char *p4 = planes[4] + off;
+
+		for (; groups > 0; groups--, src += 8) {
+			c2p_tab_entry e;
+			const c2p_tab_entry *t;
+			unsigned char hi;
+
+			t = C2P_E(src, 0); e.l[0]  = t->l[0]; hi  = t->b[4];
+			t = C2P_E(src, 1); e.l[0] |= t->l[0]; hi |= t->b[4];
+			t = C2P_E(src, 2); e.l[0] |= t->l[0]; hi |= t->b[4];
+			t = C2P_E(src, 3); e.l[0] |= t->l[0]; hi |= t->b[4];
+			t = C2P_E(src, 4); e.l[0] |= t->l[0]; hi |= t->b[4];
+			t = C2P_E(src, 5); e.l[0] |= t->l[0]; hi |= t->b[4];
+			t = C2P_E(src, 6); e.l[0] |= t->l[0]; hi |= t->b[4];
+			t = C2P_E(src, 7); e.l[0] |= t->l[0]; hi |= t->b[4];
+			*p0++ = e.b[0]; *p1++ = e.b[1];
+			*p2++ = e.b[2]; *p3++ = e.b[3];
+			*p4++ = hi;
+		}
+		return;
+	}
 	if (nplanes <= 4) {
 		for (; groups > 0; groups--, src += 8, off++) {
 			c2p_tab_entry e;
 
-			e.l[0] = s_tab[0][src[0]].l[0] | s_tab[1][src[1]].l[0]
-			       | s_tab[2][src[2]].l[0] | s_tab[3][src[3]].l[0]
-			       | s_tab[4][src[4]].l[0] | s_tab[5][src[5]].l[0]
-			       | s_tab[6][src[6]].l[0] | s_tab[7][src[7]].l[0];
+			e.l[0] = C2P_E(src, 0)->l[0] | C2P_E(src, 1)->l[0]
+			       | C2P_E(src, 2)->l[0] | C2P_E(src, 3)->l[0]
+			       | C2P_E(src, 4)->l[0] | C2P_E(src, 5)->l[0]
+			       | C2P_E(src, 6)->l[0] | C2P_E(src, 7)->l[0];
 			for (k = 0; k < nplanes; k++)
 				planes[k][off] = e.b[k];
 		}
@@ -109,14 +142,14 @@ static void tab_row(const unsigned char *src, unsigned char *const planes[],
 		const c2p_tab_entry *t;
 		c2p_tab_entry e;
 
-		t = &s_tab[0][src[0]]; e.l[0]  = t->l[0]; e.l[1]  = t->l[1];
-		t = &s_tab[1][src[1]]; e.l[0] |= t->l[0]; e.l[1] |= t->l[1];
-		t = &s_tab[2][src[2]]; e.l[0] |= t->l[0]; e.l[1] |= t->l[1];
-		t = &s_tab[3][src[3]]; e.l[0] |= t->l[0]; e.l[1] |= t->l[1];
-		t = &s_tab[4][src[4]]; e.l[0] |= t->l[0]; e.l[1] |= t->l[1];
-		t = &s_tab[5][src[5]]; e.l[0] |= t->l[0]; e.l[1] |= t->l[1];
-		t = &s_tab[6][src[6]]; e.l[0] |= t->l[0]; e.l[1] |= t->l[1];
-		t = &s_tab[7][src[7]]; e.l[0] |= t->l[0]; e.l[1] |= t->l[1];
+		t = C2P_E(src, 0); e.l[0]  = t->l[0]; e.l[1]  = t->l[1];
+		t = C2P_E(src, 1); e.l[0] |= t->l[0]; e.l[1] |= t->l[1];
+		t = C2P_E(src, 2); e.l[0] |= t->l[0]; e.l[1] |= t->l[1];
+		t = C2P_E(src, 3); e.l[0] |= t->l[0]; e.l[1] |= t->l[1];
+		t = C2P_E(src, 4); e.l[0] |= t->l[0]; e.l[1] |= t->l[1];
+		t = C2P_E(src, 5); e.l[0] |= t->l[0]; e.l[1] |= t->l[1];
+		t = C2P_E(src, 6); e.l[0] |= t->l[0]; e.l[1] |= t->l[1];
+		t = C2P_E(src, 7); e.l[0] |= t->l[0]; e.l[1] |= t->l[1];
 		for (k = 0; k < nplanes; k++)
 			planes[k][off] = e.b[k];
 	}
