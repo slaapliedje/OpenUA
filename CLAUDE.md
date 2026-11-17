@@ -32,6 +32,11 @@ name.)
   git-ignored, the lifted C in `src/engine/` is the committed work (ADR-0009).
 - **Art libraries resolve design-first, root-fallback**; a module's replacement
   art lives in its `.DSN` and never overwrites the base game (ADR-0011).
+- **The other Gold Box games run through a second module driver, not through
+  FRUA's event table** (ADR-0023). Their MAPS are translated into the engine's
+  own 6-byte cells (`tools/gbgeo.py`); their SCRIPTS (ECL bytecode) are
+  interpreted natively (`src/engine/ecl.c`, host glue at the end of `boot.c`
+  under "GOLD BOX SCRIPT AREAS"). See the section below before touching either.
 - **The bitplane machines render natively in planes**, not through the Mac's
   chunky surface — writers stamp bitplanes at draw time and the present skips
   the conversion for the rows they own (ADR-0016). Shipping on **all three**:
@@ -44,10 +49,12 @@ name.)
   `dsp_backend_t.hw_palette` flag (set ONLY by the TT, whose planes hold the index
   and whose palette is hardware) took the same drive from 95,092 converted rows to
   5,792 — 619 of 651 presents now skipped entirely — with six frames
-  pixel-identical. The draw-time WRITER half of ADR-0016 is still not done on the
-  TT, deliberately: that layer is `#ifdef FRUA_PLANAR`, which the Atari 020 build
-  (ONE binary for Falcon + TT) does not define, and only ~6% of the conversion
-  work is left to win. See the TT section at the end of `docs/planar-plan.md`.
+  pixel-identical. **The draw-time WRITER half is done on the TT too**
+  (`t_dt` in `platform/display_tt.c`): every build defines `FRUA_PLANAR`
+  unless `PLANAR=0` is passed, the 020 one included. An earlier revision of
+  this file said the opposite; it was stale. The 2026-11-16 TT walk profile
+  (`tools/profile/walk_profile.sh`) and the fixes that came out of it are in
+  the "Profiling" section below.
   Note that "native planar" removes the conversion only for rows a writer
   actually stamped. An earlier measurement (2026-07-26) put that at "~47% of
   presented ST rows still convert", attributed to reband epoch-resets — **read
@@ -147,7 +154,95 @@ chunky→planar conversion each present. This is what the ST/STE and Amiga ECS
 zips ship, so the build you boot in an emulator is the build that ships —
 verified byte-identical to the `release-ste` / `release-amiga-ecs` output.
 `make CPU68K=68000 PLANAR=0` restores the chunky path for A/B comparison.
-020 builds (Falcon/TT, Amiga AGA/RTG) are unaffected and stay chunky.
+
+**`-DFRUA_PLANAR` is on in EVERY build unless `PLANAR=0`** (Makefile, `ifneq
+($(PLANAR),0)`), the 020 one included — the TT's draw-time writers need it.
+What stays chunky is the Falcon's VIDEL backend and Amiga RTG, by design.
+
+## Branches
+
+Work lands on **`main`**. `unix-port` was the working branch until
+2026-11-16, when it was fast-forwarded into `main`; it has not moved since.
+
+## Profiling and the row police
+
+Measure before optimising, and prove a display change exact before measuring
+it. The instruments, newest first:
+
+- **`tools/profile/walk_profile.sh tt|falcon|ste <outdir>`** — a Hatari cycle
+  profile of a scripted HEIRS walk, cut on engine ticks. Build with
+  `EXTRA_CFLAGS="-DFRUA_AUTOPLAY -DFRUA_AUTOWALK -DFRUA_AUTOWALK_TREASURE
+  -DFRUA_WALKPROF"`; aggregate with `tools/profile/walk_aggregate.py`. Three
+  runs agree to about 1%. Prefer it to `tools/profile/st_profile.sh`, whose
+  xdotool drive is paced by host time (about 15% run-to-run) and whose
+  aggregator assumes the STE's load address.
+- **The police** — each proves a dirty-row or partial present left nothing
+  stale. Run the one for the backend you touched, AND the others if the change
+  is in shared code (`compat/`, `src/engine/`):
+  - `-DFRUA_TTCHK` (TT): reports any row nobody announced that no longer
+    matches what is on screen, with the rows that were announced.
+  - `-DFRUA_VIDELVERIFY` (Falcon): compares every written page with a
+    from-scratch blit.
+  - `-DFRUA_DIRTYCHECK -DFRUA_STPROF` (ST/STE; ECS has its own): the count is
+    only PRINTED under `FRUA_STPROF`.
+- **A time-boxed window is partly idle.** Freed cycles show up as more idle
+  polling, not a shorter total; ask what fraction of the window was doing the
+  thing you care about.
+- **Never `pkill hatari` / `pkill amiberry`.** Other sessions on the machine
+  run their own emulators; kill only PIDs you started. The older scripts and
+  the skill drivers kill by name — do not run them unmodified. The native
+  amiberry also ignores `DISPLAY` unless `SDL_VIDEODRIVER=x11` is set and
+  `WAYLAND_DISPLAY` is unset; without both it opens on the real desktop.
+- **A helper that greps build output for errors must also check make's exit
+  status.** One that grepped for `" error "` (GCC prints `error:`) let two
+  "verification" runs go by on a stale binary.
+
+What the 2026-11-16 pass found, so it is not rediscovered:
+
+- **Colour cycling drives most presents in the dungeon** (a few CLUT entries
+  every 11 ticks). On the Falcon each step re-blitted the whole truecolour
+  frame; `platform/display_videl.c` now keeps per-page debt and blits only
+  the 80-pixel segments that use a changed colour (`video.cfg` `partial=off`
+  restores the full blit). On the TT a palette write is hardware and free.
+  On AGA the write is free but a full present still follows it — measured,
+  not yet fixed. ECS ignores small writes but still presents.
+- **`l2d4e` announces the piece's rows, not the clip.** The compass's
+  full-screen clip had every walk key marking all 200 rows.
+- **The software cursor's 16 rows stay announced across a present** — the
+  screen shows the pointer, the surface does not.
+- **`port_draw_compass` redraws only when the facing or the pixels under it
+  changed** (it keeps a copy of what it drew; `-DFRUA_NOCOMPASSCACHE` opts out).
+
+## Gold Box script areas (ADR-0023)
+
+FRUA never played the Krynn games or any other Gold Box title. The port is
+growing that: Dark Queen of Krynn's opening plays from the game's own files.
+
+- **Converter:** `tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --start N`
+  writes an ordinary design folder plus `GBDnnn.DAT` (per area slot: the map's
+  cell-descriptor plane), `ECLnnn.DAT` (per SCRIPT, numbered as the game
+  numbers it) and `GBMAP.DAT` (map numbers to area slots). Scripts and maps
+  are numbered separately in these games — Dark Queen has 47 scripts over 20
+  maps.
+- **`tools/ecl.py`** disassembles the scripts (Champions, Death Knights, Dark
+  Queen each have their own operand table; a wrong one shows as undecodable
+  or doubly-claimed bytes). The opcode tables and semantics are the Greybox
+  project's (`kblood/Greybox_CombinedGoldbox`, 0BSD) — go there before
+  guessing at an opcode.
+- **`src/engine/ecl.c` is plain C99 with no engine, shim or platform headers**,
+  so it builds on the host for `tests/test_ecl_c.py`. Keep it that way: what a
+  script does TO THE GAME goes through the one host callback.
+- **The engine's map holds 784 cells** (`GEO_MAX_CELLS`), not the Mac's 576.
+  A FRUA area is still held to the Mac's file sizes; a larger map arrives as a
+  "wide area" (`docs/geo-format.md`). The area EDITOR stays a 576-cell tool.
+- **A cell's four edge bytes are N, E, S, W** (the engine reads byte
+  `facing >> 1`), and `tools/geo.py`'s `row` is the east-west axis. A square
+  test room cannot tell the orders apart — use an asymmetric map.
+- **Wired so far:** text, menus (on the engine's button bar, JT[182]), script
+  chains, map loads, party placement (Dark Queen's position variables only).
+  **Not wired:** pictures, number and string input, combat, treasure; script
+  memory is not saved. A script that needs one of those takes a wrong turn.
+- Game data is the user's own (the Steam DOS releases work); never commit it.
 
 ## Toolchain flags (non-negotiable)
 
