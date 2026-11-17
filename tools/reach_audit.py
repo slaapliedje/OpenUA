@@ -146,7 +146,11 @@ def external_refs():
     out = set()
     for dirpath, dirs, files in os.walk(ROOT):
         dirs[:] = [d for d in dirs
-                   if d not in (".git", "data", "build", "docs", "tools")]
+                   if d not in (".git", "data", "build", "docs", "tools",
+                                # agent worktrees are whole copies of this
+                                # tree: a second boot.c there "references"
+                                # every function and hides all dead code
+                                ".claude")]
         for f in files:
             if not f.endswith((".c", ".h")):
                 continue

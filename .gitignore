@@ -50,6 +50,7 @@ dist/
 
 # Personal Claude Code config (permission grants, local paths) — never public
 .claude/settings.local.json
+.claude/worktrees/
 frua
 openua
 .machine
