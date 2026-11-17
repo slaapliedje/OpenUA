@@ -204,8 +204,11 @@ What the 2026-11-16 pass found, so it is not rediscovered:
   frame; `platform/display_videl.c` now keeps per-page debt and blits only
   the 80-pixel segments that use a changed colour (`video.cfg` `partial=off`
   restores the full blit). On the TT a palette write is hardware and free.
-  On AGA the write is free but a full present still follows it — measured,
-  not yet fixed. ECS ignores small writes but still presents.
+  On AGA the write was free but a full 200-row present still followed it;
+  `aga_present` now keeps per-page row debt and copies only what a page
+  owes (`-DFRUA_AGAVERIFY` is its police; `video.cfg` `agarowdebt=off`
+  restores the old present). ECS ignores small writes but still presents —
+  measured, not yet fixed.
 - **`l2d4e` announces the piece's rows, not the clip.** The compass's
   full-screen clip had every walk key marking all 200 rows.
 - **The software cursor's 16 rows stay announced across a present** — the

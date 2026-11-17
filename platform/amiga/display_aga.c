@@ -102,6 +102,7 @@ static unsigned char *a_dt_idx;
 static short         *a_dt_rowcov;
 static unsigned char  a_dt_ident[256];
 static int            aga_dt_target(struct dsp_planar_dt *dt);
+static char           s_rowdebt;      /* per-page row debt; see aga_present */
 #endif
 
 /* --- hardware-sprite cursor state -----------------------------------------
@@ -384,6 +385,12 @@ static int aga_init(short want_w, short want_h)
 			}
 			/* TODO 25: palette writes ride with the present (display.h).
 			 * One binary, so the real machine can A/B it. */
+#ifdef FRUA_PLANAR
+			if (strstr(buf, "agarowdebt=off") != NULL) {
+				s_rowdebt = 0;
+				dbg_log("  aga_init: video.cfg agarowdebt=off - every present copies the whole frame");
+			}
+#endif
 			if (strstr(buf, "agapalsync=off") != NULL) {
 				aga_backend.palette_with_present = 0;
 				dbg_log("aga: palette-with-present DISABLED (video.cfg)");
@@ -671,6 +678,78 @@ static void aga_prof_dump(void)
 }
 #endif
 
+#ifdef FRUA_PLANAR
+/* ---- PER-PAGE ROW DEBT (2026-11-16) ----------------------------------------
+ *
+ * Until now every full present copied all 200 rows of a_dt into the back page
+ * and flipped — "so the two pages stay trivially coherent", as the block above
+ * says, and it named the alternative as a separate change with its own soak.
+ * This is that change.
+ *
+ * Why it is worth it: an AGA walk census (FRUA_AMIGAPROF, 2026-11-16) found
+ * 489 of 526 full presents were asked for by a PALETTE write and nothing else
+ * — the dungeon colour-cycles a few CLUT entries every 11 ticks. hw_palette
+ * makes the write itself free, but the present that followed still cost
+ * 193 ms, 64% of the walk, and held the idle loop to 3.6 presents a second
+ * against the 5.45 the cycle asks for. That is input latency, not idle waste.
+ *
+ * The rule. s_debt[page][y] says page `page` does not yet hold a_dt's row y.
+ *   * a row the shim announced dirty (or every row, when it says "all") is
+ *     owed by BOTH pages;
+ *   * a full present pays the BACK page's debt — bridging each row it copies
+ *     first, so a_dt is current whoever wrote the surface — and flips only if
+ *     it paid anything. Nothing owed: no copy, no flip;
+ *   * a rect present writes the FRONT page straight from the surface, so the
+ *     rows it covers are owed by the back page whether or not anyone announced
+ *     them.
+ * The front page is therefore always complete: the page that becomes front
+ * has just been paid in full.
+ *
+ * FRUA_AGAVERIFY checks exactly that after every full present, by converting
+ * the surface from scratch and comparing it with the front page. video.cfg
+ * `agarowdebt=off` (or -DFRUA_AGA_NOROWDEBT) restores the copy-everything
+ * present for A/B. */
+static unsigned char s_debt[2][AGA_H];
+static char          s_debt_init;
+static char          s_rowdebt = 1;         /* video.cfg agarowdebt=off clears */
+
+#ifdef FRUA_AGAVERIFY
+static unsigned char *s_vfy;                /* a from-scratch plane set */
+static long           s_vfy_presents, s_vfy_bad;
+
+static void aga_verify_front(void)
+{
+	unsigned char *front = s_planes[s_front];
+	unsigned char *pl[8];
+	short p, y;
+
+	if (s_vfy == NULL)
+		s_vfy = AllocMem(FRAME_BYTES, MEMF_ANY);
+	if (s_vfy == NULL)
+		return;
+	for (p = 0; p < 8; p++)
+		pl[p] = s_vfy + (ULONG)p * AGA_PITCH * AGA_H;
+	c2p_amiga(s_chunky, pl, AGA_W, AGA_H, AGA_PITCH);
+	for (y = 0; y < AGA_H; y++)
+		for (p = 0; p < 8; p++) {
+			ULONG off = (ULONG)p * AGA_PITCH * AGA_H + (ULONG)y * AGA_PITCH;
+
+			if (memcmp(s_vfy + off, front + off, AGA_PITCH) != 0) {
+				if (s_vfy_bad++ < 12) {
+					dbg_log_num("agavfy: BAD row ", (long)y);
+					dbg_log_num("agavfy:    at present ", s_vfy_presents);
+				}
+				break;
+			}
+		}
+	if ((++s_vfy_presents & 63) == 0) {
+		dbg_log_num("agavfy: presents checked = ", s_vfy_presents);
+		dbg_log_num("agavfy: bad rows         = ", s_vfy_bad);
+	}
+}
+#endif
+#endif /* FRUA_PLANAR */
+
 static void aga_present(void)
 {
 	unsigned char *back = s_planes[s_front ^ 1];
@@ -694,6 +773,47 @@ static void aga_present(void)
 #ifdef FRUA_AMIGAPROF
 		long ap_c0 = amiga_prof_rl();
 #endif
+#ifndef FRUA_AGA_NOROWDEBT
+		if (s_rowdebt) {
+			const unsigned char *drows;
+			int   all  = planar_dirty_rows(&drows);
+			int   bi   = s_front ^ 1;
+			short paid = 0;
+
+			if (!s_debt_init) {
+				memset(s_debt, 1, sizeof s_debt);
+				s_debt_init = 1;
+			}
+			for (y = 0; y < AGA_H; y++) {
+				if (all || drows[y])
+					s_debt[0][y] = s_debt[1][y] = 1;
+				if (s_debt[bi][y]) {
+					(void)aga_dt_ready_row(y);
+					aga_dt_copy_row(back, y);
+					s_debt[bi][y] = 0;
+					paid++;
+				}
+			}
+#ifdef FRUA_AMIGAPROF
+			ap_conv_t += amiga_prof_rl() - ap_c0;
+			ap_conv_rows += paid;
+			ap_dt_frames++;
+#endif
+			if (paid) {
+				cop_point_planes(back);
+				s_front ^= 1;
+			}
+#ifdef FRUA_AGAVERIFY
+			aga_verify_front();
+#endif
+#ifdef FRUA_AMIGAPROF
+			ap_full_t += amiga_prof_rl() - ap_t0;
+			if ((++ap_full_n & 7) == 0)
+				aga_prof_dump();
+#endif
+			return;
+		}
+#endif
 		for (y = 0; y < AGA_H; y++) {
 			(void)aga_dt_ready_row(y);
 			aga_dt_copy_row(back, y);
@@ -705,6 +825,9 @@ static void aga_present(void)
 #endif
 		cop_point_planes(back);
 		s_front ^= 1;
+#ifdef FRUA_AGAVERIFY
+		aga_verify_front();
+#endif
 #ifdef FRUA_AMIGAPROF
 		ap_full_t += amiga_prof_rl() - ap_t0;
 		if ((++ap_full_n & 7) == 0)
@@ -770,6 +893,11 @@ static void aga_present_rect(short x, short y, short w, short h)
 	x1 = (short)((x + w + 7) & ~7);         /* byte-align the cell */
 	x  = (short)(x & ~7);
 
+#ifdef FRUA_PLANAR
+	/* Row debt: this goes to the FRONT page only, so the back page owes these
+	 * rows — announced or not. (Harmless when the debt present is off.) */
+	memset(s_debt[s_front ^ 1] + y, 1, (size_t)h);
+#endif
 	for (p = 0; p < 8; p++)
 		planes[p] = front + (ULONG)p * AGA_PITCH * AGA_H;
 #ifdef FRUA_AMIGAPROF
