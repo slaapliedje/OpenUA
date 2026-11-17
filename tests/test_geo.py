@@ -544,7 +544,8 @@ def _ssi_areas(limit=None):
     by this encoder and would make the oracle circular again."""
     import glob
     ours = ("GENAREA.DSN", "KOBOLD.DSN", "INNTAV.DSN", "TEMPLE.DSN",
-            "WALKTEST.DSN", "TEXTTEST.DSN")
+            "WALKTEST.DSN", "TEXTTEST.DSN",
+            "GOLDBOX.DSN")          # tools/gbgeo.py --design output
     out = []
     for p in sorted(glob.glob(os.path.join(_REPO, "data", "work", "**",
                                            "GEO*.DAT"), recursive=True)):

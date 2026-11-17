@@ -1621,3 +1621,71 @@ on entry, as they always did, so text over a full-palette fan picture takes
 that picture's colours — exactly as in DOS. Mac-sourced art renders
 identically (it never used the reserved values). The wall art's own 255 key
 (`cw_shade`) is untouched: walls are a transparent method by construction.
+
+## ADR-0023 — The other Gold Box games run through a second module driver, not through FRUA's event table
+
+**Status:** Accepted (2026-11-16). First step landed: `tools/gbgeo.py`.
+
+**Context.** FRUA never played the three Krynn games, or any other Gold Box
+title, and the reason is structural. A FRUA design drives an area from a fixed
+event table in the area file (100 slots of 20 bytes, ~35 event types). Every
+other Gold Box game drives an area from **ECL**, a compiled bytecode script per
+area, and keeps its map in a four-plane cell layout FRUA's files do not use.
+Converting one of those games *into* a FRUA design is therefore lossy by
+construction, and for The Dark Queen of Krynn it is impossible: 13 of its 20
+retail maps exceed the 576 cells a FRUA area file can hold (up to 28x28 = 784).
+The format research already exists — `docs/engine/research/` here, and the
+Greybox project (`kblood/Greybox_CombinedGoldbox`, 0BSD), whose
+`krynn-frua-map-capacity-port-comparison-2026-11-16.md` is the map-capacity
+evidence cited above.
+
+**What was checked in this engine before deciding.**
+
+- The live map is the TAIL of one heap block: `jt211` allocates 3746 bytes
+  (`g_a5_-12300`) = 290 header + 576 x 6 cell bytes, and `l7226` refuses a file
+  whose `ds[2] * ds[3]` exceeds 576. About 69 sites read cells as
+  `ds[290 + cell * 6 + field]`. Nothing lives after the map in that block, and
+  both dimensions are single bytes, so widening the allocation leaves every
+  accessor's arithmetic unchanged. Per-cell side tables (visited/automap state,
+  the editor's clamp at boot.c:82810, the save writer's fixed `MAP <0xd80>`)
+  have NOT been audited yet; that audit is the gate on raising the limit.
+- FRUA's edge byte (`passability << 4 | texture`) is the same scheme the older
+  games use, with the door state folded into the high nibble instead of a
+  separate plane. A four-plane cell translates into a FRUA cell edge by edge.
+- Proved rather than argued: `tools/gbgeo.py` turned Curse of the Azure Bonds'
+  16 maps (the Atari ST release's `GEO.GLB`) into a FRUA design and the
+  UNMODIFIED Falcon build walked the first one — east from (0,0) stops at (4,0),
+  exactly where the source map has its wall.
+
+**Decision.** One engine, two module drivers.
+
+1. **Maps are translated at load into the engine's existing in-memory cell
+   model** (the 6-byte FRUA cell). The renderer, the walk, the AREA map and the
+   combat entry keep working on one representation. The translation is
+   `tools/gbgeo.py` today and becomes a loader in the engine.
+2. **Scripts are NOT translated.** An ECL interpreter is added beside the FRUA
+   event dispatcher (`l709e`), entered from the same per-step hook. A module is
+   either event-driven (FRUA) or script-driven (everything else).
+3. **Rules are a per-game table**, starting from FRUA's Forgotten Realms AD&D
+   and adding Dragonlance for the Krynn games.
+4. **Order:** The Dark Queen of Krynn first (same engine generation as FRUA,
+   same container family), then Champions and Death Knights of Krynn through the
+   same map translation and interpreter, then the Forgotten Realms line.
+5. **Game data stays user-supplied**, as with FRUA. Nothing from any of these
+   games is committed.
+
+**Not decided here:** how the engine's map storage is widened past 576 cells
+(blocked on the side-table audit), the Dragonlance rules design, and which
+machines get which games. Nothing in this ADR changes how a FRUA design loads,
+plays or saves.
+
+**Known losses in the first step, stated so they are not mistaken for done:**
+locked and wizard-locked doors (the 2-bit door flag's values 2 and 3 are not
+pinned down), the backdrop/zone plane, each game's own wall art (the converted
+maps wear FRUA's stock walls), and everything a map's script does.
+
+**A correction this turned up.** `tools/dsn.py` says a cell's four edge bytes
+are N, E, S, W; `docs/geo-format.md` says W, S, E, N. Walking an asymmetric map
+says **N, E, S, W** (the engine reads byte `facing >> 1`), with `tools/geo.py`'s
+`row` as the east-west axis. A square test room cannot tell the orders apart,
+which is how both readings survived. `tests/test_gbgeo.py` pins the measured one.
