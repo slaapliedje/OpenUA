@@ -44,6 +44,8 @@ Containers handled:
     python3 tools/gbgeo.py GEO.GLB                    # list the maps
     python3 tools/gbgeo.py GEO.GLB --ascii 1          # draw one, north up
     python3 tools/gbgeo.py GEO.GLB --design data/work/gamedata --current
+    python3 tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --start 4
+                                                      # ...with each area's script
 
 No game data is needed to use or test the module (tests/test_gbgeo.py builds
 its own maps); pointing it at a real file is the user's own copy.
@@ -287,6 +289,41 @@ def load_maps(data):
     return [GbMap.from_gen1_block(data)]
 
 
+# Dialect numbers as src/engine/ecl.h has them (ECL_GEN1, ECL_GEN1_DOK, ECL_GEN2).
+SCRIPT_DIALECT_ID = {"gen1": 0, "gen1-dok": 1, "gen2": 2}
+
+
+def script_area(m, block):
+    """The ECLnnn.DAT that makes an area a SCRIPT AREA (src/engine/boot.c,
+    "GOLD BOX SCRIPT AREAS"): a small header, the map's cell-descriptor plane —
+    which the script dispatches on and the engine's own cells have no room for —
+    and the ECL block exactly as the game ships it. `block` is a tools/ecl.Block."""
+    if not (m.width < 256 and m.height < 256 and 0 <= (m.area_id or 0) < 256):
+        raise GbGeoError("map does not fit a script-area header")
+    desc = bytes(m.backdrop[y][x] for y in range(m.height) for x in range(m.width))
+    return (b"GBS1" + bytes([SCRIPT_DIALECT_ID[block.dialect.name], m.width,
+                             m.height, m.area_id or 0]) + desc + block.raw)
+
+
+def write_scripts(folder, maps, blocks, first_area=5):
+    """Write ECLnnn.DAT for every map that has a script with the same area id.
+    Returns the FRUA area numbers written."""
+    by_id = {b.block_id: b for b in blocks}
+    done = []
+    for i, m in enumerate(maps):
+        b = by_id.get(m.area_id)
+        if b is None:
+            continue
+        data = script_area(m, b)
+        if len(data) > 16384:                      # GBS_MAX in the engine
+            raise GbGeoError("script area %s is %d bytes; the engine reads 16384"
+                             % (m.area_id, len(data)))
+        with open(os.path.join(folder, "ECL%03d.DAT" % (first_area + i)), "wb") as f:
+            f.write(data)
+        done.append(first_area + i)
+    return done
+
+
 def build_design(maps, name="GOLDBOX", title="Imported Gold Box maps", start=0):
     """A FRUA design with one dungeon area per map (areas 5, 6, ...), no events."""
     from dsn import Design
@@ -335,6 +372,15 @@ def main(argv):
         d = build_design(maps, start=start)
         folder = d.write(out, make_current=("--current" in args))
         print("wrote", folder)
+        if "--ecl" in args:
+            import ecl
+            blocks = []
+            for path in args[args.index("--ecl") + 1].split(","):
+                with open(path, "rb") as f:
+                    blocks += ecl.load_blocks(f.read())
+            done = write_scripts(folder, maps, blocks)
+            print("  %d of %d areas are script areas (%s)"
+                  % (len(done), len(maps), blocks[0].dialect.name))
         m = maps[start]
         e = m.find_entry()
         print("  %d areas; starting in area %d (source id %s), party at x=%d y=%d facing %s"

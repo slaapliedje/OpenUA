@@ -60,6 +60,7 @@
 #include "sound.h"            /* SysBeep (jt1147 error-dialog beep)     */
 #include "mac_font.h"         /* mac_font_pixel (the in-dungeon party HUD) */
 #include "artconv_load.h"     /* ADR-0014: on-load DOS-art conversion */
+#include "ecl.h"              /* ADR-0023: the Gold Box script interpreter */
 
 /* #125c: the play-step / compose TickCount brackets in this file were gated on
  * FRUA_MONOPROF — but that flag CANNOT BE USED ON A COLOUR BUILD. Its own
@@ -1410,6 +1411,11 @@ static short l720a(unsigned char *buf)
 	return l7226(buf) ? 0 : -1;
 }
 
+/* ADR-0023 — Gold Box script areas; defined at the end of this file. */
+static void gbs_area_load(short geo_num);
+static void gbs_arrive(void);
+static void gbs_step(void);
+
 /* JT[198] (CODE 7 + 0x7124) — load GEOnnn.DAT for the given level
  * number. Reads the file into the GEO buffer (jt1004), checks the
  * byte count against the fixed 12962-byte GEO size, parses it into
@@ -1503,6 +1509,7 @@ static void  jt198(short geo_num)
 	if (ds && !(ds[7] & 1))
 		g_a5_byte(-12290) = 0;
 	g_a5_word(-12296) = -1;
+	gbs_area_load(geo_num);        /* PORT (ADR-0023): is this a script area? */
 }
 
 /* L0b88 (CODE 20 + 0x0b88) — set "look/edit" play mode: clear the
@@ -5236,6 +5243,7 @@ static void jt948(void)
 			special = jt201((short)(signed char)g_a5_12288,
 			                (short)(signed char)g_a5_12287);
 #ifndef FRUA_SKIP_ENTRY_EVENTS
+			gbs_arrive();          /* PORT (ADR-0023): a script area's entry */
 			l709e(special);
 #else
 			/* DEBUG (make CFLAGS+=-DFRUA_SKIP_ENTRY_EVENTS): skip the
@@ -18438,6 +18446,7 @@ static void jt297(void *rec_v, short key, long cb)
 #else
 		l709e(special);
 #endif
+		gbs_step();            /* PORT (ADR-0023): a script area's per-step run */
 		g_event_step_ctx = 0;
 		if (special != 0)
 			g_event_modal_shown = 1;
@@ -106264,4 +106273,265 @@ static void jt500(short rings, short art, short sound)
 	}
 	jt521((short)(signed char)g_a5_byte(-23236),
 	      (short)(signed char)g_a5_byte(-23235), (short)255, (short)8);
+}
+
+
+/* ============================================================================
+ * GOLD BOX SCRIPT AREAS (ADR-0023) — PORT-LOCAL, no Mac counterpart.
+ *
+ * FRUA drives an area from the event table in its GEO file. Every other Gold
+ * Box game drives one from an ECL script. An area is a SCRIPT AREA when the
+ * design folder holds an ECLnnn.DAT beside its GEOnnn.DAT (tools/gbgeo.py
+ * writes both from the game's own files):
+ *
+ *     "GBS1"            magic
+ *     u8  dialect       ECL_GEN1 / ECL_GEN1_DOK / ECL_GEN2  (ecl.h)
+ *     u8  width, height the source map's, in cells
+ *     u8  area id       the game's own number for this area
+ *     u8  desc[w*h]     the map's cell-descriptor plane, row-major, north first
+ *     ...               the ECL block, exactly as the game ships it
+ *
+ * The descriptor plane rides here rather than in the GEO cells because it is
+ * the SCRIPT's data, not the renderer's: before every run the host puts the
+ * party cell's descriptor, the facing and the area number where the script
+ * expects them, and the script dispatches on those. (Greybox's finding, and
+ * the reason a converted map alone is only geometry.)
+ *
+ * What runs when: the area's initial entry on arrival, then vmRun1 and
+ * searchLocation after every step. The FRUA event dispatcher still runs too;
+ * a converted map has no events, so it finds nothing.
+ *
+ * THIS IS THE FIRST WIRING AND IT IS DELIBERATELY NARROW. The host below
+ * answers the text opcodes and nothing else: pictures, menus, input, combat,
+ * treasure, NEWECL chaining and LOAD_FILES are counted as unhandled and
+ * skipped, so a script that depends on one of them will take a wrong turn.
+ * Script memory lives for the session and is not yet written to a saved game.
+ * ============================================================================ */
+#define GBS_MAX        16384     /* largest block is 12,000 bytes (Dark Queen) */
+#define GBS_HDR        8
+#define GBS_BUDGET     20000L    /* instructions per run before giving up      */
+#define GBS_TEXT_MAX   400
+
+static unsigned char       *g_gbs_buf;
+static const unsigned char *g_gbs_desc;
+static unsigned char        g_gbs_w, g_gbs_h, g_gbs_dialect, g_gbs_area_id;
+static char                 g_gbs_ready, g_gbs_active, g_gbs_init_pending;
+static char                 g_gbs_text[GBS_TEXT_MAX];
+static short                g_gbs_textlen;
+static char                 g_gbs_shown;
+static ecl_vm               g_gbs_vm;
+static ecl_host             g_gbs_host;
+
+static void *gbs_alloc(void *ctx, unsigned long bytes)
+{
+	void *p = (void *)(uintptr_t)jt387((short)bytes);
+
+	(void)ctx;
+	if (p != NULL)
+		jt399(p, (short)bytes, (short)0);
+	return p;
+}
+
+/* Put what is in the text buffer into the play screen's message box and wait
+ * for Return — the same sequence l4d26 uses for a confirm-paged event line. */
+static void gbs_show(void)
+{
+	if (g_gbs_textlen == 0)
+		return;
+	g_gbs_text[g_gbs_textlen] = 0;
+	port_event_tail_show();
+	jt20();
+	l40b4();
+	g_a5_byte(-27911) = 17;
+	g_a5_byte(-27912) = 1;
+	g_a5_byte(-27981) = 1;
+	jt96(1, 17, 38, 22, 7, 0, 0, (long)(uintptr_t)g_gbs_text, 17);
+	l1806(0);
+	g_a5_byte(-27911) = 17;
+	g_a5_byte(-27912) = 1;
+	jt20();
+	jt176();
+	g_a5_byte(-27981) = 0;
+	g_gbs_textlen = 0;
+	g_gbs_shown = 1;
+}
+
+static void gbs_text_add(const ecl_vm *vm, const ecl_opnd *a)
+{
+	char  buf[GBS_TEXT_MAX];
+	short n, i;
+
+	if (a->code != ECL_C_TEXT)
+		return;                     /* string-table and runtime strings: not yet */
+	n = (short)ecl_text(vm->raw, a->text_off, a->text_len, buf, sizeof buf);
+	if (g_gbs_textlen > 0 && g_gbs_textlen < GBS_TEXT_MAX - 1)
+		g_gbs_text[g_gbs_textlen++] = ' ';
+	for (i = 0; i < n && g_gbs_textlen < GBS_TEXT_MAX - 1; i++)
+		g_gbs_text[g_gbs_textlen++] = buf[i];
+}
+
+static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
+{
+	(void)ctx;
+	switch (ins->opcode) {
+	case ECL_OP_PRINTCLEAR:
+		gbs_show();                 /* what was there is read before it goes */
+		/* fall through */
+	case ECL_OP_PRINT:
+		if (ins->argc > 0)
+			gbs_text_add(vm, &ins->arg[0]);
+		return ECL_HOST_OK;
+	case ECL_OP_CLEAR_BOX:
+		gbs_show();
+		return ECL_HOST_OK;
+	default:
+		return ECL_HOST_UNHANDLED;
+	}
+}
+
+/* Is GEO `geo_num` a script area? Called from jt198 once the map is loaded. */
+static void gbs_area_load(short geo_num)
+{
+	char  path[64];
+	char  dpath[202];
+	short refnum, n;
+	long  desc_len;
+
+	g_gbs_active = 0;
+	g_gbs_init_pending = 0;
+	g_gbs_textlen = 0;
+	jt394(path, "ECL%03d.DAT", (int)(unsigned char)geo_num);
+	dpath[0] = 0;
+	jt431(dpath, &g_a5_31336);      /* the current design, as jt127 does */
+	jt431(dpath, path);
+	refnum = jt398(dpath, 0);
+	if (refnum < 0)
+		return;                     /* an ordinary FRUA area */
+	if (g_gbs_buf == NULL)
+		g_gbs_buf = (unsigned char *)(uintptr_t)jt387((short)GBS_MAX);
+	n = (g_gbs_buf != NULL) ? jt401(refnum, g_gbs_buf, (short)GBS_MAX) : 0;
+	jt411(refnum);
+	if (n < GBS_HDR || g_gbs_buf[0] != 'G' || g_gbs_buf[1] != 'B'
+	 || g_gbs_buf[2] != 'S' || g_gbs_buf[3] != '1') {
+		dbg_log("gbs: ECL file is not a GBS1 script area");
+		return;
+	}
+	g_gbs_dialect = g_gbs_buf[4];
+	g_gbs_w       = g_gbs_buf[5];
+	g_gbs_h       = g_gbs_buf[6];
+	g_gbs_area_id = g_gbs_buf[7];
+	desc_len      = (long)g_gbs_w * g_gbs_h;
+	if (ecl_dialect_get(g_gbs_dialect) == NULL || GBS_HDR + desc_len >= n) {
+		dbg_log("gbs: script area header does not fit its file");
+		return;
+	}
+	g_gbs_desc = g_gbs_buf + GBS_HDR;
+	if (!g_gbs_ready) {
+		g_gbs_host.ctx   = NULL;
+		g_gbs_host.alloc = gbs_alloc;
+		g_gbs_host.op    = gbs_op;
+		ecl_init(&g_gbs_vm, &g_gbs_host);
+		g_gbs_ready = 1;
+	}
+	if (!ecl_load(&g_gbs_vm, g_gbs_desc + desc_len,
+	              (unsigned)(n - GBS_HDR - desc_len),
+	              ecl_dialect_get(g_gbs_dialect))) {
+		dbg_log("gbs: the script block did not load");
+		return;
+	}
+	g_gbs_active = 1;
+	g_gbs_init_pending = 1;
+	dbg_log_num("gbs: script area, source id = ", (long)g_gbs_area_id);
+}
+
+/* Tell the script where the party is. Greybox's addresses: the Dark Queen
+ * reads the cell descriptor at 0x002D, the facing (N=0 E=1 S=2 W=3) at 0x0011
+ * and the area at 0x001B; Champions and Death Knights read the descriptor at
+ * 0xC04F and its low six bits at 0x7F79. */
+static void gbs_seed(void)
+{
+	/* -12288 is the east-west coordinate and -12287 the north-south one (see
+	 * tools/gbgeo.py to_frua, measured in the engine). */
+	short x = (short)(signed char)g_a5_byte(-12288);
+	short y = (short)(signed char)g_a5_byte(-12287);
+	unsigned char d = 0;
+
+	if (x >= 0 && x < g_gbs_w && y >= 0 && y < g_gbs_h)
+		d = g_gbs_desc[(long)y * g_gbs_w + x];
+	if (g_gbs_dialect == ECL_GEN2) {
+		/* the engine's facing is 2=E 4=S 6=W 8=N after l1908 normalises it */
+		ecl_poke(&g_gbs_vm, 0x002D, d);
+		ecl_poke(&g_gbs_vm, 0x0011,
+		         (unsigned short)(((unsigned char)g_a5_byte(-12286) >> 1) & 3));
+		ecl_poke(&g_gbs_vm, 0x001B, g_gbs_area_id);
+	} else {
+		ecl_poke(&g_gbs_vm, 0xC04F, d);
+		ecl_poke(&g_gbs_vm, 0x7F79, (unsigned short)(d & 63));
+	}
+}
+
+static void gbs_run(int entry)
+{
+	int status;
+
+	if (!ecl_enter(&g_gbs_vm, entry))
+		return;
+	gbs_seed();
+	status = ecl_run(&g_gbs_vm, GBS_BUDGET);
+	gbs_show();                     /* whatever the script left unshown */
+	if (status == ECL_FAULT)
+		dbg_log_num("gbs: script FAULT at offset ", (long)g_gbs_vm.fault_pc);
+	else if (status == ECL_CHAIN)
+		dbg_log_num("gbs: NEWECL (not followed yet) -> ",
+		            (long)g_gbs_vm.chain_block);
+	else if (status == ECL_BUDGET)
+		dbg_log("gbs: script spent its budget (waiting on an opcode not wired yet)");
+}
+
+/* After any script text: the play screen is rebuilt exactly as l4d26 leaves it
+ * to be after a Return-prompted message. */
+static void gbs_after(void)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+
+	if (!g_gbs_shown)
+		return;
+	g_gbs_shown = 0;
+	jt399(&g_a5_byte(-22302), 2, 0);
+	port_event_tail_hold();
+	if (g_a5_byte(-27990) == 4) {
+		jt23();
+		jt935();
+		jt937(g_a5_long(-27932));
+		jt938();
+	}
+	if (rec != NULL)
+		rec[57] = 0;
+	g_sticky_text_ev = NULL;
+	g_sticky_dirty = 0;
+	g_event_modal_shown = 1;        /* l63c0 rebuilds the command bar */
+}
+
+/* The party has just arrived in the area (the landing-cell event site). */
+static void gbs_arrive(void)
+{
+	if (!g_gbs_active || !g_gbs_init_pending)
+		return;
+	g_gbs_init_pending = 0;
+	gbs_run(ECL_ENTRY_INIT);
+	gbs_after();
+}
+
+/* The party has just taken a step (jt297's event site). */
+static void gbs_step(void)
+{
+	if (!g_gbs_active)
+		return;
+	if (g_gbs_init_pending) {       /* arrived by a path gbs_arrive is not on */
+		g_gbs_init_pending = 0;
+		gbs_run(ECL_ENTRY_INIT);
+	}
+	gbs_run(ECL_ENTRY_STEP);
+	gbs_run(ECL_ENTRY_SEARCH);
+	gbs_after();
 }

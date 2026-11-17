@@ -189,3 +189,46 @@ def test_design_round_trips_through_the_frua_reader(tmp_path):
     with open(os.path.join(folder, "GEO006.DAT"), "rb") as f:
         g = Geo.parse(f.read())
     assert [b & 15 for b in g.cell(col=2, row=1)[:4]] == [5, 6, 7, 8]
+
+
+# ---- script areas (ECLnnn.DAT) -------------------------------------------
+
+def _script_block(dialect_name="gen2"):
+    import ecl
+    from test_ecl import block
+    d = ecl.DIALECTS[dialect_name]
+    return ecl.Block(block(bytes([0x00]), d), d, block_id=34)
+
+
+def test_script_area_carries_the_descriptor_plane_row_major():
+    n = 12 * 10
+    p2 = bytearray(n)
+    p2[9 * 12 + 11] = 0x5A                      # (x=11, y=9), the last cell
+    p2[1] = 0x07                                # (x=1, y=0)
+    raw = bytes(n) + bytes(n) + bytes(p2) + bytes(n)
+    m = GbMap.from_planes(raw, width=12, height=10, area_id=34)
+    blk = _script_block()
+    data = gbgeo.script_area(m, blk)
+    assert data[:4] == b"GBS1"
+    assert tuple(data[4:8]) == (2, 12, 10, 34)  # dialect gen2, w, h, area id
+    desc = data[8:8 + n]
+    assert desc[1] == 0x07 and desc[9 * 12 + 11] == 0x5A and sum(desc) == 0x61
+    assert data[8 + n:] == blk.raw              # the game's block, untouched
+
+
+def test_script_dialect_ids_match_the_engine_header():
+    import re
+    hdr = open(os.path.join(os.path.dirname(__file__), "..", "src", "engine",
+                            "ecl.h")).read()
+    enum = re.search(r"enum \{ ECL_GEN1 = 0,(.*?)ECL_NDIALECTS", hdr, re.S).group(0)
+    order = re.findall(r"ECL_GEN\w+", enum)
+    assert order == ["ECL_GEN1", "ECL_GEN1_DOK", "ECL_GEN2"]
+    assert gbgeo.SCRIPT_DIALECT_ID == {"gen1": 0, "gen1-dok": 1, "gen2": 2}
+
+
+def test_scripts_are_written_only_for_maps_that_have_one(tmp_path):
+    a = one_cell((1, 0, 0, 0)); a.area_id = 34
+    b = one_cell((2, 0, 0, 0)); b.area_id = 24          # no script for 24
+    done = gbgeo.write_scripts(str(tmp_path), [b, a], [_script_block()])
+    assert done == [6]                                   # second map -> area 6
+    assert sorted(os.listdir(tmp_path)) == ["ECL006.DAT"]
