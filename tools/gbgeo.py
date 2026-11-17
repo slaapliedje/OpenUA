@@ -188,16 +188,16 @@ class GbMap:
 
     def to_frua(self, entry=None):
         """Build a tools/geo.Geo area holding this map, with no events."""
-        from geo import Geo, MAX_CELLS, GeoError
+        from geo import Geo, WIDE_MAX_CELLS, GeoError
         from dsn import ART_BLOCK
 
-        if self.width * self.height > MAX_CELLS:
-            # The honest limit, stated where it bites: a FRUA area file stores
-            # 576 cells and 13 of Dark Queen's 20 maps are larger. Those need
-            # the engine's own map storage widened, not this converter.
-            raise GbGeoError("%dx%d = %d cells; a FRUA area holds %d"
+        if self.width * self.height > WIDE_MAX_CELLS:
+            # Over 576 cells the result is a WIDE area (tools/geo.py), which
+            # only OpenUA reads — 13 of Dark Queen's 20 maps need it. 784 is
+            # that game's largest map and the engine's GEO_MAX_CELLS.
+            raise GbGeoError("%dx%d = %d cells; the engine's map holds %d"
                              % (self.width, self.height,
-                                self.width * self.height, MAX_CELLS))
+                                self.width * self.height, WIDE_MAX_CELLS))
         # ★ THE AXES AND THE EDGE ORDER, measured in the engine rather than
         # reasoned from the docs — which disagree with each other (dsn.py says
         # the four edge bytes are N,E,S,W; docs/geo-format.md says W,S,E,N).

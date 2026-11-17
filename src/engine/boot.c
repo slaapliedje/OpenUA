@@ -941,14 +941,45 @@ static long  jt387(short size)
 	return (long)(uintptr_t)NewPtr((Size)(unsigned short)size);
 }
 
-/* JT[211] (CODE 7 + 0x57bc) — allocate the 3746-byte design-state
- * buffer, park it in g_a5_-12300, and clear its first short. The
- * Mac init path (CODE 6 L4cc0) calls this; the port also calls it
- * lazily from jt361 when the buffer hasn't been allocated yet. */
+/* ---- MAP CAPACITY (ADR-0023) ------------------------------------------------
+ *
+ * PORT-LOCAL. The Mac allocates 3746 bytes for the design state: a 290-byte
+ * header and 576 six-byte cells, which is everything a FRUA area file can
+ * hold. The script-driven Gold Box games need more — 13 of The Dark Queen of
+ * Krynn's 20 maps exceed 576 cells, the largest being 28x28 = 784 — so the
+ * port's block is sized for 784.
+ *
+ * Why widening the allocation is enough, as audited rather than assumed:
+ *   * the cells are the TAIL of the block (290 + 576*6 = 3746, nothing after),
+ *     so every one of the ~69 `ds[290 + cell*6 + field]` readers keeps its
+ *     arithmetic;
+ *   * both dimensions are single bytes (ds[2], ds[3]) and a cell index of 783
+ *     times 6 is well inside a short;
+ *   * nothing in the PLAY path keeps a second per-cell table. The three sites
+ *     that do assume 576 are all in the area EDITOR: the flood-fill work block
+ *     (l49dc_c11: cells at p+6, a field at p+582), the "Map Area too large"
+ *     check (l3876), and the Save-3D-Map writer's fixed MAP<0xd80> (l0878).
+ *     The editor therefore stays a 576-cell tool, and l0878 refuses to write a
+ *     larger map rather than truncate it.
+ *
+ * A FRUA area still loads through exactly the Mac's checks. What is new is the
+ * WIDE area — same container, MAP chunk of width*height*6 bytes when that
+ * exceeds 576 cells (tools/geo.py, written by tools/gbgeo.py) — which l7226
+ * accepts up to GEO_MAX_CELLS. */
+#define GEO_FRUA_CELLS  576
+#define GEO_MAX_CELLS   784
+#define GEO_FRUA_MAP    (GEO_FRUA_CELLS * 6)          /* 0xd80 */
+#define GEO_DS_SIZE     (290 + GEO_MAX_CELLS * 6)     /* 4994 */
+#define GEO_FRUA_FILE   12962
+
+/* JT[211] (CODE 7 + 0x57bc) — allocate the design-state buffer (3746 bytes on
+ * the Mac; GEO_DS_SIZE here, see above), park it in g_a5_-12300, and clear its
+ * first short. The Mac init path (CODE 6 L4cc0) calls this; the port also
+ * calls it lazily from jt361 when the buffer hasn't been allocated yet. */
 static void  jt211(void)
 {
 	PROBE("jt211");
-	g_a5_long(-12300) = jt387((short)3746);
+	g_a5_long(-12300) = jt387((short)GEO_DS_SIZE);
 	if (g_a5_long(-12300) != 0)
 		*(short *)(uintptr_t)g_a5_long(-12300) = 0;
 }
@@ -1314,17 +1345,23 @@ static short l7226(unsigned char *buf)
 	char *ds;
 	short i;
 	short dims;
+	long  amod, maplen;
 
 	PROBE("L7226");
 	if (buf == 0)
 		return 0;
-	jt399((void *)(uintptr_t)g_a5_long(-12300), (short)3746, (short)0);
+	/* the whole block, not the Mac's 3746: a wide map's tail cells must not
+	 * survive into the next (smaller) area */
+	jt399((void *)(uintptr_t)g_a5_long(-12300), (short)GEO_DS_SIZE, (short)0);
 	firstID = *(long *)cur;
 	if (firstID != 0x464F524DL /* FORM */ &&
 	    firstID != 0x43415420L /* 'CAT ' */ &&
 	    firstID != 0x4C495354L /* LIST */)
 		return 1;
-	if (l7470(&cur, 0x414D4F44L /* AMOD */) != 12946)
+	/* Mac: `!= 12946`. The exact size is checked below, once the header has
+	 * said how many cells the MAP chunk holds (ADR-0023 wide area). */
+	amod = l7470(&cur, 0x414D4F44L /* AMOD */);
+	if (amod < 12946)
 		return 0;
 	ds = (char *)(uintptr_t)g_a5_long(-12300);
 	if (!l7406(&cur, ds, 0x48445220L /* 'HDR ' */, 0x122L))
@@ -1334,9 +1371,15 @@ static short l7226(unsigned char *buf)
 	for (i = 0; i < 8; i++)
 		((short *)(ds + 272))[i] = jt1180(((short *)(ds + 272))[i]);
 	dims = (short)((unsigned char)ds[2] * (unsigned char)ds[3]);
-	if (dims <= 0 || dims > 576)
+	if (dims <= 0 || dims > GEO_MAX_CELLS)          /* Mac: > 576 */
 		return 0;
-	if (!l7406(&cur, ds + 290, 0x4D415020L /* 'MAP ' */, 0xd80L))
+	/* A FRUA area's MAP chunk is the fixed 0xd80 whatever its dimensions; a
+	 * wide area's is exactly its cells. Either way the AMOD size must agree,
+	 * so a FRUA file is held to the Mac's 12946 to the byte. */
+	maplen = (dims > GEO_FRUA_CELLS) ? (long)dims * 6 : (long)GEO_FRUA_MAP;
+	if (amod != 12946 + (maplen - GEO_FRUA_MAP))
+		return 0;
+	if (!l7406(&cur, ds + 290, 0x4D415020L /* 'MAP ' */, maplen))
 		return 0;
 	if (!l7406(&cur, (void *)(uintptr_t)g_a5_long(-13038),
 	           0x454E4352L /* 'ENCR' */, 0x7d0L))
@@ -1385,10 +1428,15 @@ static void  jt198(short geo_num)
 	jt131((short)6);
 	buf = (unsigned char *)(uintptr_t)jt1004();
 	jt127("GEO", geo_num, &out, buf);
-	expected = 12962;
+	expected = GEO_FRUA_FILE;
 	if (expected & 1)
 		expected++;
-	if (out != expected) {
+	/* Mac: `out != expected`. A wide area (ADR-0023) is longer by its extra
+	 * cells; l7226 then holds the container to its own header exactly. Even
+	 * lengths only, as every cell is 6 bytes. */
+	if (out != expected
+	    && !(out > expected && !(out & 1)
+	         && out <= expected + (GEO_MAX_CELLS - GEO_FRUA_CELLS) * 6)) {
 		dbg_log_num("jt198: GEO bytes = ", out);
 		jt69();
 	} else if (l720a(buf) < 0) {
@@ -94529,6 +94577,13 @@ static short l0878(void *ctx_v)
 
 	if (cur == NULL)                                         /* 0x087c */
 		return 0;
+	/* PORT-LOCAL (ADR-0023): this writer is the Mac's and emits the fixed
+	 * MAP<0xd80>. A wide area would lose every cell past 576, so refuse it —
+	 * the area editor is a 576-cell tool and says so instead of truncating. */
+	if (ds != NULL && (short)ds[2] * (short)ds[3] > GEO_FRUA_CELLS) {
+		dbg_log("GEO save REFUSED: wide area (> 576 cells) is not editable");
+		return 0;
+	}
 	if (l0ad0(&cur, 0x464f524dL, 0x329aL) == 0)              /* 0x0896 — 'FORM' */
 		return 0;
 	if (l0ad0(&cur, 0x414d4f44L, 0x3292L) == 0)              /* 0x08b6 — 'AMOD' */

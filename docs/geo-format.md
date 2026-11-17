@@ -553,3 +553,28 @@ that is net-zero **only if both keys land**. A dropped Right leaves the party
 rotated 90°, which once produced a perfectly clean compass-correct run from a
 crossed build. **`PLAY_NUDGE=0` skips it, and any test that reads a direction
 must use it.**
+
+## Wide areas — more than 576 cells (OpenUA only, ADR-0023)
+
+SSI's container stores 576 cells and the Mac loader rejects anything larger.
+The script-driven Gold Box games need more (The Dark Queen of Krynn reaches
+28x28 = 784), so the port reads one extension:
+
+- when `width * height > 576`, the `MAP ` chunk is exactly
+  `width * height * 6` bytes instead of the fixed 3456, and the `FORM`/`AMOD`
+  sizes and the file length grow by the same amount (a 28x28 area is 14210
+  bytes);
+- the limit is 784 cells (`GEO_MAX_CELLS` in `src/engine/boot.c`,
+  `WIDE_MAX_CELLS` in `tools/geo.py`);
+- an area of 576 cells or fewer is written exactly as before.
+
+DOS and Mac FRUA will not load a wide area, and the engine's own area editor
+will not save one. `tools/gbgeo.py` writes them when it converts a large map.
+
+**Edge-byte order, corrected.** The cell table above gives the four edge bytes
+as W, S, E, N. Walking an asymmetric map in the engine says **N, E, S, W** —
+the engine reads byte `facing >> 1`, with facing 0=N 2=E 4=S 6=W — and
+`tools/geo.py`'s `row` is the east-west axis. The shared-edge agreement that
+produced W, S, E, N is real, but it only pairs opposite edges; it cannot name
+them. `tests/test_gbgeo.py::test_frua_cell_axes_and_edge_order` pins the
+measured order.

@@ -34,6 +34,20 @@ FORM_SIZE  = AMOD_SIZE + 8                                                 # 129
 
 CELL_SIZE  = 6
 MAX_CELLS  = MAP_SIZE // CELL_SIZE    # 576  (the design-state cell capacity)
+
+# ---- THE WIDE AREA (ADR-0023) — OpenUA's own extension, not an SSI format ----
+# A FRUA area file stores 576 cells and no more. The script-driven Gold Box
+# games do not respect that: 13 of The Dark Queen of Krynn's 20 maps are larger,
+# up to 28x28 = 784. A WIDE area is the same container with ONE difference —
+# when width*height exceeds 576, the MAP chunk is exactly width*height*6 bytes
+# instead of the fixed 3456, and the FORM/AMOD sizes grow to match. Every area
+# of 576 cells or fewer is written exactly as SSI wrote it, byte for byte.
+# Only OpenUA reads a wide area (l7226 in src/engine/boot.c, GEO_MAX_CELLS);
+# DOS and Mac FRUA will reject one, and the engine's own area editor refuses to
+# save one. tools/gbgeo.py is what produces them.
+WIDE_MAX_CELLS = 784
+WIDE_MAP_SIZE  = WIDE_MAX_CELLS * 6   # 4704
+
 EVENT_SIZE = 20
 MAX_EVENTS = ENCR_SIZE // EVENT_SIZE  # 100
 
@@ -111,7 +125,10 @@ class Geo:
         self.encr = bytearray(encr)
         self.strg = bytearray(strg)
         if len(self.hdr)  != HDR_SIZE:  raise GeoError("HDR wrong size")
-        if len(self.map)  != MAP_SIZE:  raise GeoError("MAP wrong size")
+        if len(self.map) != MAP_SIZE and not (
+                MAP_SIZE < len(self.map) <= WIDE_MAP_SIZE
+                and len(self.map) % CELL_SIZE == 0):
+            raise GeoError("MAP wrong size")
         if len(self.encr) != ENCR_SIZE: raise GeoError("ENCR wrong size")
         if len(self.strg) != STRG_SIZE: raise GeoError("STRG wrong size")
         # STRG provenance, filled in by strg_read() — see the STRG note below.
@@ -748,7 +765,8 @@ class Geo:
     @classmethod
     def parse(cls, data):
         """Parse a GEO file. Mirrors l7226's structural checks."""
-        if len(data) not in (GEO_SIZE, GEO_SIZE + 1):  # engine pads odd sizes
+        if len(data) not in (GEO_SIZE, GEO_SIZE + 1) and not (   # engine pads odd sizes
+                GEO_SIZE < len(data) <= GEO_SIZE + WIDE_MAP_SIZE - MAP_SIZE):
             raise GeoError("GEO must be %d bytes, got %d" % (GEO_SIZE, len(data)))
         if data[0:4] not in (b"FORM", b"CAT ", b"LIST"):
             raise GeoError("not an IFF container (%r)" % data[0:4])
@@ -758,7 +776,10 @@ class Geo:
         # — FRUA quirk"): FORM<sz> AMOD<sz> { HDR MAP ENCR STRG }.
         cur.expect(b"AMOD")  # AMOD + size
         hdr  = cur.chunk(b"HDR ", HDR_SIZE)
-        map_ = cur.chunk(b"MAP ", MAP_SIZE)
+        # A wide area's MAP chunk is exactly as long as its cells (see
+        # WIDE_MAX_CELLS); everything else is the fixed 3456.
+        hw = hdr[2] * hdr[3]
+        map_ = cur.chunk(b"MAP ", hw * CELL_SIZE if hw > MAX_CELLS else MAP_SIZE)
         encr = cur.chunk(b"ENCR", ENCR_SIZE)
         strg = cur.chunk(b"STRG", STRG_SIZE)
         g = cls(hdr, map_, encr, strg)
@@ -766,21 +787,37 @@ class Geo:
             raise GeoError("HDR version %d outside %d..%d"
                            % (g.version, VERSION_MIN, VERSION_MAX))
         dims = g.width * g.height
-        if not (0 < dims <= MAX_CELLS):
+        if not (0 < dims <= WIDE_MAX_CELLS):
             raise GeoError("dims %d x %d = %d outside 1..%d"
-                           % (g.width, g.height, dims, MAX_CELLS))
+                           % (g.width, g.height, dims, WIDE_MAX_CELLS))
+        if len(data) not in (g.file_size, g.file_size + 1):
+            raise GeoError("GEO is %d bytes, want %d for %d cells"
+                           % (len(data), g.file_size, dims))
         return g
 
+    @property
+    def is_wide(self):
+        """More than 576 cells: OpenUA's extended container, not SSI's."""
+        return len(self.map) > MAP_SIZE
+
+    @property
+    def file_size(self):
+        return GEO_SIZE + len(self.map) - MAP_SIZE
+
     def build(self):
-        """Serialise back to the fixed 12962-byte container."""
+        """Serialise back to the container: the fixed 12962 bytes for an SSI
+        area, longer by the extra cells for a wide one."""
+        extra = len(self.map) - MAP_SIZE
+        if extra and len(self.map) != self.width * self.height * CELL_SIZE:
+            raise GeoError("a wide area's MAP must be exactly its cells")
         out = bytearray()
-        out += b"FORM" + struct.pack(">I", FORM_SIZE)
-        out += b"AMOD" + struct.pack(">I", AMOD_SIZE)  # sized sub-chunk (FRUA quirk)
+        out += b"FORM" + struct.pack(">I", FORM_SIZE + extra)
+        out += b"AMOD" + struct.pack(">I", AMOD_SIZE + extra)  # sized sub-chunk (FRUA quirk)
         out += b"HDR " + struct.pack(">I", HDR_SIZE)  + self.hdr
-        out += b"MAP " + struct.pack(">I", MAP_SIZE)  + self.map
+        out += b"MAP " + struct.pack(">I", len(self.map)) + self.map
         out += b"ENCR" + struct.pack(">I", ENCR_SIZE) + self.encr
         out += b"STRG" + struct.pack(">I", STRG_SIZE) + self.strg
-        assert len(out) == GEO_SIZE, len(out)
+        assert len(out) == GEO_SIZE + extra, len(out)
         return bytes(out)
 
     @classmethod
@@ -788,9 +825,12 @@ class Geo:
         """A minimal empty area: given dimensions, entry 0 at (0,0) facing 0, all
         zones rest-allowed, no walls/events, zero string table (the engine
         re-seeds an all-NUL STRG via l4db4/l4e3a on load)."""
-        if not (0 < width * height <= MAX_CELLS):
+        cells = width * height
+        if not (0 < cells <= WIDE_MAX_CELLS) or not (width < 256 and height < 256):
             raise GeoError("dims out of range")
-        g = cls(bytes(HDR_SIZE), bytes(MAP_SIZE), bytes(ENCR_SIZE), bytes(STRG_SIZE))
+        # > 576 cells is a WIDE area (OpenUA only) — see WIDE_MAX_CELLS.
+        map_size = cells * CELL_SIZE if cells > MAX_CELLS else MAP_SIZE
+        g = cls(bytes(HDR_SIZE), bytes(map_size), bytes(ENCR_SIZE), bytes(STRG_SIZE))
         g.version = version
         g.width = width
         g.height = height

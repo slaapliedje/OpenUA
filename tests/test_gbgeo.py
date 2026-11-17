@@ -109,12 +109,35 @@ def test_edge_symmetry_scores_a_consistent_map_and_not_a_misread_one():
     assert one_sided.edge_symmetry()[0] == total - 1
 
 
-def test_a_map_too_big_for_a_frua_area_is_refused_by_name():
-    # 28x28 = 784 cells: the Dark Queen case. It must fail loudly here, not
-    # produce a truncated area.
-    m = GbMap.from_planes(bytes(4 * 28 * 28), 28, 28)
-    with pytest.raises(GbGeoError, match="576"):
+def test_a_map_over_576_cells_becomes_a_wide_area():
+    # 28x28 = 784 cells: the Dark Queen case. Its far corner must survive the
+    # trip through the file, which a 576-cell MAP chunk would have cut off.
+    m = GbMap.from_planes(planes(28, 28, {(27, 27): ((0, 7, 7, 0), (0, 0, 0, 0))}),
+                          28, 28)
+    g = m.to_frua()
+    assert g.is_wide and len(g.map) == 784 * 6
+    data = g.build()
+    assert len(data) == 12962 + (784 - 576) * 6
+    back = Geo.parse(data)
+    assert (back.width, back.height) == (28, 28)
+    assert [b & 15 for b in back.cell(col=27, row=27)[:4]] == [0, 7, 7, 0]
+
+
+def test_an_ordinary_map_is_still_ssis_container_byte_for_byte():
+    g = one_cell((1, 2, 3, 4)).to_frua()
+    assert not g.is_wide and len(g.build()) == 12962
+
+
+def test_a_map_past_the_engine_limit_is_refused_by_name():
+    m = GbMap.from_planes(bytes(4 * 29 * 28), 29, 28)       # 812 cells
+    with pytest.raises(GbGeoError, match="784"):
         m.to_frua()
+
+
+def test_a_wide_area_whose_length_disagrees_with_its_cells_is_rejected():
+    data = bytearray(GbMap.from_planes(bytes(4 * 28 * 28), 28, 28).to_frua().build())
+    with pytest.raises(Exception):
+        Geo.parse(bytes(data[:-6]))
 
 
 def library(magic, members):

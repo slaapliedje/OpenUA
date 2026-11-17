@@ -1689,3 +1689,18 @@ are N, E, S, W; `docs/geo-format.md` says W, S, E, N. Walking an asymmetric map
 says **N, E, S, W** (the engine reads byte `facing >> 1`), with `tools/geo.py`'s
 `row` as the east-west axis. A square test room cannot tell the orders apart,
 which is how both readings survived. `tests/test_gbgeo.py` pins the measured one.
+
+**Update, same day — the map storage is widened (`GEO_MAX_CELLS` = 784).**
+The side-table audit came back clean for play: the cells are the tail of the
+design-state block, and the only sites that assume 576 are in the area EDITOR
+(the flood-fill work block, the "Map Area too large" check, the Save-3D-Map
+writer). So the block is now allocated at 290 + 784 x 6 bytes, the editor stays
+a 576-cell tool, and its writer refuses a larger map instead of truncating it.
+Larger maps arrive as a **wide area**: the ordinary area container with a MAP
+chunk of exactly `width * height * 6` bytes when that exceeds 576 cells
+(`tools/geo.py`, `docs/geo-format.md`). An area of 576 cells or fewer is still
+SSI's file byte for byte and is still held to the Mac's size checks.
+Checked on The Dark Queen of Krynn's own data (the Steam DOS release): all 20
+maps decode (10x10 up to 28x28, longest side 39), and the Falcon build walks
+map 10 from (18,27) — cell 774 — west six steps to the wall the source
+predicts. HEIRS loads and plays as before.
