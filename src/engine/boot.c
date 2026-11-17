@@ -6783,6 +6783,11 @@ static void mono_expand8(unsigned char *p, unsigned char d)
 	}
 }
 
+/* PORT: while port_draw_compass is drawing, every piece blit reports its
+ * rectangle here, so the compass knows what part of the screen it owns. */
+static char g_compass_cap;
+static void compass_cap_note(short x, short y, short w, short h);
+
 static void l2d4e(const unsigned char *src, short bpp_w, short height,
                   short y, short x, short flags)
 {
@@ -6804,6 +6809,8 @@ static void l2d4e(const unsigned char *src, short bpp_w, short height,
 		return;
 	if (x >= right || x + pix_w <= left)
 		return;
+	if (g_compass_cap)                       /* PORT: see port_draw_compass */
+		compass_cap_note(x, y, pix_w, height);
 
 	if (mode == 3) {
 		/* MASKED two-stream RLE (the Mac mode-3 arm, L2d4e 0x2f26..
@@ -18957,24 +18964,103 @@ static short jt236(void)
  * frozen on a turn; call this after the per-step view render to track facing.
  * Reset the clip to full screen first (render_3d_faithful leaves the 88x88
  * viewport clip active, which would clip the compass out). #124. */
+/* ---- the compass, drawn only when it would change -------------------------
+ *
+ * l63c0 calls port_draw_compass after EVERY walk key. A step forward does not
+ * turn the party, so half the time it repainted, pixel for pixel, the compass
+ * already on screen: two FRAME blits and their bridge to the planes, 9.4 s of
+ * a 58 s TT walk (2026-11-16 profile) and proportionally worse on a 68000.
+ *
+ * The obvious cache — remember the facing, skip when it has not changed — is
+ * a correctness bet on finding every place that repaints the chrome under the
+ * compass, and a missed one leaves a stale needle. So do not bet: keep a copy
+ * of the pixels the compass drew, and skip only when the facing is the same
+ * AND the surface still holds exactly those pixels. Anything that painted
+ * over the compass — a frame redraw, a full-screen menu, an event — changes
+ * the surface there and the next call redraws; nothing has to be told.
+ *
+ * The rectangle is not a constant here: the FRAME pieces carry their own
+ * offsets. While the compass draws, the piece blitters report what they
+ * touched (compass_cap_note) and the union is what gets saved and compared.
+ * If that ever exceeds the save buffer the cache simply stays off.
+ * -DFRUA_NOCOMPASSCACHE restores the unconditional redraw for A/B. */
+#define COMPASS_SAVE_MAX 6144
+static unsigned char g_compass_save[COMPASS_SAVE_MAX];
+static short         g_compass_x0, g_compass_y0, g_compass_x1, g_compass_y1;
+static short         g_compass_letter;
+static char          g_compass_valid;
+
+static void compass_cap_note(short x, short y, short w, short h)
+{
+	if (g_compass_x1 <= g_compass_x0) {      /* first piece */
+		g_compass_x0 = x; g_compass_y0 = y;
+		g_compass_x1 = (short)(x + w); g_compass_y1 = (short)(y + h);
+		return;
+	}
+	if (x < g_compass_x0) g_compass_x0 = x;
+	if (y < g_compass_y0) g_compass_y0 = y;
+	if ((short)(x + w) > g_compass_x1) g_compass_x1 = (short)(x + w);
+	if ((short)(y + h) > g_compass_y1) g_compass_y1 = (short)(y + h);
+}
+
+/* Copy the compass rectangle out of the surface (save != 0), or compare the
+ * surface against the copy. Returns 1 when saved / when identical. */
+static int compass_rect(int save)
+{
+	unsigned char *px;
+	short pitch, sw, sh, w, h, r;
+
+	if (!qd_screen_pixels_nomark(&px, &pitch, &sw, &sh) || px == NULL)
+		return 0;
+	if (g_compass_x0 < 0) g_compass_x0 = 0;
+	if (g_compass_y0 < 0) g_compass_y0 = 0;
+	if (g_compass_x1 > sw) g_compass_x1 = sw;
+	if (g_compass_y1 > sh) g_compass_y1 = sh;
+	w = (short)(g_compass_x1 - g_compass_x0);
+	h = (short)(g_compass_y1 - g_compass_y0);
+	if (w <= 0 || h <= 0 || (long)w * h > (long)COMPASS_SAVE_MAX)
+		return 0;
+	for (r = 0; r < h; r++) {
+		unsigned char *row = px + (long)(g_compass_y0 + r) * pitch + g_compass_x0;
+
+		if (save)
+			memcpy(g_compass_save + (long)r * w, row, (size_t)w);
+		else if (memcmp(g_compass_save + (long)r * w, row, (size_t)w) != 0)
+			return 0;
+	}
+	return 1;
+}
+
 static void port_draw_compass(void)
 {
 	short letter;
 
 	jt1193();                                /* clip = full screen */
-	jt1001((short)8000, (short)8000, (short)1, (short)21);  /* surround */
 	/* The -27980 direction table is 8 entries (the 8 compass points,
 	 * first byte = 'N'/'E'/'S'/'W' for the cardinals). Facing is [1,8];
 	 * North is facing 8, which would over-read entry 8 (past the table) —
 	 * the Mac gets 'N' there by data-layout luck, but the principled index
 	 * is mod-8 so North (8) maps to entry 0 = 'N'. */
 	letter = (short)(signed char)g_a5_27980[(g_a5_byte(-12286) & 7) * 3];
+#ifndef FRUA_NOCOMPASSCACHE
+	if (g_compass_valid && letter == g_compass_letter && compass_rect(0))
+		return;                              /* already on screen, exactly */
+#endif
+	g_compass_valid = 0;
+	g_compass_x0 = g_compass_x1 = 0;
+	g_compass_cap = 1;
+	jt1001((short)8000, (short)8000, (short)1, (short)21);  /* surround */
 	switch (letter) {
 	case 'E': jt1001((short)8000, (short)8000, (short)1, (short)25); break;
 	case 'N': jt1001((short)8000, (short)8000, (short)1, (short)22); break;
 	case 'S': jt1001((short)8000, (short)8000, (short)1, (short)23); break;
 	case 'W': jt1001((short)8000, (short)8000, (short)1, (short)24); break;
 	default:                                                         break;
+	}
+	g_compass_cap = 0;
+	if (g_compass_x1 > g_compass_x0 && compass_rect(1)) {
+		g_compass_letter = letter;
+		g_compass_valid  = 1;
 	}
 }
 
@@ -29878,6 +29964,8 @@ static void ui_glib_blit(long handle, short idx, short top, short left,
 
 	if (!qd_screen_pixels_nomark(&px, &pitch, &sw, &sh) || px == NULL)
 		return;
+	if (g_compass_cap)                       /* PORT: see port_draw_compass */
+		compass_cap_note(x, y, w, h);
 	/* #63: the row loop skips dy outside [0, sh), so the piece can only
 	 * touch [y, y + h). */
 	qd_touch_rows(y, (short)(y + h));
