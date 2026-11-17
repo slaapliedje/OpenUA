@@ -114,6 +114,15 @@ static int           g_ap_started;
  * eats the first keys before the menu can consume them. */
 volatile int         g_ap_armed;
 
+#ifdef FRUA_WALKPROF
+/* Breakpoint anchors for tools/profile/walk_profile.sh — see the
+ * FRUA_WALKPROF script in autoplay_script.h. Never inlined, never empty. */
+void __attribute__((noinline)) frua_prof_mark0(void) { __asm__ volatile("nop"); }
+void __attribute__((noinline)) frua_prof_mark1(void) { __asm__ volatile("nop"); }
+void __attribute__((noinline)) frua_prof_mark2(void) { __asm__ volatile("nop"); }
+void __attribute__((noinline)) frua_prof_mark3(void) { __asm__ volatile("nop"); }
+#endif
+
 /* Is the next scripted key due now? (non-consuming; used by plat_kb_avail) */
 static int ap_due(void)
 {
@@ -123,6 +132,21 @@ static int ap_due(void)
 		g_ap_started = 1;
 		g_ap_next = plat_ticks() + 120;   /* let the main menu settle first */
 	}
+#ifdef FRUA_WALKPROF
+	if (g_ap[g_ap_idx].scan >= 0xF0) {       /* a profile mark, not a key */
+		if (plat_ticks() < g_ap_next)
+			return 0;
+		switch (g_ap[g_ap_idx].scan) {
+		case 0xF0: frua_prof_mark0(); break;
+		case 0xF1: frua_prof_mark1(); break;
+		case 0xF2: frua_prof_mark2(); break;
+		default:   frua_prof_mark3(); break;
+		}
+		g_ap_next = plat_ticks() + g_ap[g_ap_idx].delay;
+		g_ap_idx++;
+		return 0;
+	}
+#endif
 	return plat_ticks() >= g_ap_next;
 }
 

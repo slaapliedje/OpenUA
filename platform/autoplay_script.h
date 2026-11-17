@@ -200,6 +200,39 @@ static const struct ap_key g_ap[] = {
 	{ 0x48, 0,     60 },    /* Up    — (7,8)  -> (7,9)               */
 	{ 0x4B, 0,     60 },    /* Left  — face SOUTH, the door below    */
 	{ 0x48, 0,   1200 },    /* Up    — into (8,9): the tavern greets */
+#elif defined(FRUA_WALKPROF)
+	/* THE PROFILING WALK (tools/profile/walk_profile.sh). Build with
+	 * -DFRUA_AUTOPLAY -DFRUA_AUTOWALK -DFRUA_AUTOWALK_TREASURE -DFRUA_WALKPROF.
+	 *
+	 * A scan code of 0xF0+n is not a key: it calls frua_prof_mark<n>()
+	 * (platform/input.c), which the profile script breakpoints. So the
+	 * measured window is opened and closed BY THE ENGINE, on engine ticks,
+	 * and a run repeats to about 1% — the xdotool drive it replaces was
+	 * paced by host time and wandered 15% from run to run.
+	 *
+	 * The walk: turn about, then 25 laps of Up Up Left Left Up Up Left Left
+	 * along HEIRS's (10,8)-(8,8) corridor and one odd step — 201 keys, half
+	 * steps and half turns, no events. WALKPROF_GAP is the ticks between
+	 * keys; ★ never 0 — jt139's drain-while-input-pends loop then eats the
+	 * whole script in a fraction of a second and the run is void. */
+#ifndef WALKPROF_GAP
+#define WALKPROF_GAP 2
+#endif
+#define WP_LAP \
+	{ 0x48, 0, WALKPROF_GAP }, { 0x48, 0, WALKPROF_GAP }, \
+	{ 0x4B, 0, WALKPROF_GAP }, { 0x4B, 0, WALKPROF_GAP }, \
+	{ 0x48, 0, WALKPROF_GAP }, { 0x48, 0, WALKPROF_GAP }, \
+	{ 0x4B, 0, WALKPROF_GAP }, { 0x4B, 0, WALKPROF_GAP }
+#define WP_LAP5 WP_LAP, WP_LAP, WP_LAP, WP_LAP, WP_LAP
+	{ 0x1C, 0x0D,  40 }, { 0x1C, 0x0D, 120 },
+	{ 0x4B, 0,     60 },    /* Left  — turn about (1/2)              */
+	{ 0x4B, 0,    120 },    /* Left  — now facing NORTH              */
+	{ 0xF0, 0,      1 },    /* mark0: the walk window opens          */
+	WP_LAP5, WP_LAP5, WP_LAP5, WP_LAP5, WP_LAP5,
+	{ 0x48, 0, WALKPROF_GAP },  /* one odd step: ends at (9,8), not (10,8) */
+	{ 0xF1, 0,    300 },    /* mark1: walk window closes; settle 5 s */
+	{ 0xF2, 0,   1800 },    /* mark2: the idle window opens, 30 s    */
+	{ 0xF3, 0,     60 },    /* mark3: idle window closes             */
 #else
 	{ 0x48, 0,    420 },    /* Up    — step 1                        */
 	{ 0x48, 0,    420 },    /* Up    — step 2                        */
