@@ -827,7 +827,9 @@ AMIGA_CROSS ?= $(HOME)/opt/amiga/bin/m68k-amigaos-
 # list, download a module and install it, in a GEM window. The screen logic
 # is installer/modapp.c (shared with the Amiga build); the window and events
 # are installer/modapp_gem.c; drawing, files and the network go through the
-# vendored retroplat (third_party/retroplat). Needs gemlib, which the
+# vendored retroplat (third_party/retroplat); -DRP_ATARI_TCP asks retroplat
+# for its MiNTnet tcp: transport, which is opt-in there because it costs
+# ~20 KB a program that never connects should not carry. Needs gemlib, which the
 # system m68k-atari-mint toolchain carries (GEMCC) and the engine's
 # soft-float cross does not. 68000 code: one binary for every ST.
 GEMCC ?= m68k-atari-mint-gcc
@@ -842,7 +844,7 @@ MODMAN_ATARI = $(addprefix $(RETROPLAT)/backends/atari/,draw_atari.c \
 modman: modman.prg
 modman.prg: installer/modapp_gem.c $(MODMAN_CORE) $(MODMAN_ATARI) \
 	    installer/modapp.h installer/modnet.h installer/modinst.h installer/modcore.h
-	$(GEMCC) -m68000 -std=gnu99 -O2 -fomit-frame-pointer \
+	$(GEMCC) -m68000 -std=gnu99 -O2 -fomit-frame-pointer -DRP_ATARI_TCP \
 	    -I$(RETROPLAT)/include -I$(RETROPLAT)/backends/atari -I$(RETROPLAT)/src \
 	    -Iinstaller -o $@ installer/modapp_gem.c $(MODMAN_CORE) $(MODMAN_ATARI) -lgem
 
