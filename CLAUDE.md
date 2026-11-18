@@ -267,9 +267,17 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
 - **Wired so far:** text, menus (on the engine's button bar, JT[182]), yes/no,
   number input (JT[891]), script chains, map loads, party placement (Dark
   Queen's position variables only), pictures, fights, treasure, temples,
-  shops, inns, training halls. **Not wired:** string input, surprise and
-  approach distance, random items, PROGRAM 1 and 3. A script that needs one
-  of those takes a wrong turn.
+  shops, inns, training halls, text entry (`jt98`), approaching monsters
+  and the fight's starting range. **Not wired:** WHO (choosing a character),
+  random items, PROGRAM 1 and 3, the "sides" operand of SETUP_MONSTER. A
+  script that needs one of those takes a wrong turn.
+- **String cells (0x81 operands) live in script memory, one character a
+  word**, NUL-terminated, 16 characters at most (`ecl_str_get/put`); the core
+  compares text as text. Cell 0x401 is the selected character's name and is
+  seeded before every run. The Dark Queen has **no surprise** — no script
+  sets it and the game never prints it — so fights get FRUA's "nobody
+  surprised". SETUP_MONSTER's sprite comes from SPRIT (an event record with
+  ev[7] bit 7 CLEAR; set selects the PIC libraries).
 - **Script memory is saved beside the slot** (`<design>\SAVE\GBSAV<slot>.DAT`,
   written after FRUA's own file, read back at the end of `l143e`). Two traps
   found doing it: the engine reloads the level AGAIN when the player leaves

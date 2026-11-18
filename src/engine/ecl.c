@@ -6,6 +6,8 @@
  * against the games' own handlers. The points where a plausible implementation
  * goes wrong are marked ★ — each cost that project a debugging round.
  */
+#include <string.h>
+
 #include "ecl.h"
 
 /* ---- dialects ---------------------------------------------------------- */
@@ -295,6 +297,49 @@ static int fault(ecl_vm *vm, unsigned at)
 	return ECL_FAULT;
 }
 
+unsigned ecl_str_get(const ecl_vm *vm, unsigned short addr, char *out,
+                     unsigned outmax)
+{
+	unsigned n = 0;
+
+	if (outmax == 0)
+		return 0;
+	while (n + 1 < outmax && n < ECL_STR_MAX) {
+		unsigned short c = ecl_peek(vm, (unsigned short)(addr + n));
+
+		if (c == 0)
+			break;
+		out[n++] = (char)c;
+	}
+	out[n] = 0;
+	return n;
+}
+
+int ecl_str_put(ecl_vm *vm, unsigned short addr, const char *s)
+{
+	unsigned n;
+
+	for (n = 0; n < ECL_STR_MAX && s[n]; n++)
+		if (!ecl_poke(vm, (unsigned short)(addr + n), (unsigned char)s[n]))
+			return 0;
+	return ecl_poke(vm, (unsigned short)(addr + n), 0);
+}
+
+/* The text an operand stands for, when it is text: inline, or a string cell.
+ * Returns 0 when it is a number. */
+static int opnd_str(const ecl_vm *vm, const ecl_opnd *a, char *out, unsigned outmax)
+{
+	if (a->code == ECL_C_TEXT) {
+		ecl_text(vm->raw, a->text_off, a->text_len, out, outmax);
+		return 1;
+	}
+	if (a->code == ECL_C_STRPTR) {
+		ecl_str_get(vm, a->word, out, outmax);
+		return 1;
+	}
+	return 0;
+}
+
 static int call_host(ecl_vm *vm, const ecl_insn *ins, int *status)
 {
 	int r;
@@ -367,11 +412,28 @@ int ecl_run(ecl_vm *vm, long budget)
 			vm->pc = vm->stack[--vm->sp];
 			break;
 
-		case ECL_OP_COMPARE:
-			ecl_set_cmp(vm, ecl_rvalue(vm, &a[0]), ecl_rvalue(vm, &a[1]));
+		case ECL_OP_COMPARE: {
+			char l[ECL_STR_MAX * 4 + 1], r[ECL_STR_MAX * 4 + 1];
+			int  lt = opnd_str(vm, &a[0], l, sizeof l);
+			int  rt = opnd_str(vm, &a[1], r, sizeof r);
+
+			if (lt || rt) {
+				/* ★ Text compares as text: equal or not, and the four
+				 * ordering flags follow (<= and >= pass when equal). A
+				 * number against text is never equal. */
+				int eq = lt && rt && strcmp(l, r) == 0;
+
+				vm->cmp[0] = (unsigned char)eq;
+				vm->cmp[1] = (unsigned char)!eq;
+				vm->cmp[2] = vm->cmp[3] = 0;
+				vm->cmp[4] = vm->cmp[5] = (unsigned char)eq;
+			} else {
+				ecl_set_cmp(vm, ecl_rvalue(vm, &a[0]), ecl_rvalue(vm, &a[1]));
+			}
 			if (has_text(ins) && call_host(vm, ins, &status))
 				return status;
 			break;
+		}
 
 		case ECL_OP_COMPARE_AND: {
 			/* ★ Sets ONLY == and !=. The other four flags go FALSE, so an
@@ -398,12 +460,20 @@ int ecl_run(ecl_vm *vm, long budget)
 			}
 			break;
 
-		case ECL_OP_SAVE:               /* SAVE value, destination */
-			if (!ecl_poke(vm, a[1].word, ecl_rvalue(vm, &a[0])))
+		case ECL_OP_SAVE: {             /* SAVE value, destination */
+			char t[ECL_STR_MAX * 4 + 1];
+
+			if (a[1].code == ECL_C_STRPTR && opnd_str(vm, &a[0], t, sizeof t)) {
+				/* text into a string cell: the characters, not a marker */
+				if (!ecl_str_put(vm, a[1].word, t))
+					return fault(vm, at);
+			} else if (!ecl_poke(vm, a[1].word, ecl_rvalue(vm, &a[0]))) {
 				return fault(vm, at);
+			}
 			if (has_text(ins) && call_host(vm, ins, &status))
 				return status;
 			break;
+		}
 
 		case ECL_OP_ADD: case ECL_OP_SUBTRACT: case ECL_OP_DIVIDE:
 		case ECL_OP_MULTIPLY: case ECL_OP_AND: case ECL_OP_OR: {

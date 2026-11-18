@@ -162,6 +162,18 @@ int  ecl_enter(ecl_vm *vm, int entry);
 /* Execute until the script stops, pauses or spends `budget` instructions. */
 int  ecl_run(ecl_vm *vm, long budget);
 
+/* String cells. A 0x81 operand names a cell in script memory where a string
+ * lives one CHARACTER A WORD, NUL-terminated (Greybox, from CoAB's own
+ * CMD_InputString). That is what makes SAVE "NAME", 0x81:cell, COMPARE
+ * 0x81:cell, "WORD" and PRINT 0x81:cell work, and it is why a saved game that
+ * keeps script memory keeps the strings too. */
+#define ECL_STR_MAX     16      /* the cells the Dark Queen uses are 17 apart */
+
+/* The string in the cell at `addr` (always NUL-terminated). Returns its length. */
+unsigned ecl_str_get(const ecl_vm *vm, unsigned short addr, char *out, unsigned outmax);
+/* Store `s` (at most ECL_STR_MAX characters) in the cell at `addr`. */
+int      ecl_str_put(ecl_vm *vm, unsigned short addr, const char *s);
+
 unsigned short ecl_peek(const ecl_vm *vm, unsigned short addr);
 int            ecl_poke(ecl_vm *vm, unsigned short addr, unsigned short v);
 unsigned short ecl_rvalue(const ecl_vm *vm, const ecl_opnd *a);

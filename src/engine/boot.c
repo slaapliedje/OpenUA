@@ -106517,9 +106517,9 @@ static void jt500(short rings, short art, short sound)
  * runs too; a converted map has no events, so it finds nothing.
  *
  * STILL NARROW. The host answers text, menus, yes/no, number input,
- * pictures, fights, treasure, temples, shops, inns, training halls, map
- * loads and script chains. String input and the rest are counted as
- * unhandled and skipped, so a script that depends on one
+ * pictures, fights, treasure, temples, shops, inns, training halls, text
+ * entry, approaching monsters, map loads and script chains. WHO and the rest
+ * are counted as unhandled and skipped, so a script that depends on one
  * takes a wrong turn. Script memory is saved beside the slot (gbs_state_save). Party
  * position is only exchanged for the Dark Queen dialect;
  * where Champions and Death Knights keep it is not pinned down yet.
@@ -106559,8 +106559,12 @@ static char           g_gbs_text[GBS_TEXT_MAX];
 static short          g_gbs_textlen;
 static char           g_gbs_shown;
 static char           g_gbs_pic;                    /* a script picture is up  */
+static char           g_gbs_sprite_up;              /* ... or monsters are     */
 static unsigned char  g_gbs_pic_id;                 /* ... and its number      */
 static unsigned char  g_gbs_mon[6][2];              /* {number, count} queued  */
+static unsigned char  g_gbs_sprite = 255;           /* SETUP_MONSTER's sprite  */
+static unsigned char  g_gbs_dist;                   /* ... and its distance    */
+static short          gbs_view_depth(void);
 static short          g_gbs_nmon;
 static ecl_vm         g_gbs_vm;
 static ecl_host       g_gbs_host;
@@ -106604,8 +106608,8 @@ static void gbs_draw(int confirm)
 	g_gbs_text[g_gbs_textlen] = 0;
 	port_event_tail_show();
 	jt20();
-	if (!g_gbs_pic)                 /* l40b4 redraws the 3D view — over the */
-		l40b4();                    /* picture, if one is up                */
+	if (!g_gbs_pic && !g_gbs_sprite_up) /* l40b4 redraws the 3D view — over */
+		l40b4();                    /* the picture or sprite, if one is up  */
 	g_a5_byte(-27911) = 17;
 	g_a5_byte(-27912) = 1;
 	g_a5_byte(-27981) = 1;
@@ -106637,9 +106641,8 @@ static void gbs_text_put(const char *t, short n)
 		g_gbs_text[g_gbs_textlen++] = t[i];
 }
 
-/* PRINT's operand: inline text, or a script variable printed as a number
- * (the debug menu's `PRINT [0x0034]`). String-table and runtime strings are
- * not wired yet. */
+/* PRINT's operand: inline text, a string cell, or a script variable printed
+ * as a number (the debug menu's `PRINT [0x0034]`). */
 static void gbs_text_add(const ecl_vm *vm, const ecl_opnd *a)
 {
 	char buf[GBS_TEXT_MAX];
@@ -106647,6 +106650,8 @@ static void gbs_text_add(const ecl_vm *vm, const ecl_opnd *a)
 	if (a->code == ECL_C_TEXT) {
 		gbs_text_put(buf, (short)ecl_text(vm->raw, a->text_off, a->text_len,
 		                                  buf, sizeof buf));
+	} else if (a->code == ECL_C_STRPTR) {
+		gbs_text_put(buf, (short)ecl_str_get(vm, a->word, buf, sizeof buf));
 	} else if (a->code == ECL_C_MEM || a->code == ECL_C_MEM3
 	        || a->code == ECL_C_GAMEVAR) {
 		gbs_text_put(buf, (short)jt394(buf, "%d", (int)ecl_rvalue(vm, a)));
@@ -106781,7 +106786,7 @@ static void gbs_picture(short id)
 	jt399(ev, (short)sizeof ev, 0);
 	ev[0] = 2;
 	ev[6] = (unsigned char)id;
-	ev[7] = 0x80;                   /* the PIC libraries; clear means SPRIT */
+	ev[7] = 0x80;                   /* set: the PIC libraries; clear: SPRIT */
 	g_gbs_pic_letter = gbs_pic_letter(id);
 	l442e(ev);
 	g_gbs_pic_letter = 0;
@@ -107045,12 +107050,127 @@ static int gbs_combat(ecl_vm *vm)
 		ev[9 + 2 * s] = g_gbs_mon[s][0];
 	}
 	g_gbs_nmon = 0;
+	{
+		short depth = gbs_view_depth(), d = g_gbs_dist;
+
+		if (d > depth)
+			d = depth;
+		if (d > 3)
+			d = 3;
+		ev[14] = (unsigned char)(d << 5);   /* the starting range */
+	}
+	if (g_gbs_sprite != 255 && g_gbs_sprite != 0) {
+		ev[6] = g_gbs_sprite;       /* the monsters, as they approached */
+		ev[7] = 0;
+	}
+	g_gbs_sprite = 255;
+	g_gbs_dist = 0;
+	g_gbs_sprite_up = 0;
 	g_a5_byte(-22311) = 8;          /* the spawn loop counts slots from here */
 	g_a5_long(-13030) = (long)(uintptr_t)ev;
 	l159a(ev, 0);
 	g_a5_long(-13030) = 0;
 	g_gbs_shown = 1;
 	return g_a5_byte(-27982) != 0;
+}
+
+/* INPUT_STRING length, cell: the engine's own line editor (jt98, the one
+ * that asks for a character's file name) under the question the script has
+ * printed. It hands back upper case, which is what the scripts compare
+ * against ("GEBENE", "PASS"). Escape gives an empty answer. */
+static void gbs_input_string(ecl_vm *vm, short len, unsigned short cell)
+{
+	char  buf[ECL_STR_MAX + 1];
+	char *got;
+	short i;
+
+	if (len < 1 || len > ECL_STR_MAX)
+		len = ECL_STR_MAX;
+	gbs_draw(0);                    /* the question stays up */
+	got = jt98((long)(uintptr_t)"", 0, 0, len);
+	for (i = 0; i < len && got != NULL && got[i]; i++)
+		buf[i] = got[i];
+	buf[i] = 0;
+	(void)ecl_str_put(vm, cell, buf);
+	g_gbs_shown = 1;
+}
+
+/* Approaching monsters. SETUP_MONSTER sprite, distance, picture, sides
+ * (DQK.EXE, file offset 0x43071) keeps the sprite and sets the distance to
+ * the nearer of what the script asked for and how far the party can see down
+ * the corridor; 16 means 2. APPROACH (0x4310f) brings them one square closer.
+ * COMBAT takes the distance again against the view (0x3253b) and starts the
+ * fight at it, which in FRUA is the event's starting range (0..3).
+ *
+ * The sprite is drawn at that distance the way a FRUA combat event draws its
+ * monster, through l442e. The fourth operand (which sides of the battlefield
+ * the monsters come from, read by the game's combat set-up) is not used. The
+ * Dark Queen has no surprise: no script sets it and the game prints none, so
+ * FRUA's "nobody surprised" is what a fight gets. */
+static short gbs_view_depth(void)
+{
+	return l1476((short)(signed char)g_a5_byte(-12288),
+	             (short)(signed char)g_a5_byte(-12287),
+	             (short)(unsigned char)g_a5_byte(-12286));
+}
+
+static void gbs_sprite_show(void)
+{
+	unsigned char ev[20];
+
+	if (g_gbs_sprite == 255 || g_gbs_sprite == 0)
+		return;
+	gbs_draw(0);
+	jt399(ev, (short)sizeof ev, 0);
+	ev[0] = 1;                      /* a combat event: range is ev[14] bits 5-6 */
+	ev[6] = g_gbs_sprite;
+	ev[7] = 0;                      /* clear: the SPRIT library, drawn at depth */
+	ev[14] = (unsigned char)((g_gbs_dist > 3 ? 3 : g_gbs_dist) << 5);
+	g_a5_byte(-4918) = 0;           /* not "already resident": it moved */
+	jt399(&g_a5_byte(-22302), 2, 0); /* nothing drawn yet: draw it again */
+	l442e(ev);
+	g_gbs_pic = 0;
+	g_gbs_sprite_up = 1;
+	g_gbs_shown = 1;
+}
+
+static void gbs_setup_monster(short sprite, short dist)
+{
+	short depth = gbs_view_depth();
+
+	if (dist == 16)
+		dist = 2;
+	g_gbs_sprite = (unsigned char)sprite;
+	g_gbs_dist = (unsigned char)(dist < depth ? dist : depth);
+	gbs_sprite_show();
+}
+
+static void gbs_approach(void)
+{
+	if (g_gbs_dist > 0)
+		g_gbs_dist--;
+	gbs_sprite_show();
+}
+
+/* Tell the script whose name it is talking about: the cell at 0x401 holds the
+ * selected character's name (the scripts print it after WHO, and copy it).
+ * Dark Queen only; WHO itself is not wired, so it is whoever FRUA has
+ * selected. */
+static void gbs_seed_who(void)
+{
+	unsigned char *who = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	char           name[ECL_STR_MAX + 1];
+	short          i;
+
+	if (who == NULL)
+		return;
+	for (i = 0; i < ECL_STR_MAX && who[96 + i]; i++) {
+		char c = (char)who[96 + i];
+
+		name[i] = (c >= 'a' && c <= 'z') ? (char)(c - 'a' + 'A') : c;
+	}
+	name[i] = 0;
+	(void)ecl_str_put(&g_gbs_vm, 0x0401, name);
 }
 
 static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
@@ -107089,6 +107209,20 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 		return ECL_HOST_OK;
 	case 0x1c:                      /* CLEARMONSTERS */
 		g_gbs_nmon = 0;
+		return ECL_HOST_OK;
+	case 0x10:                      /* INPUT_STRING length, cell */
+		if (ins->argc < 2 || ins->arg[1].code != ECL_C_STRPTR)
+			return ECL_HOST_UNHANDLED;
+		gbs_input_string(vm, (short)ecl_rvalue(vm, &ins->arg[0]), ins->arg[1].word);
+		return ECL_HOST_OK;
+	case 0x0c:                      /* SETUP_MONSTER sprite, distance, picture, sides */
+		if (g_gbs_dialect == ECL_GEN1 || ins->argc < 2)
+			return ECL_HOST_UNHANDLED;
+		gbs_setup_monster((short)ecl_rvalue(vm, &ins->arg[0]),
+		                  (short)ecl_rvalue(vm, &ins->arg[1]));
+		return ECL_HOST_OK;
+	case 0x0d:                      /* APPROACH */
+		gbs_approach();
 		return ECL_HOST_OK;
 	case 0x0b:                      /* LOAD_MONSTER number, count, picture */
 		if (ins->argc < 2)
@@ -107455,6 +107589,7 @@ static void gbs_seed(void)
 	if (x >= 0 && x < g_gbs_w && y >= 0 && y < g_gbs_h)
 		d = g_gbs_desc[GBS_HDR + (long)y * g_gbs_w + x];
 	if (g_gbs_dialect == ECL_GEN2) {
+		gbs_seed_who();
 		ecl_poke(&g_gbs_vm, GBS2_DESC, d);
 		ecl_poke(&g_gbs_vm, GBS2_X, (unsigned short)x);
 		ecl_poke(&g_gbs_vm, GBS2_Y, (unsigned short)y);
@@ -107573,6 +107708,7 @@ static void gbs_after(void)
 		return;
 	g_gbs_shown = 0;
 	g_gbs_pic = 0;                  /* the rebuild below takes it down */
+	g_gbs_sprite_up = 0;
 	jt399(&g_a5_byte(-22302), 2, 0);
 	port_event_tail_hold();
 	if (g_a5_byte(-27990) == 4) {

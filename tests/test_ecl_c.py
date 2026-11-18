@@ -329,11 +329,37 @@ def test_host_gets_everything_else_with_values_and_text(cbin, tmp_path):
                     (0x0e, [12], [])]
 
 
-def test_saving_text_reaches_the_host_and_stores_its_marker(cbin, tmp_path):
-    code = bytes([0x09]) + text("RAISTLIN") + bytes([0x81, 0x0e, 0x02]) + b"\x00"
+def cell(a):  return bytes([0x81, a & 255, a >> 8])
+
+
+def test_saving_text_into_a_string_cell_stores_its_characters(cbin, tmp_path):
+    code = bytes([0x09]) + text("RAISTLIN") + cell(0x020e) + b"\x00"
     host, m, _, _ = c_run(cbin, tmp_path, code)
     assert host == [(0x09, [text("RAISTLIN")[1], 0x020e], ["RAISTLIN"])]
-    assert m[0x020e] == text("RAISTLIN")[1]
+    assert [m.get(0x020e + i, 0) for i in range(9)] == [ord(c) for c in "RAISTLIN"] + [0]
+
+
+def test_a_string_cell_copies_and_is_cut_at_sixteen(cbin, tmp_path):
+    code = (bytes([0x09]) + text("ABCDEFGHIJKLMNOPQRST") + cell(0x300)
+            + bytes([0x09]) + cell(0x300) + cell(0x400) + b"\x00")
+    _, m, _, _ = c_run(cbin, tmp_path, code)
+    assert [m.get(0x300 + i, 0) for i in range(17)] == [ord(c) for c in "ABCDEFGHIJKLMNOP"] + [0]
+    assert [m.get(0x400 + i, 0) for i in range(17)] == [ord(c) for c in "ABCDEFGHIJKLMNOP"] + [0]
+
+
+@pytest.mark.parametrize("word,equal", [("GEBENE", True), ("GEBEN", False), ("X", False)])
+def test_text_compares_as_text(cbin, tmp_path, word, equal):
+    code = (bytes([0x09]) + text(word) + cell(0x32c)
+            + bytes([0x03]) + cell(0x32c) + text("GEBENE")            # COMPARE cell, "GEBENE"
+            + bytes([0x16]) + bytes([0x09]) + imm(1) + mem(0x90)      # IF_EQ: [0x90] = 1
+            + bytes([0x17]) + bytes([0x09]) + imm(2) + mem(0x90)      # IF_NE: [0x90] = 2
+            + bytes([0x1b]) + bytes([0x09]) + imm(1) + mem(0x91)      # IF_GE: [0x91] = 1
+            + bytes([0x18]) + bytes([0x09]) + imm(1) + mem(0x92)      # IF_LT: [0x92] = 1
+            + b"\x00")
+    _, m, _, _ = c_run(cbin, tmp_path, code)
+    assert m[0x90] == (1 if equal else 2)
+    assert m.get(0x91, 0) == (1 if equal else 0)
+    assert m.get(0x92, 0) == 0                                    # never "less than"
 
 
 def test_a_pause_resumes_after_the_instruction(cbin, tmp_path):
