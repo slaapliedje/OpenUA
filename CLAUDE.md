@@ -239,16 +239,18 @@ What the 2026-11-16 pass found, so it is not rediscovered:
 - **`port_draw_compass` redraws only when the facing or the pixels under it
   changed** (it keeps a copy of what it drew; `-DFRUA_NOCOMPASSCACHE` opts out).
 
-## Module manager (ADR-0024)
+## Module manager (ADR-0025)
 
-`python3 tools/modman` opens the desktop window; `python3 tools/modman help`
-lists the command line (inspect / install / list / remove / catalog / fetch).
-`core.py` decides what an archive holds and does the install, `catalog.py`
-reads catalogs and downloads, `gui.py` is the tkinter window. Tests:
-`tests/test_modman.py`. Half of an early test download set turned out to be
-saved web error pages renamed `.zip`, and two of the real archives use PKZIP
-1.x implode (method 6, decoded in `core.explode`, checked against each
-member's CRC). Still ask the user before fetching modules from the internet.
+The manager runs ON the ST and the Amiga, in C ("desktop" in that request
+meant the machine's desktop, not a PC). The shared rules are
+`installer/modcore.c` (archive layouts, what the engine reads, 8.3 names,
+PKZIP 1.x implode, saved-web-page detection); `uainst` (installer/main.c)
+uses them and stages every install in `<DESIGN>.NEW`. `uainst --plan ZIP`
+prints the plan; `tests/test_installer.py` holds it to `tools/modman`, the
+Python reference (which also has a tkinter window, superseded as the
+product). Downloading (HTTP over STinG/MiNTnet and bsdsocket.library) is the
+next step. Half of an early test download set was saved web error pages
+renamed `.zip`. Still ask the user before fetching modules from the internet.
 
 ## Gold Box script areas (ADR-0023)
 

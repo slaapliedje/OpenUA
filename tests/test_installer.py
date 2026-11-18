@@ -20,6 +20,7 @@ import xmi2slb as xref  # the byte-exact reference for the music bank
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 SRC = [os.path.join(ROOT, "installer", "main.c"),
+       os.path.join(ROOT, "installer", "modcore.c"),
        os.path.join(ROOT, "installer", "miniz.c"),
        os.path.join(ROOT, "src", "convert", "artconv.c"),
        # the module's own soundtrack: main.c builds MUSIC.SLB from its .XMI
@@ -65,6 +66,9 @@ def _tiny_hlib():
             + b"".join(entries))
 
 
+GAME001 = b"A TEST DESIGN" + bytes(388 - 13)
+
+
 def _run(uainst, zip_path, dest):
     return subprocess.run([uainst, str(zip_path), str(dest)],
                           capture_output=True, text=True)
@@ -90,25 +94,35 @@ def test_flat_zip_installs_named_after_the_zip(uainst, tmp_path):
     assert (d / "BACK1004.TLB").read_bytes() == want_mono
 
 
-def test_zip_with_dsn_folder_keeps_its_name_and_flattens(uainst, tmp_path):
+def test_zip_with_dsn_folder_keeps_its_name_and_drops_what_the_engine_skips(uainst, tmp_path):
     hlib = _tiny_hlib()
     zp = tmp_path / "whatever.zip"
     with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("Curse.dsn/GAME001.DAT", GAME001)
         z.writestr("Curse.dsn/CPIC1010.TLB", hlib)
         z.writestr("Curse.dsn/sub/README.TXT", b"hi")
+        z.writestr("Curse.dsn/SAVE/SAVGAMA.CSV", b"s")
+        z.writestr("Curse.dsn/RESIZEPC.EXE", b"MZ")
+        z.writestr("curse.txt", b"outside")
     dest = tmp_path / "out"
     dest.mkdir()
     r = _run(uainst, zp, dest)
     assert r.returncode == 0, r.stdout + r.stderr
-    d = dest / "Curse.dsn"
-    assert (d / "README.TXT").read_bytes() == b"hi"      # flattened
+    d = dest / "CURSE.DSN"
     assert (d / "CPIC1010.ctl").read_bytes() == ac.convert(hlib)
+    assert (d / "SAVE" / "SAVGAMA.CSV").read_bytes() == b"s"
+    # only what the engine reads goes in, and the rest is named
+    assert sorted(p.name for p in d.iterdir()) == \
+        ["CPIC1010.TLB", "CPIC1010.ctl", "GAME001.DAT", "SAVE"]
+    for left in ("sub/README.TXT", "RESIZEPC.EXE", "curse.txt"):
+        assert left in r.stdout
 
 
 def test_mac_art_in_the_zip_is_kept_verbatim(uainst, tmp_path):
     glib = ac.convert(_tiny_hlib())
     zp = tmp_path / "macmod.zip"
     with zipfile.ZipFile(zp, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("GAME001.DAT", GAME001)
         z.writestr("BACK1004.CTL", glib)
     dest = tmp_path / "out"
     dest.mkdir()
@@ -128,7 +142,7 @@ def test_real_por_zip_installs_byte_identically(uainst, tmp_path):
     r = _run(uainst, G39_ZIP, dest)
     assert r.returncode == 0, r.stdout[-2000:]
     assert "0 failures" in r.stdout
-    d = dest / "Game39.dsn"
+    d = dest / "GAME39.DSN"
     tlbs = sorted(p for p in glob.glob(str(d / "*"))
                   if p.lower().endswith(".tlb"))
     assert len(tlbs) > 180
@@ -175,7 +189,7 @@ def test_module_music_converts_into_the_design_folder(uainst, tmp_path):
     q3 = _tiny_xmi([(0, 1, 67, 100, 120)])
     zp = tmp_path / "tunes.zip"
     with zipfile.ZipFile(zp, "w") as z:
-        z.writestr("Tunes.dsn/GAME.DAT", b"\0" * 16)
+        z.writestr("Tunes.dsn/GAME001.DAT", GAME001)
         z.writestr("Tunes.dsn/ADDQ1.XMI", q1)           # AdLib set, Q2 missing
         z.writestr("Tunes.dsn/ADDQ3.XMI", q3)
         z.writestr("Tunes.dsn/TYDQ1.XMI", q1)           # Tandy present -> it must WIN
@@ -183,7 +197,7 @@ def test_module_music_converts_into_the_design_folder(uainst, tmp_path):
     dest.mkdir()
     r = _run(uainst, zp, dest)
     assert r.returncode == 0, r.stdout + r.stderr
-    bank = (dest / "Tunes.dsn" / "MUSIC.SLB").read_bytes()
+    bank = (dest / "TUNES.DSN" / "MUSIC.SLB").read_bytes()
     # Tandy outranks AdLib, and Tandy ships only Q1 -> a 1-song partial bank
     assert bank == xref.build_bank({1: q1})
     assert "Tandy" in r.stdout and "partial" in r.stdout
@@ -194,10 +208,103 @@ def test_module_without_music_gets_no_bank(uainst, tmp_path):
     root bank, which is the unchanged behaviour for every art-only module."""
     zp = tmp_path / "quiet.zip"
     with zipfile.ZipFile(zp, "w") as z:
-        z.writestr("Quiet.dsn/GAME.DAT", b"\0" * 16)
+        z.writestr("Quiet.dsn/GAME001.DAT", GAME001)
     dest = tmp_path / "dest"
     dest.mkdir()
     r = _run(uainst, zp, dest)
     assert r.returncode == 0, r.stdout + r.stderr
-    assert not (dest / "Quiet.dsn" / "MUSIC.SLB").exists()
+    assert (dest / "QUIET.DSN").is_dir()
+    assert not (dest / "QUIET.DSN" / "MUSIC.SLB").exists()
     assert "music:" not in r.stdout
+
+
+# ---- the shared rules (installer/modcore.c), held to tools/modman ----------
+
+sys.path.insert(0, os.path.join(ROOT, "tools"))
+from modman import core as mref                               # noqa: E402
+
+
+def _plan(uainst, zp):
+    r = subprocess.run([uainst, "--plan", str(zp)], capture_output=True, text=True)
+    if r.returncode != 0:
+        return ("ERR", r.stdout.strip().splitlines()[-1])
+    lines = r.stdout.splitlines()
+    head = lines[0].split("\t")
+    files = sorted(l[2:] for l in lines[1:] if l.startswith("F "))
+    skips = sorted(l[2:] for l in lines[1:] if l.startswith("S "))
+    return (head[0], head[1], files, skips)
+
+
+def _py_plan(zp):
+    try:
+        p = mref.plan(mref.Source.from_path(str(zp)))
+    except mref.ModError as exc:
+        return ("ERR", str(exc))
+    return (p.design, p.title, sorted(p.files), sorted(path for path, _ in p.skipped))
+
+
+def test_a_saved_web_page_is_called_what_it_is(uainst, tmp_path):
+    zp = tmp_path / "bane.zip"
+    zp.write_bytes(b"<!DOCTYPE HTML PUBLIC \"-//IETF//DTD HTML 2.0//EN\">")
+    r = _run(uainst, zp, tmp_path)
+    assert r.returncode != 0 and "web page" in r.stdout
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["bane.zip"]
+
+
+def test_reinstall_keeps_the_players_saves_and_leaves_nothing_behind(uainst, tmp_path):
+    zp = tmp_path / "keep.zip"
+    with zipfile.ZipFile(zp, "w") as z:
+        z.writestr("Keep.dsn/GAME001.DAT", GAME001)
+        z.writestr("Keep.dsn/GEO005.DAT", b"v1")
+        z.writestr("Keep.dsn/SAVE/HERO.CCH", b"shipped")
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    assert _run(uainst, zp, dest).returncode == 0
+    (dest / "KEEP.DSN" / "SAVE" / "SAVGAMA.CSV").write_bytes(b"my game")
+    (dest / "KEEP.DSN" / "SAVE" / "HERO.CCH").write_bytes(b"my hero")
+    with zipfile.ZipFile(zp, "w") as z:
+        z.writestr("Keep.dsn/GAME001.DAT", GAME001)
+        z.writestr("Keep.dsn/GEO005.DAT", b"v2")
+        z.writestr("Keep.dsn/SAVE/HERO.CCH", b"shipped")
+    r = _run(uainst, zp, dest)
+    assert r.returncode == 0, r.stdout
+    d = dest / "KEEP.DSN"
+    assert (d / "GEO005.DAT").read_bytes() == b"v2"
+    assert (d / "SAVE" / "SAVGAMA.CSV").read_bytes() == b"my game"
+    assert (d / "SAVE" / "HERO.CCH").read_bytes() == b"my hero"
+    assert sorted(p.name for p in dest.iterdir()) == ["KEEP.DSN"]
+
+
+@pytest.mark.parametrize("files", [
+    {"GAME001.DAT": GAME001, "GEO005.DAT": b"g"},
+    {"ua/Game40.dsn/GAME001.DAT": GAME001, "ua/Game40.dsn/RESIZEPC.EXE": b"",
+     "ua/Game40.dsn/html/a.htm": b"", "ua/readme.txt": b""},
+    {"GAME001.DAT": GAME001, "8x8db3001.ctl": b"1", "8X8D3001.CTL": b"2",
+     "bigpic0244.ctl": b"", "a long name.doc": b"", "SAVE/x.csv": b""},
+    {"A.DSN/GAME001.DAT": GAME001, "B.DSN/GAME001.DAT": GAME001},
+    {"README.TXT": b""},
+])
+def test_c_plans_exactly_as_the_python_reference_does(uainst, tmp_path, files):
+    zp = tmp_path / "mod-1.zip"
+    with zipfile.ZipFile(zp, "w") as z:
+        for n, d in files.items():
+            z.writestr(n, d)
+    c, py = _plan(uainst, zp), _py_plan(zp)
+    if py[0] == "ERR":
+        assert c[0] == "ERR"
+    else:
+        assert c == py
+
+
+FAN = sorted(glob.glob(os.path.join(ROOT, "data", "work", "fanmods", "*.zip"))
+             + glob.glob(os.path.join(ROOT, "data", "designs", "*.zip")))
+
+
+@pytest.mark.skipif(not FAN, reason="fan archives not staged; data/ is git-ignored")
+def test_c_plans_every_real_archive_as_the_reference_does(uainst):
+    for zp in FAN:
+        c, py = _plan(uainst, zp), _py_plan(zp)
+        if py[0] == "ERR":
+            assert c[0] == "ERR", zp
+        else:
+            assert c == py, zp

@@ -38,6 +38,9 @@
 #include "../src/convert/artconv.h"
 #include "../src/convert/xmi2slb.h"
 #include "rsrc_from_dos.h"
+#include "modcore.h"
+#include <dirent.h>
+#include <unistd.h>
 
 #ifdef __MINT__
 #define SEP '\\'
@@ -65,6 +68,7 @@ int uainst_run_big_stack(int (*fn)(int, char **), int argc, char **argv);
 #define MAXPATH 512
 
 static unsigned char *g_scratch;
+static mc_plan *g_plan;
 
 /* --- small path helpers --------------------------------------------------- */
 
@@ -208,34 +212,224 @@ static int convert_one(const char *tlb_path)
 
 /* --- install -------------------------------------------------------------- */
 
-static void design_name_from_zip(const char *zip, char *out, size_t cap)
+/* A planned destination ("GAME001.DAT", "SAVE/SAVGAMA.CSV") under `dir`. */
+static void dest_path(char *out, size_t cap, const char *dir, const char *dest)
 {
-	const char *b = basename_of(zip);
-	size_t i, n = 0;
-	for (i = 0; b[i] && b[i] != '.' && n + 6 < cap && n < 8; i++) {
-		char c = b[i];
-		if (c >= 'a' && c <= 'z')
-			c -= 32;
-		if ((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
-		    || c == '_' || c == '-')
-			out[n++] = c;
+	char sub[MAXPATH];
+	const char *slash = strchr(dest, '/');
+
+	if (!slash) {
+		path_join(out, cap, dir, dest);
+		return;
 	}
-	if (n == 0)
-		out[n++] = 'M';
-	memcpy(out + n, ".DSN", 5);
+	snprintf(sub, sizeof sub, "%.*s", (int)(slash - dest), dest);
+	path_join(out, cap, dir, sub);
+	snprintf(sub, sizeof sub, "%s", out);
+	path_join(out, cap, sub, slash + 1);
 }
+
+/* Delete a folder and everything in it (one level of subfolders, which is
+ * all a design has). A missing folder is fine. */
+static void remove_tree(const char *dir)
+{
+	DIR *d = opendir(dir);
+	struct dirent *e;
+	char path[MAXPATH];
+
+	if (!d)
+		return;
+	while ((e = readdir(d)) != 0) {
+		DIR *sub;
+
+		if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, ".."))
+			continue;
+		path_join(path, sizeof path, dir, e->d_name);
+		if ((sub = opendir(path)) != 0) {
+			struct dirent *f;
+			char inner[MAXPATH];
+
+			while ((f = readdir(sub)) != 0) {
+				if (!strcmp(f->d_name, ".") || !strcmp(f->d_name, ".."))
+					continue;
+				path_join(inner, sizeof inner, path, f->d_name);
+				remove(inner);
+			}
+			closedir(sub);
+			rmdir(path);
+		} else {
+			remove(path);
+		}
+	}
+	closedir(d);
+	rmdir(dir);
+}
+
+/* The folder in `parent` whose name matches `name` regardless of case, or
+ * 0. (AmigaDOS and GEMDOS ignore case anyway; the host test build does not.) */
+static int find_ci(const char *parent, const char *name, char *out, size_t cap)
+{
+	DIR *d = opendir(parent[0] ? parent : ".");
+	struct dirent *e;
+	int hit = 0;
+
+	if (!d)
+		return 0;
+	while (!hit && (e = readdir(d)) != 0) {
+		size_t k;
+
+		for (k = 0; name[k] && toupper((unsigned char)e->d_name[k])
+		                       == toupper((unsigned char)name[k]); k++)
+			;
+		if (name[k] == 0 && e->d_name[k] == 0) {
+			path_join(out, cap, parent, e->d_name);
+			hit = 1;
+		}
+	}
+	closedir(d);
+	return hit;
+}
+
+static int copy_file(const char *from, const char *to)
+{
+	long n = 0;
+	unsigned char *b = read_file(from, &n);
+	int ok = b != 0 && write_file(to, b, n);
+
+	free(b);
+	return ok;
+}
+
+/* Move the finished <DESIGN>.NEW over <DESIGN>.DSN, carrying the player's
+ * saved games across. Renames the folder when the file system can; moves
+ * the files one by one when it cannot (old GEMDOS will not rename one). */
+static int finish_install(const char *work, const char *final_dir)
+{
+	char old[MAXPATH], from[MAXPATH], to[MAXPATH], parent[MAXPATH];
+	const char *leaf = basename_of(final_dir);
+	DIR *d;
+	struct dirent *e;
+
+	snprintf(parent, sizeof parent, "%.*s", (int)(leaf - final_dir), final_dir);
+	if (parent[0] && (parent[strlen(parent) - 1] == SEP))
+		parent[strlen(parent) - 1] = 0;
+	if (find_ci(parent, leaf, old, sizeof old)) {
+		char save[MAXPATH], wsave[MAXPATH];
+
+		path_join(save, sizeof save, old, "SAVE");
+		path_join(wsave, sizeof wsave, work, "SAVE");
+		if ((d = opendir(save)) != 0) {
+			while ((e = readdir(d)) != 0) {
+				char up[64];
+				size_t k;
+
+				if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, ".."))
+					continue;
+				for (k = 0; e->d_name[k] && k < sizeof up - 1; k++)
+					up[k] = (char)toupper((unsigned char)e->d_name[k]);
+				up[k] = 0;
+				path_join(from, sizeof from, save, e->d_name);
+				path_join(to, sizeof to, wsave, up);
+				(void)copy_file(from, to);
+			}
+			closedir(d);
+		}
+		remove_tree(old);
+		printf("Replaced the earlier install; saved games kept.\n");
+	}
+	if (rename(work, final_dir) == 0)
+		return 1;
+	if (mkdir(final_dir, 0755) != 0)
+		return 0;
+	path_join(to, sizeof to, final_dir, "SAVE");
+	(void)mkdir(to, 0755);
+	if ((d = opendir(work)) == 0)
+		return 0;
+	while ((e = readdir(d)) != 0) {
+		if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")
+		 || !strcmp(e->d_name, "SAVE"))
+			continue;
+		path_join(from, sizeof from, work, e->d_name);
+		path_join(to, sizeof to, final_dir, e->d_name);
+		if (rename(from, to) != 0 && !copy_file(from, to)) {
+			closedir(d);
+			return 0;
+		}
+	}
+	closedir(d);
+	{
+		char wsave[MAXPATH], fsave[MAXPATH];
+
+		path_join(wsave, sizeof wsave, work, "SAVE");
+		path_join(fsave, sizeof fsave, final_dir, "SAVE");
+		if ((d = opendir(wsave)) != 0) {
+			while ((e = readdir(d)) != 0) {
+				if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, ".."))
+					continue;
+				path_join(from, sizeof from, wsave, e->d_name);
+				path_join(to, sizeof to, fsave, e->d_name);
+				if (rename(from, to) != 0)
+					(void)copy_file(from, to);
+			}
+			closedir(d);
+		}
+	}
+	remove_tree(work);
+	return 1;
+}
+
 
 static int installer_main(int argc, char **argv)
 {
 	char zip_path[MAXPATH] = "", dest_dir[MAXPATH] = ".";
-	char dsn_dir[MAXPATH], dsn_name[16], path[MAXPATH];
+	char dsn_dir[MAXPATH], dsn_name[16], path[MAXPATH], work_dir[MAXPATH];
+	char err[160];
 	mz_zip_archive za;
-	mz_uint i, nfiles;
+	mz_uint i;
 	int extracted = 0, converted = 0, monoed = 0, failed = 0;
 
 	/* unbuffered: progress lines must appear as they happen on the
 	 * Atari/Amiga consoles (and under emulator/pipe capture) */
 	setvbuf(stdout, NULL, _IONBF, 0);
+
+	/* uainst --plan ZIP: what installing it would do, machine-readable
+	 * (the test suite holds it to tools/modman). Nothing is written. */
+	if (argc == 3 && strcmp(argv[1], "--plan") == 0) {
+		unsigned char head[64];
+		size_t got = 0;
+		FILE *f = fopen(argv[2], "rb");
+		int kind;
+
+		g_plan = malloc(sizeof *g_plan);
+		if (f) {
+			got = fread(head, 1, sizeof head, f);
+			fclose(f);
+		}
+		kind = mc_kind(head, (unsigned long)got);
+		if (!f || !g_plan || kind != MC_ZIP) {
+			printf("%s\n", f ? mc_kind_text(kind) : "cannot open");
+			return 1;
+		}
+		memset(&za, 0, sizeof za);
+		if (!mz_zip_reader_init_file(&za, argv[2], 0)
+		 || !mc_plan_zip(&za, basename_of(argv[2]), g_plan, err, sizeof err)) {
+			printf("%s\n", err);
+			return 1;
+		}
+		printf("%s\t%s\n", g_plan->design, g_plan->title);
+		for (i = 0; i < (mz_uint)g_plan->nfiles; i++)
+			printf("F %s\n", g_plan->file[i].dest);
+		for (i = 0; i < (mz_uint)g_plan->nskip; i++) {
+			char nm[MAXPATH], *c;
+
+			mz_zip_reader_get_filename(&za, g_plan->skip[i].index, nm, sizeof nm);
+			for (c = nm; *c; c++)
+				if (*c == '\\')
+					*c = '/';
+			printf("S %s\n", nm);
+		}
+		mz_zip_reader_end(&za);
+		return 0;
+	}
 
 	printf("uainst - OpenUA fan-module installer\n\n");
 
@@ -308,9 +502,33 @@ static int installer_main(int argc, char **argv)
 	}
 
 	g_scratch = malloc(SCRATCH_CAP);
-	if (!g_scratch) {
+	g_plan = malloc(sizeof *g_plan);
+	if (!g_scratch || !g_plan) {
 		printf("out of memory\n");
 		return 1;
+	}
+
+	/* What the file really is: half of one downloaded test set was saved
+	 * web error pages renamed .zip, and a StuffIt or LHA file is no zip. */
+	{
+		unsigned char head[64];
+		size_t got = 0;
+		FILE *f = fopen(zip_path, "rb");
+		int kind;
+
+		if (f) {
+			got = fread(head, 1, sizeof head, f);
+			fclose(f);
+		}
+		if (!f) {
+			printf("cannot open %s\n", zip_path);
+			return 1;
+		}
+		kind = mc_kind(head, (unsigned long)got);
+		if (kind != MC_ZIP) {
+			printf("%s is %s.\n", basename_of(zip_path), mc_kind_text(kind));
+			return 1;
+		}
 	}
 
 	memset(&za, 0, sizeof za);
@@ -318,101 +536,82 @@ static int installer_main(int argc, char **argv)
 		printf("cannot open ZIP: %s\n", zip_path);
 		return 1;
 	}
-	nfiles = mz_zip_reader_get_num_files(&za);
-
-	/* the design folder: honour a *.DSN/ component inside the ZIP,
-	 * else name it after the ZIP */
-	dsn_name[0] = 0;
-	for (i = 0; i < nfiles && dsn_name[0] == 0; i++) {
-		char nm[MAXPATH];
-		char *seg, *next;
-		mz_zip_reader_get_filename(&za, i, nm, sizeof nm);
-		for (seg = nm; seg; seg = next) {
-			next = strpbrk(seg, "/\\");
-			if (next)
-				*next++ = 0;
-			if (next && ends_with_ci(seg, ".dsn")
-			    && strlen(seg) < sizeof dsn_name) {
-				strcpy(dsn_name, seg);
-				break;
-			}
-		}
+	if (!mc_plan_zip(&za, basename_of(zip_path), g_plan, err, sizeof err)) {
+		printf("%s: %s\n", basename_of(zip_path), err);
+		mz_zip_reader_end(&za);
+		return 1;
 	}
-	if (dsn_name[0] == 0)
-		design_name_from_zip(zip_path, dsn_name, sizeof dsn_name);
-
+	snprintf(dsn_name, sizeof dsn_name, "%s.DSN", g_plan->design);
 	path_join(dsn_dir, sizeof dsn_dir, dest_dir, dsn_name);
-#ifdef __MINT__
-	(void)mkdir(dsn_dir, 0755);
-#else
-	(void)mkdir(dsn_dir, 0755);
-#endif
-	printf("Installing %s\n     into %s\n\n", basename_of(zip_path),
-	       dsn_dir);
-
-	/* extract, FLATTENED: module folders are flat, and fan ZIPs vary
-	 * between no folder, MOD/, and MOD.DSN/ layouts */
-	for (i = 0; i < nfiles; i++) {
-		char nm[MAXPATH];
-		const char *base;
-		mz_zip_reader_get_filename(&za, i, nm, sizeof nm);
-		if (mz_zip_reader_is_file_a_directory(&za, i))
-			continue;
-		base = basename_of(nm);
-		if (base[0] == 0 || strstr(nm, ".."))
-			continue;
-		path_join(path, sizeof path, dsn_dir, base);
-		if (mz_zip_reader_extract_to_file(&za, i, path, 0)) {
-			extracted++;
-		} else {
-			printf("  FAILED to extract %s\n", base);
-			failed++;
-		}
-	}
-	mz_zip_reader_end(&za);
-	printf("extracted %d file%s\n\n", extracted,
-	       extracted == 1 ? "" : "s");
-
-	/* convert every DOS art file in the new folder. A second pass over
-	 * the ZIP listing rather than a directory scan: portable, and
-	 * exactly the set just written. */
 	{
-		memset(&za, 0, sizeof za);
-		if (!mz_zip_reader_init_file(&za, zip_path, 0)) {
-			printf("cannot re-open ZIP\n");
+		char tmp_name[16];
+
+		snprintf(tmp_name, sizeof tmp_name, "%s.NEW", g_plan->design);
+		path_join(work_dir, sizeof work_dir, dest_dir, tmp_name);
+	}
+	printf("Installing %s\n", g_plan->title[0] ? g_plan->title : basename_of(zip_path));
+	printf("     from %s\n     into %s\n\n", basename_of(zip_path), dsn_dir);
+
+	/* Unpack into <DESIGN>.NEW first; the design folder itself is only
+	 * touched once everything is in, so a failure leaves the old install
+	 * (or nothing) behind, never half of one. */
+	remove_tree(work_dir);
+	if (mkdir(work_dir, 0755) != 0) {
+		printf("cannot create %s\n", work_dir);
+		mz_zip_reader_end(&za);
+		return 1;
+	}
+	path_join(path, sizeof path, work_dir, "SAVE");
+	(void)mkdir(path, 0755);
+	for (i = 0; i < (mz_uint)g_plan->nfiles; i++) {
+		unsigned long len = 0;
+		unsigned char *buf = mc_extract(&za, g_plan->file[i].index, &len,
+		                                err, sizeof err);
+
+		dest_path(path, sizeof path, work_dir, g_plan->file[i].dest);
+		if (!buf || !write_file(path, buf, (long)len)) {
+			printf("  FAILED: %s\n", buf ? g_plan->file[i].dest : err);
+			free(buf);
+			mz_zip_reader_end(&za);
+			remove_tree(work_dir);
+			printf("\nNothing was installed.\n");
 			return 1;
 		}
-		nfiles = mz_zip_reader_get_num_files(&za);
-		for (i = 0; i < nfiles; i++) {
-			char nm[MAXPATH];
-			const char *base;
-			int r;
-			mz_zip_reader_get_filename(&za, i, nm, sizeof nm);
-			if (mz_zip_reader_is_file_a_directory(&za, i))
-				continue;
-			base = basename_of(nm);
-			if (!ends_with_ci(base, ".tlb"))
-				continue;
-			path_join(path, sizeof path, dsn_dir, base);
-			printf("  %s...", base);
-			fflush(stdout);
-			r = convert_one(path);
-			if (r >= 1) {
-				converted++;
-				printf(" colour%s\n",
-				       r == 2 ? " + mono" : "");
-			} else if (r == 0) {
-				printf(" already Mac art, kept\n");
-			} else {
-				failed++;
-				printf(" FAILED\n");
-			}
-			if (r == 2)
-				monoed++;
-		}
-		mz_zip_reader_end(&za);
+		free(buf);
+		extracted++;
 	}
+	for (i = 0; i < (mz_uint)g_plan->nskip; i++) {
+		char nm[MAXPATH];
 
+		mz_zip_reader_get_filename(&za, g_plan->skip[i].index, nm, sizeof nm);
+		printf("  left out: %s (%s)\n", nm, mc_skip_text(g_plan->skip[i].why));
+	}
+	mz_zip_reader_end(&za);
+	printf("unpacked %d file%s\n\n", extracted, extracted == 1 ? "" : "s");
+
+	/* convert every DOS art file just written */
+	for (i = 0; i < (mz_uint)g_plan->nfiles; i++) {
+		const char *base = g_plan->file[i].dest;
+		int r;
+
+		if (!ends_with_ci(base, ".tlb") || strchr(base, '/'))
+			continue;
+		path_join(path, sizeof path, work_dir, base);
+		printf("  %s...", base);
+		fflush(stdout);
+		r = convert_one(path);
+		if (r >= 1) {
+			converted++;
+			printf(" colour%s\n", r == 2 ? " + mono" : "");
+		} else if (r == 0) {
+			printf(" already Mac art, kept\n");
+		} else {
+			failed++;
+			printf(" FAILED\n");
+		}
+		if (r == 2)
+			monoed++;
+	}
 	/* THE MODULE'S OWN MUSIC. A DOS fan module ships its soundtrack as .XMI
 	 * and the engine resolves MUSIC.SLB design-first (ADR-0011 applied to
 	 * music), so the bank belongs in the design folder. Until this pass the
@@ -427,26 +626,15 @@ static int installer_main(int argc, char **argv)
 		int have[XMI2SLB_NDRV] = { 0, 0, 0, 0, 0 };
 		int drv, q, chosen = -1;
 
-		memset(&za, 0, sizeof za);
-		if (mz_zip_reader_init_file(&za, zip_path, 0)) {
-			nfiles = mz_zip_reader_get_num_files(&za);
-			for (i = 0; i < nfiles; i++) {
-				char nm[MAXPATH];
-				const char *base;
-				mz_zip_reader_get_filename(&za, i, nm, sizeof nm);
-				if (mz_zip_reader_is_file_a_directory(&za, i))
-					continue;
-				base = basename_of(nm);
-				if (!xmi2slb_classify(base, &drv, &q))
-					continue;
-				if (q < 1 || q > 3)		/* only Q1..Q3 map to Mac slots */
-					continue;
-				if (strlen(base) >= MAXPATH)
-					continue;
-				strcpy(best[drv][q - 1], base);
-				have[drv] = 1;
-			}
-			mz_zip_reader_end(&za);
+		for (i = 0; i < (mz_uint)g_plan->nfiles; i++) {
+			const char *base = g_plan->file[i].dest;
+
+			if (strchr(base, '/') || !xmi2slb_classify(base, &drv, &q))
+				continue;
+			if (q < 1 || q > 3)		/* only Q1..Q3 map to Mac slots */
+				continue;
+			strcpy(best[drv][q - 1], base);
+			have[drv] = 1;
 		}
 		for (drv = 0; drv < XMI2SLB_NDRV; drv++)
 			if (have[drv]) { chosen = drv; break; }
@@ -463,7 +651,7 @@ static int installer_main(int argc, char **argv)
 			for (q = 0; q < 3; q++) {
 				if (best[chosen][q][0] == 0)
 					continue;
-				path_join(path, sizeof path, dsn_dir, best[chosen][q]);
+				path_join(path, sizeof path, work_dir, best[chosen][q]);
 				own[q] = read_file(path, &len[q]);
 				if (own[q]) { xmi[q] = own[q]; nsongs++; }
 			}
@@ -474,7 +662,7 @@ static int installer_main(int argc, char **argv)
 				   : XMI2SLB_ERR_SPACE;
 			if (out > 0) {
 				FILE *f;
-				path_join(path, sizeof path, dsn_dir, "MUSIC.SLB");
+				path_join(path, sizeof path, work_dir, "MUSIC.SLB");
 				f = fopen(path, "wb");
 				if (f && fwrite(bank, 1, out, f) == (size_t)out) {
 					printf(" MUSIC.SLB (%ld bytes)%s\n", out,
@@ -493,6 +681,16 @@ static int installer_main(int argc, char **argv)
 				free(own[q]);
 			free(bank);
 		}
+	}
+
+	/* Everything is in: put it in place. The player's saved games come
+	 * across from the old install, over any the module ships. */
+	/* (An art or music file that would not convert is reported above but
+	 * does not stop the install: the engine converts art again when it is
+	 * first shown, and plays the base music without a bank.) */
+	if (!finish_install(work_dir, dsn_dir)) {
+		printf("\nCould not move the new install into %s.\n", dsn_dir);
+		return 1;
 	}
 
 	printf("\nDone: %d extracted, %d art file%s converted "

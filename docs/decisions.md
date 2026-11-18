@@ -1734,3 +1734,32 @@ Python). An on-machine browser may follow; it would read the same catalog.
   folder.
 
 **Not decided here:** where the catalog lives and which modules it lists.
+
+## ADR-0025 — The module manager runs on the ST and the Amiga, in C (supersedes ADR-0024)
+
+**Context.** ADR-0024 put the first module manager on a PC desktop
+(`tools/modman`, Python). That misread the request: the manager is for the
+machines themselves — download and install modules on the ST and the Amiga.
+
+**Decision.**
+- **One C core shared by every front end:** `installer/modcore.c` decides what
+  an archive holds (the three layouts fan archives use, what the engine reads,
+  8.3 names, saved web pages and StuffIt/LHA files named as such) and reads
+  members, PKZIP 1.x implode included. `uainst` uses it now; the downloader
+  will too.
+- **`tools/modman` stays as the reference** the C rules are held to
+  (`tests/test_installer.py` compares their plans on synthetic archives and on
+  every fan archive under `data/`), the way `ecl.c` is held to `ecl.py`.
+- **An install is staged**: unpacked into `<DESIGN>.NEW`, converted there, then
+  moved over `<DESIGN>.DSN` with the player's saved games carried across. On a
+  file system that will not rename a folder (old GEMDOS) the files are moved
+  one by one. An art file that will not convert is reported and does not stop
+  the install (the engine converts again on first show).
+- **Downloading comes next and is per machine:** HTTP/1.0 over STinG or
+  MiNTnet on the Atari and `bsdsocket.library` on the Amiga. The fan archive
+  is plain HTTP, so no TLS is needed on a 68000.
+
+**Behaviour change in uainst:** it no longer flattens everything in an archive
+into the design folder. DOS programs, temporary files, files in subfolders
+other than SAVE, and files outside the design folder are left out and named;
+names go in upper case; an archive with no GAME001.DAT is refused.
