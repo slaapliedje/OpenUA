@@ -268,8 +268,18 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   number input (JT[891]), script chains, map loads, party placement (Dark
   Queen's position variables only), pictures, fights, treasure, temples,
   shops, inns, training halls. **Not wired:** string input, surprise and
-  approach distance, random items, PROGRAM 1 and 3; script memory is not
-  saved. A script that needs one of those takes a wrong turn.
+  approach distance, random items, PROGRAM 1 and 3. A script that needs one
+  of those takes a wrong turn.
+- **Script memory is saved beside the slot** (`<design>\SAVE\GBSAV<slot>.DAT`,
+  written after FRUA's own file, read back at the end of `l143e`). Two traps
+  found doing it: the engine reloads the level AGAIN when the player leaves
+  the hall after a load, which restarted the area's script on top of the
+  restored state (`g_gbs_resume`); and `l0bbc` puts the party back at
+  rec[67]/[68]/[17] every time play is re-entered, so a script's move was
+  undone by the first Encamp until `gbs_apply` wrote those too. Script
+  memory is NOT cleared when a new game starts in the same session.
+- **In Hatari, 'e' (Encamp) from the 3D view does nothing right after a
+  script run** — reach Save through an inn's rest menu when testing.
 - **Shops are opcode 0x3c** (PROTECTION in Greybox's table) with a shop type
   1..9; the stock lists live in DQK.EXE and `gbgeo.py --exe` copies them out
   as GBSHOP.DAT (found by shape, not address). They are sold through `jt183`,

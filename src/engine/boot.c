@@ -11845,6 +11845,8 @@ static short jt578(short refNum);
 static short jt577(short refNum);
 static signed char l00e0(const char *fn, void *cb);
 static signed char l00e0_load(const char *fn, void *cb);
+static void gbs_state_load(int slot);   /* PORT: Gold Box script memory, at the end */
+static void gbs_state_save(int slot);
 static signed char l_cch_read(const char *fn, unsigned char *rec);
 static void l24d2(unsigned char *rec);   /* CODE 17 ability roll (probe self-test) */
 /* Forward — jt127 (design-data loader) lifts further down; the
@@ -43364,6 +43366,7 @@ static void   jt585(void)
 		jt176();
 		return;
 	}
+	gbs_state_save((int)slot_char);    /* PORT: Gold Box script memory */
 
 	if (g_a5_22218 != slot_char) {
 		jt583();
@@ -43471,7 +43474,18 @@ static void jt85(short group)
  * level from the save" chain that resumes a saved game. Port-adapted: opens the
  * file directly through the File Manager shim instead of the Mac L0006/FC-cache
  * opener. (Lifted from CODE15 0x143e..0x153c.) */
+static void l143e_body(const char *fn);
 static void l143e(const char *fn)
+{
+	l143e_body(fn);
+	/* PORT: a script area's state rides in a file beside the slot. It goes in
+	 * AFTER the engine has reloaded the saved level, because that reload is
+	 * what decides this is a script area at all (and would otherwise start
+	 * its script from the beginning). */
+	gbs_state_load((int)(unsigned char)g_a5_byte(-6923));
+}
+
+static void l143e_body(const char *fn)
 {
 	unsigned char *h = (unsigned char *)g_a5_28006;
 	unsigned char  pstr[64];
@@ -106506,8 +106520,8 @@ static void jt500(short rings, short art, short sound)
  * pictures, fights, treasure, temples, shops, inns, training halls, map
  * loads and script chains. String input and the rest are counted as
  * unhandled and skipped, so a script that depends on one
- * takes a wrong turn. Script memory lives for the session and is not written to a
- * saved game. Party position is only exchanged for the Dark Queen dialect;
+ * takes a wrong turn. Script memory is saved beside the slot (gbs_state_save). Party
+ * position is only exchanged for the Dark Queen dialect;
  * where Champions and Death Knights keep it is not pinned down yet.
  * ============================================================================ */
 #define GBS_MAX        16384     /* largest block is 12,000 bytes (Dark Queen) */
@@ -106538,6 +106552,9 @@ static unsigned char  g_gbs_index[GBS_MAPS][2];
 static short          g_gbs_nindex = -1;            /* -1: not read yet        */
 static char           g_gbs_ready, g_gbs_active, g_gbs_init_pending;
 static char           g_gbs_switching;              /* our own jt198 in flight */
+static char           g_gbs_running;                /* inside gbs_run          */
+static unsigned char  g_gbs_resume;                 /* script a loaded save left
+                                                     * running; 0 once play is on */
 static char           g_gbs_text[GBS_TEXT_MAX];
 static short          g_gbs_textlen;
 static char           g_gbs_shown;
@@ -107225,6 +107242,136 @@ static void gbs_items(int want)
 	g_gbs_items = 1;
 }
 
+/* SAVED GAMES. Everything a script remembers — which doors are open, who has
+ * been met, how far the story has got — is its 16-bit memory, and FRUA's save
+ * file has nowhere to put it. So it goes in a file of its own beside the
+ * slot, "<design>\SAVE\GBSAV<slot>.DAT":
+ *
+ *   "GBV1", u8 script loaded, u8 dialect, u8 pages, u8 0,
+ *   then per page: u8 page number, 256 words big-endian
+ *
+ * Only pages that hold something are written. Loading clears the memory
+ * first, so nothing of the game that was being played leaks into the one
+ * loaded; a slot with no such file (a save from before this existed) loads
+ * as the engine alone would, with the area's script starting over.
+ *
+ * The party's position and the map are FRUA's and are in FRUA's file. */
+static short gbs_state_write(short ref)
+{
+	unsigned char buf[1 + 512];
+	unsigned char head[8];
+	long          count;
+	short         p, i, pages = 0;
+
+	for (p = 0; p < 256; p++) {
+		const unsigned short *pg = g_gbs_vm.page[p];
+
+		if (pg == NULL)
+			continue;
+		for (i = 0; i < 256 && pg[i] == 0; i++)
+			;
+		if (i < 256)
+			pages++;
+	}
+	head[0] = 'G'; head[1] = 'B'; head[2] = 'V'; head[3] = '1';
+	head[4] = g_gbs_script;
+	head[5] = g_gbs_dialect;
+	head[6] = (unsigned char)pages;     /* 256 pages cannot all be in use */
+	head[7] = 0;
+	count = 8;
+	(void)FSWrite(ref, &count, head);
+	for (p = 0; p < 256; p++) {
+		const unsigned short *pg = g_gbs_vm.page[p];
+
+		if (pg == NULL)
+			continue;
+		for (i = 0; i < 256 && pg[i] == 0; i++)
+			;
+		if (i == 256)
+			continue;
+		buf[0] = (unsigned char)p;
+		for (i = 0; i < 256; i++) {
+			buf[1 + 2 * i] = (unsigned char)(pg[i] >> 8);
+			buf[2 + 2 * i] = (unsigned char)pg[i];
+		}
+		count = (long)sizeof buf;
+		(void)FSWrite(ref, &count, buf);
+	}
+	return 0;
+}
+
+static char g_gbs_state_ok;
+
+static short gbs_state_read(short ref)
+{
+	unsigned char buf[1 + 512];
+	unsigned char head[8];
+	long          count = 8;
+	short         p, i, pages;
+
+	g_gbs_state_ok = 0;
+	if (FSRead(ref, &count, head) != noErr || count != 8
+	 || head[0] != 'G' || head[1] != 'B' || head[2] != 'V' || head[3] != '1')
+		return 0;
+	for (p = 0; p < 256; p++)
+		if (g_gbs_vm.page[p] != NULL)
+			jt399(g_gbs_vm.page[p], (short)512, 0);
+	pages = head[6];
+	for (p = 0; p < pages; p++) {
+		count = (long)sizeof buf;
+		if (FSRead(ref, &count, buf) != noErr || count != (long)sizeof buf)
+			return 0;
+		for (i = 0; i < 256; i++) {
+			unsigned short v = (unsigned short)((buf[1 + 2 * i] << 8)
+			                                    | buf[2 + 2 * i]);
+			if (v != 0)
+				ecl_poke(&g_gbs_vm,
+				         (unsigned short)(((unsigned short)buf[0] << 8) | i), v);
+		}
+	}
+	g_gbs_script = head[4];             /* gbs_state_load loads it */
+	g_gbs_state_ok = 1;
+	return 0;
+}
+
+static void gbs_state_name(char *out, int slot)
+{
+	char base[16];
+
+	jt394(base, "GBSAV%c.DAT", slot);
+	design_save_path(out, base);
+}
+
+static void gbs_state_save(int slot)
+{
+	char fn[64];
+
+	if (!g_gbs_ready || !g_gbs_active)
+		return;                     /* not a script game: nothing to keep */
+	gbs_state_name(fn, slot);
+	if (l00e0(fn, (void *)gbs_state_write) == 0)
+		dbg_log("gbs: script memory could NOT be written beside the save");
+}
+
+static void gbs_state_load(int slot)
+{
+	char  fn[64];
+	short script;
+
+	if (!g_gbs_active || !g_gbs_ready)
+		return;                     /* the level loaded is not a script area */
+	gbs_state_name(fn, slot);
+	if (l00e0_load(fn, (void *)gbs_state_read) == 0 || !g_gbs_state_ok)
+		return;                     /* no file: the script starts over */
+	script = g_gbs_script;
+	if (script != 0 && gbs_script_load(script)) {
+		g_gbs_init_pending = 0;     /* it was already running when saved */
+		g_gbs_resume = (unsigned char)script;
+	}
+	g_gbs_nmon = 0;
+	dbg_log_num("gbs: script memory restored, script ", (long)script);
+}
+
 /* Is area slot `geo_num` a script area? Called from jt198 once the map is in. */
 static void gbs_area_load(short geo_num)
 {
@@ -107251,8 +107398,19 @@ static void gbs_area_load(short geo_num)
 	g_gbs_map = g_gbs_desc[6];
 	g_gbs_active = 1;
 	dbg_log_num("gbs: script area, map ", (long)g_gbs_map);
-	if (g_gbs_switching)
-		return;                     /* a script asked for this map: it carries on */
+	if (g_gbs_switching || g_gbs_running)
+		return;                     /* a script asked for this map, or is in the
+		                             * middle of something that reloaded it (the
+		                             * training hall does): it carries on */
+	if (g_gbs_resume != 0) {
+		/* A saved game has just been loaded. The engine reloads the level
+		 * once more when the player leaves the hall for the map, and that
+		 * must not start the area's script over on top of what the save
+		 * restored. */
+		g_gbs_init_pending = 0;
+		(void)gbs_script_load((short)g_gbs_resume);
+		return;
+	}
 	/* The engine brought us here (a new game, a saved game): start the script
 	 * that goes with this map — or the one the design names instead, which is
 	 * how a game's own start-up script (Dark Queen's is number 1, and has no
@@ -107361,6 +107519,15 @@ static void gbs_apply(void)
 	rec[23] = g_a5_byte(-4940);
 	rec[24] = g_a5_byte(-4939);
 	l3ef8();
+	/* The record keeps its own copy of where the party stands, and l0bbc
+	 * puts the party back THERE whenever play is re-entered — on leaving the
+	 * camp menu, for one. Without these three a script's move was undone by
+	 * the first Encamp (seen: arrived in Caergoth at 3,2, camped, stood at
+	 * 0,0), and a save taken before the first step saved the old cell. */
+	rec[67] = g_a5_byte(-12288);
+	rec[68] = g_a5_byte(-12287);
+	rec[17] = g_a5_byte(-12286);
+	rec[19] = (unsigned char)g_a5_word(-18878);
 	g_gbs_shown = 1;                /* the view changed: rebuild the screen */
 }
 
@@ -107368,9 +107535,11 @@ static void gbs_run(int entry)
 {
 	int status, hops;
 
+	g_gbs_resume = 0;               /* play is under way */
 	if (g_gbs_script == 0 || !ecl_enter(&g_gbs_vm, entry))
 		return;
 	gbs_seed();
+	g_gbs_running = 1;
 	for (hops = 0; ; hops++) {
 		status = ecl_run(&g_gbs_vm, GBS_BUDGET);
 		if (status != ECL_CHAIN)
@@ -107385,6 +107554,7 @@ static void gbs_run(int entry)
 			break;
 		}
 	}
+	g_gbs_running = 0;
 	gbs_show();                     /* whatever the script left unshown */
 	if (status == ECL_FAULT)
 		dbg_log_num("gbs: script FAULT at offset ", (long)g_gbs_vm.fault_pc);
