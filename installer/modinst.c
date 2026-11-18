@@ -34,6 +34,14 @@
 #define SEP '/'
 #endif
 
+/* The current directory, as opendir() takes it: AmigaDOS has no "." (an
+ * empty name locks the current directory there). */
+#ifdef __amigaos__
+#define CWD ""
+#else
+#define CWD "."
+#endif
+
 #define SCRATCH_CAP (512L * 1024)
 #define MAXPATH 512
 
@@ -259,7 +267,7 @@ static void remove_tree(const char *dir)
  * 0. (AmigaDOS and GEMDOS ignore case anyway; the host test build does not.) */
 static int find_ci(const char *parent, const char *name, char *out, size_t cap)
 {
-	DIR *d = opendir(parent[0] ? parent : ".");
+	DIR *d = opendir(parent[0] ? parent : CWD);
 	struct dirent *e;
 	int hit = 0;
 

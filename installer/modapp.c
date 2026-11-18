@@ -16,6 +16,14 @@
 #define SEP '/'
 #endif
 
+/* The current directory, as opendir() takes it: AmigaDOS has no "." (an
+ * empty name locks the current directory there). */
+#ifdef __amigaos__
+#define CWD ""
+#else
+#define CWD "."
+#endif
+
 const char *ma_list_url  = MN_ARCHIVE_LIST;
 const char *ma_file_base = "http://" MN_ARCHIVE_HOST "/";
 
@@ -47,7 +55,7 @@ static void set_status(ma_app *a, const char *s)
 
 static void scan_installed(ma_app *a)
 {
-	DIR *d = opendir(a->dir[0] ? a->dir : ".");
+	DIR *d = opendir(a->dir[0] ? a->dir : CWD);
 	struct dirent *e;
 
 	a->ninstalled = 0;
@@ -265,7 +273,7 @@ int ma_install_selected(ma_app *a)
 	if (!fetch_to(a, url, DL_FILE, msg))
 		return 0;
 	path_in(a, DL_FILE, zip, sizeof zip);
-	rc = mi_install(zip, a->dir[0] ? a->dir : ".", install_log, a, dsn, sizeof dsn);
+	rc = mi_install(zip, a->dir[0] ? a->dir : CWD, install_log, a, dsn, sizeof dsn);
 	remove(zip);
 	scan_installed(a);
 	if (rc != 0)
@@ -366,7 +374,7 @@ void ma_draw_status(ma_app *a, ma_view *v)
 {
 	int row = rows_total(v) - 1, c = cols(v) - 2;
 
-	if (c >= WIDE - 2) {
+	if (c >= WIDE - 2 && (int)strlen(a->status) <= c) {
 		band(v, row, 0);
 		text_at(v, 1, row, a->status, c, 0);
 		return;

@@ -252,7 +252,11 @@ product). `installer/modnet.c` is the HTTP/1.0 client and the parser for the
 archive's list (`frua.rosedragon.org/modulelist/export.php`, one `|`-separated
 line per module inside a `<pre>`; use the path column, the file column is cut
 short). It runs over retroplat's `plat_transport` ("tcp:host:port");
-`tests/test_modnet.py` drives it against a local web server. The Amiga
+`tests/test_modnet.py` drives it against a local web server. The window is
+`installer/modapp.c` (shared screen and actions, tested headless by
+`tests/test_modapp.py`) inside `modapp_gem.c` (`make modman`, needs the
+system mint toolchain's gemlib) or `modapp_amiga.c` (`make modman-amiga`).
+On the Amiga, opendir() wants "" for the current directory, not "." (CWD). The Amiga
 (bsdsocket.library) and Atari (MiNTnet/STinG) `tcp:` transports go into
 retroplat UPSTREAM, on top of the RetroWP session's pending transport/timer
 commit — coordinate with it before editing `transport_*.c` there. Half of an early test download set was saved web error pages

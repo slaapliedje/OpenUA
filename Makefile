@@ -846,6 +846,21 @@ modman.prg: installer/modapp_gem.c $(MODMAN_CORE) $(MODMAN_ATARI) \
 	    -I$(RETROPLAT)/include -I$(RETROPLAT)/backends/atari -I$(RETROPLAT)/src \
 	    -Iinstaller -o $@ installer/modapp_gem.c $(MODMAN_CORE) $(MODMAN_ATARI) -lgem
 
+# The Amiga build of the module manager: the same screen in an Intuition
+# window on the Workbench screen (installer/modapp_amiga.c), on uainst's
+# big swapped stack (installer/asl_amiga.c). Kickstart 2.0+, 68000 code.
+MODMAN_AMIGA = $(addprefix $(RETROPLAT)/backends/amiga/,draw_amiga.c \
+	       metrics_amiga.c transport_amiga.c mem_amiga.c timer_amiga.c file_amiga.c)
+modman-amiga: modman_amiga
+modman_amiga: installer/modapp_amiga.c installer/asl_amiga.c $(MODMAN_CORE) \
+	      $(MODMAN_AMIGA) installer/modapp.h installer/modnet.h \
+	      installer/modinst.h installer/modcore.h
+	$(AMIGA_CROSS)gcc -m68000 -msoft-float -noixemul -std=gnu99 -O2 \
+	    -fomit-frame-pointer -s \
+	    -I$(RETROPLAT)/include -I$(RETROPLAT)/backends/amiga -I$(RETROPLAT)/src \
+	    -Iinstaller -o $@ installer/modapp_amiga.c installer/asl_amiga.c \
+	    $(MODMAN_CORE) $(MODMAN_AMIGA)
+
 # instdisk — the multi-disk DATA installer that ships on the data floppies
 # (tools/mkdatadisks.sh). Separate binary from uainst: uainst installs one fan
 # module from a ZIP, this walks a numbered disk set onto mass storage.
