@@ -248,8 +248,14 @@ PKZIP 1.x implode, saved-web-page detection); `uainst` (installer/main.c)
 uses them and stages every install in `<DESIGN>.NEW`. `uainst --plan ZIP`
 prints the plan; `tests/test_installer.py` holds it to `tools/modman`, the
 Python reference (which also has a tkinter window, superseded as the
-product). Downloading (HTTP over STinG/MiNTnet and bsdsocket.library) is the
-next step. Half of an early test download set was saved web error pages
+product). `installer/modnet.c` is the HTTP/1.0 client and the parser for the
+archive's list (`frua.rosedragon.org/modulelist/export.php`, one `|`-separated
+line per module inside a `<pre>`; use the path column, the file column is cut
+short). It runs over retroplat's `plat_transport` ("tcp:host:port");
+`tests/test_modnet.py` drives it against a local web server. The Amiga
+(bsdsocket.library) and Atari (MiNTnet/STinG) `tcp:` transports go into
+retroplat UPSTREAM, on top of the RetroWP session's pending transport/timer
+commit — coordinate with it before editing `transport_*.c` there. Half of an early test download set was saved web error pages
 renamed `.zip`. Still ask the user before fetching modules from the internet.
 
 ## Gold Box script areas (ADR-0023)
