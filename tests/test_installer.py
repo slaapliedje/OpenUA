@@ -21,6 +21,7 @@ import xmi2slb as xref  # the byte-exact reference for the music bank
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 SRC = [os.path.join(ROOT, "installer", "main.c"),
        os.path.join(ROOT, "installer", "modcore.c"),
+       os.path.join(ROOT, "installer", "modinst.c"),
        os.path.join(ROOT, "installer", "miniz.c"),
        os.path.join(ROOT, "src", "convert", "artconv.c"),
        # the module's own soundtrack: main.c builds MUSIC.SLB from its .XMI
