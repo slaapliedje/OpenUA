@@ -146,7 +146,8 @@ void ma_init(ma_app *a, const char *openua_dir)
 	scan_installed(a);
 	if (load_list(a))
 		snprintf(a->status, sizeof a->status,
-		         "%d modules. R fetches a fresh list.", a->nmod);
+		         "%d modules. Return installs, R fetches a fresh list, Q quits.",
+		         a->nmod);
 	else
 		snprintf(a->status, sizeof a->status,
 		         "No module list yet: press R to fetch it from the archive.");
@@ -309,6 +310,10 @@ static void band(const ma_view *v, int row, int inverse)
 	plat_fill_rect(v->gc, v->x, v->y + row * v->lh, v->w, v->lh, c, c, c);
 }
 
+/* A window narrower than this (an ST in low resolution is 40 columns) shows
+ * titles only in the list, and the rest in the details. */
+#define WIDE 60
+
 static void draw_row(ma_app *a, const ma_view *v, int i, int row)
 {
 	const mn_module *m = &a->mod[i];
@@ -316,10 +321,15 @@ static void draw_row(ma_app *a, const ma_view *v, int i, int row)
 	char tail[40];
 
 	band(v, row, inv);
-	if (tw < 10)
-		tw = c - 2;
+	if (c < WIDE) {
+		snprintf(tail, sizeof tail, "%c%c", m->hacked ? 'H' : ' ',
+		         is_installed(a, m) ? 'I' : ' ');
+		text_at(v, 1, row, m->title, c - 5, inv);
+		text_at(v, c - 3, row, tail, -1, inv);
+		return;
+	}
 	text_at(v, 1, row, m->title, tw - 1, inv);
-	if (c - tw >= 22) {
+	{
 		snprintf(tail, sizeof tail, "%-12.12s %5ldK %c%c", m->author, m->size_kb,
 		         m->hacked ? 'H' : ' ', is_installed(a, m) ? 'I' : ' ');
 		text_at(v, tw, row, tail, -1, inv);
@@ -354,10 +364,17 @@ static void wrap(const ma_view *v, int row, int rows, int width, const char *s)
 
 void ma_draw_status(ma_app *a, ma_view *v)
 {
-	int row = rows_total(v) - 1;
+	int row = rows_total(v) - 1, c = cols(v) - 2;
 
+	if (c >= WIDE - 2) {
+		band(v, row, 0);
+		text_at(v, 1, row, a->status, c, 0);
+		return;
+	}
+	/* narrow: the status takes the keys line too, wrapped */
+	band(v, row - 1, 0);
 	band(v, row, 0);
-	text_at(v, 1, row, a->status, cols(v) - 2, 0);
+	wrap(v, row - 1, 2, c, a->status);
 }
 
 void ma_draw(ma_app *a, ma_view *v)
@@ -383,14 +400,20 @@ void ma_draw(ma_app *a, ma_view *v)
 	if (a->nmod > 0) {
 		const mn_module *m = &a->mod[a->sel];
 
-		snprintf(t, sizeof t, "Levels %s  Equipment %s  %s%s%s", m->levels,
-		         m->equipment, m->date, m->hacked ? "  replaces art" : "",
-		         is_installed(a, m) ? "  INSTALLED" : "");
+		if (c < WIDE)
+			snprintf(t, sizeof t, "%s, %ldK. Levels %s, %s%s%s", m->author,
+			         m->size_kb, m->levels, m->date, m->hacked ? ", new art" : "",
+			         is_installed(a, m) ? ", INSTALLED" : "");
+		else
+			snprintf(t, sizeof t, "Levels %s  Equipment %s  %s%s%s", m->levels,
+			         m->equipment, m->date, m->hacked ? "  replaces art" : "",
+			         is_installed(a, m) ? "  INSTALLED" : "");
 		text_at(v, 1, drow + 1, t, c - 2, 0);
 		wrap(v, drow + 2, DETAIL_ROWS - 1, c - 2, m->about);
 	}
-	text_at(v, 1, rows_total(v) - 2,
-	        "[R]efresh list  [Return] Install  [Up/Down] Choose  [Q]uit", c - 2, 0);
+	if (c >= WIDE)
+		text_at(v, 1, rows_total(v) - 2,
+		        "[R]efresh list  [Return] Install  [Up/Down] Choose  [Q]uit", c - 2, 0);
 	ma_draw_status(a, v);
 }
 

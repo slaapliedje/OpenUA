@@ -767,7 +767,7 @@ clean:
 	    installer/strs_map_dos12.h
 	find src compat platform third_party -name '*.o' -delete 2>/dev/null || true
 	find src compat platform third_party -name '*.d' -delete 2>/dev/null || true
-	$(RM) frua frua.prg uainst.prg uainst.ttp uainst_amiga uainst.info frua.info openua
+	$(RM) frua frua.prg uainst.prg uainst.ttp uainst_amiga uainst.info frua.info openua modman.prg modman_amiga
 
 # clean does NOT remove dist/ — release-all cleans objects between platforms and
 # must keep the earlier binaries' packaged output. `distclean` wipes dist too.
@@ -823,6 +823,29 @@ uainst.ttp: uainst.prg
 # extract+convert core. Uses the Bebbo toolchain directly — installer
 # builds are standalone, not part of the MACHINE= engine object tree.
 AMIGA_CROSS ?= $(HOME)/opt/amiga/bin/m68k-amigaos-
+# modman — the on-machine module manager (ADR-0025): browse the fan archive's
+# list, download a module and install it, in a GEM window. The screen logic
+# is installer/modapp.c (shared with the Amiga build); the window and events
+# are installer/modapp_gem.c; drawing, files and the network go through the
+# vendored retroplat (third_party/retroplat). Needs gemlib, which the
+# system m68k-atari-mint toolchain carries (GEMCC) and the engine's
+# soft-float cross does not. 68000 code: one binary for every ST.
+GEMCC ?= m68k-atari-mint-gcc
+RETROPLAT = third_party/retroplat
+MODMAN_CORE = installer/modapp.c installer/modnet.c installer/modinst.c \
+	      installer/modcore.c installer/miniz.c src/convert/artconv.c \
+	      src/convert/xmi2slb.c \
+	      $(addprefix $(RETROPLAT)/src/,utf8.c papermetrics.c \
+	        papermetrics_tables.c fontpick.c monobits.c polyfill.c endian.c)
+MODMAN_ATARI = $(addprefix $(RETROPLAT)/backends/atari/,draw_atari.c \
+	       metrics_atari.c transport_atari.c mem_atari.c timer_atari.c file_atari.c)
+modman: modman.prg
+modman.prg: installer/modapp_gem.c $(MODMAN_CORE) $(MODMAN_ATARI) \
+	    installer/modapp.h installer/modnet.h installer/modinst.h installer/modcore.h
+	$(GEMCC) -m68000 -std=gnu99 -O2 -fomit-frame-pointer \
+	    -I$(RETROPLAT)/include -I$(RETROPLAT)/backends/atari -I$(RETROPLAT)/src \
+	    -Iinstaller -o $@ installer/modapp_gem.c $(MODMAN_CORE) $(MODMAN_ATARI) -lgem
+
 # instdisk — the multi-disk DATA installer that ships on the data floppies
 # (tools/mkdatadisks.sh). Separate binary from uainst: uainst installs one fan
 # module from a ZIP, this walks a numbered disk set onto mass storage.
