@@ -1704,3 +1704,33 @@ Checked on The Dark Queen of Krynn's own data (the Steam DOS release): all 20
 maps decode (10x10 up to 28x28, longest side 39), and the Falcon build walks
 map 10 from (18,27) — cell 774 — west six steps to the wall the source
 predicts. HEIRS loads and plays as before.
+
+## ADR-0024 — Modules are installed from the desktop first
+
+**Context.** Players want to fetch and install FRUA modules without unpacking
+archives by hand. Many of the target machines will never have a network
+stack, and the ones that do need STinG / MiNTnet (Atari) or a bsdsocket stack
+(Amiga) set up first.
+
+**Decision.** The first module manager runs on the player's desktop computer
+and writes into an OpenUA folder: a mounted SD or CF card, a hard-disk image
+mounted on the desktop, or an emulator's folder (`tools/modman`, Python 3 and
+tkinter only, so Windows, macOS and Linux need nothing installed beyond
+Python). An on-machine browser may follow; it would read the same catalog.
+
+- **The catalog is plain text** (`[id]` sections of `key = value`), so a
+  68000 could read it too. It points at where each module is already
+  published; OpenUA does not re-host fan modules unless an author agrees.
+- **An install never touches anything outside the module's own `.DSN`
+  folder.** A module's replacement art stays inside it, where the engine
+  looks first (ADR-0011).
+- **Names go on the card as upper-case 8.3**, the strictest of our file
+  systems (GEMDOS); Mac long art names take the 8.3 spelling the engine also
+  probes (ADR-0013).
+- **Reinstalling keeps the player's saved games**, over any the module
+  ships. A copy that fails part-way leaves nothing behind.
+- Old PKZIP 1.x "imploded" archives are read natively (Python's zipfile
+  cannot); StuffIt and LHA archives must be unpacked first and added as a
+  folder.
+
+**Not decided here:** where the catalog lives and which modules it lists.
