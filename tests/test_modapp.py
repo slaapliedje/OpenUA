@@ -32,9 +32,10 @@ GAME001 = b"THE TEST MODULE" + bytes(388 - 15)
 def module_zip():
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        z.writestr("Testmod.dsn/GAME001.DAT", GAME001)
-        z.writestr("Testmod.dsn/GEO005.DAT", b"g" * 1000)
-        z.writestr("Testmod.dsn/RESIZEPC.EXE", b"MZ")
+        # loose, like many fan archives: the design is named after the zip
+        z.writestr("GAME001.DAT", GAME001)
+        z.writestr("GEO005.DAT", b"g" * 1000)
+        z.writestr("RESIZEPC.EXE", b"MZ")
     return buf.getvalue()
 
 
@@ -129,7 +130,7 @@ def test_install_downloads_installs_and_marks_it(drv, server, folder):
     d = folder / "TESTMOD.DSN"
     assert (d / "GAME001.DAT").read_bytes() == GAME001
     assert not (d / "RESIZEPC.EXE").exists()
-    assert not (folder / "MODDL.ZIP").exists()
+    assert not (folder / "MODDL").exists()
     assert "pc/modules/t/testmod.zip|TESTMOD.DSN" in (folder / "MODINST.TXT").read_text()
     # the list row carries H (replaces art) and I (installed); the host
     # backend keeps only the first 47 characters of a drawn string

@@ -4,6 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <dirent.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 #include "platform.h"
 #include "modnet.h"
@@ -28,7 +31,7 @@ const char *ma_list_url  = MN_ARCHIVE_LIST;
 const char *ma_file_base = "http://" MN_ARCHIVE_HOST "/";
 
 #define LIST_FILE  "MODLIST.TXT"
-#define DL_FILE    "MODDL.ZIP"
+#define DL_DIR     "MODDL"            /* downloads, removed once installed */
 #define DONE_FILE  "MODINST.TXT"     /* "path|DESIGN.DSN" per install       */
 #define DETAIL_ROWS 4
 
@@ -147,10 +150,38 @@ static int load_list(ma_app *a)
 	return a->nmod > 0;
 }
 
+/* MODMAN.CFG, when there is one: "list=<url>" and "base=<url>" lines point
+ * the manager at a mirror (or, for the tests, a server of our own). */
+static void read_config(ma_app *a)
+{
+	static char list[256], base[256];
+	char path[300], line[300];
+	FILE *f;
+
+	path_in(a, "MODMAN.CFG", path, sizeof path);
+	if ((f = fopen(path, "r")) == 0)
+		return;
+	while (fgets(line, sizeof line, f)) {
+		char *nl = strpbrk(line, "\r\n");
+
+		if (nl)
+			*nl = 0;
+		if (strncmp(line, "list=", 5) == 0) {
+			snprintf(list, sizeof list, "%s", line + 5);
+			ma_list_url = list;
+		} else if (strncmp(line, "base=", 5) == 0) {
+			snprintf(base, sizeof base, "%s", line + 5);
+			ma_file_base = base;
+		}
+	}
+	fclose(f);
+}
+
 void ma_init(ma_app *a, const char *openua_dir)
 {
 	memset(a, 0, sizeof *a);
 	snprintf(a->dir, sizeof a->dir, "%s", openua_dir ? openua_dir : "");
+	read_config(a);
 	scan_installed(a);
 	if (load_list(a))
 		snprintf(a->status, sizeof a->status,
@@ -270,11 +301,38 @@ int ma_install_selected(ma_app *a)
 	m = &a->mod[a->sel];
 	snprintf(url, sizeof url, "%s%s", ma_file_base, m->path);
 	snprintf(msg, sizeof msg, "Downloading %s", m->title);
-	if (!fetch_to(a, url, DL_FILE, msg))
-		return 0;
-	path_in(a, DL_FILE, zip, sizeof zip);
+	/* Under the archive's own name, in a folder of its own: a module with no
+	 * design folder inside is named after its zip, so the download must
+	 * not be called anything else. */
+	{
+		const char *b = strrchr(m->path, '/');
+		char leaf[16], dl[300];
+		size_t k = 0;
+
+		b = b ? b + 1 : m->path;
+		while (b[k] && b[k] != '.' && k < 8) {
+			leaf[k] = (char)toupper((unsigned char)b[k]);
+			k++;
+		}
+		strcpy(leaf + k, ".ZIP");
+		path_in(a, DL_DIR, dl, sizeof dl);
+		(void)mkdir(dl, 0755);
+		snprintf(dl, sizeof dl, DL_DIR "%c%s", SEP, leaf);
+		if (!fetch_to(a, url, dl, msg)) {
+			path_in(a, DL_DIR, zip, sizeof zip);
+			rmdir(zip);
+			return 0;
+		}
+		path_in(a, dl, zip, sizeof zip);
+	}
 	rc = mi_install(zip, a->dir[0] ? a->dir : CWD, install_log, a, dsn, sizeof dsn);
 	remove(zip);
+	{
+		char dl[300];
+
+		path_in(a, DL_DIR, dl, sizeof dl);
+		rmdir(dl);                      /* only goes when it is empty */
+	}
 	scan_installed(a);
 	if (rc != 0)
 		return 0;                       /* its last line says why */

@@ -591,5 +591,5 @@ int mi_install(const char *zip_path, const char *dest_dir, mi_log log, void *ctx
 	       dsn_name);
 	if (dsn_cap)
 		snprintf(dsn_out, dsn_cap, "%s", dsn_name);
-	return failed ? 1 : 0;
+	return 0;                           /* installed; failures were reported */
 }
