@@ -17,10 +17,11 @@ real libraries to see the comparison).
     0x000..0x057                              0x000..0x057   unchanged
     0x058..0x067  eight little-endian words   0x058..0x05f   eight bytes
                   [0] race  [3] dropped (0x11 on most; FRUA has 0)
-    0x068..0x0f2  name, scores, combat stats  0x060..0x0ea
+    0x068..0x156  name, scores, combat stats, 0x060..0x14e
+                  memorized spells (0xce, 137 of them; FRUA's 0xc6 has 141)
                   flag byte 0xc7: bit 0x20 remapped (see FLAGS)
-    -                                         0x0eb..0x0ee   four bytes the Dark Queen lacks
-    0x0f3..0x181  spell lists (NPCs only)     0x0ef..0x17d
+    -                                         0x14f..0x152   four more memorized slots
+    0x157..0x181  spellbook bits and the rest 0x153..0x17d   (FRUA rec[339])
     0x182..0x18a  nine bytes FRUA lacks       -
     0x18b..0x198                              0x17e..0x18b
     0x199..0x19d  five bytes FRUA lacks       -
@@ -43,10 +44,13 @@ clear, and FRUA's ettin and fire giant have it set where the Dark Queen's
 (flags 0x0c) do not. So it is cleared, and set again on a creature carrying
 both 0x04 and 0x08. Two giants is thin evidence for the second half.
 
-WHERE THE FOUR BYTES GO is fixed only to within a run of zeros: every record
-in both libraries is empty between the two blocks, so the seam (0xeb) is a
-choice. Captain Daenor's spell block is what shows the second block sits four
-bytes later in FRUA.
+WHERE THE FOUR BYTES GO. The monster libraries fix it only to within a run of
+zeros (Captain Daenor's spell block shows the second block sits four bytes
+later in FRUA). The player characters fix it: the Dark Queen's memorized-spell
+list is 137 bytes at 0xce and its spellbook bits start at 0x157 in every mage
+(the .QCH files), where FRUA has 141 at rec[198] and its bits at rec[339]. So
+FRUA's list is four longer and the seam is the end of it. (It was 0xeb, inside
+the list; every monster converts to the same bytes either way.)
 
 ITEMS. The Dark Queen keeps a monster's items inline, FRUA keeps numbers into
 ITEM.DAT. The two games' ITEM.DAT have the same 254 entries in the same order,
@@ -138,8 +142,8 @@ def convert(q, items=None):
             notes.append("word %d has a high byte" % i)
     f[0x58] = RACE.get(q[0x58], 6)
     f[0x5b] = 0
-    f[0x60:0xeb] = q[0x68:0xf3]
-    f[0xef:0x17e] = q[0xf3:0x182]
+    f[0x60:0x14f] = q[0x68:0x157]
+    f[0x153:0x17e] = q[0x157:0x182]
     f[0xbf] &= 0xdf
     if f[0xbf] & 0x0c == 0x0c:
         f[0xbf] |= 0x20

@@ -84,9 +84,9 @@ def test_every_field_lands_where_the_map_says():
     assert f[0x5b] == 0                                  # the word FRUA has no use for
     assert f[0x60:0xbf] == q[0x68:0xc7]                  # name onward, eight bytes down
     assert f[0xbf] == 0x01                               # undead bit gone
-    assert f[0xc0:0xeb] == q[0xc8:0xf3]
-    assert f[0xeb:0xef] == bytes(4)                      # FRUA's four extra bytes
-    assert f[0xef:0x17e] == q[0xf3:0x182]
+    assert f[0xc0:0x14f] == q[0xc8:0x157]                # through the memorized spells
+    assert f[0x14f:0x153] == bytes(4)                    # FRUA's four extra spell slots
+    assert f[0x153:0x17e] == q[0x157:0x182]              # spellbook bits onward
     assert f[0x17e:0x18c] == q[0x18b:0x199]
     assert f[0x18c:] == bytes(450 - 0x18c)
     assert any("dropped" in n for n in notes)            # the bytes FRUA lacks were not empty
