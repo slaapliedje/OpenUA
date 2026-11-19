@@ -260,10 +260,10 @@ On the Amiga, opendir() wants "" for the current directory, not "." (CWD). The A
 (bsdsocket.library) and Atari (MiNTnet/STinG) `tcp:` transports go into
 retroplat UPSTREAM — coordinate with the RetroWP session before editing
 `transport_*.c` there, and work in your own worktree (~/dev/retroplat holds
-its uncommitted work). MiNTnet and Amiga are on retroplat master; the STinG
-backend is branch `atari-sting` (~/dev/retroplat-sting), awaiting review
-and the user's go-ahead, after which third_party/retroplat needs updating.
-Build modman against a branch with `make modman RETROPLAT=<path>`.
+its uncommitted work). MiNTnet, STinG (plain TOS, always compiled in) and
+Amiga are all on retroplat master and in third_party/retroplat (subtree
+pull from the `retroplat` remote). Build modman against a branch with
+`make modman RETROPLAT=<path>`.
 The STinG `tcp:` is verified on the rig in `data/work/sting-rig/` (ARAnyM +
 EmuTOS + STinG 1.26, no root; README there): `AUTORUN='C:\PROG.PRG' sh
 rig.sh up`, serve from its `www/`, the Atari reaches 192.168.251.1:8080.
