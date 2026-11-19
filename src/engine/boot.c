@@ -1551,6 +1551,8 @@ static void  l0ba2(void)
  * -12286 (facing); for levels <= 4 they are also copied into the
  * player record (offsets 37/38 map, 67/68 saved, 23/24). Finishes by
  * selecting play vs look mode (L0ba2 / L0b88) by level number. */
+static void gbs_new_game(void);   /* PORT: Gold Box script memory, at the end */
+
 static void  l0bbc(void)
 {
 	unsigned char *p = (unsigned char *)g_a5_28006;
@@ -1567,6 +1569,11 @@ static void  l0bbc(void)
 		}
 	} else {
 		/* fresh entry */
+		/* PORT (ADR-0023): a new game starts with empty script memory —
+		 * before jt198, which starts the area's script. Not the boot pass
+		 * (no party yet), and harmless on the second l0bbc. */
+		if (g_a5_long(-27928) != 0)
+			gbs_new_game();
 		if (g_a5_18485 == 0) {
 			unsigned char *ds;
 
@@ -107585,6 +107592,22 @@ static void gbs_state_load(int slot)
 	}
 	g_gbs_nmon = 0;
 	dbg_log_num("gbs: script memory restored, script ", (long)script);
+}
+
+/* A new game: forget everything the last one's scripts remembered. Before
+ * this, starting a new game in the same session (or after loading a save)
+ * kept the old game's doors, flags and story progress. */
+static void gbs_new_game(void)
+{
+	short p;
+
+	if (g_gbs_ready)
+		for (p = 0; p < 256; p++)
+			if (g_gbs_vm.page[p] != NULL)
+				jt399(g_gbs_vm.page[p], (short)512, 0);
+	g_gbs_resume = 0;
+	g_gbs_nmon = 0;
+	g_gbs_want_map = 0;
 }
 
 /* Is area slot `geo_num` a script area? Called from jt198 once the map is in. */
