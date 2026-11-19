@@ -8,7 +8,11 @@
 #include "modnet.h"
 
 #define MN_CONNECT_MS  20000UL
-#define MN_READ_MS     30000UL          /* silence this long = a dead line  */
+/* Silence this long = a dead line. TCP's retransmit backoff on a lossy
+ * link goes quiet for longer than 30 s: ARAnyM's emulated Ethernet under
+ * MiNTnet stalled one 1.6 MB download that way (a bare blocking read()
+ * sees the same gaps, so it is the link, not this code). */
+#define MN_READ_MS     60000UL
 #define MN_HEAD_MAX    4096
 #define MN_REDIRECTS   3
 #define MN_USER_AGENT  "OpenUA-modman/1"
