@@ -37,11 +37,16 @@
     (0x00020000L | ((long)G_BLACK << 12) | ((long)G_BLACK << 8) | 0x0080L | \
      ((long)IP_SOLID << 4) | (long)G_WHITE)
 
-static OBJECT g_dialog_tree[WP_DIALOG_OBJ_COUNT];
-static char   g_dialog_title_buf[40];
-static char   g_dialog_option_bufs[WP_DIALOG_MAX_OPTIONS][32];
-static char   g_dialog_ok_buf[] = "  OK  ";
-static char   g_dialog_cancel_buf[] = "Cancel";
+/* WP_AES_NEAR: form_do and objc_draw read the tree and its strings in
+   place, by a 16-bit address in bank $00, on gem4xe (gemcompat.h). They
+   were plain statics, which the large data model puts in far memory, so
+   a choice of two or more there would have drawn whatever sat at the
+   same offset in bank $00. */
+static WP_AES_NEAR OBJECT g_dialog_tree[WP_DIALOG_OBJ_COUNT];
+static WP_AES_NEAR char   g_dialog_title_buf[40];
+static WP_AES_NEAR char   g_dialog_option_bufs[WP_DIALOG_MAX_OPTIONS][32];
+static WP_AES_NEAR char   g_dialog_ok_buf[] = "  OK  ";
+static WP_AES_NEAR char   g_dialog_cancel_buf[] = "Cancel";
 
 /* ASCII-only, same limitation plat_utf8_to_native already documents
    elsewhere in this backend (draw_atari.c) -- a real ISO-8859/ATASCII
@@ -89,6 +94,7 @@ static wp_status build_dialog_tree(const u8 *title_utf8, u32 title_len,
                                     const u8 * const *option_labels_utf8,
                                     const u32 *option_label_lens,
                                     u32 option_count, u32 default_index,
+                                    wp_bool cancel_default,
                                     short *out_first_option, short *out_ok_obj,
                                     short *out_cancel_obj,
                                     short *out_cx, short *out_cy, short *out_cw, short *out_ch)
@@ -183,8 +189,10 @@ static wp_status build_dialog_tree(const u8 *title_utf8, u32 title_len,
     }
     y = (short)(y + char_h / 2);
 
+    /* The default button is OK, or Cancel when the caller made its own
+       "Cancel" the default (plat_dialog_choice): then Return cancels. */
     set_obj(ok_obj, cancel_obj, -1, -1, G_BUTTON,
-            (unsigned short)(OF_SELECTABLE | OF_DEFAULT | OF_EXIT), OS_NORMAL,
+            (unsigned short)(OF_SELECTABLE | OF_EXIT | (cancel_default ? 0 : OF_DEFAULT)), OS_NORMAL,
             g_dialog_ok_buf, (short)(2 * char_w), y, (short)(8 * char_w), char_h);
     /* OF_LASTOB on the final object of the ARRAY. The Compendium marks
        this "(Required!)" (p.6.16) and it was simply absent here: the AES
@@ -200,8 +208,8 @@ static wp_status build_dialog_tree(const u8 *title_utf8, u32 title_len,
        tree, built by different code, never got the same guard. It has
        one now -- see wp_atari_dialog_selfcheck. */
     set_obj(cancel_obj, root, -1, -1, G_BUTTON,
-            (unsigned short)(OF_SELECTABLE | OF_EXIT | OF_LASTOB), OS_NORMAL,
-            g_dialog_cancel_buf, (short)(content_w - 10 * char_w), y, (short)(8 * char_w), char_h);
+            (unsigned short)(OF_SELECTABLE | OF_EXIT | OF_LASTOB | (cancel_default ? OF_DEFAULT : 0)),
+            OS_NORMAL, g_dialog_cancel_buf, (short)(content_w - 10 * char_w), y, (short)(8 * char_w), char_h);
 
     g_dialog_tree[root].ob_height = (short)(y + char_h + char_h / 2);
 
@@ -299,6 +307,14 @@ wp_status plat_dialog_choice(plat_window *parent,
     short chosen_obj;
     wp_status st;
     u32 i;
+    /* platform.h's Cancel rule. A caller's own "Cancel" (the unsaved-
+       changes question has one) would otherwise be a radio row above a
+       Cancel button: it comes off the list, the button stands for it,
+       and the button is the default when the caller's Cancel was. */
+    const u8 *labels[WP_DIALOG_MAX_OPTIONS];
+    u32 lens[WP_DIALOG_MAX_OPTIONS];
+    u32 caller_cancel = option_count;     /* none */
+    u32 shown = 0, shown_default = 0;
 
     WP_UNUSED(parent);
 
@@ -309,8 +325,22 @@ wp_status plat_dialog_choice(plat_window *parent,
         return WP_OK;
     }
 
-    st = build_dialog_tree(title_utf8, title_len, option_labels_utf8, option_label_lens,
-                            option_count, default_index,
+    if (option_count > WP_DIALOG_MAX_OPTIONS) return WP_RANGE;
+    for (i = 0; i < option_count; i++) {
+        if (caller_cancel == option_count && option_label_lens[i] == 6u &&
+            memcmp(option_labels_utf8[i], "Cancel", 6) == 0) {
+            caller_cancel = i;
+            continue;
+        }
+        if (i == default_index) shown_default = shown;
+        labels[shown] = option_labels_utf8[i];
+        lens[shown] = option_label_lens[i];
+        shown++;
+    }
+
+    st = build_dialog_tree(title_utf8, title_len, labels, lens,
+                            shown, shown_default,
+                            (wp_bool)(caller_cancel < option_count && default_index == caller_cancel),
                             &first_option, &ok_obj, &cancel_obj, &cx, &cy, &cw, &ch);
     if (st != WP_OK) return st;
 
@@ -353,12 +383,15 @@ wp_status plat_dialog_choice(plat_window *parent,
        dialog was showing as selected. */
     if (out_index) *out_index = (default_index < option_count) ? default_index : 0;
     if (chosen_obj != cancel_obj && out_index) {
-        for (i = 0; i < option_count; i++) {
+        for (i = 0; i < shown; i++) {
             if (g_dialog_tree[first_option + i].ob_state & OS_SELECTED) {
-                *out_index = i;
+                /* Back to the caller's numbering, past its "Cancel". */
+                *out_index = (i >= caller_cancel) ? i + 1u : i;
                 break;
             }
         }
+        /* The fallback must not answer the Cancel row as a choice. */
+        if (*out_index == caller_cancel) *out_index = (caller_cancel == 0) ? 1u : 0u;
     }
 
     return WP_OK;
@@ -388,7 +421,7 @@ wp_bool wp_atari_dialog_selfcheck(void)
         lens[i] = (u32)strlen(labels_c[i]);
     }
 
-    if (build_dialog_tree((const u8 *)"Font Size", 9, labels, lens, 7, 2,
+    if (build_dialog_tree((const u8 *)"Font Size", 9, labels, lens, 7, 2, WP_FALSE,
                            &first_option, &ok_obj, &cancel_obj, &cx, &cy, &cw, &ch) != WP_OK) {
         return WP_FALSE;
     }
@@ -492,7 +525,7 @@ wp_bool wp_atari_dialog_selfcheck(void)
             two[i] = (const u8 *)two_c[i];
             two_lens[i] = (u32)strlen(two_c[i]);
         }
-        if (build_dialog_tree((const u8 *)"Dictate", 7, two, two_lens, 2, 0,
+        if (build_dialog_tree((const u8 *)"Dictate", 7, two, two_lens, 2, 0, WP_FALSE,
                                &f2, &ok2, &cancel2, &cx, &cy, &cw, &ch) != WP_OK) {
             return WP_FALSE;
         }

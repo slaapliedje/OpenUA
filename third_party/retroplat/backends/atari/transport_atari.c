@@ -5,16 +5,37 @@
 #include <mint/ostruct.h>
 #include <mint/mintbind.h>
 #include <mint/dcntl.h>
+#ifdef RP_ATARI_TCP
+#include <mint/cookie.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
+#include <signal.h>
+#endif
 #include "platform.h"
 
 /* Real RS-232 transport (T6.3) over the ST's AUX BIOS device (DEV_AUX=1,
    the classic Bconin/Bconout/Bconstat/Bcostat convention -- verified
-   against mint/ostruct.h, not guessed). No MiNTnet variant: FreeMiNT's
-   BSD-socket GEMDOS extensions (Fsocket et al, function numbers
-   0x160+) simply don't exist under plain TOS/EmuTOS, which is this
-   project's target -- see docs/atari-platform.md for how that was
-   confirmed. `endpoint` prefixes other than "serial:" (including
-   "tcp:") are WP_UNSUPPORTED here, honestly, not silently accepted. */
+   against mint/ostruct.h, not guessed).
+
+   "tcp:<host>:<port>" is a TCP client over MiNTnet, further down this
+   file, and it is OPT-IN AT COMPILE TIME: build with -DRP_ATARI_TCP to
+   get it. mintlib's resolver, socket and select code costs a GEM program
+   about 68 KB whether or not it ever opens a connection, which is RAM a
+   1 MB plain-TOS machine cannot spare for code it cannot run; a program
+   that wants the network says so. Without the define, "tcp:" answers
+   WP_UNSUPPORTED exactly as it always has. With it, FreeMiNT's socket
+   calls (Fsocket et al, GEMDOS 0x160+), which do not exist under plain
+   TOS/EmuTOS, are gated at run time on the MiNT cookie: no cookie (or
+   MiNT with no network stack loaded) is WP_UNSUPPORTED -- never a crash
+   or a hang on a plain machine. Other prefixes are WP_UNSUPPORTED too,
+   honestly, not silently accepted. */
 
 /* endpoint format: "serial:<device>:<baud>[:<flow>]" (platform.h's own
    doc comment already establishes the first three fields). <device> is
@@ -148,7 +169,12 @@ static const char *last_colon_before(const char *s, const char *end)
    like one. TIOCMGET on the node reports CTS=1: the wiring is good and
    the handshake is satisfied. Anything in this file's history implying
    a cable fault is superseded by that measurement. */
+/* Every transport this file hands out starts with its kind, so the four
+   public functions can tell a serial line from a socket. */
+enum { TRANSPORT_SERIAL = 1, TRANSPORT_TCP = 2 };
+
 typedef struct {
+    int     kind;      /* TRANSPORT_SERIAL */
     wp_bool opened;
     short   fd;        /* MiNT device-node handle, or -1 for the BIOS path */
 } atari_transport;
@@ -198,8 +224,8 @@ static short open_serial_node(const char *path)
     return (short)h;
 }
 
-wp_status plat_transport_open(const char *endpoint, u32 connect_timeout_ms,
-                               plat_transport **out)
+static wp_status serial_open(const char *endpoint, u32 connect_timeout_ms,
+                             plat_transport **out)
 {
     atari_transport *t;
     const char *rest;
@@ -234,6 +260,7 @@ wp_status plat_transport_open(const char *endpoint, u32 connect_timeout_ms,
 
     t = (atari_transport *)mem_alloc((u32)sizeof(atari_transport));
     if (t == NULL) return WP_NOMEM;
+    t->kind = TRANSPORT_SERIAL;
     t->opened = WP_TRUE;
     t->fd = ATARI_NO_NODE;
 
@@ -297,17 +324,17 @@ wp_status plat_transport_open(const char *endpoint, u32 connect_timeout_ms,
    assembling a multi-byte frame (offload/transport/wire.c) need fewer
    plat_transport_read round trips than a strict one-byte-per-call
    implementation would cost them. */
-wp_status plat_transport_read(plat_transport *t, u8 *out, u32 out_cap,
-                               u32 timeout_ms, u32 *out_len)
+static wp_status serial_read(plat_transport *t, u8 *out, u32 out_cap,
+                             u32 timeout_ms, u32 *out_len)
 {
     atari_transport *at = (atari_transport *)t;
-    u32 deadline;
+    u32 t0;
     u32 n = 0;
 
     if (out_len) *out_len = 0;
     if (out_cap == 0) return WP_OK;
 
-    deadline = plat_ticks_ms() + timeout_ms;
+    t0 = plat_ticks_ms();
 
     /* Node path: Finstat is the non-blocking "how many bytes are
        waiting" poll, so Fread is only ever asked for bytes that are
@@ -323,7 +350,7 @@ wp_status plat_transport_read(plat_transport *t, u8 *out, u32 out_cap,
             avail = Finstat(at->fd);
             if (avail > 0) break;
             if (avail < 0) return WP_ERR;
-            if (plat_ticks_ms() >= deadline) return WP_TIMEOUT;
+            if (PLAT_TICKS_PASSED(t0, timeout_ms)) return WP_TIMEOUT;
         }
         if (avail > (long)out_cap) avail = (long)out_cap;
         got = Fread(at->fd, avail, out);
@@ -333,7 +360,7 @@ wp_status plat_transport_read(plat_transport *t, u8 *out, u32 out_cap,
     }
 
     while (Bconstat(DEV_AUX) == 0) {
-        if (plat_ticks_ms() >= deadline) return WP_TIMEOUT;
+        if (PLAT_TICKS_PASSED(t0, timeout_ms)) return WP_TIMEOUT;
     }
 
     while (n < out_cap && Bconstat(DEV_AUX) != 0) {
@@ -348,8 +375,8 @@ wp_status plat_transport_read(plat_transport *t, u8 *out, u32 out_cap,
    poll, mirroring Bconstat. Each byte gets its own fresh timeout_ms
    budget, matching platform/host/transport_host.c's per-poll-call
    convention for plat_transport_write. */
-wp_status plat_transport_write(plat_transport *t, const u8 *data, u32 len,
-                                u32 timeout_ms)
+static wp_status serial_write(plat_transport *t, const u8 *data, u32 len,
+                              u32 timeout_ms)
 {
     atari_transport *at = (atari_transport *)t;
     u32 i;
@@ -363,37 +390,259 @@ wp_status plat_transport_write(plat_transport *t, const u8 *data, u32 len,
        clock down. */
     if (at != NULL && at->fd != ATARI_NO_NODE) {
         u32 done = 0;
-        u32 deadline = plat_ticks_ms() + timeout_ms;
+        u32 t0 = plat_ticks_ms();
 
         while (done < len) {
             long w = Fwrite(at->fd, (long)(len - done), data + done);
 
             if (w < 0) return WP_ERR;
             if (w == 0) {
-                if (plat_ticks_ms() >= deadline) return WP_TIMEOUT;
+                if (PLAT_TICKS_PASSED(t0, timeout_ms)) return WP_TIMEOUT;
                 continue;
             }
             done += (u32)w;
-            deadline = plat_ticks_ms() + timeout_ms;
+            t0 = plat_ticks_ms();
         }
         return WP_OK;
     }
 
     for (i = 0; i < len; i++) {
-        u32 deadline = plat_ticks_ms() + timeout_ms;
+        u32 t0 = plat_ticks_ms();
 
         while (Bcostat(DEV_AUX) == 0) {
-            if (plat_ticks_ms() >= deadline) return WP_TIMEOUT;
+            if (PLAT_TICKS_PASSED(t0, timeout_ms)) return WP_TIMEOUT;
         }
         Bconout(DEV_AUX, data[i]);
     }
     return WP_OK;
 }
 
-void plat_transport_close(plat_transport *t)
+static void serial_close(plat_transport *t)
 {
     atari_transport *at = (atari_transport *)t;
 
     if (at != NULL && at->fd != ATARI_NO_NODE) Fclose(at->fd);
     mem_free(t);
+}
+
+/* ------------------------------------------------------------------ */
+/* tcp:<host>:<port> over MiNTnet                                       */
+/* ------------------------------------------------------------------ */
+
+#ifdef RP_ATARI_TCP
+/* MiNT's own sockets, through mintlib's BSD calls -- which exist in the
+   library on any build but in the system only under MiNT, so the MiNT
+   cookie is the gate and nothing socket-shaped is called without it. The
+   socket is non-blocking and every wait is a select() with the caller's
+   timeout. A dotted address ("192.168.1.10") is taken as it is; only a
+   real name goes to the resolver, and THAT CAN BLOCK past any timeout
+   (gethostbyname has none) when the configured DNS server is
+   unreachable. A peer that has gone away makes send() raise SIGPIPE,
+   whose default action under MiNT ends the program, and mintlib has no
+   MSG_NOSIGNAL: so the first connection sets SIGPIPE to ignored if it is
+   still at its default (a program's own handler is left alone), and the
+   write sees EPIPE -- WP_ERR, as platform.h promises. (STinG, the other
+   TCP stack an ST may run, has an API of its own and is not here yet.) */
+typedef struct {
+    int kind;          /* TRANSPORT_TCP */
+    int fd;
+} atari_tcp;
+
+static wp_bool have_mint(void)
+{
+    long v = 0;
+
+    return Getcookie(C_MiNT, &v) == C_FOUND;
+}
+
+/* Wait until fd is readable (want_write 0) or writable (1), up to ms.
+   1 ready, 0 timed out, -1 failed. */
+static int tcp_wait(int fd, int want_write, u32 ms)
+{
+    u32 t0 = plat_ticks_ms();
+
+    for (;;) {
+        fd_set set;
+        struct timeval tv;
+        u32 left = ms - PLAT_TICKS_SINCE(t0);
+        int r;
+
+        if (PLAT_TICKS_PASSED(t0, ms)) left = 0;
+        FD_ZERO(&set);
+        FD_SET(fd, &set);
+        tv.tv_sec = (long)(left / 1000u);
+        tv.tv_usec = (long)((left % 1000u) * 1000u);
+        r = select(fd + 1, want_write ? NULL : &set, want_write ? &set : NULL, NULL, &tv);
+        if (r < 0 && errno == EINTR && !PLAT_TICKS_PASSED(t0, ms))
+            continue;               /* a signal: wait out what is left */
+        return r > 0 ? 1 : (r == 0 ? 0 : -1);
+    }
+}
+
+static void ignore_sigpipe_once(void)
+{
+    static wp_bool done = WP_FALSE;
+    void (*old)(int);
+
+    if (done) return;
+    done = WP_TRUE;
+    old = signal(SIGPIPE, SIG_IGN);
+    if (old != SIG_DFL && old != SIG_ERR)
+        signal(SIGPIPE, old);       /* the program has its own: keep it */
+}
+
+static wp_status tcp_open(const char *hostport, u32 connect_timeout_ms,
+                          plat_transport **out)
+{
+    char host[128];
+    const char *colon = strrchr(hostport, ':');
+    struct hostent *he;
+    struct sockaddr_in sa;
+    atari_tcp *t;
+    long port = 0;
+    const char *p;
+    size_t n;
+    int err = 0;
+    socklen_t errlen = (socklen_t)sizeof(err);
+
+    if (!have_mint()) return WP_UNSUPPORTED;
+    memset(&sa, 0, sizeof(sa));
+    if (colon == NULL || colon == hostport) return WP_ERR;
+    n = (size_t)(colon - hostport);
+    if (n >= sizeof(host)) return WP_ERR;
+    memcpy(host, hostport, n);
+    host[n] = '\0';
+    for (p = colon + 1; *p >= '0' && *p <= '9' && port <= 65535L; p++)
+        port = port * 10 + (*p - '0');
+    if (*p != '\0' || port <= 0 || port > 65535L) return WP_ERR;
+
+    {
+        /* numbers first: a LAN address never touches the resolver */
+        unsigned long a = inet_addr(host);
+
+        if (a == (unsigned long)INADDR_NONE) {
+            he = gethostbyname(host);
+            if (he == NULL || he->h_length != 4) return WP_ERR;
+            memcpy(&a, he->h_addr, 4);
+        }
+        memcpy(&sa.sin_addr, &a, 4);
+    }
+
+    t = (atari_tcp *)mem_alloc((u32)sizeof(atari_tcp));
+    if (t == NULL) return WP_NOMEM;
+    t->kind = TRANSPORT_TCP;
+    t->fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (t->fd < 0) {
+        mem_free(t);
+        /* MiNT without a network stack loaded */
+        return errno == ENOSYS || errno == EINVAL ? WP_UNSUPPORTED : WP_ERR;
+    }
+    fcntl(t->fd, F_SETFL, fcntl(t->fd, F_GETFL, 0) | O_NONBLOCK);
+    ignore_sigpipe_once();
+
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons((unsigned short)port);
+    if (connect(t->fd, (struct sockaddr *)&sa, sizeof(sa)) < 0) {
+        if (errno != EINPROGRESS ||
+            tcp_wait(t->fd, 1, connect_timeout_ms) != 1 ||
+            getsockopt(t->fd, SOL_SOCKET, SO_ERROR, &err, &errlen) < 0 ||
+            err != 0) {
+            close(t->fd);
+            mem_free(t);
+            return WP_ERR;
+        }
+    }
+    *out = (plat_transport *)t;
+    return WP_OK;
+}
+
+/* platform.h: wait up to timeout_ms for the first byte, then hand back
+   what is there; bytes sent before a close come first (recv returns them
+   before it returns 0), and WP_ERR only once none are left. */
+static wp_status tcp_read(atari_tcp *t, u8 *out, u32 out_cap, u32 timeout_ms,
+                          u32 *out_len)
+{
+    int w = tcp_wait(t->fd, 0, timeout_ms);
+    long n;
+
+    if (w == 0) return WP_TIMEOUT;
+    if (w < 0) return WP_ERR;
+    n = recv(t->fd, out, (size_t)out_cap, 0);
+    if (n < 0) return errno == EAGAIN ? WP_TIMEOUT : WP_ERR;
+    if (n == 0) return WP_ERR;          /* closed, and nothing left */
+    if (out_len) *out_len = (u32)n;
+    return WP_OK;
+}
+
+/* platform.h: WP_TIMEOUT means no progress for timeout_ms -- each wait
+   starts again after bytes go out. */
+static wp_status tcp_write(atari_tcp *t, const u8 *data, u32 len, u32 timeout_ms)
+{
+    u32 done = 0;
+
+    while (done < len) {
+        int w = tcp_wait(t->fd, 1, timeout_ms);
+        long n;
+
+        if (w == 0) return WP_TIMEOUT;
+        if (w < 0) return WP_ERR;
+        n = send(t->fd, data + done, (size_t)(len - done), 0);
+        if (n < 0) {
+            if (errno == EAGAIN) continue;
+            return WP_ERR;
+        }
+        done += (u32)n;
+    }
+    return WP_OK;
+}
+#endif /* RP_ATARI_TCP */
+
+/* ------------------------------------------------------------------ */
+/* The four functions platform.h declares: by the endpoint's prefix,     */
+/* then by the handle's kind.                                           */
+/* ------------------------------------------------------------------ */
+
+wp_status plat_transport_open(const char *endpoint, u32 connect_timeout_ms,
+                               plat_transport **out)
+{
+#ifdef RP_ATARI_TCP
+    if (strncmp(endpoint, "tcp:", 4) == 0)
+        return tcp_open(endpoint + 4, connect_timeout_ms, out);
+#endif
+    return serial_open(endpoint, connect_timeout_ms, out);
+}
+
+wp_status plat_transport_read(plat_transport *t, u8 *out, u32 out_cap,
+                               u32 timeout_ms, u32 *out_len)
+{
+    if (out_len) *out_len = 0;
+#ifdef RP_ATARI_TCP
+    if (t != NULL && *(int *)t == TRANSPORT_TCP) {
+        if (out_cap == 0) return WP_OK;
+        return tcp_read((atari_tcp *)t, out, out_cap, timeout_ms, out_len);
+    }
+#endif
+    return serial_read(t, out, out_cap, timeout_ms, out_len);
+}
+
+wp_status plat_transport_write(plat_transport *t, const u8 *data, u32 len,
+                                u32 timeout_ms)
+{
+#ifdef RP_ATARI_TCP
+    if (t != NULL && *(int *)t == TRANSPORT_TCP)
+        return tcp_write((atari_tcp *)t, data, len, timeout_ms);
+#endif
+    return serial_write(t, data, len, timeout_ms);
+}
+
+void plat_transport_close(plat_transport *t)
+{
+#ifdef RP_ATARI_TCP
+    if (t != NULL && *(int *)t == TRANSPORT_TCP) {
+        close(((atari_tcp *)t)->fd);
+        mem_free(t);
+        return;
+    }
+#endif
+    serial_close(t);
 }

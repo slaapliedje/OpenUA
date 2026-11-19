@@ -191,7 +191,7 @@ wp_status plat_transport_read(plat_transport *t, u8 *out, u32 out_cap,
 {
     mac_transport *mt = (mac_transport *)t;
     ParamBlockRec pb;
-    u32 deadline;
+    u32 t0;
 
     if (out_len) *out_len = 0;
     if (out_cap == 0) return WP_OK;
@@ -215,9 +215,9 @@ wp_status plat_transport_read(plat_transport *t, u8 *out, u32 out_cap,
        async request queues and completes without hanging); the exact
        partial-read timing isn't independently confirmed against real
        hardware or a live gateway this pass -- see docs/mac-platform.md. */
-    deadline = plat_ticks_ms() + timeout_ms;
+    t0 = plat_ticks_ms();
     while (pb.ioParam.ioResult == WP_MAC_IO_IN_PROGRESS) {
-        if (plat_ticks_ms() >= deadline) {
+        if (PLAT_TICKS_PASSED(t0, timeout_ms)) {
             mac_kill_io(mt->in_ref);
             while (pb.ioParam.ioResult == WP_MAC_IO_IN_PROGRESS) { }
             return WP_TIMEOUT;
@@ -229,34 +229,46 @@ wp_status plat_transport_read(plat_transport *t, u8 *out, u32 out_cap,
     return WP_OK;
 }
 
+/* platform.h's write timeout means NO PROGRESS for timeout_ms, as on
+   every backend; one PBWriteAsync for the whole buffer made it one
+   deadline for the whole frame instead, which a big frame on a slow line
+   cannot meet. So pieces of WP_MAC_WRITE_PIECE, each with its own
+   timeout_ms: a stalled line still times out, a slow one does not. */
+#define WP_MAC_WRITE_PIECE 128u
+
 wp_status plat_transport_write(plat_transport *t, const u8 *data, u32 len,
                                 u32 timeout_ms)
 {
     mac_transport *mt = (mac_transport *)t;
     ParamBlockRec pb;
-    u32 deadline;
+    u32 done = 0;
 
     if (mt == NULL) return WP_ERR;
-    if (len == 0) return WP_OK;
 
-    memset(&pb, 0, sizeof(pb));
-    pb.ioParam.ioRefNum = mt->out_ref;
-    pb.ioParam.ioBuffer = (Ptr)data;
-    pb.ioParam.ioReqCount = (long)len;
-    pb.ioParam.ioResult = WP_MAC_IO_IN_PROGRESS;
+    while (done < len) {
+        u32 piece = len - done;
+        u32 t0;
 
-    PBWriteAsync(&pb);
+        if (piece > WP_MAC_WRITE_PIECE) piece = WP_MAC_WRITE_PIECE;
+        memset(&pb, 0, sizeof(pb));
+        pb.ioParam.ioRefNum = mt->out_ref;
+        pb.ioParam.ioBuffer = (Ptr)(data + done);
+        pb.ioParam.ioReqCount = (long)piece;
+        pb.ioParam.ioResult = WP_MAC_IO_IN_PROGRESS;
 
-    deadline = plat_ticks_ms() + timeout_ms;
-    while (pb.ioParam.ioResult == WP_MAC_IO_IN_PROGRESS) {
-        if (plat_ticks_ms() >= deadline) {
-            mac_kill_io(mt->out_ref);
-            while (pb.ioParam.ioResult == WP_MAC_IO_IN_PROGRESS) { }
-            return WP_TIMEOUT;
+        PBWriteAsync(&pb);
+
+        t0 = plat_ticks_ms();
+        while (pb.ioParam.ioResult == WP_MAC_IO_IN_PROGRESS) {
+            if (PLAT_TICKS_PASSED(t0, timeout_ms)) {
+                mac_kill_io(mt->out_ref);
+                while (pb.ioParam.ioResult == WP_MAC_IO_IN_PROGRESS) { }
+                return WP_TIMEOUT;
+            }
         }
+        if (pb.ioParam.ioResult != noErr) return WP_ERR;
+        done += piece;
     }
-
-    if (pb.ioParam.ioResult != noErr) return WP_ERR;
     return WP_OK;
 }
 

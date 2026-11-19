@@ -65,6 +65,28 @@ An absent cross-toolchain skips rather than fails.
 
 `backends/win32/` has no gate yet.
 
+## The byte transport and TCP
+
+`plat_transport_open` takes an endpoint by prefix. `serial:` works on the
+ST, the Amiga, the Mac and DOS. `tcp:<host>:<port>` is a TCP client:
+
+- **host**: POSIX sockets, always.
+- **Amiga**: `bsdsocket.library` (AmiTCP, Miami, Roadshow, an emulator's
+  bsdsocket emulation), always compiled in -- the calls go through the
+  library, so it costs about 2 KB. The library is opened with the
+  connection; without a TCP stack, the open answers `WP_UNSUPPORTED`.
+- **Atari**: MiNTnet, and **opt-in: build with `-DRP_ATARI_TCP`**.
+  mintlib's resolver, socket and select code costs a GEM program about
+  68 KB even if it never connects, which a 1 MB plain-TOS machine cannot
+  spare. Without the define `tcp:` answers `WP_UNSUPPORTED` as before;
+  with it, the MiNT cookie gates the socket calls at run time (plain TOS,
+  EmuTOS, or MiNT with no network stack: `WP_UNSUPPORTED`). STinG is not
+  covered.
+
+A dotted address skips the resolver; a real name is looked up with
+`gethostbyname`, which has no timeout and can block when the DNS server is
+unreachable. Everything else waits at most the caller's timeout.
+
 ## The Atari 8-bit, through gem4xe
 
 [gem4xe](https://github.com/slaapliedje/gem4xe) is GEM for a 65816-accelerated

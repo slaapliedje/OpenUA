@@ -7,6 +7,7 @@
 #include <poll.h>
 #include <string.h>
 #include <errno.h>
+#include <signal.h>
 #include "platform.h"
 
 /* plat_transport is an opaque handle per platform.h; this struct is
@@ -167,8 +168,14 @@ wp_status plat_transport_read(plat_transport *t, u8 *out, u32 out_cap,
     pr = poll(&pfd, 1, (int)timeout_ms);
     if (pr == 0) return WP_TIMEOUT;
     if (pr < 0) return WP_ERR;
-    if (pfd.revents & (POLLHUP | POLLERR)) return WP_ERR;
-    if (!(pfd.revents & POLLIN)) return WP_TIMEOUT;
+    /* Data before hang-up (platform.h): a peer that sends its last bytes
+       and closes -- every HTTP/1.0 server, a gateway answering and
+       exiting -- gives POLLIN|POLLHUP together, and those bytes are
+       still to be read. Only a hang-up with nothing left is WP_ERR. */
+    if (!(pfd.revents & POLLIN)) {
+        if (pfd.revents & (POLLHUP | POLLERR)) return WP_ERR;
+        return WP_TIMEOUT;
+    }
 
     n = read(ht->fd, out, (size_t)out_cap);
     if (n < 0) return WP_ERR;
@@ -176,6 +183,29 @@ wp_status plat_transport_read(plat_transport *t, u8 *out, u32 out_cap,
 
     if (out_len) *out_len = (u32)n;
     return WP_OK;
+}
+
+/* A write to a socket or FIFO whose reader has gone raises SIGPIPE, and
+   its default action ends the process -- the whole test run, or a host
+   build of the program, killed by a gateway exiting. platform.h promises
+   WP_ERR instead. A socket can say so per call (MSG_NOSIGNAL); a FIFO
+   cannot, so the first write sets SIGPIPE to ignored -- only if the
+   program left it at the default, so a program that chose a handler
+   keeps it -- and write() then fails with EPIPE. */
+static void ignore_sigpipe_once(void)
+{
+    static int done = 0;
+    struct sigaction now;
+
+    if (done) return;
+    done = 1;
+    if (sigaction(SIGPIPE, NULL, &now) == 0 && now.sa_handler == SIG_DFL) {
+        struct sigaction ign;
+        memset(&ign, 0, sizeof(ign));
+        ign.sa_handler = SIG_IGN;
+        sigemptyset(&ign.sa_mask);
+        sigaction(SIGPIPE, &ign, NULL);
+    }
 }
 
 wp_status plat_transport_write(plat_transport *t, const u8 *data, u32 len,
@@ -187,6 +217,7 @@ wp_status plat_transport_write(plat_transport *t, const u8 *data, u32 len,
     ssize_t n;
     u32 written = 0;
 
+    ignore_sigpipe_once();
     while (written < len) {
         pfd.fd = ht->fd;
         pfd.events = POLLOUT;

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 #include <stddef.h>
+#include <string.h>
 #include "platform.h"
 #include "window_host.h"
 
@@ -80,8 +81,6 @@ wp_status plat_dialog_choice(plat_window *parent,
         g_last_title[i] = (char)title_utf8[i];
     }
     g_last_title[i] = '\0';
-    WP_UNUSED(option_labels_utf8);
-    WP_UNUSED(option_label_lens);
     if (option_count == 0) return WP_RANGE;
     if (out_cancelled) *out_cancelled = WP_FALSE;
     if (out_index) *out_index = (default_index < option_count) ? default_index : 0;
@@ -90,6 +89,11 @@ wp_status plat_dialog_choice(plat_window *parent,
         g_choice_head = (g_choice_head + 1) % HOST_CHOICE_QUEUE;
         g_choice_count--;
         if (pick >= 0 && out_index && (u32)pick < option_count) *out_index = (u32)pick;
+    }
+    /* platform.h's Cancel rule: the caller's own "Cancel" is the way out. */
+    if (out_index && option_count > 1 && option_label_lens[*out_index] == 6u &&
+        memcmp(option_labels_utf8[*out_index], "Cancel", 6) == 0) {
+        if (out_cancelled) *out_cancelled = WP_TRUE;
     }
     return WP_OK;
 }

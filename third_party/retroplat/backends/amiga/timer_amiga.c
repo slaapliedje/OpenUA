@@ -35,7 +35,15 @@ u32 plat_ticks_ms(void)
         g_base_ticks = t;
         g_have_base = WP_TRUE;
     }
-    return (t - g_base_ticks) * 1000UL / (u32)TICKS_PER_SECOND;
+    /* Divide first: (d * 1000) overflows u32 once d passes 4.29 million
+       ticks -- under a day at 50 a second -- and the count then jumps
+       instead of wrapping cleanly (platform.h). Split this way it is
+       d * 1000 / TICKS_PER_SECOND modulo 2^32, which does. */
+    {
+        u32 d = t - g_base_ticks;
+        return (d / (u32)TICKS_PER_SECOND) * 1000UL
+             + ((d % (u32)TICKS_PER_SECOND) * 1000UL) / (u32)TICKS_PER_SECOND;
+    }
 }
 
 void plat_sleep_ms(u32 ms)

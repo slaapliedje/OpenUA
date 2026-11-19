@@ -56,6 +56,57 @@ static long ditl_item(unsigned char *h, long at, short top, short left, short bo
     return at;
 }
 
+/* The choice dialog's keys and default button. ModalDialog's own filter
+   maps Return and Enter to item 1, which here is the FIRST OPTION -- for
+   "Unsaved changes will be lost." that was "Discard changes", so Return,
+   the key a hurried writer presses, threw the work away (found on target
+   under System 7.5.3, M20). The caller's default_index is the default
+   instead, outlined the way a Mac default button is; Esc and Cmd-period
+   cancel. A modal dialog is the only one up, so statics carry it. */
+static INTEGER g_choice_default;     /* 1-based item, 0 = none */
+static INTEGER g_choice_cancel;      /* 1-based item, 0 = none */
+
+static void choice_outline(DialogPtr d)
+{
+    INTEGER type;
+    Handle h;
+    Rect r;
+    PenState ps;
+
+    if (g_choice_default == 0) return;
+    GetDialogItem(d, g_choice_default, &type, &h, &r);
+    GetPenState(&ps);
+    PenSize(3, 3);
+    InsetRect(&r, -4, -4);
+    FrameRoundRect(&r, 16, 16);
+    SetPenState(&ps);
+}
+
+static pascal Boolean choice_filter(DialogPtr d, EventRecord *e, INTEGER *item)
+{
+    char ch;
+
+    if (e->what == updateEvt && (DialogPtr)e->message == d) {
+        BeginUpdate(d);
+        DrawDialog(d);
+        choice_outline(d);
+        EndUpdate(d);
+        *item = 0;
+        return true;
+    }
+    if (e->what != keyDown && e->what != autoKey) return false;
+    ch = (char)(e->message & charCodeMask);
+    if (ch == 0x0D || ch == 0x03) {                       /* Return, Enter */
+        *item = g_choice_default;
+        return true;
+    }
+    if (ch == 0x1B || ((e->modifiers & cmdKey) && ch == '.')) {   /* Esc, Cmd-. */
+        *item = g_choice_cancel;
+        return true;
+    }
+    return false;
+}
+
 wp_status plat_dialog_choice(plat_window *parent,
                               const u8 *title_utf8, u32 title_len,
                               const u8 * const *option_labels_utf8,
@@ -76,9 +127,21 @@ wp_status plat_dialog_choice(plat_window *parent,
     INTEGER hit = 0;
 
     WP_UNUSED(parent);
-    WP_UNUSED(default_index);
     if (option_count == 0) return WP_RANGE;
     if (title_len > 255) title_len = 255;
+
+    /* A caller that already offers "Cancel" (the unsaved-changes
+       question does) gets no second one: two Cancel buttons were drawn
+       under System 7.5.3. Its own button is then the one Esc presses,
+       and it answers cancelled (platform.h's Cancel rule). */
+    g_choice_cancel = 0;
+    for (i = 0; i < option_count; i++) {
+        if (option_label_lens[i] == 6u && memcmp(option_labels_utf8[i], k_cancel, 6) == 0) {
+            with_cancel = WP_FALSE;
+            g_choice_cancel = (INTEGER)(i + 1u);
+            break;
+        }
+    }
 
     /* As many options as the screen has room for (a Mac Plus's 342
        lines take about ten). */
@@ -148,13 +211,16 @@ wp_status plat_dialog_choice(plat_window *parent,
         return WP_NOMEM;
     }
     SetPort(dlg);
+    if (with_cancel) g_choice_cancel = (INTEGER)buttons;
+    else if (g_choice_cancel > (INTEGER)buttons) g_choice_cancel = 0;   /* trimmed off */
+    g_choice_default = (default_index < buttons) ? (INTEGER)(default_index + 1u) : 0;
     do {
-        ModalDialog(NULL, &hit);
+        ModalDialog(NewModalFilterUPP(choice_filter), &hit);
     } while (hit < 1 || hit > (INTEGER)buttons);
     DisposeDialog(dlg);   /* the item list with it */
     SetPort(saved);
 
-    if (with_cancel && (u32)hit == buttons) {
+    if (hit == g_choice_cancel) {         /* ours, or the caller's "Cancel" */
         if (out_cancelled) *out_cancelled = WP_TRUE;
         return WP_OK;
     }
