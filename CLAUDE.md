@@ -318,8 +318,11 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   the hall after a load, which restarted the area's script on top of the
   restored state (`g_gbs_resume`); and `l0bbc` puts the party back at
   rec[67]/[68]/[17] every time play is re-entered, so a script's move was
-  undone by the first Encamp until `gbs_apply` wrote those too. Script
-  memory is NOT cleared when a new game starts in the same session.
+  undone by the first Encamp until `gbs_apply` wrote those too. A new
+  game clears script memory (`gbs_new_game`, from l0bbc's fresh-entry
+  branch, before jt198 starts the area's script). To test it in one
+  session: camp, SAVE, answer "Exit play?" yes, then Play, re-add the
+  party (the hall empties it), Begin.
 - **A level change raises -5221, and the Mac does NOT reload on it**
   (jt948 L4c8e..L4cd0 refreshes, clears it, walks on; l5676 already
   loaded the level). The port broke to the outer reload, whose l0bbc puts
