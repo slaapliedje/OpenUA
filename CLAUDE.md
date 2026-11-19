@@ -331,9 +331,17 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   -> party place, +0x80 down, 0xff absent; Greybox's LOAD_PIECES is
   Champions'); DUMP is FRUA's jt19(0,1). An NPC takes a cg_pool slot (the
   roster walks stop at any node outside it) and save_roster writes no
-  .CCH for it.
-  **Still skipped** (the core counts them as unhandled and moves on):
-  FIND_SPECIAL, SPELL, FIND_ITEM, ROB.
+  .CCH for it. ROB, SPELL, FIND_ITEM and FIND_SPECIAL are read out of
+  DQK.EXE too; the front of DQK's character record lines up with FRUA's
+  byte for byte (money rec[76..81], items rec[8] with the item record at
+  node[40], affects rec[4] with the id in byte 0, memorized spells
+  rec[198]), and the spell and affect numbers are FRUA's.
+  **Not mapped yet:** the character cells 0x401..0x800. DQK reads and
+  writes them through a 58-case switch onto the selected character (DQK
+  0x406cd/0x40b57: 0x41f+n is memorized spell n, 0x54c steel, ...); here
+  they are plain script memory, so a script that uses up a spell by
+  writing 255 there, or checks a member's steel, does not see the record.
+  No Dark Queen script uses DESTROY_ITEMS.
   Census: walk every ECLnnn.DAT with tools/ecl.py's Block.walk(). PROGRAM is
   read out of DQK.EXE (0x328cf, a ten-entry jump table): 0 training, 1
   the copy-protection overlay (a no-op here), 3 an energy drain on the

@@ -107205,6 +107205,119 @@ static unsigned short gbs_find_npc(const ecl_vm *vm, const ecl_opnd *a)
 	return 0xff;
 }
 
+/* ROB who, percent, item_percent (DQK 0x42bb8). who 0 robs the selected
+ * character, anything else every member. Each of the three money words,
+ * DQK's 0x4c/0x4e/0x50 and FRUA's rec[76]/[78]/[80] (platinum, gems,
+ * jewelry: the record's front half lines up byte for byte), keeps
+ * (100 - percent)% of itself, in 32-bit arithmetic. The item share
+ * (DQK 0x41511) rolls d100 per carried item against item_percent and drops
+ * the item on a hit; every Dark Queen use passes 0, so it never takes
+ * anything and is not carried here. */
+static void gbs_rob_one(unsigned char *r, short keep)
+{
+	short k;
+
+	for (k = 0; k < 3; k++) {
+		unsigned short *w = (unsigned short *)(void *)(r + 76 + k * 2);
+
+		*w = (unsigned short)(((long)keep * (long)*w) / 100L);
+	}
+}
+
+static void gbs_rob(short who, short percent)
+{
+	short keep = (short)(100 - (unsigned char)percent);
+	long  m;
+
+	if ((unsigned char)who == 0) {
+		if (g_a5_long(-27932) != 0)
+			gbs_rob_one((unsigned char *)(uintptr_t)g_a5_long(-27932), keep);
+		return;
+	}
+	for (m = g_a5_long(-27928); m != 0; m = *(long *)(uintptr_t)m)
+		gbs_rob_one((unsigned char *)(uintptr_t)m, keep);
+}
+
+/* SPELL spell, slot_dest, member_dest (DQK 0x428cf): the first member down
+ * the party list whose active byte (DQK 0x18b, FRUA rec[382]) is set and
+ * who has `spell` memorized. Its place in the memorized list goes to
+ * slot_dest, 0xff when nobody has it, and its 0-based place in the party
+ * to member_dest. The scripts LOAD_CHARACTER that member and write 255
+ * into the slot to use the spell up. DQK's list is DQK 0xce, FRUA's
+ * rec[198]; FRUA's own lookup, l36f0, is the same scan (DQK stops at
+ * 137 entries, FRUA's list is 141 long and l36f0 reads all of it). A
+ * pending memorization has bit 7 set and does not match. When nobody has
+ * the spell DQK leaves member_dest at the last member's place. */
+static void gbs_spell(ecl_vm *vm, const ecl_insn *ins)
+{
+	unsigned char spell = (unsigned char)ecl_rvalue(vm, &ins->arg[0]);
+	unsigned char slot = 0xff, place = 0;
+	long          m;
+
+	for (m = g_a5_long(-27928); m != 0; m = *(long *)(uintptr_t)m) {
+		unsigned char *r = (unsigned char *)(uintptr_t)m;
+
+		if (r[382] != 0) {
+			short s = l36f0((short)spell, m);
+
+			if (s >= 0) {
+				slot = (unsigned char)s;
+				break;
+			}
+		}
+		if (*(long *)(uintptr_t)m != 0)
+			place++;
+	}
+	(void)ecl_poke(vm, ins->arg[1].word, slot);
+	(void)ecl_poke(vm, ins->arg[2].word, place);
+}
+
+/* FIND_ITEM type (DQK 0x431fb): does anyone in the party carry an item of
+ * this type? DQK reads the item record's first byte, node+0x28; FRUA's
+ * item node keeps the 18-byte item record at node[40] (jt588). Sets the
+ * == / != flags and clears the rest. */
+static int gbs_find_item(unsigned char type)
+{
+	long m;
+
+	for (m = g_a5_long(-27928); m != 0; m = *(long *)(uintptr_t)m) {
+		unsigned char *n = *(unsigned char **)(uintptr_t)(m + 8);
+
+		for (; n != NULL; n = *(unsigned char **)(void *)n)
+			if (n[40] == type)
+				return 1;
+	}
+	return 0;
+}
+
+/* FIND_SPECIAL affect (DQK 0x329e5): does the selected character have the
+ * affect? DQK asks 77e:1734, the walk of the character's affect list;
+ * FRUA's is the rec[4] chain of 10-byte nodes, id in byte 0 and next at
+ * +6 (jt588). Sets the == / != flags and clears the rest. The numbers
+ * are FRUA's as they are DQK's: FRUA's Prot. From Fire leaves affect 20,
+ * the first one Dark Queen's flaming wall (script 62) asks about, and
+ * spell 31 is Knock in both. */
+static int gbs_find_special(unsigned char id)
+{
+	unsigned char *r = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	unsigned char *e;
+
+	if (r == NULL)
+		return 0;
+	for (e = *(unsigned char **)(void *)(r + 4); e != NULL;
+	     e = *(unsigned char **)(void *)(e + 6))
+		if (e[0] == id)
+			return 1;
+	return 0;
+}
+
+static void gbs_set_found(ecl_vm *vm, int found)
+{
+	memset(vm->cmp, 0, sizeof vm->cmp);
+	vm->cmp[0] = (unsigned char)(found != 0);
+	vm->cmp[1] = (unsigned char)(found == 0);
+}
+
 static void gbs_load_character(short n)
 {
 	long m = g_a5_long(-27928);
@@ -107920,6 +108033,27 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 		if (g_gbs_dialect != ECL_GEN2 || ins->argc < 2)
 			return ECL_HOST_UNHANDLED;
 		(void)ecl_poke(vm, ins->arg[1].word, gbs_find_npc(vm, &ins->arg[0]));
+		return ECL_HOST_OK;
+	case 0x28:                      /* ROB who, percent, item percent */
+		if (g_gbs_dialect != ECL_GEN2 || ins->argc < 2)
+			return ECL_HOST_UNHANDLED;
+		gbs_rob((short)ecl_rvalue(vm, &ins->arg[0]),
+		        (short)ecl_rvalue(vm, &ins->arg[1]));
+		return ECL_HOST_OK;
+	case 0x32:                      /* FIND_ITEM type */
+		if (g_gbs_dialect != ECL_GEN2 || ins->argc < 1)
+			return ECL_HOST_UNHANDLED;
+		gbs_set_found(vm, gbs_find_item((unsigned char)ecl_rvalue(vm, &ins->arg[0])));
+		return ECL_HOST_OK;
+	case 0x3b:                      /* SPELL spell, slot dest, member dest */
+		if (g_gbs_dialect != ECL_GEN2 || ins->argc < 3)
+			return ECL_HOST_UNHANDLED;
+		gbs_spell(vm, ins);
+		return ECL_HOST_OK;
+	case 0x3f:                      /* FIND_SPECIAL affect */
+		if (g_gbs_dialect != ECL_GEN2 || ins->argc < 1)
+			return ECL_HOST_UNHANDLED;
+		gbs_set_found(vm, gbs_find_special((unsigned char)ecl_rvalue(vm, &ins->arg[0])));
 		return ECL_HOST_OK;
 	case 0x3e:                      /* DUMP: the selected NPC leaves */
 		if (g_gbs_dialect != ECL_GEN2)
