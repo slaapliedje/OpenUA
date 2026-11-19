@@ -106909,6 +106909,116 @@ static void gbs_menu(ecl_vm *vm, const ecl_insn *ins, int first, int n,
 
 static void gbs_seed_who(void);
 
+/* DAMAGE f, count, sides, bonus, t (0x2e; DQK 0x4256c). count d sides +
+ * bonus points, to whom and with what save by the two bytes f and t:
+ *   f bit 7 clear: f attempts, each at one random member, who is hit (a
+ *     roll against AC with t as the bonus) for a fresh roll of damage;
+ *   f bit 7, bit 6: the whole party; bit 5 no save, full damage;
+ *   f bit 7, t bit 7: the selected character; save type (t & 7) - 1, none
+ *     when 0 (full damage);
+ *   f bit 7 otherwise: one random member, save type t & 7.
+ * The save bonus is f & 15 and f bit 4 is "damage on a save". The
+ * selected-character case reads as FRUA's own damage event does (failed:
+ * full, made: half with bit 4, else none); the party and random cases,
+ * in DQK.EXE as shipped, have half and full the other way round (failed:
+ * half, made: full with bit 4) -- reproduced, not corrected. Greybox's
+ * reading, from Champions, differs; this one is DQK's code.
+ * FRUA has every piece: jt866 is DQK's save routine (d20, item 118, the
+ * save number at rec[131 + type]), jt862 the roll against AC, l0730 the
+ * "is hit for" line and the damage, and the box and the party-wipe ending
+ * are l1f76's (FRUA's damage event). Returns 1 when the party died. */
+static void gbs_hurt(long m, short dmg)
+{
+	if (m != 0 && ((unsigned char *)(uintptr_t)m)[382] != 0 && dmg > 0)
+		l0730(dmg, (void *)(uintptr_t)m);
+}
+
+static long gbs_member(short n)         /* 1-based, as DQK counts */
+{
+	long m = g_a5_long(-27928);
+
+	while (m != 0 && --n > 0)
+		m = *(long *)(uintptr_t)m;
+	return m;
+}
+
+static short gbs_party_size(void)
+{
+	long  m;
+	short n = 0;
+
+	for (m = g_a5_long(-27928); m != 0; m = *(long *)(uintptr_t)m)
+		n++;
+	return n;
+}
+
+static int gbs_damage(short f, short count, short sides, short bonus, short t)
+{
+	short dmg = (short)((short)jt873(count, sides) + bonus);
+	short save_bonus = (short)(f & 15), n = gbs_party_size();
+	int   on_save = (f & 0x10) != 0;
+	long  m;
+
+	if (n == 0)
+		return 0;
+	gbs_draw(0);                    /* what was printed goes up first */
+	g_a5_byte(-27911) = 17;
+	g_a5_byte(-27912) = 1;
+	jt103(1, 17, 38, 22);
+
+	if (!(f & 0x80)) {              /* attack rolls */
+		short k;
+
+		for (k = 1; k <= (f & 0xff); k++) {
+			m = gbs_member((short)(jt485(n) + 1));
+			if (m != 0 && jt862(m, t))
+				gbs_hurt(m, dmg);
+			dmg = (short)((short)jt873(count, sides) + bonus);
+		}
+	} else if (f & 0x40) {          /* the whole party */
+		for (m = g_a5_long(-27928); m != 0; m = *(long *)(uintptr_t)m) {
+			if (f & 0x20)
+				gbs_hurt(m, dmg);
+			else if (!jt866(m, (short)(t & 7), save_bonus))
+				gbs_hurt(m, (short)(dmg >> 1));
+			else if (on_save)
+				gbs_hurt(m, dmg);
+		}
+	} else if (t & 0x80) {          /* the selected character */
+		m = g_a5_long(-27932);
+		if ((t & 7) == 0 || !jt866(m, (short)((t & 7) - 1), save_bonus))
+			gbs_hurt(m, dmg);
+		else if (on_save)
+			gbs_hurt(m, (short)(dmg >> 1));
+	} else {                        /* one random member */
+		m = gbs_member((short)(jt485(n) + 1));
+		if (!jt866(m, (short)(t & 7), save_bonus))
+			gbs_hurt(m, (short)(dmg >> 1));
+		else if (on_save)
+			gbs_hurt(m, dmg);
+	}
+
+	/* l1f76's ending: nobody left able is the end of the party */
+	g_a5_byte(-27982) = 1;
+	for (m = g_a5_long(-27928); m != 0; m = *(long *)(uintptr_t)m)
+		if (((unsigned char *)(uintptr_t)m)[382] != 0)
+			g_a5_byte(-27982) = 0;
+	g_gbs_shown = 1;
+	if (g_a5_byte(-27982) != 0) {
+		jt76();
+		g_a5_byte(-27912) = 2;
+		g_a5_byte(-27911) = 2;
+		jt96(1, 1, 38, 22, 7, 0, 1,
+		     (long)(uintptr_t)"The entire party is killed!", 1);
+		jt476(3000);
+		return 1;
+	}
+	if (!((unsigned char)g_a5_byte(-27912) == 1
+	   && (unsigned char)g_a5_byte(-27911) == 17))
+		jt175();
+	return 0;
+}
+
 /* AWARD_XP party, n (0x41; DQK 0x429d9): n hundred experience points.
  * With `party` set, to every member able to take it, with a line saying
  * the party gains experience; with it clear, to the selected character,
@@ -107684,6 +107794,15 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 			jt52(n);
 		}
 		return ECL_HOST_OK;
+	case 0x2e:                      /* DAMAGE flags, count, sides, bonus, target */
+		if (g_gbs_dialect != ECL_GEN2 || ins->argc < 5)
+			return ECL_HOST_UNHANDLED;
+		return gbs_damage((short)ecl_rvalue(vm, &ins->arg[0]),
+		                  (short)ecl_rvalue(vm, &ins->arg[1]),
+		                  (short)ecl_rvalue(vm, &ins->arg[2]),
+		                  (short)ecl_rvalue(vm, &ins->arg[3]),
+		                  (short)ecl_rvalue(vm, &ins->arg[4]))
+		       ? ECL_HOST_EXIT : ECL_HOST_OK;
 	case 0x41:                      /* AWARD_XP party, hundreds */
 		if (g_gbs_dialect != ECL_GEN2 || ins->argc < 2)
 			return ECL_HOST_UNHANDLED;
