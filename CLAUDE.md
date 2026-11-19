@@ -37,6 +37,12 @@ name.)
   own 6-byte cells (`tools/gbgeo.py`); their SCRIPTS (ECL bytecode) are
   interpreted natively (`src/engine/ecl.c`, host glue at the end of `boot.c`
   under "GOLD BOX SCRIPT AREAS"). See the section below before touching either.
+- **The engine reads the Gold Box games' own files at run time, and classes
+  and races come from a ruleset** (ADR-0026). FRUA's rules are the built-in
+  default, so FRUA modules must play byte-identically through every step;
+  a game's own rules are read from its files (DQK.EXE); a new game writes a
+  ruleset file. The Python converters (gbgeo, gbmon, gbchar) become reference
+  implementations the C loaders are tested against.
 - **The bitplane machines render natively in planes**, not through the Mac's
   chunky surface — writers stamp bitplanes at draw time and the present skips
   the conversion for the rows they own (ADR-0016). Shipping on **all three**:
