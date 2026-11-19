@@ -31800,7 +31800,7 @@ static void l29ae(unsigned char *rec)
 		return;
 	cls  = (short)rec[88];
 	kind = (short)rec[89];
-	base = (unsigned char *)g_a5_buf(-30780) + (long)cls * 28;
+	base = (unsigned char *)g_rules->race_start_age + (long)cls * 28;
 
 	if ((kind & 0xff) <= 6) {                       /* single-class: real roll */
 		e = base + (long)kind * 4;
@@ -31849,27 +31849,27 @@ static void l1672(short i, unsigned char *rec)
 	short          cls    = rec[89];
 	short          gender = rec[92];
 	unsigned short age    = (unsigned short)*(short *)(rec + 82);
-	long           abase  = -30612 + (long)race * 10;   /* age table (words) */
-	long           rbase  = -30960 + (long)race * 16;   /* racial min/max     */
-	long           cbase  = -30552 + (long)cls  * 6;    /* class min          */
+	const unsigned char *abase  = g_rules->race_age_cat + (long)race * 10;   /* age table (words) */
+	const unsigned char *rbase  = g_rules->race_abilities + (long)race * 16;   /* racial min/max     */
+	const unsigned char *cbase  = g_rules->kind_ability_min + (long)cls  * 6;    /* class min          */
 	unsigned char  rmn, rmx, cmn;
 	short          rmin_off, rmax_off;
 
-#define AGE_GT(off) (*w != 0 && age > (unsigned short)g_a5_word(abase + (off)))
+#define AGE_GT(off) (*w != 0 && age > (unsigned short)*(const short *)(abase + (off)))
 
 	if (i == 0) {                                       /* STR */
 		if (AGE_GT(2)) (*w)++;
 		if (AGE_GT(4)) (*w)--;
 		if (AGE_GT(6)) *w = (unsigned char)(*w - 2);
 		if (AGE_GT(8)) (*w)--;
-		rmn = (unsigned char)g_a5_byte(rbase + gender + 0);
-		rmx = (unsigned char)g_a5_byte(rbase + gender + 2);
+		rmn = (unsigned char)rbase[gender + 0];
+		rmx = (unsigned char)rbase[gender + 2];
 		if (*w < rmn) *w = rmn;
 		if (*w > rmx) *w = rmx;
-		cmn = (unsigned char)g_a5_byte(cbase + 0);
+		cmn = (unsigned char)cbase[0];
 		if (*w < cmn) *w = cmn;
 		if (*w == 18 && (rec[158] || rec[159] || rec[160] || rec[161])) {
-			unsigned char cap = (unsigned char)g_a5_byte(rbase + gender + 4);
+			unsigned char cap = (unsigned char)rbase[gender + 4];
 			rec[124] = (unsigned char)(jt485(100) + 1);
 			if (rec[124] > cap)
 				rec[124] = cap;
@@ -31908,11 +31908,11 @@ static void l1672(short i, unsigned char *rec)
 
 #undef AGE_GT
 
-	rmn = (unsigned char)g_a5_byte(rbase + rmin_off);
-	rmx = (unsigned char)g_a5_byte(rbase + rmax_off);
+	rmn = (unsigned char)rbase[rmin_off];
+	rmx = (unsigned char)rbase[rmax_off];
 	if (*w < rmn) *w = rmn;
 	if (*w > rmx) *w = rmx;
-	cmn = (unsigned char)g_a5_byte(cbase + i);
+	cmn = (unsigned char)cbase[i];
 	if (*w < cmn) *w = cmn;
 }
 
@@ -32053,7 +32053,7 @@ static void l2f8e(void)
 	                               + rec[89]) * 12);
 
 	PROBE("L2f8e");
-	g_a5_byte(-7011) = ((unsigned char *)g_a5_buf(-30450) + base)[0];
+	g_a5_byte(-7011) = ((unsigned char *)g_rules->kind_aligns + base)[0];
 	g_a5_byte(-7012) = 0;
 
 	g_a5_byte(-22307) = 0;                          /* pass 1: current cell */
@@ -32062,7 +32062,7 @@ static void l2f8e(void)
 		unsigned char *e;
 		rec[93] = (unsigned char)(((short)g_a5_word(-7024) - 1) * 3
 		          + (short)g_a5_word(-7022) - 1);
-		e = (unsigned char *)g_a5_buf(-30450) + base
+		e = (unsigned char *)g_rules->kind_aligns + base
 		    + (unsigned char)g_a5_byte(-22307);
 		if ((short)(signed char)e[1] == (short)(unsigned char)rec[93])
 			g_a5_byte(-7012) = 1;
@@ -32080,7 +32080,7 @@ static void l2f8e(void)
 			g_a5_byte(-22307) = 0;
 			while ((unsigned char)g_a5_byte(-22307)
 			       < (unsigned char)g_a5_byte(-7011) && matched == 0) {
-				unsigned char *e = (unsigned char *)g_a5_buf(-30450)
+				unsigned char *e = (unsigned char *)g_rules->kind_aligns
 				    + base + (unsigned char)g_a5_byte(-22307);
 				if ((short)(signed char)e[1] == (short)(unsigned char)rec[93])
 					matched = 1;
@@ -32103,7 +32103,7 @@ static void l30de(void)
 	unsigned char *rec  = (unsigned char *)g_a5_ptr(-7008);
 	short          base = (short)(((short)(unsigned char)g_a5_byte(-7027)
 	                               + rec[89]) * 12);
-	short          count = ((unsigned char *)g_a5_buf(-30450) + base)[0];
+	short          count = ((unsigned char *)g_rules->kind_aligns + base)[0];
 	short          col;
 
 	PROBE("L30de");
@@ -32115,7 +32115,7 @@ static void l30de(void)
 			unsigned char *e;
 			rec[93] = (unsigned char)(((short)g_a5_word(-7024) - 1) * 3
 			          + col - 1);
-			e = (unsigned char *)g_a5_buf(-30450) + base
+			e = (unsigned char *)g_rules->kind_aligns + base
 			    + (unsigned char)g_a5_byte(-22307);
 			if ((short)(signed char)e[1] == (short)(unsigned char)rec[93])
 				matched = 1;
@@ -32190,7 +32190,7 @@ static void jt568(void)
 
 	/* L3444 — option count for this step's table entry */
 	base = (short)(((short)(unsigned char)g_a5_byte(-7027) + rec[89]) * 12);
-	g_a5_byte(-7011) = ((unsigned char *)g_a5_buf(-30450) + base)[0];
+	g_a5_byte(-7011) = ((unsigned char *)g_rules->kind_aligns + base)[0];
 	g_a5_byte(-7014) = 0;
 	g_a5_byte(-7009) = 1;
 
@@ -32203,7 +32203,7 @@ static void jt568(void)
 			rec[93] = (unsigned char)
 			    (((short)g_a5_word(-7024) - 1) * 3
 			     + (short)(unsigned char)g_a5_byte(-7009) - 1);
-			e = (unsigned char *)g_a5_buf(-30450) + base
+			e = (unsigned char *)g_rules->kind_aligns + base
 			    + (unsigned char)g_a5_byte(-22307);
 			if ((short)(signed char)e[1] == (short)(unsigned char)rec[93])
 				g_a5_byte(-7014) = 1;
@@ -32226,7 +32226,7 @@ static void jt568(void)
 				rec[93] = (unsigned char)
 				    (((short)(unsigned char)g_a5_byte(-7010) - 1) * 3
 				     + (short)g_a5_word(-7022) - 1);
-				e = (unsigned char *)g_a5_buf(-30450) + base
+				e = (unsigned char *)g_rules->kind_aligns + base
 				    + (unsigned char)g_a5_byte(-22307);
 				if ((short)(signed char)e[1] == (short)(unsigned char)rec[93])
 					g_a5_byte(-7013) = 1;
@@ -32480,9 +32480,9 @@ static void jt907(unsigned char *rec)
 
 	for (sl = 1; sl <= 8; sl++) {
 		signed char gate =
-		    (signed char)g_a5_byte(-22836 + (long)rec[88] * 8 + (sl - 1));
+		    (signed char)g_rules->race_thief_adj[(long)rec[88] * 8 + (sl - 1)];
 		short prog = (unsigned char)
-		    g_a5_byte(-22980 + (long)(level - 1) * 8 + (sl - 1));
+		    g_rules->thief_skills[(long)(level - 1) * 8 + (sl - 1)];
 
 		if (gate < 0 && (short)jt388((short)gate) >= prog) {
 			rec[139 + (sl - 1)] = 0;
@@ -32515,10 +32515,10 @@ static void jt566(void)
 
 	PROBE("jt566");
 	rec[88] = (unsigned char)((short)g_a5_word(-7026) - 1);
-	count = ((unsigned char *)g_a5_buf(-30864) + (long)rec[88] * 14)[0];
+	count = ((unsigned char *)g_rules->race_kinds + (long)rec[88] * 14)[0];
 
 	for (cls = 0; cls <= 16; cls++) {
-		unsigned char *e = (unsigned char *)g_a5_buf(-30864)
+		unsigned char *e = (unsigned char *)g_rules->race_kinds
 		    + (long)rec[88] * 14;
 		short matched = 0, i;
 		for (i = 0; i < count && matched == 0; i++) {
@@ -35620,7 +35620,7 @@ static signed char l6578(short cls, unsigned char *rec)
 	for (i = 0; i <= 5; i++) {
 		short cur = l6c60(rec);
 
-		if ((unsigned char)g_a5_buf(-30552)[cur * 6 + i] < 9)
+		if ((unsigned char)g_rules->kind_ability_min[cur * 6 + i] < 9)
 			continue;
 		if ((unsigned char)rec[112 + i * 2] > 14)
 			continue;
@@ -35629,7 +35629,7 @@ static signed char l6578(short cls, unsigned char *rec)
 	ok = (signed char)((ok != 0 && i > 5) ? 1 : 0);
 
 	for (i = 0; i <= 5; i++) {
-		if ((unsigned char)g_a5_buf(-30552)[cls * 6 + i] < 9)
+		if ((unsigned char)g_rules->kind_ability_min[cls * 6 + i] < 9)
 			continue;
 		if ((unsigned char)rec[112 + i * 2] > 16)
 			continue;
@@ -35638,7 +35638,7 @@ static signed char l6578(short cls, unsigned char *rec)
 	ok = (signed char)((ok != 0 && i > 5) ? 1 : 0);
 
 	{
-		const unsigned char *row = g_a5_buf(-30450) + (long)cls * 12;
+		const unsigned char *row = g_rules->kind_aligns + (long)cls * 12;
 
 		for (k = 0; k < (short)row[0]; k++)
 			if ((short)(signed char)row[1 + k] == (short)rec[93])
@@ -35685,7 +35685,7 @@ static int jt556(long rec_l)
 		return 17;
 	}
 
-	count = (short)g_a5_buf(-30864)[(long)rec[88] * 14];
+	count = (short)g_rules->race_kinds[(long)rec[88] * 14];
 
 	/* the header row */
 	jt477(bucket, (short)40, &head);
@@ -35701,7 +35701,7 @@ static int jt556(long rec_l)
 	     (short)g_a5_byte(-22307) <= count;
 	     g_a5_byte(-22307)++) {
 		signed char c = (signed char)
-		    g_a5_buf(-30864)[(long)rec[88] * 14
+		    g_rules->race_kinds[(long)rec[88] * 14
 		                     + (signed char)g_a5_byte(-22307)];
 
 		if (!l6578((short)c, rec))
@@ -35712,7 +35712,7 @@ static int jt556(long rec_l)
 		((unsigned char *)(uintptr_t)node)[4] = 0;
 		jt384((char *)(uintptr_t)(node + 5),
 		      (const char *)(uintptr_t)
-		          g_a5_long(-14636 + (long)c * 4));
+		          (*(const long *)(g_rules->kind_names + ((long)c * 4))));
 		nqual++;
 	}
 
@@ -35754,7 +35754,7 @@ static int jt556(long rec_l)
 
 	for (cls = 0; cls <= 6; cls++)          /* picked row -> class id */
 		if (jt396((const char *)(uintptr_t)
-		              g_a5_long(-14636 + (long)cls * 4),
+		              (*(const long *)(g_rules->kind_names + ((long)cls * 4))),
 		          (const char *)(uintptr_t)(node + 5)))
 			break;
 	jt147(&head);
@@ -35788,7 +35788,7 @@ static int jt556(long rec_l)
 	jt101(jt488(ua_strs_at(0x4b0a) /* "%s%s%s." */, rec + 96,
 	            ua_strs_at(0x4b12) /* " becomes a " */,
 	            (const char *)(uintptr_t)
-	                g_a5_long(-14636 + (long)cls * 4)),
+	                (*(const long *)(g_rules->kind_names + ((long)cls * 4)))),
 	      15, 0);
 	jt399(rec + 198, (short)141, (short)0);
 
@@ -36124,7 +36124,7 @@ static void jt557(void)
 			                        : "and a level %s %s",
 			           l60b4(rec[157 + i] + 1),
 			           (const char *)(uintptr_t)
-			               g_a5_long(-14636 + (long)i * 4)));
+			               (*(const long *)(g_rules->kind_names + ((long)i * 4)))));
 		}
 		if (jt159("Do you wish to train? ", 1) == 0)
 			return;
@@ -36370,14 +36370,14 @@ static void l09dc(void)
 	jt94(23, 9, 7, 8, namebuf);
 
 	jt384(namebuf, (const char *)(uintptr_t)
-	      g_a5_long(-14564 + (long)rec[88] * 4));   /* race */
+	      (*(const long *)(g_rules->race_names + ((long)rec[88] * 4))));   /* race */
 	jt94(23, 10, 7, 8, namebuf);
 
 	switch (rec[89]) {                      /* class (JT[3] 0..16) */
 	case 0: case 1: case 2: case 3: case 4:
 	case 5: case 6: case 7: case 8:
 		jt384(namebuf, (const char *)(uintptr_t)
-		      g_a5_long(-14636 + (long)rec[89] * 4));
+		      (*(const long *)(g_rules->kind_names + ((long)rec[89] * 4))));
 		jt94(23, 12, 7, 8, namebuf);
 		break;
 	case 9:                                 /* Cleric/Fighter/Magic-User */
@@ -36402,7 +36402,7 @@ static void l09dc(void)
 		break;
 	case 14:                                /* Fighter/Thief (single string) */
 		jt384(namebuf, (const char *)(uintptr_t)
-		      g_a5_long(-14636 + (long)rec[89] * 4));
+		      (*(const long *)(g_rules->kind_names + ((long)rec[89] * 4))));
 		jt94(23, 12, 7, 8, namebuf);
 		break;
 	case 15:                                /* Fighter/Magic-User/Thief */
@@ -44181,12 +44181,12 @@ static void l1276(void)
 
 	/* profession g_a5_-14564[rec[88]] (20,4) */
 	jt94((short)20, (short)4, lc, (short)0, "%s",
-	     (const char *)(uintptr_t)g_a5_long(-14564 + (long)rec[88] * 4));
+	     (const char *)(uintptr_t)(*(const long *)(g_rules->race_names + ((long)rec[88] * 4))));
 
 	/* class name g_a5_-14636[rec[89]] -> buf; multi-class (rec[88]==5)
 	 * appends "/<class>"; painted at (1,5). */
 	multi = 0;
-	jt384(buf, (const char *)(uintptr_t)g_a5_long(-14636 + (long)rec[89] * 4));
+	jt384(buf, (const char *)(uintptr_t)(*(const long *)(g_rules->kind_names + ((long)rec[89] * 4))));
 	if (rec[88] == 5) {
 		for (i = 0; i <= 6; i++) {
 			if ((short)rec[164 + i] <= 0)
@@ -44195,7 +44195,7 @@ static void l1276(void)
 			if ((unsigned char)jt35(rec) <= rec[164 + i])
 				continue;
 			jt384(buf, jt488("%s/%s", buf,
-			      (const char *)(uintptr_t)g_a5_long(-14636 + (long)i * 4)));
+			      (const char *)(uintptr_t)(*(const long *)(g_rules->kind_names + ((long)i * 4)))));
 			break;
 		}
 	}
@@ -44542,7 +44542,7 @@ static short cg_sheet_modal(void)
  *   class 7 / out of range:        no age set (rec[82] left as-is). */
 static void cg_roll_age(unsigned char *rec)
 {
-	unsigned char *race = (unsigned char *)g_a5_buf(-30780) + (long)rec[88] * 28;
+	unsigned char *race = (unsigned char *)g_rules->race_start_age + (long)rec[88] * 28;
 	short age;
 
 	if (rec[89] <= 6) {
@@ -44572,7 +44572,7 @@ static void cg_roll_age(unsigned char *rec)
 static short cg_level_from_xp(const unsigned char *rec, short slot)
 {
 	long  xp    = *(const long *)(rec + 68);
-	short cap   = (short)((const unsigned char *)g_a5_buf(-28048))
+	short cap   = (short)((const unsigned char *)g_rules->race_level_cap)
 	                     [(long)rec[88] * 7 + slot];
 	short level = 1;
 
@@ -74215,7 +74215,7 @@ static signed char jt33(const unsigned char *rec)
 		need   = jt26((long)(uintptr_t)rec, (short)(lvl + 1),
 		              (short)i);
 		capped = (lvl >=
-		          g_a5_buf(-28048)[(long)rec[88] * 7 + i]);
+		          g_rules->race_level_cap[(long)rec[88] * 7 + i]);
 		if (*(const long *)(rec + 68) >= need && need > 0
 		    && !capped)
 			result = 1;
@@ -83745,7 +83745,7 @@ static void l3bbc(short cmd)
 				continue;
 			jt1089((short)8042, (short)8008, (short)384,
 			       ua_strs_at(0x34fa) /* "Old Class:   %s" */,
-			       (const char *)(uintptr_t)g_a5_longs(-14636)[i]);
+			       (const char *)(uintptr_t)((const long *)g_rules->kind_names)[i]);
 			i = 6;                          /* stop after the first match */
 		}
 		break;
@@ -97313,8 +97313,8 @@ static void l5044(void)
 static void l5234(short act)                                  /* STR */
 {
 	unsigned char *rec    = (unsigned char *)g_a5_ptr(-27932);
-	long           rbase  = -30960 + (long)rec[88] * 16;
-	long           cbase  = -30552 + (long)rec[89] * 6;
+	const unsigned char *rbase  = g_rules->race_abilities + (long)rec[88] * 16;
+	const unsigned char *cbase  = g_rules->kind_ability_min + (long)rec[89] * 6;
 	short          gender = rec[92];
 	PROBE("L5234");
 	switch (act) {
@@ -97325,14 +97325,14 @@ static void l5234(short act)                                  /* STR */
 		l4d64(7);
 		break;
 	case 2: case 130: {                             /* Add */
-		unsigned char rmax = (unsigned char)g_a5_byte(rbase + gender + 2);
+		unsigned char rmax = (unsigned char)rbase[gender + 2];
 		rec[113]++;
 		if (rec[113] <= rmax)
 			break;                          /* within the race max */
 		if (rec[113] > 18                       /* over 18: warrior gets exc% */
 		 && (rec[158] || rec[159] || rec[160] || rec[161])) {
 			unsigned char cap =
-			    (unsigned char)g_a5_byte(rbase + gender + 4);
+			    (unsigned char)rbase[gender + 4];
 			if (rec[124] < cap)
 				rec[124]++;
 		}
@@ -97346,12 +97346,12 @@ static void l5234(short act)                                  /* STR */
 			rec[113]++;
 		} else {
 			unsigned char rmin =
-			    (unsigned char)g_a5_byte(rbase + gender + 0);
+			    (unsigned char)rbase[gender + 0];
 			if (rec[113] < rmin)
 				rec[113] = rmin;
 		}
 		{
-			unsigned char cmin = (unsigned char)g_a5_byte(cbase + 0);
+			unsigned char cmin = (unsigned char)cbase[0];
 			if (rec[113] < cmin)
 				rec[113] = cmin;
 		}
@@ -97367,22 +97367,22 @@ static void l5234(short act)                                  /* STR */
 static void l547c(short act)                                  /* INT */
 {
 	unsigned char *rec   = (unsigned char *)g_a5_ptr(-27932);
-	long           rbase = -30960 + (long)rec[88] * 16;
-	long           cbase = -30552 + (long)rec[89] * 6;
+	const unsigned char *rbase = g_rules->race_abilities + (long)rec[88] * 16;
+	const unsigned char *cbase = g_rules->kind_ability_min + (long)rec[89] * 6;
 	PROBE("L547c");
 	switch (act) {
 	case 0: case 132: case 133: l4d64(2); break;    /* Next */
 	case 1: case 135: case 136: l4d64(0); break;    /* Previous */
 	case 2: case 130: {                             /* Add */
-		unsigned char rmax = (unsigned char)g_a5_byte(rbase + 7);
+		unsigned char rmax = (unsigned char)rbase[7];
 		rec[115]++;
 		if (rec[115] > rmax)
 			rec[115] = rmax;
 		break;
 	}
 	case 3: case 134: {                             /* Sub */
-		unsigned char rmin = (unsigned char)g_a5_byte(rbase + 6);
-		unsigned char cmin = (unsigned char)g_a5_byte(cbase + 1);
+		unsigned char rmin = (unsigned char)rbase[6];
+		unsigned char cmin = (unsigned char)cbase[1];
 		rec[115]--;
 		if (rec[115] < rmin)
 			rec[115] = rmin;
@@ -97400,14 +97400,14 @@ static void l547c(short act)                                  /* INT */
 static void l55da(short act)                                  /* WIS */
 {
 	unsigned char *rec   = (unsigned char *)g_a5_ptr(-27932);
-	long           rbase = -30960 + (long)rec[88] * 16;
-	long           cbase = -30552 + (long)rec[89] * 6;
+	const unsigned char *rbase = g_rules->race_abilities + (long)rec[88] * 16;
+	const unsigned char *cbase = g_rules->kind_ability_min + (long)rec[89] * 6;
 	PROBE("L55da");
 	switch (act) {
 	case 0: case 132: case 133: l4d64(3); break;    /* Next */
 	case 1: case 135: case 136: l4d64(1); break;    /* Previous */
 	case 2: case 130: {                             /* Add */
-		unsigned char rmax = (unsigned char)g_a5_byte(rbase + 9);
+		unsigned char rmax = (unsigned char)rbase[9];
 		rec[117]++;
 		if (rec[117] > rmax)
 			rec[117] = rmax;
@@ -97416,8 +97416,8 @@ static void l55da(short act)                                  /* WIS */
 		break;
 	}
 	case 3: case 134: {                             /* Sub */
-		unsigned char rmin = (unsigned char)g_a5_byte(rbase + 8);
-		unsigned char cmin = (unsigned char)g_a5_byte(cbase + 2);
+		unsigned char rmin = (unsigned char)rbase[8];
+		unsigned char cmin = (unsigned char)cbase[2];
 		rec[117]--;
 		if (rec[117] < rmin)
 			rec[117] = rmin;
@@ -97437,22 +97437,22 @@ static void l55da(short act)                                  /* WIS */
 static void l576a(short act)                                  /* DEX */
 {
 	unsigned char *rec   = (unsigned char *)g_a5_ptr(-27932);
-	long           rbase = -30960 + (long)rec[88] * 16;
-	long           cbase = -30552 + (long)rec[89] * 6;
+	const unsigned char *rbase = g_rules->race_abilities + (long)rec[88] * 16;
+	const unsigned char *cbase = g_rules->kind_ability_min + (long)rec[89] * 6;
 	PROBE("L576a");
 	switch (act) {
 	case 0: case 132: case 133: l4d64(4); break;    /* Next */
 	case 1: case 135: case 136: l4d64(2); break;    /* Previous */
 	case 2: case 130: {                             /* Add */
-		unsigned char rmax = (unsigned char)g_a5_byte(rbase + 11);
+		unsigned char rmax = (unsigned char)rbase[11];
 		rec[119]++;
 		if (rec[119] > rmax)
 			rec[119] = rmax;
 		break;
 	}
 	case 3: case 134: {                             /* Sub */
-		unsigned char rmin = (unsigned char)g_a5_byte(rbase + 10);
-		unsigned char cmin = (unsigned char)g_a5_byte(cbase + 3);
+		unsigned char rmin = (unsigned char)rbase[10];
+		unsigned char cmin = (unsigned char)cbase[3];
 		rec[119]--;
 		if (rec[119] < rmin)
 			rec[119] = rmin;
@@ -97470,14 +97470,14 @@ static void l576a(short act)                                  /* DEX */
 static void l58ca(short act)                                  /* CON */
 {
 	unsigned char *rec   = (unsigned char *)g_a5_ptr(-27932);
-	long           rbase = -30960 + (long)rec[88] * 16;
-	long           cbase = -30552 + (long)rec[89] * 6;
+	const unsigned char *rbase = g_rules->race_abilities + (long)rec[88] * 16;
+	const unsigned char *cbase = g_rules->kind_ability_min + (long)rec[89] * 6;
 	PROBE("L58ca");
 	switch (act) {
 	case 0: case 132: case 133: l4d64(5); break;    /* Next */
 	case 1: case 135: case 136: l4d64(3); break;    /* Previous */
 	case 2: case 130: {                             /* Add */
-		unsigned char rmax = (unsigned char)g_a5_byte(rbase + 13);
+		unsigned char rmax = (unsigned char)rbase[13];
 		unsigned char hp;
 		rec[121]++;
 		if (rec[121] > rmax)
@@ -97490,8 +97490,8 @@ static void l58ca(short act)                                  /* CON */
 		break;
 	}
 	case 3: case 134: {                             /* Sub */
-		unsigned char rmin = (unsigned char)g_a5_byte(rbase + 12);
-		unsigned char cmin = (unsigned char)g_a5_byte(cbase + 4);
+		unsigned char rmin = (unsigned char)rbase[12];
+		unsigned char cmin = (unsigned char)cbase[4];
 		unsigned char hp;
 		rec[121]--;
 		if (rec[121] < rmin)
@@ -97515,8 +97515,8 @@ static void l58ca(short act)                                  /* CON */
 static void l5aa8(short act)                                  /* CHA */
 {
 	unsigned char *rec   = (unsigned char *)g_a5_ptr(-27932);
-	long           rbase = -30960 + (long)rec[88] * 16;
-	long           cbase = -30552 + (long)rec[89] * 6;
+	const unsigned char *rbase = g_rules->race_abilities + (long)rec[88] * 16;
+	const unsigned char *cbase = g_rules->kind_ability_min + (long)rec[89] * 6;
 	PROBE("L5aa8");
 	switch (act) {
 	case 0: case 132: case 133:                     /* Next */
@@ -97527,15 +97527,15 @@ static void l5aa8(short act)                                  /* CHA */
 		break;
 	case 1: case 135: case 136: l4d64(4); break;    /* Previous */
 	case 2: case 130: {                             /* Add */
-		unsigned char rmax = (unsigned char)g_a5_byte(rbase + 15);
+		unsigned char rmax = (unsigned char)rbase[15];
 		rec[123]++;
 		if (rec[123] > rmax)
 			rec[123] = rmax;
 		break;
 	}
 	case 3: case 134: {                             /* Sub */
-		unsigned char rmin = (unsigned char)g_a5_byte(rbase + 14);
-		unsigned char cmin = (unsigned char)g_a5_byte(cbase + 5);
+		unsigned char rmin = (unsigned char)rbase[14];
+		unsigned char cmin = (unsigned char)cbase[5];
 		rec[123]--;
 		if (rec[123] < rmin)
 			rec[123] = rmin;
