@@ -5278,6 +5278,13 @@ static void jt948(void)
 
 		for (;;) {                              /* L4be8 — the play loop */
 			g_a5_byte(-24140) = want;
+			/* The landing event (l709e above, or a Gold Box arrival
+			 * script) moved the party to ANOTHER level: reload before
+			 * the walk starts. Waiting for the -5221 test below spent
+			 * the player's first command on the reload (see l63c0's
+			 * matching exit). */
+			if ((short)g_a5_18878 >= 5 && g_a5_byte(-5221) != 0)
+				break;
 			if ((short)g_a5_18878 >= 5) {
 				/* DUNGEON: run the faithful unified walk + command loop
 				 * (jt240 -> l63c0, a_deep=1). It registers the walk input
@@ -20071,6 +20078,20 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 			break;
 		}
 		g_walk_render_deferred = 0;     /* #90: scope it to the dispatch above */
+		/* ★ A STEP THAT CHANGED LEVEL ENDS THE WALK NOW, not on the next
+		 * command. The event (FRUA's l5676 level change, or a Gold Box
+		 * script's map load in gbs_apply) raises -5221, and jt948 answers
+		 * it by reloading the level — but jt948 only looks after l63c0
+		 * returns, which this continuous loop does on a COMMAND. So the
+		 * first command after the step was spent on the reload and lost:
+		 * "Encamp does nothing, the second press works". On the Mac,
+		 * jt953 returns right after the step that fired the event, so the
+		 * flag is seen at once; leaving here is that return. */
+		if (g_a5_byte(-5221) != 0 && (unsigned char)a_deep
+		    && !g_geo_editor_active && exitflag == 0) {
+			g_walk_cmd = -1;
+			exitflag = -1;
+		}
 		if (exitflag != 0) {
 			/* #161: leaving the loop without the re-render — drop the
 			 * hold here, and present, so the caller's screen is not

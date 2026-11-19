@@ -320,8 +320,13 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   rec[67]/[68]/[17] every time play is re-entered, so a script's move was
   undone by the first Encamp until `gbs_apply` wrote those too. Script
   memory is NOT cleared when a new game starts in the same session.
-- **In Hatari, 'e' (Encamp) from the 3D view does nothing right after a
-  script run** — reach Save through an inn's rest menu when testing.
+- **A level change raises -5221, and jt948 answers it with a reload.**
+  The port's walk is one continuous l63c0 loop, so jt948 used to see the
+  flag only when a COMMAND ended the walk, and that first command was
+  spent on the reload. Seen as "Encamp does nothing after a script moves
+  the party; the second press works". l63c0 now leaves the walk as soon as
+  a step sets the flag, and jt948 reloads before the walk starts when an
+  arrival event set it.
 - **Shops are opcode 0x3c** (PROTECTION in Greybox's table) with a shop type
   1..9; the stock lists live in DQK.EXE and `gbgeo.py --exe` copies them out
   as GBSHOP.DAT (found by shape, not address). They are sold through `jt183`,
