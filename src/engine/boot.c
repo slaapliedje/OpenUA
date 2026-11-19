@@ -106909,6 +106909,49 @@ static void gbs_menu(ecl_vm *vm, const ecl_insn *ins, int first, int n,
 
 static void gbs_seed_who(void);
 
+/* The cell descriptor the script sees, for where its position variables
+ * now say the party stands. */
+static void gbs_reseed_desc(void)
+{
+	short x = (short)ecl_peek(&g_gbs_vm, GBS2_X);
+	short y = (short)ecl_peek(&g_gbs_vm, GBS2_Y);
+	unsigned char d = 0;
+
+	if (x >= 0 && x < g_gbs_w && y >= 0 && y < g_gbs_h)
+		d = g_gbs_desc[GBS_HDR + (long)y * g_gbs_w + x];
+	ecl_poke(&g_gbs_vm, GBS2_DESC, d);
+}
+
+/* CALL n, Dark Queen (DQK 0x327da, a three-way switch):
+ *   1  (overlay 6, 0x41945) re-reads the cell descriptor for the party's
+ *      square and, if anything changed, redraws the 3D view;
+ *   2  (0x41446) steps the party one square the way it faces, wrapping at
+ *      the map's edges, then does what 1 does;
+ *   3  advances the approaching sprite's animation frame (not done: the
+ *      port does not animate sprites).
+ * The move rides in the position variables, which gbs_apply carries into
+ * the engine when the run ends; the screen is rebuilt then. */
+static void gbs_call(short n)
+{
+	if (n == 2 && g_gbs_w != 0 && g_gbs_h != 0) {
+		short x = (short)ecl_peek(&g_gbs_vm, GBS2_X);
+		short y = (short)ecl_peek(&g_gbs_vm, GBS2_Y);
+
+		switch (ecl_peek(&g_gbs_vm, GBS2_FACING) & 3) {
+		case 0: y = (short)(y > 0 ? y - 1 : g_gbs_h - 1); break;
+		case 1: x = (short)(x < g_gbs_w - 1 ? x + 1 : 0); break;
+		case 2: y = (short)(y < g_gbs_h - 1 ? y + 1 : 0); break;
+		case 3: x = (short)(x > 0 ? x - 1 : g_gbs_w - 1); break;
+		}
+		ecl_poke(&g_gbs_vm, GBS2_X, (unsigned short)x);
+		ecl_poke(&g_gbs_vm, GBS2_Y, (unsigned short)y);
+	}
+	if (n == 1 || n == 2) {
+		gbs_reseed_desc();
+		g_gbs_shown = 1;
+	}
+}
+
 /* LOAD_CHARACTER n: DQK (0x32142) masks n with 0x7f, walks that many
  * members down the party list from its head (0 is the head) and makes the
  * one it reaches the selected character; past the end, nothing changes. */
@@ -107571,6 +107614,14 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 	case ECL_OP_LOAD_FILES:         /* operand 0 is the map; honoured after the run */
 		if (ins->argc > 0)
 			g_gbs_want_map = (unsigned char)ecl_rvalue(vm, &ins->arg[0]);
+		return ECL_HOST_OK;
+	case 0x2d:                      /* CALL n */
+		if (ins->argc < 1 || g_gbs_dialect != ECL_GEN2)
+			return ECL_HOST_UNHANDLED;
+		/* the operand's own word, not what it addresses: the scripts
+		 * write CALL [0x0001], and DQK's handler builds the number from
+		 * the operand's two raw bytes */
+		gbs_call((short)ins->arg[0].word);
 		return ECL_HOST_OK;
 	case 0x33:                      /* PRINT_RETURN: a new line */
 		if (g_gbs_textlen < GBS_TEXT_MAX - 1) {
