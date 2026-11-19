@@ -52718,9 +52718,9 @@ static void jt954(void)
 
 static void jt928(void);                /* CODE 12+0x2da6 — defined below */
 
-/* L36f0 (CODE 21+0x36f0) — find the slot of the first item of type
- * `type` in `member`'s inventory type array (rec[198 + i], i 0..140).
- * Returns the slot or -1. */
+/* L36f0 (CODE 21+0x36f0) — the slot of spell `type` in `member`'s
+ * memorized-spell list (rec[198 + i], i 0..140), or -1. A slot with bit 7
+ * set is waiting to be memorized again and does not match. */
 static short l36f0(short type, long member)
 {
 	unsigned char *m = (unsigned char *)(uintptr_t)member;
@@ -52733,8 +52733,8 @@ static short l36f0(short type, long member)
 	return ((short)i <= 140) ? (short)i : (short)-1;
 }
 
-/* L3748 (CODE 21+0x3748) — first party member (the -27928 list) carrying
- * an item of type `type` (L36f0), or 0. */
+/* L3748 (CODE 21+0x3748) — first party member (the -27928 list) with
+ * spell `type` memorized (L36f0), or 0. */
 static long l3748(short type)
 {
 	long m;
@@ -52746,9 +52746,10 @@ static long l3748(short type)
 	return m;
 }
 
-/* L378c (CODE 21+0x378c) — "Blocked:" menu action 2: USE A KEY. Marks
- * the first carried type-31 item used (bit 7 of its type byte), then
- * passes unless the wall art ahead is 15 (key-proof). */
+/* L378c (CODE 21+0x378c) — "Blocked:" menu action 2: KNOCK (the menu's
+ * labels, -13640, are Bash Pick Knock Exit). The first member with spell
+ * 31, Knock, memorized casts it: the slot gets bit 7, to be memorized
+ * again. Then it passes unless the wall art ahead is 15 (Knock-proof). */
 static short l378c(void)
 {
 	long  m;
@@ -52966,8 +52967,8 @@ static short l35de(void)
 
 /* L45f0 / L46d2 (CODE 21) — the "Blocked:" option menus. Build the
  * option list (jt155 slots): 0 = FORCE when -22726 is armed, 1 when
- * -22725 is armed AND a thief (class 6) is aboard, 2 when a type-31
- * key is carried, 3 (leave) always. Then prompt (jt182) and run the
+ * -22725 is armed AND a thief (class 6) is aboard, 2 (Knock) when
+ * someone has spell 31 memorized, 3 (leave) always. Then prompt (jt182) and run the
  * pick. Variant 0 (wall arts 2/3/15, prompt @0x6cfc): action 1 picks
  * the lock (L35de). Variant 1 (arts 4/5, prompt @0x6d06): action 1
  * just disarms -22725 and refuses. Result lands in -22308. */
