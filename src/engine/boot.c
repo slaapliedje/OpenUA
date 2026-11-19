@@ -107129,6 +107129,22 @@ static int gbs_shop(ecl_vm *vm, short type)
 	return 1;
 }
 
+/* PROGRAM 3: the selected character loses a level (Dark Queen's vampire
+ * crypt runs it twice). DQK's routine and FRUA's l5746 are the same Gold
+ * Box code — same messages, same per-level walk — so it is l5746 with one
+ * level, and the screen is rebuilt after its message. */
+static void gbs_drain(void)
+{
+	long who = g_a5_long(-27932);
+
+	if (who == 0)
+		return;
+	gbs_show();                     /* what the script said comes first */
+	l5746(who, 1);
+	jt937(g_a5_long(-27932));
+	g_gbs_shown = 1;
+}
+
 /* PROGRAM 9: rest in safety. l398a, FRUA's inn event, without the line it
  * prints on the way in — the script has said its own. */
 static void gbs_inn(void)
@@ -107423,12 +107439,23 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 			return ECL_HOST_UNHANDLED;
 		return gbs_shop(vm, (short)ecl_rvalue(vm, &ins->arg[0]))
 		       ? ECL_HOST_OK : ECL_HOST_UNHANDLED;
-	case 0x38:                      /* PROGRAM n: 0 training hall, 9 rest */
+	case 0x38:                      /* PROGRAM n */
+		/* DQK.EXE's handler (0x328cf) jumps through a ten-entry table:
+		 * 0 the training hall, 1 an overlay-4 routine (the copy-
+		 * protection overlay: answered here by doing nothing, as
+		 * Greybox does), 2 unused by any script, 3 drains the selected
+		 * character one level (overlay 9, 0x4f66d: "gets drained", the
+		 * routine FRUA has as l5746), 4..8 nothing, 9 rest. */
 		if (g_gbs_dialect != ECL_GEN2 || ins->argc < 1)
 			return ECL_HOST_UNHANDLED;
 		switch (ecl_rvalue(vm, &ins->arg[0])) {
 		case 0:
 			return gbs_training(vm) ? ECL_HOST_EXIT : ECL_HOST_OK;
+		case 1: case 4: case 5: case 6: case 7: case 8:
+			return ECL_HOST_OK;
+		case 3:
+			gbs_drain();
+			return ECL_HOST_OK;
 		case 9:
 			gbs_inn();
 			return ECL_HOST_OK;

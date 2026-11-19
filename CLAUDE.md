@@ -301,13 +301,19 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
 - **Wired so far:** text, menus (on the engine's button bar, JT[182]), yes/no,
   number input (JT[891]), script chains, map loads, party placement (Dark
   Queen's position variables only), pictures, fights, treasure, temples,
-  shops, inns, training halls, text entry (`jt98`), approaching monsters
+  shops, inns, training halls, text entry (`jt98`), approaching monsters,
   the fight's starting range, and WHO (`gbs_who`: the camp's roster cursor
   under a Select bar; jt182 only reports the arrows with its echo and wait
-  arguments at 1). **Not wired:** PROGRAM 1 and 3, the
-  "sides" operand of SETUP_MONSTER. (TREASURE item 255 is a random item in
-  DQK.EXE, but no Dark Queen script uses it outside the debug jumper.) A script that needs one of those takes
-  a wrong turn.
+  arguments at 1). **Not wired:** the "sides" operand of SETUP_MONSTER. PROGRAM is
+  read out of DQK.EXE (0x328cf, a ten-entry jump table): 0 training, 1
+  the copy-protection overlay (a no-op here), 3 an energy drain on the
+  selected character (= FRUA's l5746, one level), 4..8 nothing, 9 rest.
+  TREASURE item 255 is a random item in DQK.EXE, but no Dark Queen script
+  uses it outside the debug jumper. Greybox's
+  `docs/engine/research/decompile-dqk-ecl-dispatch.md` maps every opcode
+  to its handler's file offset, and `dqk-overlay-map.md` explains the
+  overlay stubs (an overlay's code base is not always the documented
+  prefix: fit it by making the stubs' targets land on prologues).
 - **String cells (0x81 operands) live in script memory, one character a
   word**, NUL-terminated, 16 characters at most (`ecl_str_get/put`); the core
   compares text as text. Cell 0x401 is the selected character's name and is
