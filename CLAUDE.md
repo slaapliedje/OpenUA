@@ -319,10 +319,11 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   same from -22634, so it rides in ev[16] bits 5..7 / ev[18] bit 5 (0x20,
   a DQK arena, is not carried). PRINT_RETURN, DELAY (jt476 IS DQK's wait),
   LOAD_CHARACTER and CALL (1 refresh, 2 step forward, 3 sprite frame; the
-  operand's raw word, not what it addresses) are read out of DQK.EXE too.
+  operand's raw word, not what it addresses) are read out of DQK.EXE too,
+  and 0x2c, PARLAY in Champions, is SOUND in Dark Queen: its dispatcher is
+  FRUA's jt52 case for case (FRUA kept the Gold Box sound code).
   **Still skipped** (the core counts them as unhandled and moves on):
-  PARLAY 0x2c (647 uses; in DQK a one-value call into segment 1023,
-  probably a sound effect), 0x41 (72), DAMAGE (72), LOAD_PIECES (88),
+  0x41 (72), DAMAGE (72), LOAD_PIECES (88),
   0x1f (47), ADD_NPC (26), DUMP (25), FIND_SPECIAL, SPELL, FIND_ITEM, ROB.
   Census: walk every ECLnnn.DAT with tools/ecl.py's Block.walk(). PROGRAM is
   read out of DQK.EXE (0x328cf, a ten-entry jump table): 0 training, 1

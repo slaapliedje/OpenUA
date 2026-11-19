@@ -107615,6 +107615,25 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 		if (ins->argc > 0)
 			g_gbs_want_map = (unsigned char)ecl_rvalue(vm, &ins->arg[0]);
 		return ECL_HOST_OK;
+	case 0x2c:                      /* SOUND n (PARLAY in Champions) */
+		/* In Dark Queen 0x2c takes one value and calls the sound and
+		 * music dispatcher (DQK 0x33140 -> 1023:0006), which is FRUA's
+		 * jt52 case for case: 255 stop, 0/1 sound off/on, 3..15 the
+		 * effects (11 is the footstep), 32..39 the songs. The one step
+		 * of its own: the footstep becomes 14 (splash) or 15 (crackle)
+		 * when area byte 0x3a is 3 or 6. */
+		if (g_gbs_dialect != ECL_GEN2 || ins->argc < 1)
+			return ECL_HOST_UNHANDLED;
+		{
+			short n = (short)ecl_rvalue(vm, &ins->arg[0]);
+
+			if (n == 11 && ecl_peek(vm, 0x003a) == 3)
+				n = 14;
+			else if (n == 11 && ecl_peek(vm, 0x003a) == 6)
+				n = 15;
+			jt52(n);
+		}
+		return ECL_HOST_OK;
 	case 0x2d:                      /* CALL n */
 		if (ins->argc < 1 || g_gbs_dialect != ECL_GEN2)
 			return ECL_HOST_UNHANDLED;
