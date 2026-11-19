@@ -22864,7 +22864,10 @@ static void save_roster(void)
 		 * faithful Delete frees a slot WITHOUT shifting the array, to keep
 		 * the live -27928 node addresses valid; see l15e2). A hole drops
 		 * the file it used to own, and nothing else. */
-		if (i < cg_pool_count && cg_pool[i][96] != 0) {
+		/* An NPC (rec[147] bit 7) rides in the party, and in the save,
+		 * but is nobody's character in the hall: no file. */
+		if (i < cg_pool_count && cg_pool[i][96] != 0
+		    && (cg_pool[i][147] & 0x80) == 0) {
 			cch_file_name(cg_pool[i], base);
 			for (j = 0; j < i; j++)
 				if (cg_pool_fn[j][0] != 0
@@ -35236,9 +35239,24 @@ static void jt592(short code)
 	if ((unsigned char)hdr[32] > 7)
 		return;
 
-	jt477(&g_a5_byte(-22212), (short)398, &rec);
+	/* PORT: the Mac takes the record from the -22212 bucket (jt477). The
+	 * port's party lives in cg_pool, and the roster and every party walk
+	 * stop at a node outside it (cg_node_in_pool), so an NPC from the
+	 * bucket joined invisibly. A loaded game puts its NPCs in cg_pool
+	 * too (jt579); take a slot there: a hole no member is using, or the
+	 * next free one. */
+	{
+		short i;
+
+		for (i = 0; i < cg_pool_count && rec == NULL; i++)
+			if (cg_pool[i][96] == 0 && !cg_in_party(cg_pool[i]))
+				rec = cg_pool[i];
+		if (rec == NULL && cg_pool_count < 16)
+			rec = cg_pool[cg_pool_count++];
+	}
 	if (rec == NULL)
 		return;
+	memset(rec, 0, 512);
 	jt588((short)(unsigned char)code, rec);
 	jt590(rec);
 
