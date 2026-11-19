@@ -106849,6 +106849,51 @@ static void gbs_menu(ecl_vm *vm, const ecl_insn *ins, int first, int n,
 	g_gbs_shown = 1;
 }
 
+static void gbs_seed_who(void);
+
+/* WHO prompt: the player picks a party member, who becomes the selected
+ * character for what follows (DQK's handler installs the pick as the global
+ * selected-player pointer; FRUA's is -27932, the one the scripts' name cell
+ * 0x401 and the camp already use). The screen is the camp menu's: the
+ * question over a "Select" bar, the roster cursor moved with the arrow keys
+ * (jt182 flags them in -24139 when its echo and wait arguments are 1, as
+ * the camp's jt160 call passes; with 0 the arrows never come back), S or a
+ * click on Select to take it. Escape keeps whoever is selected. A party of
+ * one is not asked. */
+static void gbs_who(ecl_vm *vm, const ecl_opnd *prompt)
+{
+	unsigned char *head = (unsigned char *)(uintptr_t)g_a5_long(-27928);
+	unsigned char  roster = g_a5_byte(-24140);
+	short pick;
+
+	if (head == NULL)
+		return;
+	if (*(long *)(void *)head == 0) {   /* one member: it is them */
+		g_a5_long(-27932) = (long)(uintptr_t)head;
+		gbs_seed_who();
+		return;
+	}
+	if (g_a5_long(-27932) == 0)
+		g_a5_long(-27932) = (long)(uintptr_t)head;
+	gbs_text_add(vm, prompt);
+	gbs_draw(0);
+	jt936(g_a5_long(-27932), 1);
+	for (;;) {
+		g_a5_byte(-24140) = 1;          /* the roster keys are live */
+		jt179(0);
+		pick = jt182("", (long)(uintptr_t)"Select", 1, 1);
+		if (g_a5_byte(-24139) == 0 || pick == 27)
+			break;
+		jt936(g_a5_long(-27932), 0);
+		jt934(pick);
+		jt936(g_a5_long(-27932), 1);
+	}
+	g_a5_byte(-24140) = roster;
+	g_a5_byte(-24139) = 0;
+	gbs_seed_who();
+	g_gbs_shown = 1;
+}
+
 /* INPUT_NUMBER: the engine's own "how much?" field (JT[891], the widget the
  * temple and the money screens use), under whatever question the script has
  * just printed. The first operand is the number of digits the script expects
@@ -107284,7 +107329,7 @@ static void gbs_approach(void)
 
 /* Tell the script whose name it is talking about: the cell at 0x401 holds the
  * selected character's name (the scripts print it after WHO, and copy it).
- * Dark Queen only; WHO itself is not wired, so it is whoever FRUA has
+ * Dark Queen only; WHO (gbs_who) changes it mid-run, otherwise it is whoever FRUA has
  * selected. */
 static void gbs_seed_who(void)
 {
@@ -107404,6 +107449,11 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 	case ECL_OP_LOAD_FILES:         /* operand 0 is the map; honoured after the run */
 		if (ins->argc > 0)
 			g_gbs_want_map = (unsigned char)ecl_rvalue(vm, &ins->arg[0]);
+		return ECL_HOST_OK;
+	case 0x39:                      /* WHO prompt */
+		if (ins->argc < 1)
+			return ECL_HOST_UNHANDLED;
+		gbs_who(vm, &ins->arg[0]);
 		return ECL_HOST_OK;
 	case 0x0f:                      /* INPUT_NUMBER digits, dest */
 		if (ins->argc < 2)

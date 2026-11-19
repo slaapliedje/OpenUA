@@ -302,9 +302,11 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   number input (JT[891]), script chains, map loads, party placement (Dark
   Queen's position variables only), pictures, fights, treasure, temples,
   shops, inns, training halls, text entry (`jt98`), approaching monsters
-  and the fight's starting range. **Not wired:** WHO (choosing a character),
-  random items, PROGRAM 1 and 3, the "sides" operand of SETUP_MONSTER. A
-  script that needs one of those takes a wrong turn.
+  the fight's starting range, and WHO (`gbs_who`: the camp's roster cursor
+  under a Select bar; jt182 only reports the arrows with its echo and wait
+  arguments at 1). **Not wired:** random items, PROGRAM 1 and 3, the
+  "sides" operand of SETUP_MONSTER. A script that needs one of those takes
+  a wrong turn.
 - **String cells (0x81 operands) live in script memory, one character a
   word**, NUL-terminated, 16 characters at most (`ecl_str_get/put`); the core
   compares text as text. Cell 0x401 is the selected character's name and is
