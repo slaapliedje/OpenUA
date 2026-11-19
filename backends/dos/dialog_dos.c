@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: LGPL-2.1-or-later */
 #include <stddef.h>
+#include <string.h>
 #include <i86.h>
 #include "platform.h"
 #include "metrics_dos_internal.h"
@@ -147,8 +148,19 @@ static void box_rows(int top, int rows, wp_bool save)
     }
 }
 
+/* "(Enter=n)" for the caller's default option, which Enter picks: a
+   one-option "1)OK" took only its digit, unlike every "(Enter=OK)"
+   message beside it, and a two-way question offered no safe key. */
+static void enter_hint(u8 *out, u32 def)
+{
+    memcpy(out, "(Enter=", 7);
+    out[7] = (u8)('1' + def);
+    out[8] = ')';
+}
+#define ENTER_HINT_LEN 9
+
 static u32 choice_in_box(const u8 *title, u32 title_len, const u8 * const *labels,
-                         const u32 *lens, u32 count, wp_bool *cancelled)
+                         const u32 *lens, u32 count, u32 def, wp_bool *cancelled)
 {
     int inner = (int)title_len, rows = (int)count + 4, top, left, r, c;
     u32 i;
@@ -194,10 +206,17 @@ static u32 choice_in_box(const u8 *title, u32 title_len, const u8 * const *label
     box_put(top + rows - 1, left, 0xC8);                    /* bottom frame */
     for (c = 1; c < inner + 3; c++) box_put(top + rows - 1, left + c, 0xCD);
     box_put(top + rows - 1, left + inner + 3, 0xBC);
+    if (def < count && inner >= ENTER_HINT_LEN) {
+        u8 hint[ENTER_HINT_LEN];
+
+        enter_hint(hint, def);
+        box_text(top + rows - 1, left + 2, hint, ENTER_HINT_LEN, ENTER_HINT_LEN);
+    }
 
     for (;;) {
         key = dialog_read_key();
         if (key == 27) { *cancelled = WP_TRUE; break; }
+        if (key == 13 && def < count) { key = (u8)('1' + def); *cancelled = WP_FALSE; break; }
         if (key >= '1' && key <= '9' && (u32)(key - '1') < count) { *cancelled = WP_FALSE; break; }
     }
     box_rows(top, rows, WP_FALSE);
@@ -207,8 +226,16 @@ static u32 choice_in_box(const u8 *title, u32 title_len, const u8 * const *label
     return *cancelled ? 0 : (u32)(key - '1');
 }
 
+/* platform.h's Cancel rule: a caller's own "Cancel" option is the way
+   out, so picking it answers cancelled. Esc cancels as well. */
+static wp_bool is_cancel_label(const u8 *label, u32 len)
+{
+    return (wp_bool)(len == 6u && memcmp(label, "Cancel", 6) == 0);
+}
+
 /* Lists up to 9 options as "1)Label 2)Label ..." on the same bottom-row
-   prompt -- a single-digit key (1-9) selects, Escape cancels -- or, when
+   prompt -- a single-digit key (1-9) selects, Enter takes default_index,
+   Escape cancels -- or, when
    they would not fit there, in a box (choice_in_box). Caps at 9 options
    (WP_DIALOG_MAX_OPTIONS-shaped limit, matching dialog_atari.c's cap). */
 wp_status plat_dialog_choice(plat_window *parent,
@@ -223,16 +250,18 @@ wp_status plat_dialog_choice(plat_window *parent,
     u8 key;
 
     WP_UNUSED(parent);
-    WP_UNUSED(default_index);
 
     if (option_count == 0 || option_count > 9) return WP_RANGE;
 
     col = (int)title_len + 2;
     for (i = 0; i < option_count; i++) col += 2 + (int)option_label_lens[i] + 1;
+    if (default_index < option_count) col += ENTER_HINT_LEN;
     if (col > DOS_SCREEN_COLS) {
         wp_bool cancelled = WP_TRUE;
         u32 idx = choice_in_box(title_utf8, title_len, option_labels_utf8, option_label_lens,
-                                option_count, &cancelled);
+                                option_count, default_index, &cancelled);
+        if (!cancelled && is_cancel_label(option_labels_utf8[idx], option_label_lens[idx]))
+            cancelled = WP_TRUE;
         if (out_cancelled) *out_cancelled = cancelled;
         if (!cancelled && out_index) *out_index = idx;
         return WP_OK;
@@ -254,6 +283,12 @@ wp_status plat_dialog_choice(plat_window *parent,
         dialog_print(col, option_labels_utf8[i], option_label_lens[i]);
         col += (int)option_label_lens[i] + 1;
     }
+    if (default_index < option_count) {
+        u8 hint[ENTER_HINT_LEN];
+
+        enter_hint(hint, default_index);
+        dialog_print(col, hint, ENTER_HINT_LEN);
+    }
 
     for (;;) {
         key = dialog_read_key();
@@ -262,10 +297,12 @@ wp_status plat_dialog_choice(plat_window *parent,
             dialog_clear_row();
             return WP_OK;
         }
+        if (key == 13 && default_index < option_count) key = (u8)('1' + default_index);
         if (key >= '1' && key <= '9') {
             u32 idx = (u32)(key - '1');
             if (idx < option_count) {
-                if (out_cancelled) *out_cancelled = WP_FALSE;
+                if (out_cancelled)
+                    *out_cancelled = is_cancel_label(option_labels_utf8[idx], option_label_lens[idx]);
                 if (out_index) *out_index = idx;
                 dialog_clear_row();
                 return WP_OK;

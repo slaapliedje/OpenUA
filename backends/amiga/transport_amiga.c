@@ -8,6 +8,20 @@
 #include <devices/serial.h>
 #include <proto/exec.h>
 
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <sys/ioctl.h>
+#include <sys/filio.h>
+#include <netinet/in.h>
+#include <netdb.h>
+#include <errno.h>
+/* The library base every bsdsocket call goes through, under a name of this
+   file's own: proto/bsdsocket.h declares "SocketBase" extern, and an
+   application with its own SocketBase must not collide with this one. */
+#define SocketBase wp_amiga_socket_base
+#include <proto/bsdsocket.h>
+
 #include "platform.h"
 
 /* T9.3: real RS-232 transport over serial.device, mirroring platform/
@@ -19,13 +33,10 @@
    "non-empty", same as Atari -- a stock Amiga has exactly one built-in
    serial port (unit 0), so there is nothing to select, but the field is
    kept for the same forward-compatibility reason Atari's own comment
-   gives. "tcp:" (bsdsocket.library/AmiTCP/Roadshow) is explicitly out of
-   scope for this pass -- the M9 plan's own Phase 4 section scopes it as
-   optional/stretch given the stock-Amiga baseline, and this project's
-   own amiberry fixture has no network interface emulated (see
-   docs/amiga-platform.md and platform/amiga's own User-Startup comment)
-   -- WP_UNSUPPORTED here is the documented legal escape hatch, not a
-   silently dropped feature. */
+   gives. "tcp:<host>:<port>" is a TCP client over bsdsocket.library
+   (AmiTCP, Miami, Roadshow, or an emulator's own bsdsocket emulation),
+   further down this file; a machine with no TCP stack running answers
+   WP_UNSUPPORTED from plat_transport_open, never a hang. */
 
 static wp_bool parse_baud(const char *s, ULONG *out_baud)
 {
@@ -49,7 +60,12 @@ static wp_bool parse_baud(const char *s, ULONG *out_baud)
    IORequest is undefined per the serial.device docs, unlike the fully
    defensive mem_free/DeleteIORequest/DeleteMsgPort calls below it, which
    are all safe on NULL). */
+/* Every transport this file hands out starts with its kind, so the four
+   public functions can tell a serial line from a socket. */
+enum { TRANSPORT_SERIAL = 1, TRANSPORT_TCP = 2 };
+
 typedef struct {
+    int              kind;          /* TRANSPORT_SERIAL */
     struct MsgPort  *port;
     struct IOExtSer *ioreq;
     wp_bool          device_open;
@@ -74,8 +90,8 @@ static void close_transport(amiga_transport *t)
     mem_free(t);
 }
 
-wp_status plat_transport_open(const char *endpoint, u32 connect_timeout_ms,
-                               plat_transport **out)
+static wp_status serial_open(const char *endpoint, u32 connect_timeout_ms,
+                             plat_transport **out)
 {
     amiga_transport *t;
     const char *rest;
@@ -97,6 +113,7 @@ wp_status plat_transport_open(const char *endpoint, u32 connect_timeout_ms,
 
     t = (amiga_transport *)mem_alloc((u32)sizeof(amiga_transport));
     if (t == NULL) return WP_NOMEM;
+    t->kind = TRANSPORT_SERIAL;
     t->port = NULL;
     t->ioreq = NULL;
     t->device_open = WP_FALSE;
@@ -183,11 +200,11 @@ wp_status plat_transport_open(const char *endpoint, u32 connect_timeout_ms,
    further waiting" contract, so callers assembling a multi-byte frame
    (offload/transport/wire.c) need fewer round trips than a strict
    one-byte-per-call implementation would cost them. */
-wp_status plat_transport_read(plat_transport *t, u8 *out, u32 out_cap,
-                               u32 timeout_ms, u32 *out_len)
+static wp_status serial_read(plat_transport *t, u8 *out, u32 out_cap,
+                             u32 timeout_ms, u32 *out_len)
 {
     amiga_transport *at = (amiga_transport *)t;
-    u32 deadline;
+    u32 t0;
     u32 extra, n;
 
     if (out_len) *out_len = 0;
@@ -199,9 +216,9 @@ wp_status plat_transport_read(plat_transport *t, u8 *out, u32 out_cap,
     at->ioreq->IOSer.io_Length = 1;
     SendIO((struct IORequest *)at->ioreq);
 
-    deadline = plat_ticks_ms() + timeout_ms;
+    t0 = plat_ticks_ms();
     while (CheckIO((struct IORequest *)at->ioreq) == NULL) {
-        if (plat_ticks_ms() >= deadline) {
+        if (PLAT_TICKS_PASSED(t0, timeout_ms)) {
             AbortIO((struct IORequest *)at->ioreq);
             WaitIO((struct IORequest *)at->ioreq);
             return WP_TIMEOUT;
@@ -231,42 +248,251 @@ wp_status plat_transport_read(plat_transport *t, u8 *out, u32 out_cap,
     return WP_OK;
 }
 
-/* Ships the WHOLE buffer as one IORequest (unlike Atari's Bconout,
-   which is single-byte-at-a-time by hardware necessity -- serial.device
-   genuinely accepts a multi-byte CMD_WRITE, so there is no need to
-   chunk this into a per-byte polling loop the way transport_atari.c's
-   own comment explains ITS choice was forced by). One deadline covers
-   the whole write, racing the same SendIO/CheckIO/AbortIO/WaitIO shape
-   plat_transport_read uses above. */
+/* serial.device takes a multi-byte CMD_WRITE, so there is no per-byte
+   polling here (unlike Atari's Bconout). But one IORequest for the whole
+   buffer meant one deadline for the whole buffer, and platform.h's write
+   timeout means NO PROGRESS for timeout_ms, as on every other backend --
+   a 60 KB frame at 9600 baud is a minute of honest progress. So the
+   buffer goes in pieces of WP_AMIGA_WRITE_PIECE, each racing its own
+   timeout_ms with the SendIO/CheckIO/AbortIO/WaitIO shape the read uses:
+   a stalled line still times out, a slow one does not. 128 bytes is
+   0.13 s at 9600 baud and a few hundred IORequests a second at 115200. */
+#define WP_AMIGA_WRITE_PIECE 128u
+
+static wp_status serial_write(plat_transport *t, const u8 *data, u32 len,
+                              u32 timeout_ms)
+{
+    amiga_transport *at = (amiga_transport *)t;
+    u32 done = 0;
+
+    if (at == NULL) return WP_ERR;
+
+    while (done < len) {
+        u32 piece = len - done;
+        u32 t0;
+
+        if (piece > WP_AMIGA_WRITE_PIECE) piece = WP_AMIGA_WRITE_PIECE;
+        at->ioreq->IOSer.io_Command = CMD_WRITE;
+        at->ioreq->IOSer.io_Data = (APTR)(data + done);
+        at->ioreq->IOSer.io_Length = piece;
+        SendIO((struct IORequest *)at->ioreq);
+
+        t0 = plat_ticks_ms();
+        while (CheckIO((struct IORequest *)at->ioreq) == NULL) {
+            if (PLAT_TICKS_PASSED(t0, timeout_ms)) {
+                AbortIO((struct IORequest *)at->ioreq);
+                WaitIO((struct IORequest *)at->ioreq);
+                return WP_TIMEOUT;
+            }
+        }
+        WaitIO((struct IORequest *)at->ioreq);
+        if (at->ioreq->IOSer.io_Error != 0) return WP_ERR;
+        done += piece;
+    }
+    return WP_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/* tcp:<host>:<port> over bsdsocket.library                             */
+/* ------------------------------------------------------------------ */
+
+/* The library is opened when a connection is, and closed with it: a
+   machine with no TCP stack only finds out when it asks for one, and a
+   program that never asks never touches the network. A bsdsocket base
+   belongs to the task that opened it, and every call goes through the
+   base in SocketBase, which each function below points at its
+   connection's base first. The socket is non-blocking throughout and
+   every wait is a WaitSelect with the caller's timeout, so nothing here
+   blocks past it except the name lookup: a dotted address is taken as it
+   is, and only a real name goes to gethostbyname, which has no timeout
+   and CAN BLOCK when the DNS server is unreachable. Kept small in stack: a RUN-launched program has 4 KB.
+   (The name SocketBase is #defined to one of this file's own at the top,
+   so an application's SocketBase cannot collide with it.) */
+struct Library *SocketBase;   /* wp_amiga_socket_base: see the #define */
+
+typedef struct {
+    int             kind;           /* TRANSPORT_TCP */
+    struct Library *base;
+    LONG            fd;
+} amiga_tcp;
+
+static void tcp_close(amiga_tcp *t)
+{
+    if (t == NULL) return;
+    SocketBase = t->base;
+    if (t->fd >= 0) CloseSocket(t->fd);
+    if (t->base != NULL) CloseLibrary(t->base);
+    mem_free(t);
+}
+
+/* Wait until fd is readable (want_write 0) or writable (1), up to ms.
+   1 ready, 0 timed out, -1 failed. */
+static int tcp_wait(LONG fd, int want_write, u32 ms)
+{
+    u32 t0 = plat_ticks_ms();
+
+    for (;;) {
+        fd_set set;
+        struct timeval tv;
+        u32 left = ms - PLAT_TICKS_SINCE(t0);
+        LONG r;
+
+        if (PLAT_TICKS_PASSED(t0, ms)) left = 0;
+        FD_ZERO(&set);
+        FD_SET(fd, &set);
+        tv.tv_sec = (long)(left / 1000u);
+        tv.tv_usec = (long)((left % 1000u) * 1000u);
+        r = WaitSelect(fd + 1, want_write ? NULL : &set, want_write ? &set : NULL,
+                       NULL, &tv, NULL);
+        if (r < 0 && Errno() == EINTR && !PLAT_TICKS_PASSED(t0, ms))
+            continue;               /* interrupted: wait out what is left */
+        return r > 0 ? 1 : (r == 0 ? 0 : -1);
+    }
+}
+
+static wp_status tcp_open(const char *hostport, u32 connect_timeout_ms,
+                          plat_transport **out)
+{
+    char host[128];
+    const char *colon = strrchr(hostport, ':');
+    struct hostent *he;
+    struct sockaddr_in sa;
+    amiga_tcp *t;
+    LONG one = 1, err = 0, errlen = (LONG)sizeof(err);
+    ULONG port = 0;
+    size_t n;
+
+    if (colon == NULL || colon == hostport) return WP_ERR;
+    n = (size_t)(colon - hostport);
+    if (n >= sizeof(host)) return WP_ERR;
+    memcpy(host, hostport, n);
+    host[n] = '\0';
+    {
+        const char *q;
+
+        for (q = colon + 1; *q >= '0' && *q <= '9' && port <= 65535u; q++)
+            port = port * 10u + (ULONG)(*q - '0');
+        if (*q != '\0' || port == 0 || port > 65535u) return WP_ERR;
+    }
+
+    t = (amiga_tcp *)mem_alloc((u32)sizeof(amiga_tcp));
+    if (t == NULL) return WP_NOMEM;
+    t->kind = TRANSPORT_TCP;
+    t->fd = -1;
+    t->base = OpenLibrary((CONST_STRPTR)"bsdsocket.library", 4);
+    if (t->base == NULL) { mem_free(t); return WP_UNSUPPORTED; }
+    SocketBase = t->base;
+
+    memset(&sa, 0, sizeof(sa));
+    {
+        /* numbers first: a LAN address never touches the resolver */
+        ULONG a = (ULONG)inet_addr((STRPTR)host);
+
+        if (a == (ULONG)INADDR_NONE) {
+            he = gethostbyname((STRPTR)host);
+            if (he == NULL || he->h_length != 4) { tcp_close(t); return WP_ERR; }
+            memcpy(&a, he->h_addr, 4);
+        }
+        memcpy(&sa.sin_addr, &a, 4);
+    }
+    t->fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (t->fd < 0) { tcp_close(t); return WP_ERR; }
+    IoctlSocket(t->fd, FIONBIO, (char *)&one);
+
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons((unsigned short)port);
+    if (connect(t->fd, (struct sockaddr *)&sa, (LONG)sizeof(sa)) < 0) {
+        if (Errno() != EINPROGRESS ||
+            tcp_wait(t->fd, 1, connect_timeout_ms) != 1 ||
+            getsockopt(t->fd, SOL_SOCKET, SO_ERROR, &err, (void *)&errlen) < 0 ||
+            err != 0) {
+            tcp_close(t);
+            return WP_ERR;
+        }
+    }
+    *out = (plat_transport *)t;
+    return WP_OK;
+}
+
+/* platform.h: wait up to timeout_ms for the first byte, then hand back
+   what is there; bytes sent before a close come first (recv returns them
+   before it returns 0), and WP_ERR only once none are left. */
+static wp_status tcp_read(amiga_tcp *t, u8 *out, u32 out_cap, u32 timeout_ms,
+                          u32 *out_len)
+{
+    int w;
+    LONG n;
+
+    SocketBase = t->base;
+    w = tcp_wait(t->fd, 0, timeout_ms);
+    if (w == 0) return WP_TIMEOUT;
+    if (w < 0) return WP_ERR;
+    n = recv(t->fd, (UBYTE *)out, (LONG)out_cap, 0);
+    if (n < 0) return Errno() == EWOULDBLOCK ? WP_TIMEOUT : WP_ERR;
+    if (n == 0) return WP_ERR;          /* closed, and nothing left */
+    if (out_len) *out_len = (u32)n;
+    return WP_OK;
+}
+
+/* platform.h: WP_TIMEOUT means no progress for timeout_ms -- each wait
+   starts again after bytes go out. */
+static wp_status tcp_write(amiga_tcp *t, const u8 *data, u32 len, u32 timeout_ms)
+{
+    u32 done = 0;
+
+    SocketBase = t->base;
+    while (done < len) {
+        int w = tcp_wait(t->fd, 1, timeout_ms);
+        LONG n;
+
+        if (w == 0) return WP_TIMEOUT;
+        if (w < 0) return WP_ERR;
+        n = send(t->fd, (UBYTE *)(data + done), (LONG)(len - done), 0);
+        if (n < 0) {
+            if (Errno() == EWOULDBLOCK) continue;
+            return WP_ERR;
+        }
+        done += (u32)n;
+    }
+    return WP_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/* The four functions platform.h declares: by the endpoint's prefix,     */
+/* then by the handle's kind.                                           */
+/* ------------------------------------------------------------------ */
+
+wp_status plat_transport_open(const char *endpoint, u32 connect_timeout_ms,
+                               plat_transport **out)
+{
+    if (strncmp(endpoint, "tcp:", 4) == 0)
+        return tcp_open(endpoint + 4, connect_timeout_ms, out);
+    return serial_open(endpoint, connect_timeout_ms, out);
+}
+
+wp_status plat_transport_read(plat_transport *t, u8 *out, u32 out_cap,
+                               u32 timeout_ms, u32 *out_len)
+{
+    if (out_len) *out_len = 0;
+    if (t != NULL && *(int *)t == TRANSPORT_TCP) {
+        if (out_cap == 0) return WP_OK;
+        return tcp_read((amiga_tcp *)t, out, out_cap, timeout_ms, out_len);
+    }
+    return serial_read(t, out, out_cap, timeout_ms, out_len);
+}
+
 wp_status plat_transport_write(plat_transport *t, const u8 *data, u32 len,
                                 u32 timeout_ms)
 {
-    amiga_transport *at = (amiga_transport *)t;
-    u32 deadline;
-
-    if (at == NULL) return WP_ERR;
-    if (len == 0) return WP_OK;
-
-    at->ioreq->IOSer.io_Command = CMD_WRITE;
-    at->ioreq->IOSer.io_Data = (APTR)data;
-    at->ioreq->IOSer.io_Length = len;
-    SendIO((struct IORequest *)at->ioreq);
-
-    deadline = plat_ticks_ms() + timeout_ms;
-    while (CheckIO((struct IORequest *)at->ioreq) == NULL) {
-        if (plat_ticks_ms() >= deadline) {
-            AbortIO((struct IORequest *)at->ioreq);
-            WaitIO((struct IORequest *)at->ioreq);
-            return WP_TIMEOUT;
-        }
-    }
-    WaitIO((struct IORequest *)at->ioreq);
-    if (at->ioreq->IOSer.io_Error != 0) return WP_ERR;
-
-    return WP_OK;
+    if (t != NULL && *(int *)t == TRANSPORT_TCP)
+        return tcp_write((amiga_tcp *)t, data, len, timeout_ms);
+    return serial_write(t, data, len, timeout_ms);
 }
 
 void plat_transport_close(plat_transport *t)
 {
-    close_transport((amiga_transport *)t);
+    if (t != NULL && *(int *)t == TRANSPORT_TCP)
+        tcp_close((amiga_tcp *)t);
+    else
+        close_transport((amiga_transport *)t);
 }
