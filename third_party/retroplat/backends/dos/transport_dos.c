@@ -32,6 +32,7 @@
 #define UART_DLM 1  /* divisor latch, high -- while LCR bit 7 is set */
 #define UART_IER 1  /* interrupt enable */
 #define UART_FCR 2  /* FIFO control (write) */
+#define UART_IIR 2  /* interrupt identification (read): bits 7-6 say a FIFO is on */
 #define UART_LCR 3  /* line control */
 #define UART_MCR 4  /* modem control */
 #define UART_LSR 5  /* line status */
@@ -73,7 +74,9 @@ static wp_bool parse_baud(const char *s, unsigned *out_divisor)
 }
 
 typedef struct {
-    unsigned base;   /* the UART's I/O base */
+    unsigned base;     /* the UART's I/O base */
+    unsigned divisor;  /* the speed now, as 115200 / baud */
+    int      fifo;     /* a 16550 with its FIFO on */
 } dos_transport;
 
 static unsigned port_base(int port)
@@ -117,6 +120,8 @@ wp_status plat_transport_open(const char *endpoint, u32 connect_timeout_ms,
     outp(base + UART_DLM, (divisor >> 8) & 0xFF);
     outp(base + UART_LCR, 0x03);                 /* 8N1 */
     outp(base + UART_FCR, 0x07);                 /* FIFOs on and cleared (a 16550; an 8250 ignores it) */
+    t->divisor = divisor;
+    t->fifo = (inp(base + UART_IIR) & 0xC0) == 0xC0;  /* IIR bits 7-6: the FIFO is on */
     outp(base + UART_MCR, 0x03);                 /* DTR and RTS, for a far end that watches them */
     while (inp(base + UART_LSR) & LSR_DATA_READY) (void)inp(base + UART_RBR);
 
@@ -174,4 +179,55 @@ wp_status plat_transport_write(plat_transport *t, const u8 *data, u32 len,
 void plat_transport_close(plat_transport *t)
 {
     mem_free(t);
+}
+
+/* Line speed (platform.h). This UART is polled -- no interrupts -- so a
+   byte that is not read before the next arrives is lost, and how fast is
+   safe is how much the chip can hold meanwhile: a 16550's FIFO keeps 16,
+   an 8250 or 16450 keeps one. With a FIFO, up to 115200; without, no
+   faster than 19200. Measure on the real machine before raising either. */
+static const u32 k_dos_fifo_rates[]  = { 115200uL, 57600uL, 38400uL, 19200uL, 9600uL };
+static const u32 k_dos_plain_rates[] = { 19200uL, 9600uL };
+
+u32 plat_transport_speeds(plat_transport *t, u32 *rates, u32 cap, u32 *current)
+{
+    dos_transport *dt = (dos_transport *)t;
+    const u32 *list;
+    u32 count, i, n = 0;
+
+    if (current) *current = 0;
+    if (dt == NULL || dt->divisor == 0) return 0;
+    if (current) *current = 115200uL / (u32)dt->divisor;
+    list = dt->fifo ? k_dos_fifo_rates : k_dos_plain_rates;
+    count = dt->fifo ? (u32)(sizeof(k_dos_fifo_rates) / sizeof(k_dos_fifo_rates[0]))
+                     : (u32)(sizeof(k_dos_plain_rates) / sizeof(k_dos_plain_rates[0]));
+    for (i = 0; i < count && n < cap; i++) rates[n++] = list[i];
+    return n;
+}
+
+#define LSR_TX_EMPTY 0x40   /* transmitter and its holding register both empty */
+
+wp_status plat_transport_set_speed(plat_transport *t, u32 baud)
+{
+    dos_transport *dt = (dos_transport *)t;
+    u32 rates[8], n, i, t0;
+    unsigned divisor;
+
+    if (dt == NULL) return WP_UNSUPPORTED;
+    n = plat_transport_speeds(t, rates, 8u, (u32 *)0);
+    for (i = 0; i < n; i++) if (rates[i] == baud) break;
+    if (i == n) return WP_RANGE;
+    divisor = (unsigned)(115200uL / baud);
+
+    /* What is written goes out first, at the old speed. */
+    t0 = plat_ticks_ms();
+    while (!(inp(dt->base + UART_LSR) & LSR_TX_EMPTY)) {
+        if (PLAT_TICKS_PASSED(t0, 1000u)) break;
+    }
+    outp(dt->base + UART_LCR, 0x80);
+    outp(dt->base + UART_DLL, divisor & 0xFF);
+    outp(dt->base + UART_DLM, (divisor >> 8) & 0xFF);
+    outp(dt->base + UART_LCR, 0x03);
+    dt->divisor = divisor;
+    return WP_OK;
 }

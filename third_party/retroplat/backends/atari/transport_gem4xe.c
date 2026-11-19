@@ -57,6 +57,23 @@ wp_status plat_transport_write(plat_transport *t, const u8 *data, u32 len,
     return WP_ERR;
 }
 
+/* No serial line through gem4xe's ABI: nothing to switch. */
+u32 plat_transport_speeds(plat_transport *t, u32 *rates, u32 cap, u32 *current)
+{
+    WP_UNUSED(t);
+    WP_UNUSED(rates);
+    WP_UNUSED(cap);
+    if (current) *current = 0;
+    return 0;
+}
+
+wp_status plat_transport_set_speed(plat_transport *t, u32 baud)
+{
+    WP_UNUSED(t);
+    WP_UNUSED(baud);
+    return WP_UNSUPPORTED;
+}
+
 void plat_transport_close(plat_transport *t)
 {
     WP_UNUSED(t);

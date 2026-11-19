@@ -5,6 +5,7 @@
 #include <mint/ostruct.h>
 #include <mint/mintbind.h>
 #include <mint/dcntl.h>
+#include <mint/cookie.h>   /* the RSVF cookie, for the faster SCC rates */
 #ifdef RP_ATARI_TCP
 #include <mint/cookie.h>
 #include <sys/types.h>
@@ -35,7 +36,13 @@
    TOS/EmuTOS, are gated at run time on the MiNT cookie: no cookie (or
    MiNT with no network stack loaded) is WP_UNSUPPORTED -- never a crash
    or a hang on a plain machine. Other prefixes are WP_UNSUPPORTED too,
-   honestly, not silently accepted. */
+   honestly, not silently accepted.
+
+   Plain TOS reaches the network through STinG instead, and "tcp:" falls
+   to it when MiNTnet is not there (or not compiled in). STinG is a few
+   hundred bytes of code and needs nothing from mintlib, so it is ON in
+   every build; -DRP_ATARI_NO_STING leaves it out. It is gated on STinG's
+   own cookie in the same way. */
 
 /* endpoint format: "serial:<device>:<baud>[:<flow>]" (platform.h's own
    doc comment already establishes the first three fields). <device> is
@@ -171,12 +178,16 @@ static const char *last_colon_before(const char *s, const char *end)
    a cable fault is superseded by that measurement. */
 /* Every transport this file hands out starts with its kind, so the four
    public functions can tell a serial line from a socket. */
-enum { TRANSPORT_SERIAL = 1, TRANSPORT_TCP = 2 };
+enum { TRANSPORT_SERIAL = 1, TRANSPORT_TCP = 2, TRANSPORT_STING = 3 };
 
 typedef struct {
     int     kind;      /* TRANSPORT_SERIAL */
     wp_bool opened;
     short   fd;        /* MiNT device-node handle, or -1 for the BIOS path */
+    u32     baud;      /* the line's speed now */
+    short   flow;      /* FLOW_NONE or FLOW_HARD, as the endpoint said */
+    wp_bool fast;      /* AUX is a port the RSVF cookie lists: HSMODEM's
+                          (and TOS 5's) higher Rsconf codes work on it */
 } atari_transport;
 
 #define ATARI_NO_NODE ((short)-1)
@@ -224,6 +235,35 @@ static short open_serial_node(const char *path)
     return (short)h;
 }
 
+/* Whether AUX is a port the RSVF cookie lists (HSMODEM's RSVF_COO.TXT;
+   TOS 5.01 sets one for the Falcon's SCC, tos4x A10). Its entries are
+   eight bytes -- the port's name, a flag byte, a spare, the BIOS device,
+   a spare -- ended by a null name. Rsconf codes 10-13 then mean 230400,
+   115200, 57600 and 38400 on that port, not 300 to 134. Without the
+   cookie nothing is assumed: a plain ST's MFP tops out at 19200, and
+   Bconmap is not even asked (TOS 1 has no XBIOS 44). */
+typedef struct {
+    const char   *name;
+    unsigned char flags, spare1, bios, spare2;
+} rsvf_entry;
+
+#define C_RSVF 0x52535646L   /* 'RSVF' */
+
+static wp_bool rsvf_lists_aux(void)
+{
+    long v = 0;
+    const rsvf_entry *e;
+    long dev;
+    int guard;
+
+    if (Getcookie(C_RSVF, &v) != C_FOUND || v == 0) return WP_FALSE;
+    dev = Bconmap(-1);                   /* the device AUX is mapped to now */
+    for (e = (const rsvf_entry *)v, guard = 0; e->name != NULL && guard < 32; e++, guard++) {
+        if ((long)e->bios == dev) return WP_TRUE;
+    }
+    return WP_FALSE;
+}
+
 static wp_status serial_open(const char *endpoint, u32 connect_timeout_ms,
                              plat_transport **out)
 {
@@ -263,6 +303,13 @@ static wp_status serial_open(const char *endpoint, u32 connect_timeout_ms,
     t->kind = TRANSPORT_SERIAL;
     t->opened = WP_TRUE;
     t->fd = ATARI_NO_NODE;
+    t->flow = flow;
+    t->baud = 0;
+    {
+        const char *d = colon + 1;
+        while (d < baud_end) t->baud = t->baud * 10u + (u32)(*d++ - '0');
+    }
+    t->fast = rsvf_lists_aux();
 
     /* 8N1, async /16 clock, receiver enabled, flow control as requested
        by the endpoint (FLOW_NONE unless asked otherwise).
@@ -442,7 +489,7 @@ static void serial_close(plat_transport *t)
    MSG_NOSIGNAL: so the first connection sets SIGPIPE to ignored if it is
    still at its default (a program's own handler is left alone), and the
    write sees EPIPE -- WP_ERR, as platform.h promises. (STinG, the other
-   TCP stack an ST may run, has an API of its own and is not here yet.) */
+   TCP stack an ST may run, has an API of its own: see the next section.) */
 typedef struct {
     int kind;          /* TRANSPORT_TCP */
     int fd;
@@ -598,6 +645,374 @@ static wp_status tcp_write(atari_tcp *t, const u8 *data, u32 len, u32 timeout_ms
 #endif /* RP_ATARI_TCP */
 
 /* ------------------------------------------------------------------ */
+/* tcp:<host>:<port> over STinG                                         */
+/* ------------------------------------------------------------------ */
+
+#ifndef RP_ATARI_NO_STING
+/* STinG (and STiK before it) puts a pointer in the cookie jar under
+   'STiK' to a driver list: the 10-byte magic "STiKmagic", then a
+   function that hands out a layer's function table by name. The TCP
+   layer is "TRANSPORT_TCPIP"; its table is three strings (module,
+   author, version) followed by function pointers in a fixed order,
+   of which this uses seven. The indices below are that order (STinG's
+   dev-kit, TRANSPRT.H, struct tpl).
+
+   THE CALLING CONVENTION IS PURE C's, not GCC's: an int argument is
+   one 16-bit word on the stack, and d2 is a scratch register, where
+   GCC expects it kept. So nothing here calls STinG directly. Each call
+   lays its arguments out exactly as they go on the stack (a packed
+   struct, words and longs in order) and goes through sting_call, which
+   pushes them, keeps d2, and hands back d0. A 16-bit result is in d0's
+   low word.
+
+   A port must be switched on (STinG's STNGPORT.CPX, or a STING.INF set
+   up that way) before anything can connect; this does not switch ports
+   itself, because it cannot know which port the user's route uses. */
+
+#define STING_COOKIE   0x5354694BL     /* 'STiK' */
+#define STING_TPL_TCP_OPEN       7
+#define STING_TPL_TCP_CLOSE      8
+#define STING_TPL_TCP_SEND       9
+#define STING_TPL_TCP_WAIT_STATE 10
+#define STING_TPL_CNBYTE_COUNT   16
+#define STING_TPL_CNGET_BLOCK    19
+#define STING_TPL_RESOLVE        21
+#define STING_TCP_ESTABLISHED    4
+#define STING_E_OBUFFULL        (-1)
+#define STING_E_NODATA          (-2)
+#define STING_E_EOF             (-3)
+#define STING_OBUF              4096    /* our send buffer in STinG */
+#define STING_CHUNK             1024    /* never more than this per TCP_send */
+
+#define RP_STR2(x) #x
+#define RP_STR(x) RP_STR2(x)
+#define RP_SYM(n) RP_STR(__USER_LABEL_PREFIX__) #n
+
+/* long sting_call(void *fn, const void *args, long nbytes): push nbytes
+   (even) of args, last word first, call fn, pop, return d0. d2 and a2
+   are saved; a2 carries the byte count across the call (Pure C keeps
+   a2..a6 and d3..d7). */
+long sting_call(void *fn, const void *args, long nbytes);
+__asm__(
+    "\t.text\n"
+    "\t.even\n"
+    "\t.globl\t" RP_SYM(sting_call) "\n"
+    RP_SYM(sting_call) ":\n"
+    "\tmoveml\t%d2/%a2,%sp@-\n"
+    "\tmoveal\t%sp@(12),%a0\n"
+    "\tmoveal\t%sp@(16),%a1\n"
+    "\tmoveal\t%sp@(20),%a2\n"
+    "\tmovel\t%a2,%d1\n"
+    "\taddal\t%d1,%a1\n"
+    "\tbras\t2f\n"
+    "1:\tmovew\t%a1@-,%sp@-\n"
+    "2:\tsubql\t#2,%d1\n"
+    "\tbges\t1b\n"
+    "\tjsr\t%a0@\n"
+    "\taddal\t%a2,%sp\n"
+    "\tmoveml\t%sp@+,%d2/%a2\n"
+    "\trts\n");
+
+typedef struct {
+    int   kind;        /* TRANSPORT_STING */
+    short cn;          /* STinG connection handle */
+} atari_sting;
+
+static long  g_sting_list;     /* the cookie's value, read in supervisor mode */
+static void **g_sting_tpl;     /* TRANSPORT_TCPIP's table, or NULL */
+static wp_bool g_sting_yield;  /* a multitasking OS is there: Syield in waits */
+
+static long sting_read_cookie(void)
+{
+    long *jar = *(long **)0x5A0L;
+
+    g_sting_list = 0;
+    g_sting_yield = WP_FALSE;
+    if (jar == NULL) return 0;
+    for (; jar[0] != 0; jar += 2) {
+        if (jar[0] == STING_COOKIE) g_sting_list = jar[1];
+        if (jar[0] == 0x4D694E54L || jar[0] == 0x4D616758L)  /* 'MiNT', 'MagX' */
+            g_sting_yield = WP_TRUE;
+    }
+    return 0;
+}
+
+/* The TCP layer's function table, found once and kept; NULL when STinG
+   is not loaded. */
+static void **sting_tpl(void)
+{
+    struct { const char *name; } __attribute__((packed)) a;
+    const char *list;
+    long tab;
+
+    if (g_sting_tpl != NULL) return g_sting_tpl;
+    Supexec(sting_read_cookie);
+    list = (const char *)g_sting_list;
+    if (list == NULL || memcmp(list, "STiKmagic", 10) != 0) return NULL;
+    a.name = "TRANSPORT_TCPIP";
+    tab = sting_call(*(void **)(list + 10), &a, (long)sizeof(a));
+    if (tab == 0) return NULL;
+    g_sting_tpl = (void **)tab + 3;    /* past module, author, version */
+    return g_sting_tpl;
+}
+
+static short sting_byte_count(short cn)
+{
+    struct { short cn; } __attribute__((packed)) a;
+
+    a.cn = cn;
+    return (short)sting_call(g_sting_tpl[STING_TPL_CNBYTE_COUNT], &a, (long)sizeof(a));
+}
+
+static void sting_close_cn(short cn)
+{
+    struct { short cn; short timeout; short *result; } __attribute__((packed)) a;
+
+    /* Up to 2 s for the FIN exchange (0 does not mean "no wait"): a close
+       against a peer that has gone away therefore pauses that long, which
+       is the price of not dropping data still in flight to a live one. */
+    a.cn = cn;
+    a.timeout = 2;
+    a.result = NULL;
+    (void)sting_call(g_sting_tpl[STING_TPL_TCP_CLOSE], &a, (long)sizeof(a));
+}
+
+/* "a.b.c.d" into a host-order address; 0 when it is not one. */
+static unsigned long sting_dotted(const char *s)
+{
+    unsigned long ip = 0, part;
+    int i;
+
+    for (i = 0; i < 4; i++) {
+        if (*s < '0' || *s > '9') return 0;
+        for (part = 0; *s >= '0' && *s <= '9'; s++) {
+            part = part * 10 + (unsigned long)(*s - '0');
+            if (part > 255) return 0;
+        }
+        ip = (ip << 8) | part;
+        if (i < 3 && *s++ != '.') return 0;
+    }
+    return *s == '\0' ? ip : 0;
+}
+
+static wp_status sting_open(const char *hostport, u32 connect_timeout_ms,
+                            plat_transport **out)
+{
+    char host[128];
+    const char *colon = strrchr(hostport, ':');
+    const char *p;
+    long port = 0;
+    unsigned long ip;
+    size_t n;
+    short cn, r;
+    atari_sting *t;
+
+    if (sting_tpl() == NULL) return WP_UNSUPPORTED;
+    if (colon == NULL || colon == hostport) return WP_ERR;
+    n = (size_t)(colon - hostport);
+    if (n >= sizeof(host)) return WP_ERR;
+    memcpy(host, hostport, n);
+    host[n] = '\0';
+    for (p = colon + 1; *p >= '0' && *p <= '9' && port <= 65535L; p++)
+        port = port * 10 + (*p - '0');
+    if (*p != '\0' || port <= 0 || port > 65535L) return WP_ERR;
+
+    /* numbers first: a LAN address never touches the resolver, which
+       (as under MiNTnet) has no timeout of its own */
+    ip = sting_dotted(host);
+    if (ip == 0) {
+        struct { const char *dn; char **real; unsigned long *list; short len; }
+            __attribute__((packed)) a;
+
+        a.dn = host;
+        a.real = NULL;
+        a.list = &ip;
+        a.len = 1;
+        if ((short)sting_call(g_sting_tpl[STING_TPL_RESOLVE], &a, (long)sizeof(a)) <= 0
+         || ip == 0)
+            return WP_ERR;
+    }
+
+    {
+        struct { unsigned long host; unsigned short port, tos, obsize; }
+            __attribute__((packed)) a;
+
+        a.host = ip;
+        a.port = (unsigned short)port;
+        a.tos = 0;
+        a.obsize = STING_OBUF;
+        cn = (short)sting_call(g_sting_tpl[STING_TPL_TCP_OPEN], &a, (long)sizeof(a));
+    }
+    if (cn < 0) return WP_ERR;
+
+    {
+        /* TCP_wait_state counts in seconds; round the caller's ms up */
+        struct { short cn, state, timeout; } __attribute__((packed)) a;
+        u32 secs = (connect_timeout_ms + 999u) / 1000u;
+
+        if (secs < 1) secs = 1;
+        if (secs > 32767u) secs = 32767u;
+        a.cn = cn;
+        a.state = STING_TCP_ESTABLISHED;
+        a.timeout = (short)secs;
+        r = (short)sting_call(g_sting_tpl[STING_TPL_TCP_WAIT_STATE], &a, (long)sizeof(a));
+    }
+    if (r < 0) {
+        sting_close_cn(cn);
+        return WP_ERR;
+    }
+
+    t = (atari_sting *)mem_alloc((u32)sizeof(atari_sting));
+    if (t == NULL) {
+        sting_close_cn(cn);
+        return WP_NOMEM;
+    }
+    t->kind = TRANSPORT_STING;
+    t->cn = cn;
+    *out = (plat_transport *)t;
+    return WP_OK;
+}
+
+/* platform.h's read contract, as tcp_read above: wait for the first
+   byte, hand back what is there; what arrived before the close comes
+   first, WP_ERR once nothing is left. */
+static wp_status sting_read(atari_sting *t, u8 *out, u32 out_cap, u32 timeout_ms,
+                            u32 *out_len)
+{
+    u32 t0 = plat_ticks_ms();
+    short n;
+
+    for (;;) {
+        n = sting_byte_count(t->cn);
+        if (n > 0) break;
+        if (n == STING_E_EOF) return WP_ERR;
+        if (n != 0 && n != STING_E_NODATA) return WP_ERR;
+        if (PLAT_TICKS_PASSED(t0, timeout_ms)) return WP_TIMEOUT;
+        if (g_sting_yield) (void)Syield();   /* plain TOS has no Syield */
+    }
+    if ((u32)n > out_cap) n = (short)(out_cap > 32767u ? 32767u : out_cap);
+    {
+        struct { short cn; void *buf; short len; } __attribute__((packed)) a;
+
+        a.cn = t->cn;
+        a.buf = out;
+        a.len = n;
+        n = (short)sting_call(g_sting_tpl[STING_TPL_CNGET_BLOCK], &a, (long)sizeof(a));
+    }
+    if (n <= 0) return n == STING_E_NODATA ? WP_TIMEOUT : WP_ERR;
+    if (out_len) *out_len = (u32)n;
+    return WP_OK;
+}
+
+/* TCP_send takes a block whole or refuses it (E_OBUFFULL) when it does
+   not fit what is free of the send buffer, so blocks stay well under
+   that buffer, and a refusal is waited out. WP_TIMEOUT means no progress
+   for timeout_ms, as platform.h says. */
+static wp_status sting_write(atari_sting *t, const u8 *data, u32 len, u32 timeout_ms)
+{
+    u32 done = 0, t0 = plat_ticks_ms();
+
+    while (done < len) {
+        struct { short cn; const void *buf; short len; } __attribute__((packed)) a;
+        u32 part = len - done;
+        short r;
+
+        if (part > STING_CHUNK) part = STING_CHUNK;
+        a.cn = t->cn;
+        a.buf = data + done;
+        a.len = (short)part;
+        r = (short)sting_call(g_sting_tpl[STING_TPL_TCP_SEND], &a, (long)sizeof(a));
+        if (r == STING_E_OBUFFULL) {
+            if (PLAT_TICKS_PASSED(t0, timeout_ms)) return WP_TIMEOUT;
+            if (g_sting_yield) (void)Syield();
+            continue;
+        }
+        if (r < 0) return WP_ERR;
+        done += part;
+        t0 = plat_ticks_ms();
+    }
+    return WP_OK;
+}
+#endif /* RP_ATARI_NO_STING */
+
+/* ------------------------------------------------------------------ */
+/* Line speed (platform.h)                                               */
+/* ------------------------------------------------------------------ */
+
+/* Fastest first. The MFP's own ceiling is 19200 (Timer D); the RSVF
+   rates need the cookie, and the two fastest need RTS/CTS as well --
+   the endpoint's ":hard" -- because at 115200 the SCC's buffer fills
+   faster than a busy machine empties it, and without the handshake the
+   overflow is lost (tos4x measured 4 bytes in 900 under Hatari). The
+   MiNT device-node path offers nothing: its speed is the driver's
+   (TIOCOBAUD), not Rsconf's, and that is not done yet. */
+typedef struct { u32 baud; short code; unsigned char needs_rsvf, needs_hard; } atari_rate;
+static const atari_rate k_atari_rates[] = {
+    { 230400uL, 10, 1, 1 },
+    { 115200uL, 11, 1, 1 },
+    {  57600uL, 12, 1, 0 },
+    {  38400uL, 13, 1, 0 },
+    {  19200uL, BAUD_19200, 0, 0 },
+    {   9600uL, BAUD_9600, 0, 0 }
+};
+#define ATARI_RATE_COUNT ((u32)(sizeof(k_atari_rates) / sizeof(k_atari_rates[0])))
+
+static wp_bool rate_ok(const atari_transport *at, const atari_rate *r)
+{
+    if (r->needs_rsvf && !at->fast) return WP_FALSE;
+    if (r->needs_hard && at->flow != FLOW_HARD) return WP_FALSE;
+    return WP_TRUE;
+}
+
+u32 plat_transport_speeds(plat_transport *t, u32 *rates, u32 cap, u32 *current)
+{
+    atari_transport *at = (atari_transport *)t;
+    u32 i, n = 0;
+
+    if (current) *current = 0;
+#ifdef RP_ATARI_TCP
+    if (t != NULL && *(int *)t == TRANSPORT_TCP) return 0;
+#endif
+    if (t != NULL && *(int *)t == TRANSPORT_STING) return 0;
+    if (at == NULL || at->fd != ATARI_NO_NODE || at->baud == 0) return 0;
+    if (current) *current = at->baud;
+    for (i = 0; i < ATARI_RATE_COUNT && n < cap; i++)
+        if (rate_ok(at, &k_atari_rates[i])) rates[n++] = k_atari_rates[i].baud;
+    return n;
+}
+
+wp_status plat_transport_set_speed(plat_transport *t, u32 baud)
+{
+    atari_transport *at = (atari_transport *)t;
+    const atari_rate *r = NULL;
+    _IOREC *io;
+    u32 i, t0;
+
+#ifdef RP_ATARI_TCP
+    if (t != NULL && *(int *)t == TRANSPORT_TCP) return WP_UNSUPPORTED;
+#endif
+    if (t != NULL && *(int *)t == TRANSPORT_STING) return WP_UNSUPPORTED;
+    if (at == NULL || at->fd != ATARI_NO_NODE || at->baud == 0) return WP_UNSUPPORTED;
+    for (i = 0; i < ATARI_RATE_COUNT; i++)
+        if (k_atari_rates[i].baud == baud && rate_ok(at, &k_atari_rates[i])) r = &k_atari_rates[i];
+    if (r == NULL) return WP_RANGE;
+
+    /* What is written goes out first, at the old speed: AUX's output
+       buffer empties (Iorec's second record), then a character's time
+       more for the one in the shifter. */
+    io = (_IOREC *)Iorec(0);
+    t0 = plat_ticks_ms();
+    while (io[1].ibufhd != io[1].ibuftl && !PLAT_TICKS_PASSED(t0, 2000u)) { }
+    t0 = plat_ticks_ms();
+    while (!PLAT_TICKS_PASSED(t0, 20u)) { }
+
+    Rsconf(r->code, at->flow, (short)RS_INQUIRE, (short)RS_INQUIRE,
+           (short)RS_INQUIRE, (short)RS_INQUIRE);
+    at->baud = baud;
+    return WP_OK;
+}
+
+/* ------------------------------------------------------------------ */
 /* The four functions platform.h declares: by the endpoint's prefix,     */
 /* then by the handle's kind.                                           */
 /* ------------------------------------------------------------------ */
@@ -605,10 +1020,19 @@ static wp_status tcp_write(atari_tcp *t, const u8 *data, u32 len, u32 timeout_ms
 wp_status plat_transport_open(const char *endpoint, u32 connect_timeout_ms,
                                plat_transport **out)
 {
+    if (strncmp(endpoint, "tcp:", 4) == 0) {
+        wp_status r = WP_UNSUPPORTED;
+
+        /* MiNTnet when MiNT has a network stack; otherwise STinG. */
 #ifdef RP_ATARI_TCP
-    if (strncmp(endpoint, "tcp:", 4) == 0)
-        return tcp_open(endpoint + 4, connect_timeout_ms, out);
+        r = tcp_open(endpoint + 4, connect_timeout_ms, out);
 #endif
+#ifndef RP_ATARI_NO_STING
+        if (r == WP_UNSUPPORTED)
+            r = sting_open(endpoint + 4, connect_timeout_ms, out);
+#endif
+        return r;
+    }
     return serial_open(endpoint, connect_timeout_ms, out);
 }
 
@@ -622,6 +1046,12 @@ wp_status plat_transport_read(plat_transport *t, u8 *out, u32 out_cap,
         return tcp_read((atari_tcp *)t, out, out_cap, timeout_ms, out_len);
     }
 #endif
+#ifndef RP_ATARI_NO_STING
+    if (t != NULL && *(int *)t == TRANSPORT_STING) {
+        if (out_cap == 0) return WP_OK;
+        return sting_read((atari_sting *)t, out, out_cap, timeout_ms, out_len);
+    }
+#endif
     return serial_read(t, out, out_cap, timeout_ms, out_len);
 }
 
@@ -632,6 +1062,10 @@ wp_status plat_transport_write(plat_transport *t, const u8 *data, u32 len,
     if (t != NULL && *(int *)t == TRANSPORT_TCP)
         return tcp_write((atari_tcp *)t, data, len, timeout_ms);
 #endif
+#ifndef RP_ATARI_NO_STING
+    if (t != NULL && *(int *)t == TRANSPORT_STING)
+        return sting_write((atari_sting *)t, data, len, timeout_ms);
+#endif
     return serial_write(t, data, len, timeout_ms);
 }
 
@@ -640,6 +1074,13 @@ void plat_transport_close(plat_transport *t)
 #ifdef RP_ATARI_TCP
     if (t != NULL && *(int *)t == TRANSPORT_TCP) {
         close(((atari_tcp *)t)->fd);
+        mem_free(t);
+        return;
+    }
+#endif
+#ifndef RP_ATARI_NO_STING
+    if (t != NULL && *(int *)t == TRANSPORT_STING) {
+        sting_close_cn(((atari_sting *)t)->cn);
         mem_free(t);
         return;
     }

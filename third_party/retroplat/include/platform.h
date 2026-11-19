@@ -53,6 +53,17 @@ typedef enum {
    therefore not subject to the UTF-8-internal rule in skills/encoding.md;
    callers are responsible for producing a path the native filesystem
    accepts. */
+/* The edge cases, the same on every backend (retroplat's conformance
+   test, tests/conformance.c, holds each one to them):
+   - plat_file_open of a file that is not there, for reading: not WP_OK.
+   - plat_file_read sets *out_len on every return, 0 on an error. At the
+     end of the file it is WP_OK with 0 bytes -- the end is not an
+     error. Asked for 0 bytes (cap 0) it is WP_OK with 0, whatever buf
+     is, and the position does not move.
+   - plat_file_delete of a file that is not there: WP_ERR, and nothing
+     else changes.
+   - plat_file_exists of a file that is not there: WP_OK, *exists_out
+     WP_FALSE. */
 wp_status plat_file_open(const char *native_path, plat_file_mode mode,
                           plat_file **out);
 wp_status plat_file_read(plat_file *f, u8 *buf, u32 cap, u32 *out_len);
@@ -370,6 +381,23 @@ wp_status plat_transport_read(plat_transport *t, u8 *out, u32 out_cap,
    is WP_ERR, never a signal: no backend lets a write raise SIGPIPE. */
 wp_status plat_transport_write(plat_transport *t, const u8 *data, u32 len,
                                 u32 timeout_ms);
+
+/* Line speed, for a transport that has one (a serial line). The offload
+   client uses these to move a link opened at a safe speed up to the
+   fastest both ends can do (docs/formats/offload-protocol.md,
+   OFFLOAD_SET_SPEED).
+   plat_transport_speeds: the rates this transport can be switched to,
+   fastest first, at most `cap` of them, and its rate now in *current
+   (may be NULL). 0 when it cannot be switched at all -- a socket, a
+   pipe, a backend with no such control -- and then *current is 0.
+   A backend lists only what its hardware takes reliably, which is not
+   always everything its chip can be told: an 8 MHz machine polling a
+   UART with no FIFO drops bytes long before the UART's top rate.
+   plat_transport_set_speed: switches to one of those rates, after what
+   has been written has gone out. WP_UNSUPPORTED where speeds() answers
+   0, WP_RANGE for a rate it did not list. */
+u32       plat_transport_speeds(plat_transport *t, u32 *rates, u32 cap, u32 *current);
+wp_status plat_transport_set_speed(plat_transport *t, u32 baud);
 void      plat_transport_close(plat_transport *t);
 
 

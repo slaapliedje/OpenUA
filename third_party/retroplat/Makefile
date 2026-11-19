@@ -75,6 +75,12 @@ check:
 			-c $$f -o $(BUILD)/host/`basename $$f .c`.o || exit 1; \
 	done
 	@echo "check: seam + host backend"
+	@$(CC) $(CFLAGS_HOST) -std=c89 -pedantic -Iinclude -Ibackends/host -Itests \
+		-c tests/conformance.c -o $(BUILD)/host/conformance.o
+	@$(CC) $(CFLAGS_HOST) -Iinclude -Ibackends/host -Itests \
+		-c tests/host_conformance.c -o $(BUILD)/host/host_conformance.o
+	@$(CC) $(BUILD)/host/*.o -o $(BUILD)/host/conformance
+	@cd $(BUILD)/host && ./conformance
 
 check-atari:
 	@mkdir -p $(BUILD)/atari

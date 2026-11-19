@@ -98,7 +98,10 @@ wp_status plat_file_read(plat_file *f, u8 *buf, u32 cap, u32 *out_len)
 {
     LONG n;
 
-    if (f == 0 || buf == 0) return WP_ERR;
+    if (out_len) *out_len = 0;          /* platform.h: set on every return */
+    if (f == 0) return WP_ERR;
+    if (cap == 0) return WP_OK;
+    if (buf == 0) return WP_ERR;
     n = Fread(slot_h(f), (LONG)cap, buf);
     if (n < 0) { if (out_len) *out_len = 0; return WP_ERR; }
     if (out_len) *out_len = (u32)n;
