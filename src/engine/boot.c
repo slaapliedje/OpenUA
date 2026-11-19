@@ -5278,13 +5278,27 @@ static void jt948(void)
 
 		for (;;) {                              /* L4be8 — the play loop */
 			g_a5_byte(-24140) = want;
-			/* The landing event (l709e above, or a Gold Box arrival
-			 * script) moved the party to ANOTHER level: reload before
-			 * the walk starts. Waiting for the -5221 test below spent
-			 * the player's first command on the reload (see l63c0's
-			 * matching exit). */
-			if ((short)g_a5_18878 >= 5 && g_a5_byte(-5221) != 0)
-				break;
+			/* A level change (-5221, raised by l5676 or a Gold Box
+			 * script's gbs_apply) that lands in a dungeon. The Mac does
+			 * NOT reload here: l5676 has already loaded the level and
+			 * set the landing cell, and L4c8e..L4cd0 only refreshes and
+			 * clears the flag before walking on. The port used to break
+			 * to the outer L4a1a reload instead, whose l0bbc resumes the
+			 * party at rec[67]/[68]/[17] — bytes l5676 never writes — so
+			 * a FRUA passage to another level landed on a stale square
+			 * (0,0 in a fresh game), and the reload also spent the
+			 * player's next command. Checked here, before the walk, for
+			 * an arrival event, and again when l63c0 leaves the walk
+			 * because a step raised it. (jt955 stays out, as on the
+			 * rest of the dungeon leg: the walk has done its work.) */
+			if ((short)g_a5_18878 >= 5 && g_a5_byte(-5221) != 0) {
+				if ((unsigned char)g_a5_byte(-27990) == 4)
+					jt20();
+				jt935();
+				l47f2();
+				g_a5_byte(-22281) = 0;
+				g_a5_byte(-5221) = 0;
+			}
 			if ((short)g_a5_18878 >= 5) {
 				/* DUNGEON: run the faithful unified walk + command loop
 				 * (jt240 -> l63c0, a_deep=1). It registers the walk input
@@ -5304,6 +5318,13 @@ static void jt948(void)
 					play_rec[46 + kk] = g_a5_byte(-12288 + kk);
 				g_walk_cmd = -1;
 				(void)jt240((short)11, &pflags, play_rec);
+				/* l63c0 left the walk because a step changed the
+				 * level: no command was picked, so walk on (the
+				 * refresh is at the loop head above). A change to an
+				 * overland level still takes the reload below. */
+				if (g_walk_cmd < 0 && g_a5_byte(-5221) != 0
+				 && (short)g_a5_18878 >= 5)
+					continue;
 				/* Dispatch the latched command bar pick (0..7 = Move/Area/
 				 * Cast/View/Encamp/Search/Look/Inv). Encamp (4) or an Esc /
 				 * non-command exit (-1) leaves the area; every other command
@@ -18567,7 +18588,11 @@ static void jt297(void *rec_v, short key, long cb)
 			g_event_modal_shown = 1;
 	}
 #endif
-	if (snapped)
+	/* ...unless the step's event changed level (-5221): -12288.. then
+	 * holds the landing cell in the NEW level (l5676 / gbs_apply), and
+	 * the snapshot is a square of the old one. l63c0 leaves the walk on
+	 * the flag and carries the landing into the rec+46 mirror. */
+	if (snapped && g_a5_byte(-5221) == 0)
 		for (k = 0; k < 6; k++) g_a5_byte(-12288 + k) = snap[k];
 }
 /* JT[1160] (CODE 4 + 0x67c6) — is the TOP-DOWN / automap view active? Tests
@@ -20081,14 +20106,22 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 		/* ★ A STEP THAT CHANGED LEVEL ENDS THE WALK NOW, not on the next
 		 * command. The event (FRUA's l5676 level change, or a Gold Box
 		 * script's map load in gbs_apply) raises -5221, and jt948 answers
-		 * it by reloading the level — but jt948 only looks after l63c0
-		 * returns, which this continuous loop does on a COMMAND. So the
-		 * first command after the step was spent on the reload and lost:
+		 * it with the Mac's post-command refresh — but jt948 only looks
+		 * after l63c0 returns, which this continuous loop does on a
+		 * COMMAND. So the first command after the step was lost:
 		 * "Encamp does nothing, the second press works". On the Mac,
 		 * jt953 returns right after the step that fired the event, so the
 		 * flag is seen at once; leaving here is that return. */
 		if (g_a5_byte(-5221) != 0 && (unsigned char)a_deep
 		    && !g_geo_editor_active && exitflag == 0) {
+			short k3;
+
+			/* The new level's landing cell is in -12288.. (l5676 /
+			 * gbs_apply via l4184); the rec+46 mirror still holds the
+			 * square the step reached in the OLD level, and jt240
+			 * puts the mirror back on the way out. */
+			for (k3 = 0; k3 < 6; k3++)
+				rec[46 + k3] = g_a5_byte(-12288 + k3);
 			g_walk_cmd = -1;
 			exitflag = -1;
 		}
@@ -51479,6 +51512,7 @@ static void  l5676(void *ev_v, short type)
 	unsigned char *lvl = (unsigned char *)(uintptr_t)g_a5_long(-12300);
 	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
 	unsigned char  valid = 0, ev10nz, fp12;
+	unsigned char  land_marker = 0, land_x = 0, land_y = 0, land_face = 0, land_mk = 0;
 	short          t = (short)(type & 0xff);
 
 	PROBE("L5676");
@@ -51602,21 +51636,39 @@ static void  l5676(void *ev_v, short type)
 				jt175();
 			}
 		}
+		/* 0x5912..0x5956: the landing is copied out BEFORE the load —
+		 * ev points into the ENCR table, and jt198 reads the new area's
+		 * events over it, so reading ev[8]/[9]/[13] afterwards lands the
+		 * party where the NEW area's event at the same index says (the
+		 * port did, until the walk stopped hiding it behind a reload). */
+		land_marker = (unsigned char)(ev[12] & 1);
+		land_x      = ev[9];
+		land_y      = ev[8];
+		land_face   = (unsigned char)((ev[7] & 12) >> 1);
+		land_mk     = ev[13];
 		jt198(g_a5_word(-18878));                      /* load the level */
 		if (g_a5_word(-18878) > 4) l0ba2(); else l0b88();
 		l0006_20();                                    /* post-load init */
 	}
 
-	/* set the landing cell + facing (both paths). */
-	if (ev[12] & 1) {                                      /* marker record */
-		unsigned char *mk = lvl + ((short)ev[13] - 1) * 4;
+	/* set the landing cell + facing (both paths; type 11 from the copy). */
+	if (t != 11) {
+		land_marker = (unsigned char)(ev[12] & 1);
+		land_x      = ev[9];
+		land_y      = ev[8];
+		land_face   = (unsigned char)((ev[7] & 12) >> 1);
+		land_mk     = ev[13];
+	}
+	lvl = (unsigned char *)(uintptr_t)g_a5_long(-12300);   /* the area now loaded */
+	if (land_marker) {                                     /* marker record */
+		unsigned char *mk = lvl + ((short)land_mk - 1) * 4;
 		g_a5_byte(-4940)  = (unsigned char)jt413(mk[15], (short)(lvl[3] - 1));
 		g_a5_byte(-4939)  = (unsigned char)jt413(mk[14], (short)(lvl[2] - 1));
 		g_a5_byte(-12286) = (unsigned char)(mk[16] & 7);
 	} else {                                               /* direct ev[9]/ev[8] */
-		g_a5_byte(-4940)  = (unsigned char)jt413(ev[9], (short)(lvl[3] - 1));
-		g_a5_byte(-4939)  = (unsigned char)jt413(ev[8], (short)(lvl[2] - 1));
-		g_a5_byte(-12286) = (unsigned char)((ev[7] & 12) >> 1);
+		g_a5_byte(-4940)  = (unsigned char)jt413(land_x, (short)(lvl[3] - 1));
+		g_a5_byte(-4939)  = (unsigned char)jt413(land_y, (short)(lvl[2] - 1));
+		g_a5_byte(-12286) = (unsigned char)land_face;
 	}
 
 	l4184();                                               /* L5b6c */

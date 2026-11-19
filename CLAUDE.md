@@ -320,13 +320,18 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   rec[67]/[68]/[17] every time play is re-entered, so a script's move was
   undone by the first Encamp until `gbs_apply` wrote those too. Script
   memory is NOT cleared when a new game starts in the same session.
-- **A level change raises -5221, and jt948 answers it with a reload.**
-  The port's walk is one continuous l63c0 loop, so jt948 used to see the
-  flag only when a COMMAND ended the walk, and that first command was
-  spent on the reload. Seen as "Encamp does nothing after a script moves
-  the party; the second press works". l63c0 now leaves the walk as soon as
-  a step sets the flag, and jt948 reloads before the walk starts when an
-  arrival event set it.
+- **A level change raises -5221, and the Mac does NOT reload on it**
+  (jt948 L4c8e..L4cd0 refreshes, clears it, walks on; l5676 already
+  loaded the level). The port broke to the outer reload, whose l0bbc puts
+  the party at rec[67]/[68] — so a FRUA passage to another level landed on
+  a stale square (0,0), and the reload ate the next command ("Encamp does
+  nothing after a script moves the party"). Now: l63c0 leaves the walk as
+  soon as a step sets the flag, carrying the landing into its rec+46
+  mirror; jt297 skips its view-cell restore; jt948 refreshes and walks on
+  (a change to an OVERLAND level still takes the reload). Also l5676 must
+  copy ev[8]/[9]/[13] out BEFORE jt198 — ev points into the ENCR table
+  the load overwrites. Test with a two-area design whose landing differs
+  from the start square (two identical rooms hid both bugs).
 - **Shops are opcode 0x3c** (PROTECTION in Greybox's table) with a shop type
   1..9; the stock lists live in DQK.EXE and `gbgeo.py --exe` copies them out
   as GBSHOP.DAT (found by shape, not address). They are sold through `jt183`,
