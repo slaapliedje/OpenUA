@@ -106694,6 +106694,7 @@ static unsigned char  g_gbs_pic_id;                 /* ... and its number      *
 static unsigned char  g_gbs_mon[6][2];              /* {number, count} queued  */
 static unsigned char  g_gbs_sprite = 255;           /* SETUP_MONSTER's sprite  */
 static unsigned char  g_gbs_dist;                   /* ... and its distance    */
+static unsigned char  g_gbs_sides;                  /* ... and its fourth operand */
 static short          gbs_view_depth(void);
 static short          g_gbs_nmon;
 static ecl_vm         g_gbs_vm;
@@ -107215,9 +107216,8 @@ static int gbs_training(ecl_vm *vm)
  * Treasure staged before a fight rides into it: FRUA shows the pile together
  * with what the monsters carried.
  *
- * NOT DONE: surprise and starting distance (SETUP_MONSTER / APPROACH), and
- * the picture number LOAD_MONSTER carries (FRUA shows CPIC by monster
- * number). */
+ * NOT DONE: surprise (the Dark Queen has none) and the picture number
+ * LOAD_MONSTER carries (FRUA shows CPIC by monster number). */
 static int gbs_combat(ecl_vm *vm)
 {
 	unsigned char ev[20];
@@ -107255,12 +107255,27 @@ static int gbs_combat(ecl_vm *vm)
 			d = 3;
 		ev[14] = (unsigned char)(d << 5);   /* the starting range */
 	}
+	/* The sides the monsters come from. DQK.EXE stores SETUP_MONSTER's
+	 * fourth operand at DS:0xc2e7 and its combat placement (0x2d603)
+	 * deals the monsters round-robin onto the edges whose bits 0..3 are
+	 * set, the party staying where it faces; 15 surrounds the party.
+	 * FRUA's l4af4 does exactly that from -22634, which l159a builds
+	 * from ev[16] bits 5..7 (edges 0..2) and ev[18] bit 5 (edge 3) —
+	 * bits the monster slots leave free. 0x20 is an arena of DQK's own
+	 * (0x2d55d rewrites field tiles) with no FRUA counterpart: a normal
+	 * placement. */
+	ev[16] |= (unsigned char)((g_gbs_sides & 7) << 5);
+	ev[18] |= (unsigned char)((g_gbs_sides & 8) << 2);
+	if (g_gbs_sides & 0xf0)
+		dbg_log_num("gbs: SETUP_MONSTER sides not carried over: ",
+		            (long)g_gbs_sides);
 	if (g_gbs_sprite != 255 && g_gbs_sprite != 0) {
 		ev[6] = g_gbs_sprite;       /* the monsters, as they approached */
 		ev[7] = 0;
 	}
 	g_gbs_sprite = 255;
 	g_gbs_dist = 0;
+	g_gbs_sides = 0;
 	g_gbs_sprite_up = 0;
 	g_a5_byte(-22311) = 8;          /* the spawn loop counts slots from here */
 	g_a5_long(-13030) = (long)(uintptr_t)ev;
@@ -107416,6 +107431,8 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 			return ECL_HOST_UNHANDLED;
 		gbs_setup_monster((short)ecl_rvalue(vm, &ins->arg[0]),
 		                  (short)ecl_rvalue(vm, &ins->arg[1]));
+		if (ins->argc >= 4)
+			g_gbs_sides = (unsigned char)ecl_rvalue(vm, &ins->arg[3]);
 		return ECL_HOST_OK;
 	case 0x0d:                      /* APPROACH */
 		gbs_approach();

@@ -304,7 +304,11 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   shops, inns, training halls, text entry (`jt98`), approaching monsters,
   the fight's starting range, and WHO (`gbs_who`: the camp's roster cursor
   under a Select bar; jt182 only reports the arrows with its echo and wait
-  arguments at 1). **Not wired:** the "sides" operand of SETUP_MONSTER. PROGRAM is
+  arguments at 1). SETUP_MONSTER's fourth operand is the edges the monsters come from (DQK
+  0x2d603; 15 surrounds the party): FRUA's placement loop l4af4 does the
+  same from -22634, so it rides in ev[16] bits 5..7 / ev[18] bit 5 (0x20,
+  a DQK arena, is not carried). Nothing in the script set is left unwired
+  that Dark Queen uses. PROGRAM is
   read out of DQK.EXE (0x328cf, a ten-entry jump table): 0 training, 1
   the copy-protection overlay (a no-op here), 3 an energy drain on the
   selected character (= FRUA's l5746, one level), 4..8 nothing, 9 rest.
