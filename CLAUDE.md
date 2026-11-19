@@ -322,10 +322,11 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   operand's raw word, not what it addresses) are read out of DQK.EXE too,
   and 0x2c, PARLAY in Champions, is SOUND in Dark Queen: its dispatcher is
   FRUA's jt52 case for case (FRUA kept the Gold Box sound code), and 0x41
-  is AWARD_XP (n hundred, party or selected; FRUA's l2b2a arithmetic).
+  is AWARD_XP (n hundred, party or selected; FRUA's l2b2a arithmetic),
+  and DAMAGE (FRUA's jt866 IS DQK's save routine, jt862 its roll vs AC,
+  l0730 the hit; DQK's party/random cases swap half and full, reproduced).
   **Still skipped** (the core counts them as unhandled and moves on):
- DAMAGE (72), LOAD_PIECES (88),
-  0x1f (47), ADD_NPC (26), DUMP (25), FIND_SPECIAL, SPELL, FIND_ITEM, ROB.
+  LOAD_PIECES (88), 0x1f (47), ADD_NPC (26), DUMP (25), FIND_SPECIAL, SPELL, FIND_ITEM, ROB.
   Census: walk every ECLnnn.DAT with tools/ecl.py's Block.walk(). PROGRAM is
   read out of DQK.EXE (0x328cf, a ten-entry jump table): 0 training, 1
   the copy-protection overlay (a no-op here), 3 an energy drain on the
