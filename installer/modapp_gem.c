@@ -139,8 +139,12 @@ static int setup_view(void)
 	v_opnvwk(work_in, &g_gc.vdi, work_out);
 	if (g_gc.vdi <= 0)
 		return 0;
-	if (plat_font_open((const u8 *)"", 0, 200, PLAT_FAMILY_MODERN << PLAT_FAMILY_SHIFT,
-	                   &g_view.font) != WP_OK)
+	/* The system font, by asking for no name and no family: the screen is
+	 * a grid of the AES's own character cells. Asking for a family picks a
+	 * GDOS face when one is loaded (fVDI under MiNT has outline faces),
+	 * and the 9/10 below are system-font sizes that turn an outline face
+	 * into scattered dots. */
+	if (plat_font_open((const u8 *)"", 0, 200, 0, &g_view.font) != WP_OK)
 		return 0;
 	/* The AES's own character cell: 8x8 on a 200-line screen, 8x16 on a
 	 * mono or larger one. The system font is chosen to match it (vst_point
