@@ -107803,6 +107803,23 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 		                  (short)ecl_rvalue(vm, &ins->arg[3]),
 		                  (short)ecl_rvalue(vm, &ins->arg[4]))
 		       ? ECL_HOST_EXIT : ECL_HOST_OK;
+	case 0x1f:                      /* JOURNAL n */
+		/* DQK (0x43572) prints that what was just said is entry n of
+		 * the journal in the manual, at the top of the box. The words
+		 * are the port's; FRUA has no such line. */
+		if (g_gbs_dialect != ECL_GEN2 || ins->argc < 1)
+			return ECL_HOST_UNHANDLED;
+		{
+			char line[48];
+
+			gbs_draw(0);
+			g_gbs_cont = 0;
+			jt394(line, "Journal entry %d.", (int)ecl_rvalue(vm, &ins->arg[0]));
+			gbs_text_put(line, (short)strlen(line));
+			gbs_draw(0);
+			g_gbs_cont = 1;     /* up for the script's CONTINUE */
+		}
+		return ECL_HOST_OK;
 	case 0x41:                      /* AWARD_XP party, hundreds */
 		if (g_gbs_dialect != ECL_GEN2 || ins->argc < 2)
 			return ECL_HOST_UNHANDLED;
