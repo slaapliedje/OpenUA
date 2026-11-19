@@ -106981,7 +106981,12 @@ static void gbs_picture(short id)
  * The two games' ITEM.DAT hold the same entries in the same order.
  *
  * Krynn's coin is steel and FRUA's is platinum; the amount goes across one
- * for one. Item 255 asks the original for a random item, which is not done. */
+ * for one. Item 255 is a random item: the handler (0x4247a) calls 0x41d43 to
+ * build one instead of copying a table entry, so Greybox's "255 = no item"
+ * is wrong for this game. It is not done here because no Dark Queen script
+ * asks for one — the only 255 in the 47 scripts is the first entry of the
+ * debug jumper's give-everything list in ECL001. (The handler also skips an
+ * id whose table entry starts 0xFF; FRUA's table has no such entries.) */
 static void gbs_treasure(ecl_vm *vm, const ecl_insn *ins)
 {
 	short n = (short)ecl_rvalue(vm, &ins->arg[3]);
@@ -106996,7 +107001,7 @@ static void gbs_treasure(ecl_vm *vm, const ecl_insn *ins)
 		if (id >= 1 && id <= 254)
 			jt187(id, 0);
 		else if (id == 255)
-			dbg_log("gbs: TREASURE asked for a random item (not wired)");
+			dbg_log("gbs: TREASURE asked for a random item (not done)");
 	}
 }
 

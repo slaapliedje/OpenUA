@@ -304,8 +304,9 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   shops, inns, training halls, text entry (`jt98`), approaching monsters
   the fight's starting range, and WHO (`gbs_who`: the camp's roster cursor
   under a Select bar; jt182 only reports the arrows with its echo and wait
-  arguments at 1). **Not wired:** random items, PROGRAM 1 and 3, the
-  "sides" operand of SETUP_MONSTER. A script that needs one of those takes
+  arguments at 1). **Not wired:** PROGRAM 1 and 3, the
+  "sides" operand of SETUP_MONSTER. (TREASURE item 255 is a random item in
+  DQK.EXE, but no Dark Queen script uses it outside the debug jumper.) A script that needs one of those takes
   a wrong turn.
 - **String cells (0x81 operands) live in script memory, one character a
   word**, NUL-terminated, 16 characters at most (`ecl_str_get/put`); the core
