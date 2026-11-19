@@ -259,7 +259,18 @@ system mint toolchain's gemlib) or `modapp_amiga.c` (`make modman-amiga`).
 On the Amiga, opendir() wants "" for the current directory, not "." (CWD). The Amiga
 (bsdsocket.library) and Atari (MiNTnet/STinG) `tcp:` transports go into
 retroplat UPSTREAM, on top of the RetroWP session's pending transport/timer
-commit — coordinate with it before editing `transport_*.c` there. Half of an early test download set was saved web error pages
+commit — coordinate with it before editing `transport_*.c` there.
+The Atari `tcp:` (MiNTnet) is verified in ARAnyM: copy
+`~/dev/highwire/tools/aranym/{drive_c,system,config}` (it has the
+`nfeth.xif` AFROS lacks; never edit HighWire's own copy), point HostFS
+D:/E: at your files, serve on 192.168.251.1 (tap0), and add `run
+D:\MODMAN.PRG` to `xaaes.cnf`. That link is bursty (about 10 KB/s, with
+silences over 30 s while TCP retransmits; a bare read() loop sees the same),
+which is why `MN_READ_MS` is 60 s. Under fVDI, a font request that names a family gets an
+outline face; the GEM shell asks for neither so it keeps the system
+font. Build `modman-amiga` with
+`AMIGA_CROSS=$HOME/dev/toolchains/amigaos/bin/m68k-amigaos-`; the
+`~/opt/amiga` default lacks `__udivdi3`. Half of an early test download set was saved web error pages
 renamed `.zip`. Still ask the user before fetching modules from the internet.
 
 ## Gold Box script areas (ADR-0023)
