@@ -106742,19 +106742,64 @@ static short gbs_read(const char *name, void *buf, short max)
  * sequence l4d26 uses for an event line. With `confirm`, wait for Return and
  * clear the box, as l4d26 does for a confirm-paged line; without, leave the
  * text standing for whatever asks the question next (a menu). */
+/* Text a DELAY put up and nothing has confirmed yet: the next draw carries
+ * on below it at the pen (DQK's scripts print, pause, print more), and a
+ * CONTINUE with nothing new still waits for Return on it. */
+static char g_gbs_cont;
+
 static void gbs_draw(int confirm)
 {
-	if (g_gbs_textlen == 0)
+	if (g_gbs_textlen == 0) {
+		if (confirm && g_gbs_cont) {
+			l1806(0);
+			g_a5_byte(-27911) = 17;
+			g_a5_byte(-27912) = 1;
+			jt20();
+			jt176();
+			g_gbs_shown = 1;
+		}
+		if (confirm)
+			g_gbs_cont = 0;
 		return;
+	}
 	g_gbs_text[g_gbs_textlen] = 0;
-	port_event_tail_show();
-	jt20();
-	if (!g_gbs_pic && !g_gbs_sprite_up) /* l40b4 redraws the 3D view — over */
-		l40b4();                    /* the picture or sprite, if one is up  */
-	g_a5_byte(-27911) = 17;
-	g_a5_byte(-27912) = 1;
+	if (!g_gbs_cont) {
+		port_event_tail_show();
+		jt20();
+		if (!g_gbs_pic && !g_gbs_sprite_up) /* l40b4 redraws the 3D view */
+			l40b4();            /* over the picture or sprite, if one is up */
+		g_a5_byte(-27911) = 17;
+		g_a5_byte(-27912) = 1;
+	} else if ((unsigned char)g_a5_byte(-27912) > 1 && g_gbs_text[0] != '\n') {
+		/* carrying on along a line: the space PRINT would have put
+		 * between the two pieces */
+		if (g_gbs_textlen < GBS_TEXT_MAX - 1) {
+			memmove(g_gbs_text + 1, g_gbs_text, (size_t)g_gbs_textlen + 1);
+			g_gbs_text[0] = ' ';
+			g_gbs_textlen++;
+		}
+	}
 	g_a5_byte(-27981) = 1;
-	jt96(1, 17, 38, 22, 7, 0, 0, (long)(uintptr_t)g_gbs_text, 17);
+	{
+		/* PRINT_RETURN left a '\n' where DQK's handler (0x32788) puts the
+		 * text cursor back at column 1 of the next row; jt96 only wraps,
+		 * so each piece is drawn on its own and the pen moved between. */
+		char *seg = g_gbs_text, *nl;
+
+		for (;;) {
+			nl = strchr(seg, '\n');
+			if (nl != NULL)
+				*nl = 0;
+			if (*seg)
+				jt96(1, 17, 38, 22, 7, 0, 0, (long)(uintptr_t)seg, 17);
+			if (nl == NULL)
+				break;
+			*nl = '\n';
+			g_a5_byte(-27912) = 1;
+			g_a5_byte(-27911) = (unsigned char)(g_a5_byte(-27911) + 1);
+			seg = nl + 1;
+		}
+	}
 	if (confirm) {
 		l1806(0);
 		g_a5_byte(-27911) = 17;
@@ -106764,6 +106809,7 @@ static void gbs_draw(int confirm)
 	}
 	g_a5_byte(-27981) = 0;
 	g_gbs_textlen = 0;
+	g_gbs_cont = 0;
 	g_gbs_shown = 1;
 }
 
@@ -106776,7 +106822,8 @@ static void gbs_text_put(const char *t, short n)
 {
 	short i;
 
-	if (g_gbs_textlen > 0 && g_gbs_textlen < GBS_TEXT_MAX - 1)
+	if (g_gbs_textlen > 0 && g_gbs_textlen < GBS_TEXT_MAX - 1
+	 && g_gbs_text[g_gbs_textlen - 1] != '\n')
 		g_gbs_text[g_gbs_textlen++] = ' ';
 	for (i = 0; i < n && g_gbs_textlen < GBS_TEXT_MAX - 1; i++)
 		g_gbs_text[g_gbs_textlen++] = t[i];
@@ -106861,6 +106908,22 @@ static void gbs_menu(ecl_vm *vm, const ecl_insn *ins, int first, int n,
 }
 
 static void gbs_seed_who(void);
+
+/* LOAD_CHARACTER n: DQK (0x32142) masks n with 0x7f, walks that many
+ * members down the party list from its head (0 is the head) and makes the
+ * one it reaches the selected character; past the end, nothing changes. */
+static void gbs_load_character(short n)
+{
+	long m = g_a5_long(-27928);
+
+	n &= 0x7f;
+	while (m != 0 && n-- > 0)
+		m = *(long *)(uintptr_t)m;
+	if (m == 0)
+		return;
+	g_a5_long(-27932) = m;
+	gbs_seed_who();
+}
 
 /* WHO prompt: the player picks a party member, who becomes the selected
  * character for what follows (DQK's handler installs the pick as the global
@@ -107509,6 +107572,25 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 		if (ins->argc > 0)
 			g_gbs_want_map = (unsigned char)ecl_rvalue(vm, &ins->arg[0]);
 		return ECL_HOST_OK;
+	case 0x33:                      /* PRINT_RETURN: a new line */
+		if (g_gbs_textlen < GBS_TEXT_MAX - 1) {
+			g_gbs_text[g_gbs_textlen++] = '\n';
+			g_gbs_text[g_gbs_textlen] = 0;
+		}
+		return ECL_HOST_OK;
+	case 0x3a:                      /* DELAY */
+		/* DQK (0x32746) calls its wait with 600; jt476 is that same
+		 * Gold Box routine (n * 72 / 1000 ticks). Printed text first. */
+		gbs_draw(0);
+		if (g_gbs_shown)
+			g_gbs_cont = 1;
+		jt476(600);
+		return ECL_HOST_OK;
+	case 0x0a:                      /* LOAD_CHARACTER n */
+		if (ins->argc < 1)
+			return ECL_HOST_UNHANDLED;
+		gbs_load_character((short)ecl_rvalue(vm, &ins->arg[0]));
+		return ECL_HOST_OK;
 	case 0x39:                      /* WHO prompt */
 		if (ins->argc < 1)
 			return ECL_HOST_UNHANDLED;
@@ -107962,6 +108044,7 @@ static void gbs_after(void)
 	if (!g_gbs_shown)
 		return;
 	g_gbs_shown = 0;
+	g_gbs_cont = 0;                 /* the box is cleared below */
 	g_gbs_pic = 0;                  /* the rebuild below takes it down */
 	g_gbs_sprite_up = 0;
 	jt399(&g_a5_byte(-22302), 2, 0);
