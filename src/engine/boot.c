@@ -41,6 +41,7 @@
 #include "master.h"           /* master_init */
 #include "macmemory.h"        /* BlockMove, Size */
 #include "data_pool_replay.h" /* g_a5_byte */
+#include "rules.h"            /* g_rules: class and race tables (ADR-0026) */
 #include "str.h"              /* ua_strcmp, ua_get_string */
 #include "a4_map.h"          /* g_a4_map — ADR-0017 A4/STRS slot table */
 #include "a5_scalars.h"      /* a5_seed_authored_scalars — #71 */
@@ -32425,7 +32426,7 @@ static void jt906(unsigned char *rec)
 				continue;
 			if (lvl > 21)
 				lvl = 21;
-			entry = g_a5_buf(-28818)[(long)cls * 110
+			entry = g_rules->slot_saves[(long)cls * 110
 			                         + (long)lvl * 5 + slot];
 			if (rec[131 + slot] > entry)
 				rec[131 + slot] = entry;
@@ -32566,11 +32567,11 @@ static void jt572(void)
 		short score = rec[157 + i];
 		if (score == 0)
 			continue;
-		e = (unsigned char *)g_a5_buf(-23184) + (long)i * 22 + score;
+		e = (unsigned char *)g_rules->slot_thac0 + (long)i * 22 + score;
 		if ((unsigned char)e[0] > (unsigned char)rec[127])
 			rec[127] = e[0];
 		rec[183] = (unsigned char)(rec[183]
-		           + ((unsigned char *)g_a5_buf(-23030) + i)[0]);
+		           + ((unsigned char *)g_rules->slot_item_bit + i)[0]);
 	}
 	jt906(rec);
 	g_a5_long(-27932) = (long)(uintptr_t)rec;
@@ -35938,7 +35939,7 @@ static void jt557(void)
 
 		if (rec[157 + i] == 0)
 			continue;
-		haveMask += g_a5_byte(-23023 + (long)i);
+		haveMask += g_rules->slot_hall_bit[(long)i];
 		atLimit = 0;
 		curLvl  = rec[157 + i];
 
@@ -36015,7 +36016,7 @@ static void jt557(void)
 		    && g_a5_22730 == 0)
 			continue;
 
-		trainMask += g_a5_byte(-23023 + (long)i);  /* L7094 */
+		trainMask += g_rules->slot_hall_bit[(long)i];  /* L7094 */
 		tmpXP = jt26((long)(uintptr_t)rec, curLvl + 2, i);
 		if (*(long *)(rec + 68) < tmpXP)
 			continue;
@@ -36028,7 +36029,7 @@ static void jt557(void)
 	if (jt180() == 0) {
 		maxXP = 0;
 		for (i = 0; i <= 6; i++) {              /* L7110..L7178 */
-			if ((trainMask & g_a5_byte(-23023 + (long)i)) == 0)
+			if ((trainMask & g_rules->slot_hall_bit[(long)i]) == 0)
 				continue;
 			tmpXP = jt26((long)(uintptr_t)rec, curLvl + 1, i);
 			if (tmpXP <= maxXP)
@@ -36037,7 +36038,7 @@ static void jt557(void)
 			maxIdx = i;
 		}
 		if (maxXP > 0) {                        /* L7180 */
-			trainMask |= g_a5_byte(-23023 + (long)maxIdx);
+			trainMask |= g_rules->slot_hall_bit[(long)maxIdx];
 			tmpXP = jt26((long)(uintptr_t)rec, curLvl + 2, maxIdx);
 			if (tmpXP > 0
 			 && *(long *)(rec + 68) >= tmpXP
@@ -36051,7 +36052,7 @@ static void jt557(void)
 		maxXP = 0;
 		for (i = 0; i <= 6; i++) {              /* L7206..L7282 */
 			curLvl = rec[157 + i];
-			if ((trainMask & g_a5_byte(-23023 + (long)i)) == 0)
+			if ((trainMask & g_rules->slot_hall_bit[(long)i]) == 0)
 				continue;
 			tmpXP = jt26((long)(uintptr_t)rec, curLvl + 1, i);
 			if (tmpXP <= maxXP)
@@ -36060,7 +36061,7 @@ static void jt557(void)
 			maxIdx = i;
 		}
 		if (maxXP > 0) {                        /* L728c */
-			trainMask |= g_a5_byte(-23023 + (long)maxIdx);
+			trainMask |= g_rules->slot_hall_bit[(long)maxIdx];
 			curLvl = rec[157 + maxIdx];
 			tmpXP = jt26((long)(uintptr_t)rec, curLvl + 2, maxIdx);
 			if (tmpXP > 0 && tmpXP > xpAfter)
@@ -36115,7 +36116,7 @@ static void jt557(void)
 		for (i = 0; i <= 6; i++) {              /* L741c..L7522 */
 			if (rec[157 + i] == 0)
 				continue;
-			if ((trainMask & g_a5_byte(-23023 + (long)i)) == 0)
+			if ((trainMask & g_rules->slot_hall_bit[(long)i]) == 0)
 				continue;
 			lineRow++;
 			jt94(6, lineRow, 7, 0,
@@ -36141,7 +36142,7 @@ static void jt557(void)
 		if (rec[157 + i] == 0)
 			continue;
 		nClasses++;
-		if ((trainMask & g_a5_byte(-23023 + (long)i)) == 0)
+		if ((trainMask & g_rules->slot_hall_bit[(long)i]) == 0)
 			continue;
 		rec[157 + i] += 1;
 	}
@@ -36714,11 +36715,11 @@ static long jt26(long ctx, short level, short cls)
 	cls   &= 0xff;
 	if (level >= 41)
 		return 0x7fffffffL;
-	rec = (const unsigned char *)&g_a5_byte(-30212) + (long)cls * 48;
+	rec = (const unsigned char *)g_rules->slot_xp + (long)cls * 48;
 	if (level < 12)
 		return *(const long *)(rec + (long)level * 4);
 	{
-		long inc = *(const long *)((const unsigned char *)&g_a5_byte(-31228)
+		long inc = *(const long *)((const unsigned char *)g_rules->slot_xp_step
 		                           + (long)cls * 4);
 		return jt4((long)(level - 11), inc) + *(const long *)(rec + 44);
 	}
@@ -37256,7 +37257,7 @@ static void l1b14(void *entity, short class)
 			if (v11 != 0)
 				v18++;
 			{
-				unsigned char cap = (unsigned char)g_a5_byte(-23007 + i);
+				unsigned char cap = (unsigned char)g_rules->slot_name_level[i];
 				if (v11 > cap)              /* clamp to per-class cap */
 					v11 = cap;
 			}
@@ -38316,7 +38317,7 @@ static void l19f8(short kind, short level, unsigned char *acc,
                   const unsigned char *val) __attribute__((unused));
 static void l19f8(short kind, short level, unsigned char *acc, const unsigned char *val)
 {
-	unsigned char cap = g_a5_buf(-23007)[kind];
+	unsigned char cap = g_rules->slot_name_level[kind];
 	short v = *val;
 
 	PROBE("L19f8");
@@ -38438,7 +38439,7 @@ static void jt875(long member, short idx)
 			cv = (m + cls)[157];
 			if (cv > 0)
 				count++;
-			cap = g_a5_buf(-23007)[cls];
+			cap = g_rules->slot_name_level[cls];
 			if (cv > cap)
 				cv = cap;
 			if (cv > m[138]) {
@@ -44612,7 +44613,7 @@ static void cg_finalize_stats(unsigned char *rec)
 		unsigned char t;
 		if (lvl == 0)
 			continue;
-		t = ((const unsigned char *)g_a5_buf(-23184))
+		t = ((const unsigned char *)g_rules->slot_thac0)
 		    [(long)i * 22 + lvl];
 		if (t > rec[127])
 			rec[127] = t;
@@ -48812,7 +48813,7 @@ static void jt697(void)	/* +0x2fbe; id 102 */
 			unsigned char hpGain;
 
 			if ((unsigned short)(cas[bestClass + 157] + 1)
-			  < (unsigned short)g_a5_buf(-23007)[bestClass]) {
+			  < (unsigned short)g_rules->slot_name_level[bestClass]) {
 				unsigned short share = (unsigned short)(short)
 				    (signed char)jt22(caster, (short)bestClass);
 
@@ -62345,7 +62346,7 @@ static void l2d78(long item_l, short mode)
 			n = 29;
 		else if (n < 1)
 			n = 1;
-		slots = g_a5_buf(-29876)[(long)g_a5_byte(-30215) * 261
+		slots = g_a5_buf(-29876)[(long)g_rules->slot_spell_row[5] * 261
 		                         + (long)(n - 1) * 9 + 4];
 		if (mode != 0) {
 			member[377] = (unsigned char)(slots + slots);
@@ -63161,7 +63162,7 @@ static short l5274(long ent_l)
 			eff = ent[157 + j];
 			flag = (unsigned char)(ent[138] == 0 ? 1 : 0);
 		}
-		if (eff < (unsigned char)g_a5_byte(-23007 + (long)j)) {
+		if (eff < (unsigned char)g_rules->slot_name_level[(long)j]) {
 			if (flag == 0 && eff > ent[138]) {
 				eff = (unsigned char)(eff - ent[138]);
 				flag = 1;
@@ -63172,7 +63173,7 @@ static short l5274(long ent_l)
 				continue;
 			total = (unsigned short)(total + (short)
 			    (((short)(unsigned char)
-			      g_a5_byte(-22993 + (long)j) + bonus) *
+			      g_rules->slot_hd_size[(long)j] + bonus) *
 			     (short)eff));
 			continue;
 		}
@@ -63180,34 +63181,34 @@ static short l5274(long ent_l)
 			flag = 1;
 			if ((short)(unsigned char)ent[138] >=
 			    (short)((short)(unsigned char)
-				    g_a5_byte(-23007 + (long)j) - 1)) {
+				    g_rules->slot_name_level[(long)j] - 1)) {
 				levpart = (unsigned char)(eff - ent[138]);
 				basepart = 0;
 			} else {
 				basepart = (short)
 				    (((short)(unsigned char)
-				      g_a5_byte(-23007 + (long)j) -
+				      g_rules->slot_name_level[(long)j] -
 				      (short)(unsigned char)ent[138] - 1) *
 				     ((short)(unsigned char)
-				      g_a5_byte(-22993 + (long)j) + bonus));
+				      g_rules->slot_hd_size[(long)j] + bonus));
 				levpart = (unsigned char)
 				    (eff - (unsigned char)
-				     g_a5_byte(-23007 + (long)j) + 1);
+				     g_rules->slot_name_level[(long)j] + 1);
 			}
 		} else {
 			levpart = (unsigned char)
 			    (eff - (unsigned char)
-			     g_a5_byte(-23007 + (long)j) + 1);
+			     g_rules->slot_name_level[(long)j] + 1);
 			basepart = (short)
 			    (((short)(unsigned char)
-			      g_a5_byte(-23007 + (long)j) - 1) *
+			      g_rules->slot_name_level[(long)j] - 1) *
 			     ((short)(unsigned char)
-			      g_a5_byte(-22993 + (long)j) + bonus));
+			      g_rules->slot_hd_size[(long)j] + bonus));
 		}
 		if (j == 4)
 			basepart = (short)(basepart +
 			    (short)(unsigned char)
-			    g_a5_byte(-22993 + (long)j) + bonus);
+			    g_rules->slot_hd_size[(long)j] + bonus);
 		if (flag == 0)
 			continue;
 		switch ((short)j) {
@@ -63264,21 +63265,21 @@ static void jt885(long ent_l, short mask, short ncls, short gain)
 		if ((unsigned char)ent[157 + j] == 0)
 			continue;
 		if (((unsigned char)mask &
-		     (unsigned char)g_a5_byte(-23023 + (long)j)) == 0)
+		     (unsigned char)g_rules->slot_hall_bit[(long)j]) == 0)
 			continue;
 		if (ent[157 + j] <
-		    (unsigned char)g_a5_byte(-23007 + (long)j)) {
+		    (unsigned char)g_rules->slot_name_level[(long)j]) {
 			if ((unsigned char)ent[157 + j] > 1)
 				ndice = 1;
 			else
 				ndice = (unsigned char)
-				    g_a5_byte(-23000 + (long)j);
+				    g_rules->slot_hd_count[(long)j];
 			r1 = (unsigned char)jt870((short)ndice,
 			    (short)(unsigned char)
-			    g_a5_byte(-22993 + (long)j));
+			    g_rules->slot_hd_size[(long)j]);
 			r2 = (unsigned char)jt870((short)ndice,
 			    (short)(unsigned char)
-			    g_a5_byte(-22993 + (long)j));
+			    g_rules->slot_hd_size[(long)j]);
 			if (r2 > r1)
 				r1 = r2;
 			dice = (unsigned char)(dice + r1);
@@ -63425,7 +63426,7 @@ static void jt911(long ent_l)
 	if ((short)(unsigned char)lvl > 29)
 		lvl = 29;
 	for (k = 1; k <= 7; k++) {
-		sel = (unsigned char)g_a5_byte(-30220);
+		sel = (unsigned char)g_rules->slot_spell_row[0];
 		if ((short)(unsigned char)sel == 255)
 			ent[355 + (k - 1)] = 0;
 		else
@@ -63535,7 +63536,7 @@ static void jt908(long ent_l)
 				    (ent[355 + (k - 1)] +
 				     (unsigned char)g_a5_byte(-29876 +
 					(long)(unsigned char)
-					g_a5_byte(-30217) * 261 +
+					g_rules->slot_spell_row[3] * 261 +
 					((long)lvl - 1) * 9 + (k - 1)));
 			for (s = 1; s <= 126; s++) {
 				if ((unsigned char)
@@ -63557,7 +63558,7 @@ static void jt908(long ent_l)
 					    (ent[364 + (k - 1)] +
 					     (unsigned char)g_a5_byte(-29876 +
 						(long)(unsigned char)
-						g_a5_byte(-30216) * 261 +
+						g_rules->slot_spell_row[4] * 261 +
 						((long)lvl - 1) * 9 +
 						(k - 1)));
 				for (k = 5; k <= 8; k++) {
@@ -63566,7 +63567,7 @@ static void jt908(long ent_l)
 					    (ent[373 + (m - 1)] +
 					     (unsigned char)g_a5_byte(-29876 +
 						(long)(unsigned char)
-						g_a5_byte(-30216) * 261 +
+						g_rules->slot_spell_row[4] * 261 +
 						((long)lvl - 1) * 9 +
 						(k - 1)));
 				}
@@ -63595,11 +63596,11 @@ static void jt908(long ent_l)
 		case 5:
 #ifdef FRUA_SPELLTRACE
 			dbg_file_num("jt908 mage lvl", (long)lvl);
-			dbg_file_num("   sel -30215", (long)(unsigned char)g_a5_byte(-30215));
+			dbg_file_num("   sel -30215", (long)(unsigned char)g_rules->slot_spell_row[5]);
 			{ short q; for (q = 0; q < 9; q++)
 				dbg_file_num("   prog[]", (long)(unsigned char)
 				    g_a5_byte(-29876
-				      + (long)(unsigned char)g_a5_byte(-30215) * 261
+				      + (long)(unsigned char)g_rules->slot_spell_row[5] * 261
 				      + ((long)lvl - 1) * 9 + q)); }
 #endif
 			for (k = 1; k <= 9; k++) {
@@ -63607,7 +63608,7 @@ static void jt908(long ent_l)
 				    (ent[373 + (k - 1)] +
 				     (unsigned char)g_a5_byte(-29876 +
 					(long)(unsigned char)
-					g_a5_byte(-30215) * 261 +
+					g_rules->slot_spell_row[5] * 261 +
 					((long)lvl - 1) * 9 + (k - 1)));
 				jt912(ent_l);
 			}
@@ -63653,8 +63654,8 @@ static void jt910(long ent_l)
 	for (j = 0; j <= 6; j++) {
 		lvl = jt40(ent, (short)j);
 		cap = (unsigned char)(lvl > 21 ? 21 : lvl);
-		v = (unsigned char)g_a5_byte(-23184 + (long)j * 22 +
-					     (long)cap);
+		v = (unsigned char)g_rules->slot_thac0[(long)j * 22 +
+					     (long)cap];
 		if (ent[127] < v)
 			ent[127] = v;
 		if (ent[137] < lvl)
@@ -63686,7 +63687,7 @@ static void jt910(long ent_l)
 		    ((unsigned char)ent[164 + j] > 0 &&
 		     ent[164 + j] < ent[137]))
 			ent[183] = (unsigned char)(ent[183] +
-			    (unsigned char)g_a5_byte(-23030 + (long)j));
+			    (unsigned char)g_rules->slot_item_bit[(long)j]);
 	}
 	for (j = 0; j <= 12; j++) {
 		it = *(unsigned char **)(void *)(ent + 12 + (long)j * 4);
@@ -63811,7 +63812,7 @@ static void l5746(long ent_l, short levels)
 		if (ent[157 + bestcls] >= ent[138])
 			jt885(ent_l,
 			      (short)(unsigned char)
-			      g_a5_byte(-23023 + (long)bestcls),
+			      g_rules->slot_hall_bit[(long)bestcls],
 			      (short)(unsigned char)cnt, 0);
 		jt910(ent_l);
 		l54ac(ent_l);
@@ -78377,7 +78378,7 @@ static void jt588(short id, unsigned char *rec)
 	for (k = 0; k <= 6; k++)
 		if (rec[157 + k] != 0)
 			rec[183] = (unsigned char)(rec[183]
-			         + (&g_a5_byte(-23030))[k]);
+			         + (g_rules->slot_item_bit)[k]);
 
 	for (chain = (unsigned char *)(uintptr_t)*(long *)(void *)(rec + 8);
 	     chain != NULL;
@@ -97101,7 +97102,7 @@ static unsigned char l4e04(unsigned char *rec)
 		short         hd;
 		if (lvl == 0)
 			continue;
-		nameLvl = (unsigned char)g_a5_byte(-23007 + cls);
+		nameLvl = (unsigned char)g_rules->slot_name_level[cls];
 		hd      = jt881((long)(uintptr_t)rec, cls);
 		if (lvl < nameLvl) {                    /* still gaining hit dice */
 			acc += lvl;
@@ -97144,8 +97145,8 @@ static unsigned char jt899(unsigned char *rec)
 	PROBE("jt899");
 	for (cls = 0; cls <= 6; cls++) {
 		unsigned char lvl    = rec[157 + cls];
-		unsigned char nameLvl = (unsigned char)g_a5_byte(-23007 + cls);
-		short         conB    = (unsigned char)g_a5_byte(-22993 + cls);
+		unsigned char nameLvl = (unsigned char)g_rules->slot_name_level[cls];
+		short         conB    = (unsigned char)g_rules->slot_hd_size[cls];
 		unsigned char hdSize;
 		short         f8, f7, f10, flag;
 
@@ -97272,7 +97273,7 @@ static void l5044(void)
 		short         hd;
 		if (lvl == 0)
 			continue;                       /* empty class slot */
-		nameLvl = (unsigned char)g_a5_byte(-23007 + cls);
+		nameLvl = (unsigned char)g_rules->slot_name_level[cls];
 		hd = jt22((long)(uintptr_t)rec, cls);
 		if (lvl < nameLvl) {                    /* still gaining hit dice */
 			if (cls == 4)
