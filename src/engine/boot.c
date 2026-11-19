@@ -22873,6 +22873,39 @@ static void save_roster(void)
 	}
 }
 
+/* Bring pool slot `pi` back from its .CCH before Add Character uses it — the
+ * Mac's Add is a disk load (jt587). Leaving play (jt19 -> l2b40) frees each
+ * member's inventory and spell lists but the port keeps the record in its
+ * pool, so a character re-added after "Exit play" came back with nothing,
+ * and Add's save_roster then wrote that over his file. Only a drained slot
+ * (both lists empty) is reloaded: any other is still what its file holds,
+ * and overwriting it would strand its nodes. */
+static void cg_pool_reload(short pi)
+{
+	static unsigned char keep[512];
+	unsigned char *rec = cg_pool[pi];
+	char path[64];
+	int  a;
+
+	if (cg_pool_fn[pi][0] == 0 || *(long *)(rec + 8) != 0
+	 || *(long *)(rec + 4) != 0)
+		return;
+	memcpy(keep, rec, 512);
+	memset(rec, 0, 512);
+	design_save_path(path, cg_pool_fn[pi]);
+	if (l_cch_read(path, rec) == 0 || memcmp(rec + 96, keep + 96, 16) != 0) {
+		memcpy(rec, keep, 512);     /* no file, or not him: as it was */
+		return;
+	}
+	/* as the boot loader: derived equip pointers off disk are dead, and
+	 * the current ability scores start at the base ones (jt21 refiles) */
+	for (a = 0; a <= 12; a++)
+		*(long *)(rec + 12 + a * 4) = 0;
+	for (a = 0; a < 6; a++)
+		if (rec[113 + a * 2] == 0)
+			rec[113 + a * 2] = rec[112 + a * 2];
+}
+
 /* Scan the design folder for CHAR*.CHR via the FS shim's directory
  * enumeration (the capability JT[589] needs), deserializing each into the pool
  * with the faithful .cch reader. Returns 1 if any character loaded.
@@ -40753,6 +40786,7 @@ static void l12a0(void)
 					if (jt396((const char *)&cg_pool[pi][96],
 					          (const char *)&e[5]) != 0) {
 						picked_rec = cg_pool[pi];
+						cg_pool_reload(pi);
 						break;
 					}
 			}
