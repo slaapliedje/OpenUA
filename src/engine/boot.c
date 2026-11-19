@@ -18278,6 +18278,14 @@ static void jt297(void *rec_v, short key, long cb)
 		pre_col = g_a5_byte(-12287);
 	}
 	fp4    = (rec[4] == 0 && rec[9] != 0) ? 1 : 0;
+	/* North is 8 here, as in l1908, which folds 0 to 8: the delta
+	 * tables below are indexed 1..8 and hold nothing for north at 0.
+	 * Play hands this mover facing 0 for north (a design's start facing,
+	 * a passage's landing), so the first forward step from such a start
+	 * moved by zero and only turned 0 into 8: "the first arrow after the
+	 * area's entry message does nothing". */
+	if (fp3 && g_a5_byte(-12286) == 0)
+		g_a5_byte(-12286) = 8;
 	facing = (short)g_a5_byte(-12286);
 
 	/* ★ THE PAIRING IS THE MAC'S. DO NOT "FIX" IT AGAIN — #98 DID, AND WAS
