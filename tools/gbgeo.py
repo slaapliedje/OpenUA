@@ -443,6 +443,63 @@ def write_shops(folder, shops):
         f.write(out)
 
 
+# FRUA's item-name word table (A5 -13628, read by jt28) has 126 words; its
+# next entries are the old-age death messages, and the Dark Queen's table
+# carries the same 126 words (two spelled differently), 29 more of its own
+# (Hoopak, Dragonlance, Solamnic Plate, ...) and then the same messages. An
+# item names its words by number, so those 29 must come from the game.
+FRUA_WORDS = 126
+WORDS_END = b"who is looking very old"
+
+
+def find_words(exe):
+    """The game's item-name words past FRUA's 126, out of its executable, or
+    None. The table is far pointers into the data segment; it is found by
+    shape: the words 1..4 are Battle Axe, Hand Axe, Club, Dagger, stored one
+    after another, which fixes both the table and the segment's base."""
+    first = (b"Battle Axe", b"Hand Axe", b"Club", b"Dagger")
+    at = exe.find(b"\0".join(first) + b"\0")
+    if at < 0:
+        return None
+    gaps = [len(w) + 1 for w in first]
+
+    def word(base, off):
+        a = base + off
+        e = exe.find(b"\0", a)
+        return exe[a:e] if 0 <= a < e else None
+
+    for p in range(0, len(exe) - 4 * 256):
+        o = [struct.unpack_from("<H", exe, p + 4 * k)[0] for k in range(1, 5)]
+        if any(o[k + 1] - o[k] != gaps[k] for k in range(3)):
+            continue
+        base = at - o[0]
+        seg = struct.unpack_from("<H", exe, p + 6)[0]
+        # other tables point into the same strings at the same spacing; the
+        # item table is the one whose next words are these too
+        if [word(base, struct.unpack_from("<H", exe, p + 4 * k)[0])
+                for k in (5, 6, 7)] != [b"Dart", b"Hammer", b"Javelin"]:
+            continue
+        out = []
+        for k in range(FRUA_WORDS, 256):
+            off, sg = struct.unpack_from("<HH", exe, p + 4 * k)
+            w = word(base, off) if sg == seg else None
+            if w is None or w.startswith(WORDS_END):
+                break
+            out.append(w.decode("latin-1"))
+        if out:
+            return out
+    return None
+
+
+def write_words(folder, words):
+    """GBWORDS.DAT: "GBW1", u8 first word number, u8 count, the words NUL-ended."""
+    out = bytearray(b"GBW1") + bytes([FRUA_WORDS, len(words)])
+    for w in words:
+        out += w.encode("latin-1")[:40] + b"\0"
+    with open(os.path.join(folder, "GBWORDS.DAT"), "wb") as f:
+        f.write(out)
+
+
 def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)
@@ -503,13 +560,20 @@ def main(argv):
             print("  monsters: %d" % gbmon.write_design(folder, mons, items))
         if "--exe" in args:
             with open(args[args.index("--exe") + 1], "rb") as f:
-                shops = find_shops(f.read())
+                exe = f.read()
+            shops = find_shops(exe)
             if shops is None:
                 print("  shops: no stock tables found in that executable")
             else:
                 write_shops(folder, shops)
                 print("  shops: %d (%s items)" % (len(shops),
                       ", ".join(str(len(x)) for x in shops)))
+            words = find_words(exe)
+            if words is None:
+                print("  item words: none past FRUA's %d found" % FRUA_WORDS)
+            else:
+                write_words(folder, words)
+                print("  item words: %d past FRUA's (%s ...)" % (len(words), words[0]))
         m = maps[start]
         e = m.find_entry()
         print("  %d areas; starting in area %d (source id %s), party at x=%d y=%d facing %s"

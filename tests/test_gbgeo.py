@@ -290,3 +290,42 @@ def test_item_table_gains_one_byte_an_entry_and_is_always_254_long():
     assert out[:18] == bytes(range(17)) + b"\0"
     assert out[18:36] == bytes(range(100, 117)) + b"\0"
     assert out[36:54] == b"\xff" * 17 + b"\0"          # past the source: "no item"
+
+
+def _word_exe(extra, decoy=True):
+    """A fake executable: a string pool, a decoy table that points at the same
+    first four words, and the real far-pointer word table at an odd offset."""
+    frua = ["Battle Axe", "Hand Axe", "Club", "Dagger", "Dart", "Hammer",
+            "Javelin"] + ["w%d" % k for k in range(8, gbgeo.FRUA_WORDS)]
+    words = [""] + frua + extra + ["who is looking very old", "he"]
+    pool = bytearray(b"\0" * 16)
+    offs = []
+    for w in words:
+        offs.append(len(pool))
+        pool += w.encode() + b"\0"
+    seg = 0x1234
+    exe = bytearray(b"\xaa" * 0x101)               # odd start for the table
+    if decoy:
+        for k in (1, 2, 3, 4):                     # same spacing, then junk
+            exe += struct.pack("<HH", offs[k], seg)
+        exe += struct.pack("<HH", 3, seg) * 4
+    table_at = len(exe)
+    for o in offs:
+        exe += struct.pack("<HH", o, seg)
+    exe += struct.pack("<HH", 0, 0) * 300
+    base = len(exe)                                # pool goes after; offsets
+    exe += pool                                    # are relative to its start
+    return bytes(exe), base, table_at
+
+
+def test_item_words_past_frua_are_found_by_shape(tmp_path):
+    exe, _, _ = _word_exe(["Hoopak", "Dragonlance"])
+    words = gbgeo.find_words(exe)
+    assert words == ["Hoopak", "Dragonlance"]      # stops at the death message
+    gbgeo.write_words(str(tmp_path), words)
+    raw = (tmp_path / "GBWORDS.DAT").read_bytes()
+    assert raw == b"GBW1" + bytes([126, 2]) + b"Hoopak\0Dragonlance\0"
+
+
+def test_no_item_words_without_the_table():
+    assert gbgeo.find_words(b"\0" * 4096) is None

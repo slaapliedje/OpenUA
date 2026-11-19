@@ -43176,6 +43176,7 @@ static void l3fd6(short a, short b, short c, short d, char *out)
  *     (item[51] bits) and pluralised ("s ") per a type/slot rule set;
  *   - an optional detailed-stats line (L3fd6) when f22 is set.
  * s16/s18 are the stat-line layout args forwarded to L3fd6. arg0 is unused. */
+static const char *gbs_word(short idx);   /* PORT: a converted game's words */
 static void jt28(long arg0, long item, short s16, short s18,
                  short f20, short f22) __attribute__((unused));
 static void jt28(long arg0, long item, short s16, short s18,
@@ -43234,8 +43235,13 @@ static void jt28(long arg0, long item, short s16, short s18,
 			jt384(out, jt488("%s%s", out, scratch));
 		} else {
 			short idx = it[41 + (i - 1)];
-			const char *name =
-				*(const char **)(g_a5_buf(-13628) + idx * 4);
+			/* PORT (ADR-0023): FRUA has 126 words; a converted game's
+			 * items can name more (gbs_word). Past 125 FRUA's table
+			 * holds the old-age death messages. */
+			const char *name = idx >= 126 ? gbs_word(idx) : NULL;
+
+			if (name == NULL)
+				name = *(const char **)(g_a5_buf(-13628) + idx * 4);
 			jt384(out, jt488("%s%s", out, name));
 		}
 
@@ -108211,6 +108217,47 @@ static void gbs_items(int want)
 		*(short *)(void *)(rec + 6) = jt1180(*(short *)(void *)(rec + 6));
 	}
 	g_gbs_items = 1;
+}
+
+/* Item-name words. jt28 names an item from three word numbers into FRUA's
+ * table (A5 -13628), which has 126 words; a Gold Box game's table has the
+ * same 126 and more of its own (the Dark Queen: Hoopak, Dragonlance,
+ * Solamnic Plate, ... 29 in all), and its items use them. gbgeo.py --exe
+ * copies them out of the executable as GBWORDS.DAT:
+ *
+ *   "GBW1", u8 first word number (126), u8 count, the words NUL-ended
+ *
+ * Read from the current design when a word past FRUA's is asked for, kept
+ * until the design changes (the hall lists items before any script area
+ * is up, so this cannot wait for gbs_items). NULL: FRUA's own entry. */
+static const char *gbs_word(short idx)
+{
+	static char           have[202];       /* design folder it was read from */
+	static unsigned char  buf[1024];
+	static const char    *words[130];
+	static unsigned char  first, count;
+	const char           *dir = (const char *)&g_a5_31336;
+	short                 n, k, p;
+
+	if (strcmp(dir, have) != 0) {
+		for (k = 0; k < (short)sizeof have - 1 && dir[k] != 0; k++)
+			have[k] = dir[k];
+		have[k] = 0;
+		first = count = 0;
+		n = gbs_read("GBWORDS.DAT", buf, (short)(sizeof buf - 1));
+		if (n > 6 && memcmp(buf, "GBW1", 4) == 0) {
+			buf[n] = 0;
+			for (k = 0, p = 6; k < buf[5] && k < 130 && p < n; k++) {
+				words[k] = (const char *)buf + p;
+				p = (short)(p + (short)strlen((const char *)buf + p) + 1);
+			}
+			first = buf[4];
+			count = (unsigned char)k;
+		}
+	}
+	if (idx < first || idx >= first + count)
+		return NULL;
+	return words[idx - first];
 }
 
 /* SAVED GAMES. Everything a script remembers — which doors are open, who has
