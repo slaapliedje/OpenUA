@@ -1764,18 +1764,25 @@ into the design folder. DOS programs, temporary files, files in subfolders
 other than SAVE, and files outside the design folder are left out and named;
 names go in upper case; an archive with no GAME001.DAT is refused.
 
-## ADR-0026 — Classes and races come from the design's ruleset
+## ADR-0026 — The engine reads the Gold Box games' own files; classes and races come from a ruleset
 
-**Status:** Proposed (2026-11-19).
+**Status:** Accepted (2026-11-19). Extends ADR-0023: what that ADR does with
+offline converters becomes the engine's job.
 
 **Context.** The Gold Box games OpenUA is opening up to (ADR-0023) do not all
 share FRUA's classes and races. The Krynn games have seven player races
 (Silvanesti and Qualinesti elves, half-elves, mountain and hill dwarves,
 kender, humans) with Monster as race 7, and a Knight class where FRUA's slot 1
-is a druid. Converting their characters (`tools/gbchar.py`) showed the cost of
-pretending otherwise: the hall applied druid equipment rules to a Knight and
-unreadied his sword and plate. And a designer making a new game should be able
-to use those rules too, not only a converter.
+is a druid. Converting Dark Queen's ready-made heroes into FRUA characters
+(`tools/gbchar.py`) showed the cost of pretending otherwise: the hall applied
+druid equipment rules to a Knight and unreadied his sword and plate.
+
+It also showed the cost of converting at all. Today a converted game needs a
+PC and Python before it can be played (gbgeo, gbmon, gbchar), a converted
+character can never go back to the original game, and every format is known
+twice, once by a converter and once by the engine. The scripts already run
+from the game's own bytecode (ecl.c), and the module manager does its work on
+the machine (ADR-0025); the rest should follow.
 
 An inventory of the engine (2026-11-19) found the class and race rules in two
 forms:
@@ -1797,39 +1804,51 @@ forms:
   "monster" in about nine combat and spell tests, and the creation screen
   builds its race and class lists from literal strings.
 
-Dark Queen's own tables are in DQK.EXE's data segment in the same shapes; the
-race-by-class level limits (DS:0x17dc, 8 races x 7 classes) match the
+Dark Queen keeps its own tables in DQK.EXE's data segment in the same shapes;
+the race-by-class level limits (DS:0x17dc, 8 races x 7 classes) match the
 Adventurer's Journal's table row for row.
 
-**Decision (proposed).**
+**Decision.**
 
-1. **A design carries a ruleset.** `RULES.DAT` in the design folder, read
-   when the design loads, installs the class and race tables; a design
-   without one gets FRUA's rules, built in, so every existing FRUA module
-   and save behaves exactly as before. The ruleset goes back to FRUA's when
-   an ordinary design loads, as GBITEM.DAT does.
-2. **The character record does not change.** Seven class-level slots, one
+1. **The engine reads each game's own files at run time.** Characters (.QCH
+   and the other games' CHRDATA files), saves, item tables and item-name
+   words, monsters, maps and rules are read in their native formats by
+   loaders in C. The goal is to play a game from its own install folder,
+   copied to the machine as it is. Reached in steps: until a loader exists,
+   the offline tool stays the way in.
+2. **The Python tools become reference implementations.** Each stays the
+   tested description of its format, and the C loader is held to it by
+   tests on synthetic data, as `ecl.c` is to `ecl.py` and `modcore.c` to
+   `tools/modman`. They stop being a step a player has to run.
+3. **One ruleset structure in the engine, filled by loaders.** FRUA's rules
+   are built in, and a design that brings nothing gets them, so every FRUA
+   module and save behaves exactly as before. A game's own rules are read
+   from its files (DQK.EXE's data segment: tables found by shape, or at
+   known offsets for an executable recognised by checksum), each table
+   checked once against the game's printed tables. A new game, which has no
+   original to read, writes its classes and races in a ruleset file
+   (`tools/rules.py` compiles a readable text file and decompiles one back,
+   so a designer can start from FRUA's or Krynn's).
+4. **The character record does not change.** Seven class-level slots, one
    race byte, the 17 class kinds and the class-bit mask stay where they are;
    the ruleset says what each number means. Dark Queen's slot 1 is Knight,
-   FRUA's stays Druid. A save is read under its own design's ruleset, which
-   is already the only place it is valid.
-3. **Hard-coded rules become ruleset fields, one at a time, FRUA's values
-   the default.** Each conversion is held to the deterministic A/B harness
-   (`-DFRUA_RNGSEED`): a FRUA module must play byte-identically before and
-   after. The reserved race 6 becomes the ruleset's monster race.
-4. **Rulesets are authored as text.** `tools/rules.py` compiles a readable
-   file to RULES.DAT and decompiles one back, so a designer can start from
-   FRUA's or Krynn's and change it. Built in: FRUA's, and Krynn's read out of
-   DQK.EXE and checked against the Journal's tables. The Forgotten Realms
-   Gold Box games are expected to fit FRUA's (FRUA descends from them), to be
-   checked game by game.
-5. **Rules that do not exist in FRUA at all are engine features, added when a
-   game needs them** (the Knights' orders and their spells; the Krynn mages'
-   robes and moons), each behind a ruleset flag.
+   FRUA's stays Druid. A character or save is read under its own game's
+   ruleset. Writing back in the game's own format, so characters move
+   between OpenUA and the original, follows reading.
+5. **Hard-coded rules become ruleset fields, one at a time, FRUA's values the
+   default**, each held to the deterministic A/B harness (`-DFRUA_RNGSEED`):
+   a FRUA module must play byte-identically before and after. The reserved
+   race 6 becomes the ruleset's monster race.
+6. **Rules FRUA never had are engine features, added when a game needs
+   them** (the Knights' orders and their spells; the Krynn mages' robes and
+   moons), each behind a ruleset flag.
 
-**Order of work.** (a) RULES.DAT format, FRUA's ruleset extracted, loaded,
-parity-proven; (b) the creation screen, sheet and training hall driven by it,
-and the monster race freed; (c) the hard-coded rules moved over, Krynn's
-ruleset extracted; (d) Knights; (e) choosing a ruleset in the design editor.
+**Order of work.** (a) the ruleset structure, FRUA's rules moved into it,
+parity-proven; (b) Dark Queen's rules read from DQK.EXE; (c) the creation
+screen, sheet and training hall driven by the ruleset, the monster race
+freed, the hard-coded rules moved over; (d) .QCH characters read by the hall;
+(e) Knights; (f) the item tables, words and monsters read natively, then the
+maps, then saves; (g) choosing or writing a ruleset for a new design.
 
-**Not decided here:** the editor's rules screen, and Krynn's moon magic.
+**Not decided here:** the editor's rules screen, Krynn's moon magic, and how
+a game's install folder is laid out on a machine with 8.3 names only.
