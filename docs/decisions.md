@@ -1763,3 +1763,73 @@ machines themselves — download and install modules on the ST and the Amiga.
 into the design folder. DOS programs, temporary files, files in subfolders
 other than SAVE, and files outside the design folder are left out and named;
 names go in upper case; an archive with no GAME001.DAT is refused.
+
+## ADR-0026 — Classes and races come from the design's ruleset
+
+**Status:** Proposed (2026-11-19).
+
+**Context.** The Gold Box games OpenUA is opening up to (ADR-0023) do not all
+share FRUA's classes and races. The Krynn games have seven player races
+(Silvanesti and Qualinesti elves, half-elves, mountain and hill dwarves,
+kender, humans) with Monster as race 7, and a Knight class where FRUA's slot 1
+is a druid. Converting their characters (`tools/gbchar.py`) showed the cost of
+pretending otherwise: the hall applied druid equipment rules to a Knight and
+unreadied his sword and plate. And a designer making a new game should be able
+to use those rules too, not only a converter.
+
+An inventory of the engine (2026-11-19) found the class and race rules in two
+forms:
+
+- **About 25 tables in the A5 world**, from the Mac DATA resource (DOS: the
+  CKIT.EXE runs of ADR-0017) or `a5_scalars.c`: class and race names, the
+  race-to-class and class-to-alignment lists, ability minimums and race
+  ability ranges, age, race level caps (-28048), XP per level, THAC0
+  (-23184), saving throws (-28818), class bits for items (-23030) and the
+  training hall (-23023), hit dice and name level, thief skills with race and
+  DEX adjustments, spell progression rows and slot tables. None of them can
+  be overridden by a design today.
+- **Rules written into code**: racial stat modifiers and innate abilities
+  (l24d2, l2284), class abilities at creation (l13ee), attack rates and HP
+  past name level by slot (jt910, l5274/jt885), which slot casts which spell
+  school (jt908, l4e2c), a second racial level-limit switch in training
+  (jt557), dual class for humans only, Raise Dead refusing elves, elves'
+  to-hit bonus with bows and swords. Two numbers are reserved: race 6 means
+  "monster" in about nine combat and spell tests, and the creation screen
+  builds its race and class lists from literal strings.
+
+Dark Queen's own tables are in DQK.EXE's data segment in the same shapes; the
+race-by-class level limits (DS:0x17dc, 8 races x 7 classes) match the
+Adventurer's Journal's table row for row.
+
+**Decision (proposed).**
+
+1. **A design carries a ruleset.** `RULES.DAT` in the design folder, read
+   when the design loads, installs the class and race tables; a design
+   without one gets FRUA's rules, built in, so every existing FRUA module
+   and save behaves exactly as before. The ruleset goes back to FRUA's when
+   an ordinary design loads, as GBITEM.DAT does.
+2. **The character record does not change.** Seven class-level slots, one
+   race byte, the 17 class kinds and the class-bit mask stay where they are;
+   the ruleset says what each number means. Dark Queen's slot 1 is Knight,
+   FRUA's stays Druid. A save is read under its own design's ruleset, which
+   is already the only place it is valid.
+3. **Hard-coded rules become ruleset fields, one at a time, FRUA's values
+   the default.** Each conversion is held to the deterministic A/B harness
+   (`-DFRUA_RNGSEED`): a FRUA module must play byte-identically before and
+   after. The reserved race 6 becomes the ruleset's monster race.
+4. **Rulesets are authored as text.** `tools/rules.py` compiles a readable
+   file to RULES.DAT and decompiles one back, so a designer can start from
+   FRUA's or Krynn's and change it. Built in: FRUA's, and Krynn's read out of
+   DQK.EXE and checked against the Journal's tables. The Forgotten Realms
+   Gold Box games are expected to fit FRUA's (FRUA descends from them), to be
+   checked game by game.
+5. **Rules that do not exist in FRUA at all are engine features, added when a
+   game needs them** (the Knights' orders and their spells; the Krynn mages'
+   robes and moons), each behind a ruleset flag.
+
+**Order of work.** (a) RULES.DAT format, FRUA's ruleset extracted, loaded,
+parity-proven; (b) the creation screen, sheet and training hall driven by it,
+and the monster race freed; (c) the hard-coded rules moved over, Krynn's
+ruleset extracted; (d) Knights; (e) choosing a ruleset in the design editor.
+
+**Not decided here:** the editor's rules screen, and Krynn's moon magic.
