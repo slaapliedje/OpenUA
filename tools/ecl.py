@@ -95,6 +95,10 @@ GEN1_OPCODES = {
 #                     ordering flags are cleared
 #   0x23  CLEAR_EXIT  clears the text box and ends the script
 #   0x29  NOP_29      only steps over itself
+#   0x37  FIND_NPC    name, dest: the party place of the NPC by that name,
+#                     +0x80 when down, 0xff when absent (DQK 0x434a8; the
+#                     scripts follow it with LOAD_CHARACTER and DUMP).
+#                     Champions' LOAD_PIECES, in Greybox's table.
 # Death Knights uses 0x1d and 0x22 the same way in its scripts; its 0x23 and
 # 0x29 are taken to match and have not been read out of that game's code.
 GEN2_OVERRIDES = {
@@ -103,7 +107,7 @@ GEN2_OVERRIDES = {
     0x22: ("YES_NO", 0, None),          0x23: ("CLEAR_EXIT", 0, None),
     0x27: ("TREASURE", 4, 3),           0x29: ("NOP_29", 0, None),
     0x2c: ("PARLAY", 1, None),          0x31: ("SHORT_MENU", 2, 1),
-    0x37: ("LOAD_PIECES", 2, None),     0x41: ("GEN2_EXT_41", 2, None),
+    0x37: ("FIND_NPC", 2, None),        0x41: ("GEN2_EXT_41", 2, None),
 }
 
 # Death Knights of Krynn: a Gen1 container with a "short" operand table of its

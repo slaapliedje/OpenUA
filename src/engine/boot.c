@@ -107133,6 +107133,78 @@ static void gbs_call(short n)
 /* LOAD_CHARACTER n: DQK (0x32142) masks n with 0x7f, walks that many
  * members down the party list from its head (0 is the head) and makes the
  * one it reaches the selected character; past the end, nothing changes. */
+/* ADD_NPC id, morale (DQK 0x4333b). The loader it calls (DQK 0x359e6) is
+ * FRUA's jt592 line for line, record offsets 8 bytes on: no room past
+ * eight members, load monster `id` (the design's MONSTnnn.DAT, which
+ * gbmon.py writes from MONCHA.GLB; Dark Queen's NPCs are 112..119, the
+ * range FRUA keeps NPCs in too), append it as the selected member, mark it
+ * an NPC, load its combat picture. The handler then sets the new member's
+ * morale byte, FRUA's rec[147], to morale/2 with the NPC bit, recomputes
+ * it and redraws the roster (FRUA's own add-NPC event, l380a, ends with
+ * the same jt21 + jt937). When the party is full, DQK still writes the
+ * morale into whoever is selected; here nothing happens. Script 4 asks
+ * for NPC 140, which Dark Queen has no record for. */
+static void gbs_add_npc(short id, short morale)
+{
+	unsigned char *hdr = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char *who;
+	unsigned char  before;
+
+	if (hdr == NULL)
+		return;
+	before = hdr[32];
+	jt592(id);
+	who = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	if (hdr[32] == before || who == NULL)
+		return;
+	who[147] = (unsigned char)(((unsigned char)morale / 2) | 0x80);
+	jt21(g_a5_long(-27932));
+	gbs_seed_who();
+	jt937(g_a5_long(-27932));
+}
+
+/* 0x37 name, dest. Greybox calls it LOAD_PIECES, after Champions; in Dark
+ * Queen (DQK 0x434a8) it finds an NPC by name: the 0-based place in the
+ * party of the first member whose name is the string and whose NPC bit
+ * (FRUA rec[147] bit 7) is set, plus 0x80 when that member's rec[382]
+ * (DQK 0x18b, the byte DAMAGE tests too) is zero, or 0xff when there is
+ * none. The scripts follow it with LOAD_CHARACTER and DUMP to send a
+ * companion away. DQK's compare is exact; its names are upper case, and
+ * here the case is ignored, as the name cell 0x401 is upper-cased. */
+static unsigned short gbs_find_npc(const ecl_vm *vm, const ecl_opnd *a)
+{
+	char           want[GBS_TEXT_MAX];
+	unsigned       n = 0;
+	unsigned short k = 0;
+	long           m;
+
+	if (a->code == ECL_C_TEXT)
+		n = ecl_text(vm->raw, a->text_off, a->text_len, want, sizeof want);
+	else if (a->code == ECL_C_STRPTR)
+		n = ecl_str_get(vm, a->word, want, sizeof want);
+	want[n < sizeof want ? n : sizeof want - 1] = 0;
+
+	for (m = g_a5_long(-27928); m != 0; m = *(long *)(uintptr_t)m, k++) {
+		unsigned char *r = (unsigned char *)(uintptr_t)m;
+		unsigned       i;
+
+		if ((r[147] & 0x80) == 0)
+			continue;
+		for (i = 0; i < 16; i++) {
+			char c = (char)r[96 + i], w = want[i];
+
+			if (c >= 'a' && c <= 'z') c = (char)(c - 'a' + 'A');
+			if (w >= 'a' && w <= 'z') w = (char)(w - 'a' + 'A');
+			if (c != w || c == 0)
+				break;
+		}
+		if (i < 16 && (r[96 + i] != 0 || want[i] != 0))
+			continue;
+		return (unsigned short)(r[382] == 0 ? (k | 0x80) : k);
+	}
+	return 0xff;
+}
+
 static void gbs_load_character(short n)
 {
 	long m = g_a5_long(-27928);
@@ -107836,6 +107908,35 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 			gbs_text_put(line, (short)strlen(line));
 			gbs_draw(0);
 			g_gbs_cont = 1;     /* up for the script's CONTINUE */
+		}
+		return ECL_HOST_OK;
+	case 0x36:                      /* ADD_NPC id, morale */
+		if (g_gbs_dialect != ECL_GEN2 || ins->argc < 2)
+			return ECL_HOST_UNHANDLED;
+		gbs_add_npc((short)ecl_rvalue(vm, &ins->arg[0]),
+		            (short)ecl_rvalue(vm, &ins->arg[1]));
+		return ECL_HOST_OK;
+	case 0x37:                      /* FIND_NPC name, dest */
+		if (g_gbs_dialect != ECL_GEN2 || ins->argc < 2)
+			return ECL_HOST_UNHANDLED;
+		(void)ecl_poke(vm, ins->arg[1].word, gbs_find_npc(vm, &ins->arg[0]));
+		return ECL_HOST_OK;
+	case 0x3e:                      /* DUMP: the selected NPC leaves */
+		if (g_gbs_dialect != ECL_GEN2)
+			return ECL_HOST_UNHANDLED;
+		/* DQK (0x329bb) is FRUA's jt19 with the same (0, 1): unlink
+		 * the selected member, free its combat picture, count one
+		 * fewer; then the roster is redrawn */
+		if (g_a5_long(-27932) != 0) {
+			unsigned char *gone = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+
+			jt19(0, 1);
+			/* a companion's pool slot becomes a hole again, not a
+			 * character left behind in the hall's roster */
+			if ((gone[147] & 0x80) && cg_node_in_pool(gone))
+				gone[96] = 0;
+			gbs_seed_who();
+			jt937(g_a5_long(-27932));
 		}
 		return ECL_HOST_OK;
 	case 0x41:                      /* AWARD_XP party, hundreds */

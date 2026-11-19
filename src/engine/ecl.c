@@ -62,7 +62,7 @@ const ecl_dialect *ecl_dialect_get(int id)
 		frames_short(&g_dialect[ECL_GEN1_DOK]);
 		frames_short(&g_dialect[ECL_GEN2]);
 		frame_set(&g_dialect[ECL_GEN2], 0x21, 2, -1);   /* LOAD_FILES   */
-		frame_set(&g_dialect[ECL_GEN2], 0x37, 2, -1);   /* LOAD_PIECES  */
+		frame_set(&g_dialect[ECL_GEN2], 0x37, 2, -1);   /* FIND_NPC     */
 		g_dialect_ready = 1;
 	}
 	if (id < 0 || id >= ECL_NDIALECTS)

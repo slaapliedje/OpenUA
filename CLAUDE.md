@@ -326,8 +326,14 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   and DAMAGE (FRUA's jt866 IS DQK's save routine, jt862 its roll vs AC,
   l0730 the hit; DQK's party/random cases swap half and full, reproduced),
   and 0x1f is JOURNAL n ("recorded as journal entry n" in DQK).
+  Companions: ADD_NPC is FRUA's jt592 (DQK's loader is the same code,
+  offsets 8 on) plus morale/2|0x80 into rec[147]; 0x37 is FIND_NPC (name
+  -> party place, +0x80 down, 0xff absent; Greybox's LOAD_PIECES is
+  Champions'); DUMP is FRUA's jt19(0,1). An NPC takes a cg_pool slot (the
+  roster walks stop at any node outside it) and save_roster writes no
+  .CCH for it.
   **Still skipped** (the core counts them as unhandled and moves on):
-  LOAD_PIECES (88), ADD_NPC (26), DUMP (25), FIND_SPECIAL, SPELL, FIND_ITEM, ROB.
+  FIND_SPECIAL, SPELL, FIND_ITEM, ROB.
   Census: walk every ECLnnn.DAT with tools/ecl.py's Block.walk(). PROGRAM is
   read out of DQK.EXE (0x328cf, a ten-entry jump table): 0 training, 1
   the copy-protection overlay (a no-op here), 3 an energy drain on the
