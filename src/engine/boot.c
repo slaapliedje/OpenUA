@@ -1552,6 +1552,7 @@ static void  l0ba2(void)
  * player record (offsets 37/38 map, 67/68 saved, 23/24). Finishes by
  * selecting play vs look mode (L0ba2 / L0b88) by level number. */
 static void gbs_new_game(void);   /* PORT: Gold Box script memory, at the end */
+static void gbs_items(int want);   /* PORT: a converted game's item table */
 
 static void  l0bbc(void)
 {
@@ -5638,6 +5639,13 @@ static void l07dc(void)
 		jt217((short)g_a5_12294, (short)g_a5_12293,
 		      (short)g_a5_12292, (short)g_a5_12291);
 		jt948();
+		/* PORT (ADR-0023): out of play, FRUA's item table again. A
+		 * converted game reads its own over it (gbs_items) and only an
+		 * ordinary area put FRUA's back, so after quitting such a game
+		 * the hall priced and recomputed characters with the game's
+		 * numbers. Play's level load reads the game's table again if
+		 * play goes on. */
+		gbs_items(0);
 		g_a5_27990 = g_a5_27989;
 		if (jt943() == 0)
 			break;
