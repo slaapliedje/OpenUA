@@ -89,6 +89,12 @@ wp_status plat_dialog_choice(plat_window *parent,
         g_choice_head = (g_choice_head + 1) % HOST_CHOICE_QUEUE;
         g_choice_count--;
         if (pick >= 0 && out_index && (u32)pick < option_count) *out_index = (u32)pick;
+        /* -2: the backend's own Cancel, as a user choosing it would --
+           offered (platform.h) only to a choice of two or more. */
+        if (pick == WINDOW_HOST_CANCEL && option_count > 1) {
+            if (out_cancelled) *out_cancelled = WP_TRUE;
+            return WP_OK;
+        }
     }
     /* platform.h's Cancel rule: the caller's own "Cancel" is the way out. */
     if (out_index && option_count > 1 && option_label_lens[*out_index] == 6u &&

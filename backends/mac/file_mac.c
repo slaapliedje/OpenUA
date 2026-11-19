@@ -78,7 +78,10 @@ wp_status plat_file_read(plat_file *f, u8 *buf, u32 cap, u32 *out_len)
     long count = (long)cap;
     OSErr err;
 
-    if (f == NULL || buf == NULL) return WP_ERR;
+    if (out_len) *out_len = 0;          /* platform.h: set on every return */
+    if (f == NULL) return WP_ERR;
+    if (cap == 0) return WP_OK;
+    if (buf == NULL) return WP_ERR;
     err = FSRead((short)(long)f, &count, buf);
     /* eofErr means the read ran into (or started at) end-of-file --
        count still holds however many bytes were actually transferred

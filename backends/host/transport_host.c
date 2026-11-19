@@ -8,6 +8,8 @@
 #include <string.h>
 #include <errno.h>
 #include <signal.h>
+#include <termios.h>
+#include <stdlib.h>
 #include "platform.h"
 
 /* plat_transport is an opaque handle per platform.h; this struct is
@@ -20,6 +22,10 @@
                           the plat_transport_* seam compiles and links).
      "tcp:<host>:<port>" a real loopback/LAN TCP client socket, used to
                           reach the mock (and later, real) gateway.
+     "serial:<device>:<baud>" a tty -- a USB serial adapter, or one end
+                          of a pty pair in tests -- raw, 8N1, no flow
+                          control; its speed can be switched
+                          (plat_transport_set_speed).
    A later Atari backend adds "serial:<device>:<baud>" as a fifth,
    independent implementation of these same four functions -- no change
    to callers is required when that lands. Both mechanisms here share one
@@ -30,6 +36,7 @@ typedef struct {
     int  fd;
     int  owns_fifo;
     char fifo_path[256];
+    u32  baud;          /* a tty's speed now; 0 for a pipe or socket */
 } host_transport;
 
 static wp_status open_pipe(const char *path, host_transport **out)
@@ -51,6 +58,7 @@ static wp_status open_pipe(const char *path, host_transport **out)
     if (t == NULL) { close(fd); return WP_NOMEM; }
 
     t->fd = fd;
+    t->baud = 0;
     t->owns_fifo = created;
     strncpy(t->fifo_path, path, sizeof(t->fifo_path) - 1);
     t->fifo_path[sizeof(t->fifo_path) - 1] = '\0';
@@ -134,6 +142,7 @@ static wp_status open_tcp(const char *hostport, u32 connect_timeout_ms,
     if (t == NULL) { close(fd); return WP_NOMEM; }
 
     t->fd = fd;
+    t->baud = 0;
     t->owns_fifo = 0;
     t->fifo_path[0] = '\0';
 
@@ -141,9 +150,112 @@ static wp_status open_tcp(const char *hostport, u32 connect_timeout_ms,
     return WP_OK;
 }
 
+/* The rates a host tty is offered at, fastest first: the common ones a
+   USB adapter and a Pi's UART both take. */
+static const u32 k_host_rates[] = { 115200uL, 57600uL, 38400uL, 19200uL, 9600uL };
+#define HOST_RATE_COUNT ((u32)(sizeof(k_host_rates) / sizeof(k_host_rates[0])))
+
+static speed_t host_speed_of(u32 baud)
+{
+    switch (baud) {
+    case 115200uL: return B115200;
+    case 57600uL:  return B57600;
+    case 38400uL:  return B38400;
+    case 19200uL:  return B19200;
+    case 9600uL:   return B9600;
+    case 4800uL:   return B4800;
+    case 2400uL:   return B2400;
+    case 1200uL:   return B1200;
+    default:       return (speed_t)0;
+    }
+}
+
+/* Raw 8N1 at `baud`, CLOCAL, no flow control; output drained first so a
+   speed change never cuts off bytes already written. */
+static wp_status host_tty_setup(int fd, u32 baud)
+{
+    struct termios tio;
+    speed_t sp = host_speed_of(baud);
+
+    if (sp == (speed_t)0) return WP_RANGE;
+    if (tcgetattr(fd, &tio) != 0) return WP_ERR;
+    (void)tcdrain(fd);
+    cfmakeraw(&tio);
+    tio.c_cflag |= (tcflag_t)(CLOCAL | CREAD);
+    tio.c_cflag &= (tcflag_t)~CRTSCTS;
+    tio.c_cc[VMIN] = 1;
+    tio.c_cc[VTIME] = 0;
+    cfsetispeed(&tio, sp);
+    cfsetospeed(&tio, sp);
+    return tcsetattr(fd, TCSANOW, &tio) == 0 ? WP_OK : WP_ERR;
+}
+
+/* "serial:<device>:<baud>": the device is everything before the last
+   colon (a path may hold colons), the baud after it. */
+static wp_status open_serial(const char *spec, host_transport **out)
+{
+    char dev[256];
+    const char *colon = strrchr(spec, ':');
+    host_transport *t;
+    unsigned long baud;
+    char *end;
+    size_t n;
+    int fd;
+
+    if (colon == NULL || colon == spec) return WP_ERR;
+    n = (size_t)(colon - spec);
+    if (n >= sizeof(dev)) return WP_ERR;
+    memcpy(dev, spec, n);
+    dev[n] = '\0';
+    baud = strtoul(colon + 1, &end, 10);
+    if (*end != '\0' || host_speed_of((u32)baud) == (speed_t)0) return WP_ERR;
+
+    fd = open(dev, O_RDWR | O_NOCTTY);
+    if (fd < 0) return WP_ERR;
+    if (!isatty(fd) || host_tty_setup(fd, (u32)baud) != WP_OK) { close(fd); return WP_ERR; }
+
+    t = (host_transport *)mem_alloc((u32)sizeof(host_transport));
+    if (t == NULL) { close(fd); return WP_NOMEM; }
+    t->fd = fd;
+    t->baud = (u32)baud;
+    t->owns_fifo = 0;
+    t->fifo_path[0] = '\0';
+    *out = t;
+    return WP_OK;
+}
+
+u32 plat_transport_speeds(plat_transport *t, u32 *rates, u32 cap, u32 *current)
+{
+    host_transport *ht = (host_transport *)t;
+    u32 i, n = 0;
+
+    if (current) *current = (ht != NULL) ? ht->baud : 0;
+    if (ht == NULL || ht->baud == 0) return 0;
+    for (i = 0; i < HOST_RATE_COUNT && n < cap; i++) rates[n++] = k_host_rates[i];
+    return n;
+}
+
+wp_status plat_transport_set_speed(plat_transport *t, u32 baud)
+{
+    host_transport *ht = (host_transport *)t;
+    u32 i;
+    wp_status st;
+
+    if (ht == NULL || ht->baud == 0) return WP_UNSUPPORTED;
+    for (i = 0; i < HOST_RATE_COUNT; i++) if (k_host_rates[i] == baud) break;
+    if (i == HOST_RATE_COUNT) return WP_RANGE;
+    st = host_tty_setup(ht->fd, baud);
+    if (st == WP_OK) ht->baud = baud;
+    return st;
+}
+
 wp_status plat_transport_open(const char *endpoint, u32 connect_timeout_ms,
                                plat_transport **out)
 {
+    if (strncmp(endpoint, "serial:", 7) == 0) {
+        WP_UNUSED(connect_timeout_ms);
+        return open_serial(endpoint + 7, (host_transport **)out);
+    }
     if (strncmp(endpoint, "pipe:", 5) == 0) {
         WP_UNUSED(connect_timeout_ms); /* FIFO/loopback open is instantaneous */
         return open_pipe(endpoint + 5, (host_transport **)out);

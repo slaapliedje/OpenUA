@@ -24,7 +24,13 @@ wp_status plat_file_open(const char *native_path, plat_file_mode mode,
 
 wp_status plat_file_read(plat_file *f, u8 *buf, u32 cap, u32 *out_len)
 {
-    size_t n = fread(buf, 1, (size_t)cap, (FILE *)f);
+    size_t n;
+
+    if (out_len) *out_len = 0;          /* platform.h: set on every return */
+    if (f == NULL) return WP_ERR;
+    if (cap == 0) return WP_OK;
+    if (buf == NULL) return WP_ERR;
+    n = fread(buf, 1, (size_t)cap, (FILE *)f);
     if (n < (size_t)cap && ferror((FILE *)f)) return WP_ERR;
     if (out_len) *out_len = (u32)n;
     return WP_OK;

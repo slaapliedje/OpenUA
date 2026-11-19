@@ -32,7 +32,15 @@ typedef struct {
     short out_ref;
     wp_bool in_open;
     wp_bool out_open;
+    u32   baud;        /* the line's speed now */
 } mac_transport;
+
+/* The Serial Driver's own input buffer is 64 bytes; at 57600 that is a
+   tenth of a second of a busy Mac Plus not reading. SerSetBuf gives it
+   this instead (Inside Macintosh II, "The Serial Drivers"). One port,
+   one buffer, so it lives here. */
+#define WP_MAC_SERBUF 2048
+static char g_mac_serbuf[WP_MAC_SERBUF];
 
 /* SerReset's config word packs baud rate, data bits, parity, and stop
    bits into one value meant to be OR'd together (verified against
@@ -123,6 +131,7 @@ wp_status plat_transport_open(const char *endpoint, u32 connect_timeout_ms,
     t->out_ref = 0;
     t->in_open = WP_FALSE;
     t->out_open = WP_FALSE;
+    t->baud = (u32)baud;
 
     if (OpenDriver((ConstStringPtr) "\p.AIn", &t->in_ref) != noErr) {
         close_transport(t);
@@ -150,6 +159,7 @@ wp_status plat_transport_open(const char *endpoint, u32 connect_timeout_ms,
        (offload/transport/wire.c) is the real, live arbiter of whether
        communication actually works, not this call's return code. */
     SerReset(t->out_ref, (short)(config | data8 | noParity | stop10));
+    (void)SerSetBuf(t->in_ref, (Ptr)g_mac_serbuf, (short)WP_MAC_SERBUF);
 
     handshake.fXOn = 0;
     handshake.fCTS = 0;
@@ -269,6 +279,41 @@ wp_status plat_transport_write(plat_transport *t, const u8 *data, u32 len,
         if (pb.ioParam.ioResult != noErr) return WP_ERR;
         done += piece;
     }
+    return WP_OK;
+}
+
+/* Line speed (platform.h): the Serial Driver's table, up to 57600 --
+   what SerReset names (baud57600). Faster needs the SCC clocked from
+   outside, which this backend does not do. */
+static const u32 k_mac_rates[] = { 57600uL, 38400uL, 19200uL, 9600uL };
+#define MAC_RATE_COUNT ((u32)(sizeof(k_mac_rates) / sizeof(k_mac_rates[0])))
+
+u32 plat_transport_speeds(plat_transport *t, u32 *rates, u32 cap, u32 *current)
+{
+    mac_transport *mt = (mac_transport *)t;
+    u32 i, n = 0;
+
+    if (current) *current = (mt != NULL) ? mt->baud : 0;
+    if (mt == NULL || mt->baud == 0) return 0;
+    for (i = 0; i < MAC_RATE_COUNT && n < cap; i++) rates[n++] = k_mac_rates[i];
+    return n;
+}
+
+/* Every write here has completed before it returns; a character's time
+   more for the last one in the SCC, then SerReset at the new speed. */
+wp_status plat_transport_set_speed(plat_transport *t, u32 baud)
+{
+    mac_transport *mt = (mac_transport *)t;
+    short config;
+    u32 i, t0;
+
+    if (mt == NULL || mt->baud == 0) return WP_UNSUPPORTED;
+    for (i = 0; i < MAC_RATE_COUNT; i++) if (k_mac_rates[i] == baud) break;
+    if (i == MAC_RATE_COUNT || !baud_to_config((unsigned long)baud, &config)) return WP_RANGE;
+    t0 = plat_ticks_ms();
+    while (!PLAT_TICKS_PASSED(t0, 20u)) { }
+    if (SerReset(mt->out_ref, (short)(config | data8 | noParity | stop10)) != noErr) return WP_ERR;
+    mt->baud = baud;
     return WP_OK;
 }
 

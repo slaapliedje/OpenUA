@@ -7,6 +7,7 @@
 #include <exec/errors.h>
 #include <devices/serial.h>
 #include <proto/exec.h>
+#include <exec/execbase.h>   /* AttnFlags: the CPU decides the top speed */
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -69,6 +70,7 @@ typedef struct {
     struct MsgPort  *port;
     struct IOExtSer *ioreq;
     wp_bool          device_open;
+    u32              baud;          /* the line's speed now */
 } amiga_transport;
 
 /* Real read-buffer size requested from the driver (io_RBufLen) -- large
@@ -151,6 +153,7 @@ static wp_status serial_open(const char *endpoint, u32 connect_timeout_ms,
     t->ioreq->io_RBufLen = WP_AMIGA_SERIAL_RBUFLEN;
     t->ioreq->io_ExtFlags = 0;
     t->ioreq->io_Baud = baud;
+    t->baud = (u32)baud;
     t->ioreq->io_BrkTime = 0;
     t->ioreq->io_ReadLen = 8;
     t->ioreq->io_WriteLen = 8;
@@ -454,6 +457,60 @@ static wp_status tcp_write(amiga_tcp *t, const u8 *data, u32 len, u32 timeout_ms
         }
         done += (u32)n;
     }
+    return WP_OK;
+}
+
+/* ------------------------------------------------------------------ */
+/* Line speed (platform.h)                                               */
+/* ------------------------------------------------------------------ */
+
+/* serial.device takes any io_Baud, and Paula's divider makes them all;
+   what limits it is the CPU. Paula holds one received byte, so every
+   byte is an interrupt, and a 7 MHz 68000 that is also drawing MUI loses
+   bytes well before 115200. Up to 38400 on a 68000; up to 115200 on a
+   68020 or better. Measure on the real machine before raising either. */
+static const u32 k_amiga_rates[] = { 115200uL, 57600uL, 38400uL, 19200uL, 9600uL };
+#define AMIGA_RATE_COUNT ((u32)(sizeof(k_amiga_rates) / sizeof(k_amiga_rates[0])))
+
+static u32 amiga_rate_ceiling(void)
+{
+    return (SysBase->AttnFlags & AFF_68020) ? 115200uL : 38400uL;
+}
+
+u32 plat_transport_speeds(plat_transport *t, u32 *rates, u32 cap, u32 *current)
+{
+    amiga_transport *at = (amiga_transport *)t;
+    u32 i, n = 0, top;
+
+    if (current) *current = 0;
+    if (t == NULL || *(int *)t == TRANSPORT_TCP || at->baud == 0) return 0;
+    if (current) *current = at->baud;
+    top = amiga_rate_ceiling();
+    for (i = 0; i < AMIGA_RATE_COUNT && n < cap; i++)
+        if (k_amiga_rates[i] <= top) rates[n++] = k_amiga_rates[i];
+    return n;
+}
+
+/* Every CMD_WRITE here has completed before it returns, so nothing is
+   left to go out; SETPARAMS changes the speed. Its refusal is an error
+   here (unlike at open): the caller then stays at the old speed. */
+wp_status plat_transport_set_speed(plat_transport *t, u32 baud)
+{
+    amiga_transport *at = (amiga_transport *)t;
+    u32 i;
+
+    if (t == NULL || *(int *)t == TRANSPORT_TCP || at->baud == 0) return WP_UNSUPPORTED;
+    for (i = 0; i < AMIGA_RATE_COUNT; i++)
+        if (k_amiga_rates[i] == baud && baud <= amiga_rate_ceiling()) break;
+    if (i == AMIGA_RATE_COUNT) return WP_RANGE;
+    at->ioreq->io_Baud = (ULONG)baud;
+    at->ioreq->IOSer.io_Length = (ULONG)sizeof(struct IOExtSer);
+    at->ioreq->IOSer.io_Command = SDCMD_SETPARAMS;
+    if (DoIO((struct IORequest *)at->ioreq) != 0) {
+        at->ioreq->io_Baud = (ULONG)at->baud;
+        return WP_ERR;
+    }
+    at->baud = baud;
     return WP_OK;
 }
 

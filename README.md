@@ -78,10 +78,14 @@ ST, the Amiga, the Mac and DOS. `tcp:<host>:<port>` is a TCP client:
 - **Atari**: MiNTnet, and **opt-in: build with `-DRP_ATARI_TCP`**.
   mintlib's resolver, socket and select code costs a GEM program about
   68 KB even if it never connects, which a 1 MB plain-TOS machine cannot
-  spare. Without the define `tcp:` answers `WP_UNSUPPORTED` as before;
-  with it, the MiNT cookie gates the socket calls at run time (plain TOS,
-  EmuTOS, or MiNT with no network stack: `WP_UNSUPPORTED`). STinG is not
-  covered.
+  spare. With the define, the MiNT cookie gates the socket calls at run
+  time. **STinG** (plain TOS or EmuTOS) is always compiled in, since it
+  costs about 1 KB and nothing from mintlib (`-DRP_ATARI_NO_STING` drops
+  it). `tcp:` tries MiNTnet first and STinG second, each gated on its
+  cookie; with neither, it answers `WP_UNSUPPORTED`. A STinG port has to be
+  switched on already (STNGPORT.CPX or STING.INF); the backend does not
+  choose one. As with MiNTnet, a dotted address skips the resolver, and a
+  name goes to STinG's resolve(), which has no timeout of its own.
 
 A dotted address skips the resolver; a real name is looked up with
 `gethostbyname`, which has no timeout and can block when the DNS server is

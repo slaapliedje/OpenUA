@@ -10,6 +10,9 @@
    after (up to 16), for a walk through several. -1 is the default for
    that one. Never part of the portable surface. */
 void window_host_next_choice(i32 index);
+/* For window_host_next_choice: the user picks the backend's own Cancel
+   (a choice of two or more with no caller "Cancel" has one). */
+#define WINDOW_HOST_CANCEL (-2)
 
 /* Host-only: the title the last plat_dialog_choice was shown ("" before
    the first) -- which, for a one-button message (platform/common's
