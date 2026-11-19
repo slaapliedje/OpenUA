@@ -347,7 +347,16 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   (a change to an OVERLAND level still takes the reload). Also l5676 must
   copy ev[8]/[9]/[13] out BEFORE jt198 — ev points into the ENCR table
   the load overwrites. Test with a two-area design whose landing differs
-  from the start square (two identical rooms hid both bugs).
+  from the start square (two identical rooms hid both bugs). The overland
+  exit is checked with HEIRS GEO017 event 0 (build with
+  `-DFRUA_ENTRY_LEVEL=17 -DFRUA_ENTRY_COL=1 -DFRUA_ENTRY_ROW=1
+  -DFRUA_ENTRY_FACING=6`, keys Return Up y): the party lands on area 1
+  and Encamp answers at once. **OPEN:** HEIRS's illustrated overland map
+  stays BLACK (only the party dot shows) on every overland entry — a
+  passage, a game started there, leaving camp — until the first move.
+  jt935's first-entry arm does run (jt214 + jt44, palette committed), and
+  a full present after it changes nothing; what the move's redraw does
+  differently is the next question.
 - **Shops are opcode 0x3c** (PROTECTION in Greybox's table) with a shop type
   1..9; the stock lists live in DQK.EXE and `gbgeo.py --exe` copies them out
   as GBSHOP.DAT (found by shape, not address). They are sold through `jt183`,

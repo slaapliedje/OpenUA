@@ -1552,6 +1552,9 @@ static void  l0ba2(void)
  * player record (offsets 37/38 map, 67/68 saved, 23/24). Finishes by
  * selecting play vs look mode (L0ba2 / L0b88) by level number. */
 static void gbs_new_game(void);   /* PORT: Gold Box script memory, at the end */
+#if defined(FRUA_ENTRY_LEVEL) && defined(FRUA_ENTRY_COL)
+static char g_entry_harness_spent;  /* harness: l63c0 has run, stop forcing */
+#endif
 static void gbs_items(int want);   /* PORT: a converted game's item table */
 
 static void  l0bbc(void)
@@ -1601,8 +1604,12 @@ static void  l0bbc(void)
 	 * branch): force the level + landing cell deterministically. Gated
 	 * on a live party so the BOOT-time jt361(1) -> l0bbc pass (empty
 	 * party, menu state) stays untouched — only the in-game play entry
-	 * (post-Load) is redirected. */
-	if (g_a5_long(-27928) != 0) {
+	 * (post-Load) is redirected. And only until the walk has started
+	 * (g_entry_harness_spent, set by l63c0): the reload after a passage
+	 * to an overland level runs l0bbc again, and the override put the
+	 * party back on its start cell, so an overland exit could never be
+	 * tested with it. */
+	if (g_a5_long(-27928) != 0 && !g_entry_harness_spent) {
 		if (g_a5_18878 != FRUA_ENTRY_LEVEL) {
 			g_a5_18878 = FRUA_ENTRY_LEVEL;
 			jt198((short)FRUA_ENTRY_LEVEL);
@@ -19797,6 +19804,9 @@ static signed char l63c0(unsigned char *rec, short a_wild, short a_sel,
 	else
 		g_a5_byte(-2592) = (unsigned char)(g_a5_byte(-2592) | 0x02);
 	g_walk_input = 1;
+#if defined(FRUA_ENTRY_LEVEL) && defined(FRUA_ENTRY_COL)
+	g_entry_harness_spent = 1;
+#endif
 #ifdef FRUA_CBTAUTO
 	dbg_log("cbtauto: l63c0 walk input loop ENTER");
 #endif
