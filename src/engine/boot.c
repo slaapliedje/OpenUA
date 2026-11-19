@@ -106909,6 +106909,56 @@ static void gbs_menu(ecl_vm *vm, const ecl_insn *ins, int first, int n,
 
 static void gbs_seed_who(void);
 
+/* AWARD_XP party, n (0x41; DQK 0x429d9): n hundred experience points.
+ * With `party` set, to every member able to take it, with a line saying
+ * the party gains experience; with it clear, to the selected character,
+ * by name. Each share is split across the member's classes. That is
+ * FRUA's award-experience event (l2b2a) exactly, so its arithmetic is
+ * used: the classes counted from rec[157..163], the total in rec[68],
+ * the train flag rec[197] recomputed by jt33. The line is the port's own
+ * wording; FRUA's strings have none for it. */
+static void gbs_award_one(unsigned char *m, long xp)
+{
+	short i, classes = 0;
+
+	for (i = 0; i <= 6; i++)
+		if (m[157 + i] != 0)
+			classes++;
+	if (classes == 0)
+		classes = 1;
+	*(long *)(void *)(m + 68) += (long)jt5((unsigned long)xp, (unsigned long)classes);
+	m[197] = (unsigned char)jt33(m);
+}
+
+static void gbs_award_xp(short party, long hundreds)
+{
+	long  xp = hundreds * 100L;
+	char  line[64];
+
+	gbs_draw(0);                    /* what was printed goes up first */
+	if (party) {
+		long m;
+
+		for (m = g_a5_long(-27928); m != 0; m = *(long *)(uintptr_t)m)
+			if (((unsigned char *)(uintptr_t)m)[382] != 0)
+				gbs_award_one((unsigned char *)(uintptr_t)m, xp);
+		jt394(line, "The party gains experience.");
+	} else {
+		unsigned char *m = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+
+		if (m == NULL || m[382] == 0)
+			return;
+		gbs_award_one(m, xp);
+		jt394(line, "%s gains experience.", (const char *)m + 96);
+	}
+	jt937(g_a5_long(-27932));
+	g_gbs_cont = 0;                 /* DQK prints it at the box's top */
+	gbs_text_put(line, (short)strlen(line));
+	gbs_draw(0);
+	l4bac();                        /* the text-speed dwell */
+	g_gbs_cont = 1;                 /* and up for the script's CONTINUE */
+}
+
 /* The cell descriptor the script sees, for where its position variables
  * now say the party stands. */
 static void gbs_reseed_desc(void)
@@ -107633,6 +107683,12 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 				n = 15;
 			jt52(n);
 		}
+		return ECL_HOST_OK;
+	case 0x41:                      /* AWARD_XP party, hundreds */
+		if (g_gbs_dialect != ECL_GEN2 || ins->argc < 2)
+			return ECL_HOST_UNHANDLED;
+		gbs_award_xp((short)ecl_rvalue(vm, &ins->arg[0]),
+		             (long)ecl_rvalue(vm, &ins->arg[1]));
 		return ECL_HOST_OK;
 	case 0x2d:                      /* CALL n */
 		if (ins->argc < 1 || g_gbs_dialect != ECL_GEN2)
