@@ -331,7 +331,9 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   -> party place, +0x80 down, 0xff absent; Greybox's LOAD_PIECES is
   Champions'); DUMP is FRUA's jt19(0,1). An NPC takes a cg_pool slot (the
   roster walks stop at any node outside it) and save_roster writes no
-  .CCH for it. ROB, SPELL, FIND_ITEM and FIND_SPECIAL are read out of
+  .CCH for it. A companion survives save and load: SAVGAMx carries its
+  record, jt579 puts it back in a pool slot with the NPC bit, and the
+  area script does not add it again (checked over five loads in a row). ROB, SPELL, FIND_ITEM and FIND_SPECIAL are read out of
   DQK.EXE too; the front of DQK's character record lines up with FRUA's
   byte for byte (money rec[76..81], items rec[8] with the item record at
   node[40], affects rec[4] with the id in byte 0, memorized spells
