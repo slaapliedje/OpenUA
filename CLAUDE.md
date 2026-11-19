@@ -258,8 +258,18 @@ short). It runs over retroplat's `plat_transport` ("tcp:host:port");
 system mint toolchain's gemlib) or `modapp_amiga.c` (`make modman-amiga`).
 On the Amiga, opendir() wants "" for the current directory, not "." (CWD). The Amiga
 (bsdsocket.library) and Atari (MiNTnet/STinG) `tcp:` transports go into
-retroplat UPSTREAM, on top of the RetroWP session's pending transport/timer
-commit — coordinate with it before editing `transport_*.c` there.
+retroplat UPSTREAM — coordinate with the RetroWP session before editing
+`transport_*.c` there, and work in your own worktree (~/dev/retroplat holds
+its uncommitted work). MiNTnet and Amiga are on retroplat master; the STinG
+backend is branch `atari-sting` (~/dev/retroplat-sting), awaiting review
+and the user's go-ahead, after which third_party/retroplat needs updating.
+Build modman against a branch with `make modman RETROPLAT=<path>`.
+The STinG `tcp:` is verified on the rig in `data/work/sting-rig/` (ARAnyM +
+EmuTOS + STinG 1.26, no root; README there): `AUTORUN='C:\PROG.PRG' sh
+rig.sh up`, serve from its `www/`, the Atari reaches 192.168.251.1:8080.
+Input does not reach ARAnyM there, so test with a headless autorun program
+logging to C: (the modnet/modinst check got list + two installs, ~89 KB/s).
+STNGTEST must stay in AUTO: it is what switches the STinG port on.
 The Atari `tcp:` (MiNTnet) is verified in ARAnyM: copy
 `~/dev/highwire/tools/aranym/{drive_c,system,config}` (it has the
 `nfeth.xif` AFROS lacks; never edit HighWire's own copy), point HostFS
