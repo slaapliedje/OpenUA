@@ -1769,6 +1769,15 @@ names go in upper case; an archive with no GAME001.DAT is refused.
 **Status:** Accepted (2026-11-19). Extends ADR-0023: what that ADR does with
 offline converters becomes the engine's job.
 
+**Step (a) landed** (882dd08c, 4df2056d): `src/engine/rules.h` defines the
+ruleset as pointers to the tables, `g_rules_frua` points at the A5 tables
+themselves, and every reader of the ~20 class and race tables goes through
+`g_rules`. Parity, with `-DFRUA_RNGSEED=12345` on the Falcon build against the
+commit before: a seeded HEIRS combat map, and a halfling thief's creation
+sheet plus two rerolls, are pixel-identical (AE 0; the baseline repeats at
+AE 0). The positive control is a build whose THAC0 pointer is shifted one
+class row: the sheet then reads THAC0 57 for 18 and the comparison catches it.
+
 **Context.** The Gold Box games OpenUA is opening up to (ADR-0023) do not all
 share FRUA's classes and races. The Krynn games have seven player races
 (Silvanesti and Qualinesti elves, half-elves, mountain and hill dwarves,
@@ -1850,5 +1859,6 @@ freed, the hard-coded rules moved over; (d) .QCH characters read by the hall;
 (e) Knights; (f) the item tables, words and monsters read natively, then the
 maps, then saves; (g) choosing or writing a ruleset for a new design.
 
-**Not decided here:** the editor's rules screen, Krynn's moon magic, and how
-a game's install folder is laid out on a machine with 8.3 names only.
+**Not decided here:** the editor's rules screen and Krynn's moon magic. (A
+game's own install folder is already 8.3: they are DOS games. Only the Steam
+wrapper folders around it have long names, and nothing needs those.)
