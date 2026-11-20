@@ -64,7 +64,10 @@ long qch_to_cch(const unsigned char *q, long len, unsigned char *out,
 	for (k = 0; k < 8; k++)                 /* words, low bytes kept */
 		r[0x58 + k] = q[0x58 + 2 * k];
 	r[0x58] = native ? q[0x58] : (q[0x58] < 8 ? k_race[q[0x58]] : 6);
-	r[0x5b] = 0;
+	/* rec[91] (rules.h REC_KRYNN): god, robe and knightly order, for a
+	 * design on the game's own rules; FRUA's holds 0 */
+	r[0x5b] = native ? (unsigned char)((q[0x19b] & 7) | (q[0x19d] & 3) << 3
+	                                   | (q[0x19a] & 3) << 5) : 0;
 	memcpy(r + 0x60, q + 0x68, 0x157 - 0x68);
 	memcpy(r + 0x153, q + 0x157, 0x182 - 0x157);
 	r[0xbf] &= 0xdf;

@@ -24,7 +24,8 @@ real libraries to see the comparison).
     0x157..0x181  spellbook bits and the rest 0x153..0x17d   (FRUA rec[339])
     0x182..0x18a  nine bytes FRUA lacks       -
     0x18b..0x198                              0x17e..0x18b
-    0x199..0x19d  five bytes FRUA lacks       -
+    0x199..0x19d  five bytes FRUA lacks; under the game's own rules
+                  0x19a order, 0x19b god, 0x19d robe -> 0x5b packed
     0x19e         number of effects  E
     0x19f         number of items    I
     0x1a0         E x 5 bytes {id, .., .., .., ..}    0x1ae  ten effect ids
@@ -131,6 +132,12 @@ def item_index(item_table):
     return index
 
 
+def krynn_byte(q):
+    """The god, robe and order packed as the engine keeps them (rules.h):
+    bits 0-2 god, 3-4 robe, 5-6 order."""
+    return (q[0x19b] & 7) | (q[0x19d] & 3) << 3 | (q[0x19a] & 3) << 5
+
+
 def convert(q, items=None, native=False):
     """One Dark Queen record -> (FRUA record, notes). native: keep the Dark
     Queen's race numbers, for a design that plays by its rules."""
@@ -144,15 +151,21 @@ def convert(q, items=None, native=False):
         if q[0x59 + 2 * i]:
             notes.append("word %d has a high byte" % i)
     f[0x58] = q[0x58] if native else RACE.get(q[0x58], 6)
-    f[0x5b] = 0
+    # rec[91] (rules.h REC_KRYNN), which FRUA's record leaves 0: under the
+    # game's own rules, the god (DQK 0x19b), robe (0x19d) and knightly
+    # order (0x19a) DQK.EXE 0xbb19 picks a progression by
+    f[0x5b] = krynn_byte(q) if native else 0
     f[0x60:0x14f] = q[0x68:0x157]
     f[0x153:0x17e] = q[0x157:0x182]
     f[0xbf] &= 0xdf
     if f[0xbf] & 0x0c == 0x0c:
         f[0xbf] |= 0x20
     f[0x17e:0x18c] = q[0x18b:0x199]
-    if any(q[0x182:0x18b]) or any(q[0x199:0x19e]):
-        notes.append("dropped %s / %s" % (q[0x182:0x18b].hex(), q[0x199:0x19e].hex()))
+    tail = bytes(q[0x199:0x19e])
+    if native:                          # 0x19a, 0x19b and 0x19d are kept
+        tail = bytes([tail[0], 0, 0, tail[3], 0])
+    if any(q[0x182:0x18b]) or any(tail):
+        notes.append("dropped %s / %s" % (q[0x182:0x18b].hex(), tail.hex()))
     neff, nitem = q[0x19e], q[0x19f]
     p = 0x1a0
     if p + 5 * neff + 17 * nitem > len(q):

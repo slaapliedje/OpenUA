@@ -90,3 +90,23 @@ def test_real_heroes_match_gbchar(cbin, tmp_path, native):
             q = fh.read()
         want, _ = gbchar.convert(q, native=native)
         assert run(cbin, tmp_path, q, native) == want.hex(), path
+
+
+# What DQK.EXE 0xbb19 reads, as the six heroes hold it: Roland a Knight of
+# the Crown (order 1); Cinder a cleric of Sirrion (5, neutral) in the red
+# robe (2); Timasalin of Kiri-Jolith (3) in the white (1); Balthir and
+# Walker Keys of Mishakal (4); Roark neither cleric, mage nor knight.
+KRYNN = {"ROLANDOF": 1 << 5, "'CINDER'": 5 | 2 << 3, "TIMASALI": 3 | 1 << 3,
+         "BALTHIRN": 4, "WALKERKE": 4, "ROARK'CR": 0}
+
+
+@pytest.mark.skipif(not glob.glob(os.path.join(HEROES, "*.QCH")),
+                    reason="the Dark Queen's heroes are not on this machine")
+def test_real_heroes_god_robe_order(cbin, tmp_path):
+    for stem, want in KRYNN.items():
+        with open(os.path.join(HEROES, stem + ".QCH"), "rb") as fh:
+            q = fh.read()
+        native = bytes.fromhex(run(cbin, tmp_path, q, True))
+        frua = bytes.fromhex(run(cbin, tmp_path, q, False))
+        assert native[91] == want, stem
+        assert frua[91] == 0, stem
