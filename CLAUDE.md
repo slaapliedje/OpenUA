@@ -49,6 +49,10 @@ name.)
   design holding DQK.EXE PLAYS by them (chosen in jt361; its ITEMS.DAT too).
   FRUA's rules written into code test races through RACE(r) (race_base) and
   class slots through PROG(rec, slot): never compare rec[88] to a number.
+  The hall reads Dark Queen heroes (.QCH in the design's SAVE) itself:
+  `src/engine/qch.c` (reference gbchar.py) makes the .CCH stream and jt577
+  reads it from memory; a .CCH of the same stem shadows the .QCH, and the
+  hall never writes or deletes a .QCH.
 - **The bitplane machines render natively in planes**, not through the Mac's
   chunky surface — writers stamp bitplanes at draw time and the present skips
   the conversion for the rows they own (ADR-0016). Shipping on **all three**:

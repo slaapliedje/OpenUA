@@ -599,6 +599,19 @@ def main(argv):
                             g.write(f.read())
                         print("  item types: the game's own ITEMS.DAT copied in")
                         break
+                # its heroes (SAVE\*.QCH beside the EXE): the hall reads
+                # them as they are (ADR-0026 step (d)); one the hall has
+                # saved to a .CCH is read from that instead
+                heroes = os.path.join(exe_dir, "SAVE")
+                qch = sorted(x for x in os.listdir(heroes)
+                             if x.upper().endswith(".QCH")) if os.path.isdir(heroes) else []
+                if qch:
+                    os.makedirs(os.path.join(folder, "SAVE"), exist_ok=True)
+                    for x in qch:
+                        with open(os.path.join(heroes, x), "rb") as f, \
+                                open(os.path.join(folder, "SAVE", x.upper()), "wb") as g:
+                            g.write(f.read())
+                    print("  heroes: %d .QCH copied into SAVE" % len(qch))
         m = maps[start]
         e = m.find_entry()
         print("  %d areas; starting in area %d (source id %s), party at x=%d y=%d facing %s"

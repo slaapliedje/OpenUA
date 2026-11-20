@@ -62,6 +62,7 @@
 #include "mac_font.h"         /* mac_font_pixel (the in-dungeon party HUD) */
 #include "artconv_load.h"     /* ADR-0014: on-load DOS-art conversion */
 #include "ecl.h"              /* ADR-0023: the Gold Box script interpreter */
+#include "qch.h"              /* ADR-0026: Dark Queen characters (.QCH)    */
 
 /* #125c: the play-step / compose TickCount brackets in this file were gated on
  * FRUA_MONOPROF — but that flag CANNOT BE USED ON A COLOUR BUILD. Its own
@@ -11901,6 +11902,8 @@ static signed char l00e0_load(const char *fn, void *cb);
 static void gbs_state_load(int slot);   /* PORT: Gold Box script memory, at the end */
 static void gbs_state_save(int slot);
 static signed char l_cch_read(const char *fn, unsigned char *rec);
+static signed char qch_read(const char *fn, unsigned char *rec);
+static int qch_shadowed(const char *qname);
 static void l24d2(unsigned char *rec);   /* CODE 17 ability roll (probe self-test) */
 /* Forward — jt127 (design-data loader) lifts further down; the
  * probe self-test below calls it. */
@@ -22816,11 +22819,17 @@ static void cch_fallback(char *base, short slot)
 }
 
 /* Delete the saved-character file `base` from the design's SAVE folder. */
+static int qch_name(const char *fn);
+
 static void cch_unlink(const char *base)
 {
 	unsigned char pstr[64];
 	char          path[64];
 
+	/* A .QCH is the game's own file, which the hall reads and never writes
+	 * (ADR-0026 step (d)): a hero saved, renamed or deleted leaves it be. */
+	if (qch_name(base))
+		return;
 	design_save_path(path, base);
 	str_c2p(pstr, path);
 	(void)FSDelete((ConstStr255Param)pstr, 0);
@@ -22887,6 +22896,9 @@ static void save_roster(void)
 			if (cg_pool_fn[i][0] != 0 && !cch_same(cg_pool_fn[i], base))
 				cch_unlink(cg_pool_fn[i]);   /* renamed: drop the old */
 			design_save_path(path, base);
+#ifdef FRUA_CCHTRACE
+			dbg_file_str("cch: save_roster writes", path);
+#endif
 			g_a5_long(-6902) = (long)(uintptr_t)cg_pool[i];
 			l00e0(path, (void *)jt578);
 			cch_copy(cg_pool_fn[i], base);
@@ -22946,12 +22958,18 @@ static int load_roster(void)
 {
 	char  pat[64], cname[16], path[64];
 	short n2 = 0;
-	int   found, migrating = 0;
+	int   found, migrating = 0, own_heroes = 0;
 
 	/* The design's own SAVE folder first — where DOS and the Mac put them. */
 	design_save_path(pat, "*.CCH");
 	found = files_find_first(pat, cname, (int)sizeof cname);
+	/* A design with heroes of its own (.QCH, read below) is not the one an
+	 * old install's roster belongs to: it is not migrated into. */
 	if (!found) {
+		design_save_path(path, "*.QCH");
+		own_heroes = files_find_first(path, cname, (int)sizeof cname);
+	}
+	if (!found && !own_heroes) {
 		/* MIGRATION: an install made before 2026-08-03 has this port's
 		 * slot-numbered CHAR*.CHR in the flat gamedata folder. Read those
 		 * so an existing roster is not lost; the next save writes them out
@@ -23032,17 +23050,45 @@ static int load_roster(void)
 #ifdef FRUA_CCHTRACE
 	dbg_file_num("cch: loaded into pool", (long)n2);
 #endif
-	if (n2 == 0)
-		return 0;
-	cg_pool_count = n2;
-	if (migrating) {
+	if (migrating && n2 > 0) {
 		/* Put the migrated roster where it now belongs, immediately.
 		 * Add-a-Character enumerates FILES in the design SAVE folder
 		 * (l01be), not this pool, so until something writes them out the
 		 * Hall would report "No characters to load" while the pool sat
-		 * full — the old flat files being invisible to the new scan. */
+		 * full — the old flat files being invisible to the new scan.
+		 * Before the .QCH heroes below join the pool: the hall writes
+		 * them when it saves, not because a migration did. */
+		cg_pool_count = n2;
 		save_roster();
 	}
+	/* The Dark Queen's own heroes (ADR-0026 step (d)), each unless the hall
+	 * has saved him to a .CCH, read above. The slot owns the .QCH: Add
+	 * reloads a drained hero from it (cg_pool_reload), and the first save
+	 * moves him to his .CCH without deleting it (cch_unlink). */
+	design_save_path(pat, "*.QCH");
+	for (found = files_find_first(pat, cname, (int)sizeof cname);
+	     found && n2 < 16;
+	     found = files_find_next(cname, (int)sizeof cname)) {
+		int a;
+
+		if (qch_shadowed(cname))
+			continue;
+		memset(cg_pool[n2], 0, 512);
+		design_save_path(path, cname);
+		if (l_cch_read(path, cg_pool[n2]) == 0 || cg_pool[n2][96] == 0)
+			continue;
+		for (a = 0; a <= 12; a++)               /* as for a .CCH, above */
+			*(long *)(cg_pool[n2] + 12 + a * 4) = 0;
+		for (a = 0; a < 6; a++)
+			if (cg_pool[n2][113 + a * 2] == 0)
+				cg_pool[n2][113 + a * 2] =
+				    cg_pool[n2][112 + a * 2];
+		cch_copy(cg_pool_fn[n2], cname);
+		n2++;
+	}
+	if (n2 == 0)
+		return 0;
+	cg_pool_count = n2;
 	/* The loaded .CHR are the saved-character pool, BENCHED — the party is
 	 * built in the Hall via Add Character / Load Saved Game. (#141/#100) */
 	return 1;
@@ -35097,18 +35143,22 @@ static void l01be(const char *suffix, long *out1, long *out2)
 	long           entry;                          /* current file name     */
 	long           node1 = 0, node2 = 0;           /* freshly-alloc'd nodes  */
 	long           tail1 = 0, tail2 = 0;           /* append cursors         */
+	short          pass;
 
 	PROBE("L01be");
 	(void)suffix;
 	if (out2 != NULL) *out2 = 0;
 	if (out1 != NULL) *out1 = 0;
 
+	/* Two scans: "<design>.DSN\SAVE\*.CCH", the folder both original
+	 * releases use, so DOS- and Mac-authored characters enumerate here too;
+	 * then the Dark Queen's own heroes, *.QCH, each unless the hall has
+	 * saved him to a .CCH (ADR-0026 step (d); see qch_read). */
+	for (pass = 0; pass < 2; pass++) {
 	{
 		char pat[64];
 
-		/* "<design>.DSN\SAVE\*.CCH" — the folder both original releases
-		 * use, so DOS- and Mac-authored characters enumerate here too. */
-		design_save_path(pat, "*.CCH");
+		design_save_path(pat, pass ? "*.QCH" : "*.CCH");
 		jt990(0, pat, NULL, 1, 0);             /* scan saved-char files */
 #ifdef FRUA_CCHTRACE
 		dbg_file_str("cch: l01be pattern", pat);
@@ -35118,16 +35168,16 @@ static void l01be(const char *suffix, long *out1, long *out2)
 #ifdef FRUA_CCHTRACE
 	dbg_file_num("cch: l01be first", (long)(entry != 0));
 #endif
-	if (entry == 0)
-		return;                                /* no saved characters   */
 
-	for (;;) {
+	for (; entry != 0; entry = jt991(&isdir)) {
 		char          pfn[68];
 		unsigned char rec[128];
 		const char   *cfn;
 		short         refnum, len;
 		long          n;
 
+		if (pass && qch_shadowed((const char *)(uintptr_t)entry))
+			continue;
 		jt477((void *)(uintptr_t)g_a5_21156, 40, &node1); /* peer node   */
 		jt477((void *)(uintptr_t)g_a5_21156, 40, &node2); /* name node   */
 		if (node2 == 0) {                      /* pool exhausted        */
@@ -35158,10 +35208,12 @@ static void l01be(const char *suffix, long *out1, long *out2)
 		pfn[0] = (char)len;
 		if (FSOpen((ConstStr255Param)pfn, 0, &refnum) == noErr) {
 			n = (long)sizeof rec;
-			if (FSRead(refnum, &n, rec) == noErr && n > 96) {
+			short at = pass ? QCH_NAME : 96;   /* the name, 16 bytes */
+
+			if (FSRead(refnum, &n, rec) == noErr && n > at) {
 				rec[sizeof rec - 1] = 0;
 				jt384((char *)(uintptr_t)(node2 + 5),
-				      (const char *)&rec[96]);
+				      (const char *)&rec[at]);
 			}
 			(void)FSClose(refnum);
 		}
@@ -35174,10 +35226,7 @@ static void l01be(const char *suffix, long *out1, long *out2)
 		if (tail2 != 0) *(long *)(uintptr_t)tail2 = node2;
 		else if (out2 != NULL) *out2 = node2;
 		tail2 = node2;
-
-		entry = jt991(&isdir);                 /* next entry            */
-		if (entry == 0)
-			break;
+	}
 	}
 }
 
@@ -41502,6 +41551,13 @@ static void jt400(char *fmt, void *args, void (*emit)(short),
  * or -1 on a hard error. */
 static short jt401(short refNum, void *buffer, short count)
                                                 __attribute__((unused));
+/* A Dark Queen .QCH is read as the .CCH stream jt577 takes (ADR-0026 step
+ * (d)): l_cch_read converts the file into this buffer and hands jt577
+ * QCH_MEMREF, which jt401 serves from it. No backend's refnum is negative. */
+#define QCH_MEMREF ((short)-32000)
+static unsigned char s_qch_stream[QCH_REC + 18 * 255 + 10 * 64];
+static long          s_qch_len, s_qch_pos;
+
 static short jt401(short refNum, void *buffer, short count)
 {
 	long  n = (long)(unsigned short)count;
@@ -41510,6 +41566,13 @@ static short jt401(short refNum, void *buffer, short count)
 	PROBE("jt401");
 	if (buffer == NULL)
 		return -1;
+	if (refNum == QCH_MEMREF) {
+		if (n > s_qch_len - s_qch_pos)
+			n = s_qch_len - s_qch_pos;
+		memcpy(buffer, s_qch_stream + s_qch_pos, (size_t)n);
+		s_qch_pos += n;
+		return (short)n;
+	}
 	err = FSRead(refNum, &n, buffer);
 	if (err != noErr && err != (OSErr)-39)     /* -39 = eofErr (partial ok) */
 		return -1;
@@ -42696,11 +42759,97 @@ static signed char l_cch_read(const char *fn, unsigned char *rec)
 	PROBE("l_cch_read");
 	if (fn == NULL || rec == NULL)
 		return 0;
+	if (qch_name(fn))
+		return qch_read(fn, rec);
 	str_c2p(pstr, fn);
 	if (FSOpen((ConstStr255Param)pstr, 0, &ref) != noErr)
 		return 0;
 	g_a5_long(-6902) = (long)(uintptr_t)rec;
 	jt577(ref);
+	(void)FSClose(ref);
+	return 1;
+}
+
+/* ADR-0026 step (d): the Dark Queen's own character files. A .QCH in the
+ * design's SAVE folder is a hero the hall lists and loads as it stands
+ * (qch.c turns it into the .CCH stream FRUA's loader reads; tools/gbchar.py
+ * is the reference). The hall never writes one: a hero who is saved gets a
+ * .CCH of the same stem, which is read in its place from then on, and the
+ * .QCH is left as the game wrote it. */
+static int qch_name(const char *fn)
+{
+	size_t n = strlen(fn);
+
+	return n > 4 && fn[n - 4] == '.'
+	    && (fn[n - 3] | 0x20) == 'q' && (fn[n - 2] | 0x20) == 'c'
+	    && (fn[n - 1] | 0x20) == 'h';
+}
+
+/* The race stays the game's when the design plays by the Dark Queen's rules,
+ * which is when it holds DQK.EXE (gbs_rules; gbchar.py decides the same way).
+ * Asked of the folder, not of g_rules: the boot reads the roster before the
+ * design's rules are chosen. */
+static int qch_native(void)
+{
+	const char   *dsn = (const char *)g_a5_buf(-31336);
+	char          path[64];
+	unsigned char pstr[64];
+	short         ref;
+	int           j = 0;
+
+	if (dsn == NULL || dsn[0] == 0)
+		return 0;
+	while (dsn[j] && j < 50) { path[j] = dsn[j]; j++; }
+	memcpy(path + j, "\\DQK.EXE", 9);
+	str_c2p(pstr, path);
+	if (FSOpen((ConstStr255Param)pstr, 0, &ref) != noErr)
+		return 0;
+	(void)FSClose(ref);
+	return 1;
+}
+
+static signed char qch_read(const char *fn, unsigned char *rec)
+{
+	static unsigned char q[QCH_FIXED + QCH_ITEM * 255 + QCH_NODE * 64];
+	unsigned char pstr[64];
+	short         ref;
+	long          n = (long)sizeof q, len;
+
+	str_c2p(pstr, fn);
+	if (FSOpen((ConstStr255Param)pstr, 0, &ref) != noErr)
+		return 0;
+	(void)FSRead(ref, &n, q);               /* eofErr: n says how much */
+	(void)FSClose(ref);
+	len = qch_to_cch(q, n, s_qch_stream, (long)sizeof s_qch_stream,
+	                 qch_native());
+	if (len < 0) {
+		dbg_log("qch: not a Dark Queen character file:");
+		dbg_log(fn);
+		return 0;
+	}
+	s_qch_len = len;
+	s_qch_pos = 0;
+	g_a5_long(-6902) = (long)(uintptr_t)rec;
+	jt577(QCH_MEMREF);
+	s_qch_len = 0;
+	return 1;
+}
+
+/* A .QCH is shadowed by the .CCH the hall saved that hero to. */
+static int qch_shadowed(const char *qname)
+{
+	char          base[16], path[64];
+	unsigned char pstr[64];
+	short         ref;
+	int           j;
+
+	for (j = 0; qname[j] && qname[j] != '.' && j < 8; j++)
+		base[j] = qname[j];
+	memcpy(base + j, ".CCH", 5);
+	design_save_path(path, base);
+	str_c2p(pstr, path);
+	if (FSOpen((ConstStr255Param)pstr, 0, &ref) != noErr)
+		return 0;
 	(void)FSClose(ref);
 	return 1;
 }

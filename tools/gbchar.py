@@ -1,5 +1,11 @@
 """gbchar.py — a Gold Box game's own characters as FRUA .CCH files (ADR-0023).
 
+THE ENGINE NOW READS .QCH ITSELF (ADR-0026 step (d)): a .QCH in a design's
+SAVE folder is listed and loaded by the training hall (src/engine/qch.c,
+held to convert() below by tests/test_qch.py), and gbgeo.py --exe copies the
+game's heroes in. This file is the reference for that reader; running it is
+no longer needed to play.
+
 The Dark Queen of Krynn ships six ready-made heroes as .QCH files (the Steam
 release keeps them in "Default files/Saves"). FRUA's Training Hall lists every
 <design>/SAVE/*.CCH, so a converted game can start with its own party: each
