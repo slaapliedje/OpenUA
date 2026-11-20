@@ -36,7 +36,9 @@ a member is a big-endian length word and PackBits.
 
 RACE. The Dark Queen has eight (two elves, two dwarves, kender), FRUA seven;
 "monster" is 7 there and 6 here. Read off the shared records: 7->6 on every
-creature, 6->5 on Captain Daenor (human), 4->2 on Grunschka (dwarf).
+creature, 6->5 on Captain Daenor (human), 4->2 on Grunschka (dwarf). A
+design that plays by the Dark Queen's own rules (it holds DQK.EXE; ADR-0026)
+keeps the game's numbers instead: native=True.
 
 FLAGS. Bit 0x20 of one flag byte (FRUA 0xbf) changed meaning. The Dark
 Queen sets it on its undead; FRUA's copies of the same six undead have it
@@ -129,8 +131,9 @@ def item_index(item_table):
     return index
 
 
-def convert(q, items=None):
-    """One Dark Queen record -> (FRUA record, notes)."""
+def convert(q, items=None, native=False):
+    """One Dark Queen record -> (FRUA record, notes). native: keep the Dark
+    Queen's race numbers, for a design that plays by its rules."""
     notes = []
     if len(q) < 0x1a0:
         raise GbMonError("record is %d bytes, too short" % len(q))
@@ -140,7 +143,7 @@ def convert(q, items=None):
         f[0x58 + i] = q[0x58 + 2 * i]
         if q[0x59 + 2 * i]:
             notes.append("word %d has a high byte" % i)
-    f[0x58] = RACE.get(q[0x58], 6)
+    f[0x58] = q[0x58] if native else RACE.get(q[0x58], 6)
     f[0x5b] = 0
     f[0x60:0x14f] = q[0x68:0x157]
     f[0x153:0x17e] = q[0x157:0x182]
@@ -173,13 +176,13 @@ def convert(q, items=None):
     return bytes(f), notes
 
 
-def write_design(folder, monsters, items=None, log=None):
+def write_design(folder, monsters, items=None, log=None, native=False):
     """MONSTnnn.DAT for every monster FRUA can number (1..255)."""
     done = 0
     for ident, q in sorted(monsters.items()):
         if not 0 < ident < 256:
             continue
-        rec, notes = convert(q, items)
+        rec, notes = convert(q, items, native)
         with open(os.path.join(folder, "MONST%03d.DAT" % ident), "wb") as fh:
             fh.write(rec)
         done += 1

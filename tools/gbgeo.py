@@ -545,6 +545,16 @@ def main(argv):
         if "--pictures" in args:
             got = write_pictures(folder, args[args.index("--pictures") + 1].split(","))
             print("  pictures: %s" % (", ".join(got) or "none found"))
+        exe = native = None
+        if "--exe" in args:
+            import gbrules
+            with open(args[args.index("--exe") + 1], "rb") as f:
+                exe = f.read()
+            try:
+                gbrules.verify(exe)
+                native = True       # the design plays by the game's own rules
+            except gbrules.GbRulesError:
+                native = False
         if "--monsters" in args:
             import gbmon
             parts = args[args.index("--monsters") + 1].split(",")
@@ -557,10 +567,10 @@ def main(argv):
                 items = gbmon.item_index(table)
                 with open(os.path.join(folder, "GBITEM.DAT"), "wb") as f:
                     f.write(item_table(table))
-            print("  monsters: %d" % gbmon.write_design(folder, mons, items))
-        if "--exe" in args:
-            with open(args[args.index("--exe") + 1], "rb") as f:
-                exe = f.read()
+            print("  monsters: %d%s" % (gbmon.write_design(folder, mons, items,
+                                                           native=bool(native)),
+                                        " (the game's own race numbers)" if native else ""))
+        if exe is not None:
             shops = find_shops(exe)
             if shops is None:
                 print("  shops: no stock tables found in that executable")
@@ -574,15 +584,21 @@ def main(argv):
             else:
                 write_words(folder, words)
                 print("  item words: %d past FRUA's (%s ...)" % (len(words), words[0]))
-            import gbrules
-            try:
-                gbrules.verify(exe)
-            except gbrules.GbRulesError:
+            if not native:
                 print("  rules: not the Dark Queen's DQK.EXE; FRUA's rules")
             else:                   # the engine reads them from the EXE itself
                 with open(os.path.join(folder, "DQK.EXE"), "wb") as f:
                     f.write(exe)
                 print("  rules: the Dark Queen's (DQK.EXE copied in)")
+                # its item TYPE table too: which classes use which item
+                exe_dir = os.path.dirname(os.path.abspath(args[args.index("--exe") + 1]))
+                for d in [exe_dir] + sorted(os.path.join(exe_dir, x) for x in os.listdir(exe_dir)):
+                    src = os.path.join(d, "ITEMS.DAT")
+                    if os.path.isfile(src) and os.path.getsize(src) == 2048:
+                        with open(src, "rb") as f, open(os.path.join(folder, "ITEMS.DAT"), "wb") as g:
+                            g.write(f.read())
+                        print("  item types: the game's own ITEMS.DAT copied in")
+                        break
         m = maps[start]
         e = m.find_entry()
         print("  %d areas; starting in area %d (source id %s), party at x=%d y=%d facing %s"

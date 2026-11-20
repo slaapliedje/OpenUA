@@ -103,3 +103,28 @@ def test_file_names_follow_frua():
     assert gbchar.file_stem("BALTHIR NOMOON") == "BALTHIRN"
     assert gbchar.file_stem("A.B:C") == "ABC"
     assert gbchar.file_stem("  ") == "CHAR"
+
+
+def test_under_the_games_own_rules_race_and_knight_are_kept():
+    """A design holding DQK.EXE plays by the Dark Queen's rules (ADR-0026):
+    a kender stays race 5, a human 6, and a knight's levels stay in slot 1
+    with no druid note, whatever --knight says."""
+    q = qch(name=b"ROLAND OF DUST", race=6, levels=(0, 11, 0, 0, 0, 0, 0), mask=16)
+    cch, notes = gbchar.convert(q, knight="fighter", native=True)
+    assert cch[88] == 6
+    assert cch[157:164] == bytes([0, 11, 0, 0, 0, 0, 0]) and cch[183] == 16
+    assert not any("druid" in n for n in notes)
+    assert gbchar.convert(qch(race=5), native=True)[0][88] == 5
+    assert gbchar.convert(qch(race=5))[0][88] == 4          # FRUA's halfling
+
+
+def test_the_design_decides_native(tmp_path, monkeypatch, capsys):
+    src = tmp_path / "WALKERKE.QCH"
+    src.write_bytes(qch(race=5))
+    dsn = tmp_path / "OUT.DSN"
+    dsn.mkdir()
+    gbchar.main([str(src), "--design", str(dsn)])
+    assert (dsn / "SAVE" / "WALKERKE.CCH").read_bytes()[88] == 4
+    (dsn / "DQK.EXE").write_bytes(b"MZ")
+    gbchar.main([str(src), "--design", str(dsn)])
+    assert (dsn / "SAVE" / "WALKERKE.CCH").read_bytes()[88] == 5

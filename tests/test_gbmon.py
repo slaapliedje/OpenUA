@@ -150,3 +150,13 @@ def test_real_shared_monsters_convert_to_fruas_own_record():
         got = gbmon.convert(q)[0]
         close += sum(got[o] != ref[o] for o in range(0x18e)) <= 3
     assert shared >= 25 and close >= 18
+
+
+def test_native_keeps_the_games_race_numbers():
+    """Under the Dark Queen's own rules a monster stays race 7 (ADR-0026)."""
+    q = bytearray(record())
+    assert gbmon.convert(bytes(q))[0][0x58] == 6
+    assert gbmon.convert(bytes(q), native=True)[0][0x58] == 7
+    q[0x58] = 6                                             # a human
+    assert gbmon.convert(bytes(q))[0][0x58] == 5
+    assert gbmon.convert(bytes(q), native=True)[0][0x58] == 6

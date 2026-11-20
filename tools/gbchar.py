@@ -43,6 +43,11 @@ Magic-User, Thief), and so is the class-bit mask at rec[183] (fighter 8 in
 both). FRUA's slot 1 is its druid, so a Dark Queen knight arrives as one:
 --knight fighter moves those levels to the fighter slot instead.
 
+UNDER THE GAME'S OWN RULES (ADR-0026). A design holding DQK.EXE plays by the
+Dark Queen's rules, so its characters keep the game's race numbers (kender
+5, human 6) and a knight stays a knight: when --design names such a folder,
+nothing is translated and --knight is ignored.
+
 CHECKED in Hatari (Falcon build) on the six heroes the Steam release ships:
 all six appear in the hall, join, and show the game's own hit points,
 ability scores, age, alignment, races and class levels (Roland of Dust's
@@ -106,17 +111,21 @@ def classes_of(q):
     return [(CLASSES[k], q[0xa5 + k]) for k in range(7) if q[0xa5 + k]]
 
 
-def convert(q, knight=None):
-    """One .QCH -> (.CCH bytes, notes)."""
+def convert(q, knight=None, native=False):
+    """One .QCH -> (.CCH bytes, notes). native: the design plays by the Dark
+    Queen's own rules (it holds DQK.EXE), so the race stays the game's and a
+    knight stays a knight."""
     fixed, items, nodes = parse_qch(q)
     notes = []
     # gbmon's map wants MONCHA's shape: the fixed part, then the two counts
-    rec, more = gbmon.convert(bytes(fixed) + b"\0\0")
+    rec, more = gbmon.convert(bytes(fixed) + b"\0\0", native=native)
     rec = bytearray(rec[:REC])
     notes += [n for n in more if not n.startswith("dropped")]
     rec[0:4] = bytes(4)                    # party link
     rec[12:68] = bytes(56)                 # equip slots + sub-record: rebuilt
-    if knight == "fighter" and rec[157 + 1]:
+    if native:
+        pass
+    elif knight == "fighter" and rec[157 + 1]:
         if rec[157 + 2]:
             notes.append("knight and fighter both: knight levels left as druid")
         else:
@@ -153,12 +162,15 @@ def main(argv):
     knight = argv[argv.index("--knight") + 1] if "--knight" in argv else None
     if knight not in (None, "druid", "fighter"):
         raise GbCharError("--knight is druid or fighter")
+    native = bool(design) and os.path.exists(os.path.join(design, "DQK.EXE"))
+    if native:
+        print("%s plays by the Dark Queen's rules: races and knights kept" % design)
     if design:
         os.makedirs(os.path.join(design, "SAVE"), exist_ok=True)
     for path in files:
         with open(path, "rb") as fh:
             q = fh.read()
-        cch, notes = convert(q, knight)
+        cch, notes = convert(q, knight, native)
         _, items, nodes = parse_qch(q)
         print("%-16s %s  %d items, %d affects%s" % (
             name_of(q), "/".join("%s %d" % c for c in classes_of(q)),
