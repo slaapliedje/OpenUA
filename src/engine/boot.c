@@ -1557,6 +1557,7 @@ static void gbs_new_game(void);   /* PORT: Gold Box script memory, at the end */
 static char g_entry_harness_spent;  /* harness: l63c0 has run, stop forcing */
 #endif
 static void gbs_items(int want);   /* PORT: a converted game's item table */
+static void gbs_rules(void);        /* PORT: a design's class and race rules */
 
 static void  l0bbc(void)
 {
@@ -2358,6 +2359,7 @@ static void  jt361(short a)
 	short n = 0;
 
 	PROBE("jt361");
+	gbs_rules();                    /* PORT (ADR-0026): the design's rules */
 	jt132((short)51);
 	jt127("GAME", (short)1, &n, g_a5_buf(-18876));
 #ifdef FRUA_ENGINE_PROBE
@@ -31754,6 +31756,25 @@ static int l0aae(void)
  * (race / alignment / gender / class) via the jt1089 text path, at their
  * 8000-anchored screen coords. g_a5_-7016 is the text colour the screen
  * init (L3666) sets per display mode. */
+/* PORT (ADR-0026): how far right the class column moves so that the longest
+ * race label clears it. FRUA's longest ("HALFLING") leaves room to spare;
+ * Krynn's "SILVANESTI ELF" (14) would run into PICK CLASS. Four units are
+ * one character; 13 characters fit. */
+static const char *cg_label(const unsigned short *strs, const char *const *text,
+                            short i);
+static short cg_class_shift(void)
+{
+	short i, len, most = 0;
+
+	for (i = 0; i < g_rules->races; i++) {
+		len = (short)strlen(cg_label(g_rules->race_label_strs,
+		                             g_rules->race_label_text, i));
+		if (len > most)
+			most = len;
+	}
+	return most > 13 ? (short)((most - 13) * 4) : 0;
+}
+
 static void l35f8(void)
 {
 	short col = g_a5_word(-7016);
@@ -31772,7 +31793,7 @@ static void l35f8(void)
 	jt1089((short)8006, (short)8006, col, "PICK RACE");
 	jt1089((short)8040, (short)8006, col, "PICK ALIGNMENT");
 	jt1089((short)8076, (short)8006, col, "PICK GENDER");
-	jt1089((short)8012, (short)8068, col, "PICK CLASS");
+	jt1089((short)8012, (short)(8068 + cg_class_shift()), col, "PICK CLASS");
 }
 
 /* L29ae (CODE 17 + 0x29ae) — character max-HP finalize. Computes rec[82]
@@ -32899,7 +32920,7 @@ static void cg_list(long count, void (*proc)(void), void *value, int classes)
 
 		if (classes) {
 			y      = 8018L + 4L * (g_rules->kind_list[i] & 0x7f);
-			x      = 8070L;
+			x      = 8070L + cg_class_shift();
 			hidden = (g_rules->kind_list[i] & 0x80) != 0;
 			lab    = (long)(uintptr_t)cg_label(g_rules->kind_label_strs,
 			                                   g_rules->kind_label_text, i);
@@ -35965,6 +35986,12 @@ static void jt557(void)
 		atLimit = 0;
 		curLvl  = rec[157 + i];
 
+		/* PORT (ADR-0026): Krynn's limit is its table's, one maximum per
+		 * race and class (the Adventurer's Journal); FRUA's are below. */
+		if (!g_rules->prime_limits
+		    && curLvl >= g_rules->race_level_cap[(long)rec[88] * 7 + i])
+			atLimit = 1;
+		if (g_rules->prime_limits)
 		switch (RACE(rec[88])) {                      /* race: AD&D level limits */
 		case 0:                                 /* L6e28 */
 			if (i == 2) {
@@ -108212,7 +108239,7 @@ static int gbs_script_load(short id)
  * 254 entries, 18 bytes each, with that game's prices and statistics), so it
  * is read over the engine's table when a script area comes up and FRUA's is
  * put back when an ordinary area does. The read and the two word swaps are
- * jt87's. The item TYPE table (ITEMS.DAT) is left as FRUA's. */
+ * jt87's. The item TYPE table (ITEMS.DAT) follows the design's rules (gbs_item_types). */
 static char g_gbs_items;            /* the table in memory is a design's own */
 
 static void gbs_items(int want)
@@ -108286,11 +108313,40 @@ static const char *gbs_word(short idx)
 }
 
 /* The game's class and race rules (ADR-0026). A converted Dark Queen design
- * carries the game's own DQK.EXE (gbgeo.py --exe copies it in), and the
- * rules are read out of it when a script area first comes up in that design
- * folder. Read, not yet played by: g_rules stays FRUA's until the creation
- * screen, sheet and hall can take Krynn's shapes (step (c)). */
+ * carries the game's own DQK.EXE (gbgeo.py --exe copies it in); when such a
+ * design is loaded (jt361) its rules are read out of it and played by. Any
+ * other design plays by FRUA's. Read once per design folder. */
 static const ruleset_t *g_gbs_rules;
+
+/* The item TYPE table (ITEMS.DAT, 128 x 16 bytes, read by jt86 at boot):
+ * which classes may use an item type is its byte 13, in the ruleset's class
+ * bits. A design playing by a game's own rules uses that game's own table
+ * (the Dark Queen's: the knight's bit, its hoopak and Solamnic plate) when it
+ * holds one; FRUA's is read back for any other design. */
+static void gbs_item_types(int design)
+{
+	static char own;
+	void       *dst = (void *)(uintptr_t)g_a5_long(-27944);
+	short       ref;
+
+	if (dst == NULL)
+		return;
+	if (design) {
+		own = 1;                        /* a short read is put right below */
+		if (gbs_read("ITEMS.DAT", dst, (short)2048) == 2048) {
+			dbg_log("rules: the design's own item types (ITEMS.DAT)");
+			return;
+		}
+	}
+	if (!own)
+		return;
+	own = 0;
+	ref = jt398("ITEMS.DAT", 0);            /* FRUA's, beside the program */
+	if (ref >= 0) {
+		(void)jt401(ref, dst, (short)2048);
+		jt411(ref);
+	}
+}
 
 static void gbs_rules(void)
 {
@@ -108305,14 +108361,20 @@ static void gbs_rules(void)
 		have[k] = dir[k];
 	have[k] = 0;
 	g_gbs_rules = NULL;
+	g_rules = &g_rules_frua;
 	dpath[0] = 0;
 	jt431(dpath, dir);
 	jt431(dpath, "DQK.EXE");
 	refnum = jt398(dpath, 0);
-	if (refnum < 0)
-		return;                         /* none: the design is FRUA's rules */
-	g_gbs_rules = rules_load_dqk(refnum);
-	jt411(refnum);
+	if (refnum >= 0) {
+		g_gbs_rules = rules_load_dqk(refnum);
+		jt411(refnum);
+	}
+	if (g_gbs_rules != NULL) {
+		g_rules = g_gbs_rules;
+		dbg_log("rules: the design plays by them");
+	}
+	gbs_item_types(g_gbs_rules != NULL);
 }
 
 /* SAVED GAMES. Everything a script remembers — which doors are open, who has
@@ -108472,8 +108534,6 @@ static void gbs_area_load(short geo_num)
 	jt394(name, "GBD%03d.DAT", (int)(unsigned char)geo_num);
 	n = gbs_read(name, g_gbs_desc, (short)sizeof g_gbs_desc);
 	gbs_items(n >= 0);
-	if (n >= 0)
-		gbs_rules();
 	if (n < 0) {
 		g_gbs_init_pending = 0;
 		return;                     /* an ordinary FRUA area */

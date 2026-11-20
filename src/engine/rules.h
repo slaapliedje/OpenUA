@@ -86,6 +86,11 @@ typedef struct ruleset {
 	const char *const    *kind_label_text;
 	const unsigned char  *kind_list;     /* 17                               */
 	unsigned char         default_race;  /* the race the screen starts on    */
+
+	/* The training hall (jt557). FRUA's demihumans stop below their cap
+	 * with a low prime requisite, a rule written into the code; Krynn has
+	 * one maximum per race and class, its race_level_cap. */
+	unsigned char         prime_limits;  /* FRUA 1, Krynn 0                  */
 } ruleset_t;
 
 extern const ruleset_t  g_rules_frua;

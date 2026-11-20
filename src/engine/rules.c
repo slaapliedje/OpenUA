@@ -77,6 +77,7 @@ const ruleset_t g_rules_frua = {
 	.kind_label_strs  = k_frua_kind_strs,
 	.kind_list        = k_frua_kind_list,
 	.default_race     = 5,         /* human */
+	.prime_limits     = 1,
 };
 
 const ruleset_t *g_rules = &g_rules_frua;
