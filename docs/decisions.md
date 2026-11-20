@@ -1839,6 +1839,28 @@ then; step (e)); Roland's AC recomputes to -7 against the -11 his save
 carries (an item property, for (f)); money and item words are still FRUA's
 ("PLATINUM"); FRUA's age roll adds 10 years, unchecked against Krynn's.
 
+**Step (d) landed.** The training hall reads the Dark Queen's own
+character files. A `.QCH` in a design's SAVE folder is listed by Add
+Character and loaded at boot beside the `.CCH` files; `src/engine/qch.c`
+(plain C99, held byte for byte to `gbchar.py` on synthetic files and the six
+Steam heroes by `tests/test_qch.py`) turns it into the `.CCH` stream, and
+FRUA's own loader, jt577, reads that from memory (jt401 serves a reserved
+refnum). The race stays the game's when the design holds DQK.EXE, as in
+gbchar. The hall never writes a `.QCH`: a hero it saves gets a `.CCH` of
+the same stem, which is read in its place from then on (its save on Add
+writes the whole roster, so that happens the first time anyone is added),
+and renaming or deleting a hero leaves the `.QCH` alone, so a deleted Dark
+Queen hero returns as the game shipped him. gbgeo.py --exe copies the
+game's SAVE\*.QCH in, and gbchar.py is now a reference only. A design with
+heroes of its own is no longer migrated into: the 2026-08-03 migration of
+an old install's flat CHAR*.CHR roster ran for ANY design whose SAVE held
+no `.CCH`, and copied that roster into it. Checked in Hatari: the six heroes
+listed from their `.QCH` files alone, Walker Keys added and shown as a
+kender cleric/thief 10/12 with his hoopak readied, Roland AC -7 / 134 HP as
+through gbchar, and after a save the list still six (read from the `.CCH`
+files). FRUA: seeded HEIRS Add list, hall, entry chain and creation sheets
+pixel-identical to the previous commit (with an A/A control).
+
 **Context.** The Gold Box games OpenUA is opening up to (ADR-0023) do not all
 share FRUA's classes and races. The Krynn games have seven player races
 (Silvanesti and Qualinesti elves, half-elves, mountain and hill dwarves,
