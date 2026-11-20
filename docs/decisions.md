@@ -1773,10 +1773,13 @@ offline converters becomes the engine's job.
 ruleset as pointers to the tables, `g_rules_frua` points at the A5 tables
 themselves, and every reader of the ~20 class and race tables goes through
 `g_rules`. Parity, with `-DFRUA_RNGSEED=12345` on the Falcon build against the
-commit before: a seeded HEIRS combat map, and a halfling thief's creation
+commit before: the HEIRS entry chain, and a halfling thief's creation
 sheet plus two rerolls, are pixel-identical (AE 0; the baseline repeats at
 AE 0). The positive control is a build whose THAC0 pointer is shifted one
 class row: the sheet then reads THAC0 57 for 18 and the comparison catches it.
+(Correction: this was first written up as "a seeded HEIRS combat map"; the
+frame compared is the entry chain's treasure screen, and no fight is
+reached there. The creation sheet is what caught the control.)
 
 **Step (b) landed:** `tools/gbrules.py` (the reference) and
 `src/engine/rules_gb.c` (plain C99, held to it by `tests/test_rules_gb.py`
@@ -1797,6 +1800,23 @@ DQK indexes its thief race adjustments, Pool of Radiance's rows in that
 game's race order, by its own race number (a kender gets the half-orc's);
 and FRUA's own saving-throw table gives thieves an all-zero row, its druid
 row holding thief values (the Mac DATA agrees). Both are kept as they are.
+
+**Step (c), first part (fd2349e1): the race numbers are free.** About
+thirty race tests written into the engine (elves cannot be raised, humans
+alone dual-class, 6 and up is a monster, three racial switches) read
+`RACE(r)`, the ruleset's `race_base`: the FRUA race each race number plays
+as. FRUA's is the identity; Krynn plays both elves as elves, both dwarves
+as dwarves, kender as halflings, 7 and up as monsters. Proof for FRUA: with
+`RACE()` compiled as the identity, `boot.c` is the old code instruction for
+instruction but for the ruleset's field offsets and `__LINE__` pushes; the
+seeded creation, entry-chain and kobold-fight runs are pixel-identical. A
+fight that never reaches a spell or a save cannot see a change to those
+tests (the monster-as-human control left the kobold fight unchanged), which
+is why the object-code comparison is the proof here and the runs the check.
+Still to come in (c): the creation screen's lists from the ruleset; XP,
+levels and spell rows by progression with the spell-slot table moved in;
+the training hall's prime-requisite limits for Krynn; then the Dark Queen
+design switched onto its rules.
 
 **Context.** The Gold Box games OpenUA is opening up to (ADR-0023) do not all
 share FRUA's classes and races. The Krynn games have seven player races
