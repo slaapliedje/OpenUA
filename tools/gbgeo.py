@@ -53,7 +53,9 @@ Containers handled:
     python3 tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --monsters MONCHA.GLB,ITEM.DAT
                                                       # ...and its own monsters (tools/gbmon.py)
     python3 tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --exe DQK.EXE
-                                                      # ...its shops, item words and rules
+                                                      # ...its rules, items, shops and item words
+                                                      # (DQK.EXE, ITEM.DAT and ITEMS.DAT copied
+                                                      # in and read by the engine as they are)
 
 No game data is needed to use or test the module (tests/test_gbgeo.py builds
 its own maps); pointing it at a real file is the user's own copy.
@@ -565,12 +567,18 @@ def main(argv):
                 with open(parts[1], "rb") as f:
                     table = f.read()
                 items = gbmon.item_index(table)
-                with open(os.path.join(folder, "GBITEM.DAT"), "wb") as f:
-                    f.write(item_table(table))
+                # a design playing by the game's rules has the engine read
+                # ITEM.DAT as it is (src/engine/gbitems.c); any other gets
+                # it in FRUA's layout
+                with open(os.path.join(folder, "ITEM.DAT" if native else "GBITEM.DAT"),
+                          "wb") as f:
+                    f.write(table if native else item_table(table))
             print("  monsters: %d%s" % (gbmon.write_design(folder, mons, items,
                                                            native=bool(native)),
                                         " (the game's own race numbers)" if native else ""))
-        if exe is not None:
+        if exe is not None and native:
+            print("  shops, item words: read from DQK.EXE by the engine")
+        elif exe is not None:
             shops = find_shops(exe)
             if shops is None:
                 print("  shops: no stock tables found in that executable")
@@ -590,15 +598,20 @@ def main(argv):
                 with open(os.path.join(folder, "DQK.EXE"), "wb") as f:
                     f.write(exe)
                 print("  rules: the Dark Queen's (DQK.EXE copied in)")
-                # its item TYPE table too: which classes use which item
+                # its item table and item TYPE table (which classes use
+                # which item), read by the engine as they are; the game
+                # keeps both in DISK1
                 exe_dir = os.path.dirname(os.path.abspath(args[args.index("--exe") + 1]))
-                for d in [exe_dir] + sorted(os.path.join(exe_dir, x) for x in os.listdir(exe_dir)):
-                    src = os.path.join(d, "ITEMS.DAT")
-                    if os.path.isfile(src) and os.path.getsize(src) == 2048:
-                        with open(src, "rb") as f, open(os.path.join(folder, "ITEMS.DAT"), "wb") as g:
-                            g.write(f.read())
-                        print("  item types: the game's own ITEMS.DAT copied in")
-                        break
+                for name, fits, what in (
+                        ("ITEMS.DAT", lambda n: n == 2048, "item types"),
+                        ("ITEM.DAT", lambda n: n and n % 17 == 0, "items")):
+                    for d in [exe_dir] + sorted(os.path.join(exe_dir, x) for x in os.listdir(exe_dir)):
+                        src = os.path.join(d, name)
+                        if os.path.isfile(src) and fits(os.path.getsize(src)):
+                            with open(src, "rb") as f, open(os.path.join(folder, name), "wb") as g:
+                                g.write(f.read())
+                            print("  %s: the game's own %s copied in" % (what, name))
+                            break
                 # its heroes (SAVE\*.QCH beside the EXE): the hall reads
                 # them as they are (ADR-0026 step (d)); one the hall has
                 # saved to a .CCH is read from that instead

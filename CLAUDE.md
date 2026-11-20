@@ -414,18 +414,26 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   a full present after it changes nothing; what the move's redraw does
   differently is the next question.
 - **Shops are opcode 0x3c** (PROTECTION in Greybox's table) with a shop type
-  1..9; the stock lists live in DQK.EXE and `gbgeo.py --exe` copies them out
-  as GBSHOP.DAT (found by shape, not address). They are sold through `jt183`,
+  1..9; the stock lists live in DQK.EXE, which the engine reads them from
+  (`src/engine/gbitems.c`, at fixed positions with sums; a design without
+  DQK.EXE falls back to the GBSHOP.DAT `gbgeo.py` writes, found by shape).
+  They are sold through `jt183`,
   FRUA's shop. **Inn = PROGRAM 9** (`l473e`), **training = PROGRAM 0**
   (`jt918`). Each keeps the script's own picture and greeting. The price
   level (area byte 0x28) is read as sixteenths of list price and the
   training class mask (0x30) is passed to FRUA's hall as-is — both are
   inferences from the scripts, not read out of the game's code.
 - **A converted game uses its OWN item table.** FRUA loads item.dat once and
-  a design cannot replace it, so `gbs_items` reads the design's GBITEM.DAT
-  over it when a script area comes up and restores FRUA's when an ordinary
-  one does. Monster items, treasure and shop stock are all numbers into it.
-  The item TYPE table (ITEMS.DAT, 64 bytes differ) is still FRUA's.
+  a design cannot replace it, so `gbs_items` reads the game's own ITEM.DAT
+  (17-byte entries, `gbi_item_table` makes FRUA's 18) or a converted
+  GBITEM.DAT over it when a script area comes up and restores FRUA's when an
+  ordinary one does. Monster items, treasure and shop stock are all numbers
+  into it. The item words past FRUA's 126 come from DQK.EXE (GBWORDS.DAT
+  without it); the item TYPE table is the design's ITEMS.DAT under its
+  rules. `gbs_read_game` also looks in the game's DISK1..3 folders. **A
+  folder past "<name>.DSN:" is cut away by the shims**, which then open the
+  ROOT file of that name (FRUA's own ITEM.DAT) instead of failing: put the
+  subfolder in the file name ("DISK1\ITEM.DAT"), never join it with jt431.
 - **Fights run through `l159a`, FRUA's combat event handler,** on a 20-byte
   record built from the groups LOAD_MONSTER queued (`gbs_combat`). The
   monsters are the game's OWN: `tools/gbmon.py` rewrites each Dark Queen

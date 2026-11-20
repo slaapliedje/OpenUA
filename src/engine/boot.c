@@ -63,6 +63,7 @@
 #include "artconv_load.h"     /* ADR-0014: on-load DOS-art conversion */
 #include "ecl.h"              /* ADR-0023: the Gold Box script interpreter */
 #include "qch.h"              /* ADR-0026: Dark Queen characters (.QCH)    */
+#include "gbitems.h"          /* ADR-0026: its items, words and shops      */
 
 /* #125c: the play-step / compose TickCount brackets in this file were gated on
  * FRUA_MONOPROF — but that flag CANNOT BE USED ON A COLOUR BUILD. Its own
@@ -107082,6 +107083,33 @@ static short gbs_read(const char *name, void *buf, short max)
 	return n;
 }
 
+/* The Dark Queen's item words and shop lists, read out of the design's
+ * DQK.EXE with its rules (gbs_rules); NULL for any other design. */
+static const gbi_tables *g_gbs_dqk_items;
+
+/* Read one of a Gold Box game's own files: from the design folder, or from
+ * the DISK1..DISK3 folders the game installs them in (the Dark Queen's
+ * ITEM.DAT and ITEMS.DAT are in DISK1), so a design can be the game's own
+ * folder as it is. Returns the byte count, or -1. The subfolder rides in the
+ * file name: a path with a folder past "<name>.DSN:" would be cut down to
+ * its bare name by the shims, which open the root game's file of that name
+ * (FRUA's own ITEM.DAT) instead of failing. */
+static short gbs_read_game(const char *name, void *buf, short max)
+{
+	static const char *const sub[] = { "", "DISK1\\", "DISK2\\", "DISK3\\" };
+	char  file[24];
+	short k, n;
+
+	for (k = 0; k < 4; k++) {
+		strcpy(file, sub[k]);           /* not jt431, which joins with ':' */
+		strcat(file, name);
+		n = gbs_read(file, buf, max);
+		if (n >= 0)
+			return n;
+	}
+	return -1;
+}
+
 /* Draw what is in the text buffer in the play screen's message box — the
  * sequence l4d26 uses for an event line. With `confirm`, wait for Return and
  * clear the box, as l4d26 does for a confirm-paged line; without, leave the
@@ -107874,9 +107902,10 @@ static void gbs_temple(void)
 
 /* The shop opcode (0x3c in the Dark Queen; Champions calls the number
  * PROTECTION): one operand, a shop type 1..9. What each type stocks is three
- * tables in the game's executable, which tools/gbgeo.py --exe copies into the
- * design as GBSHOP.DAT ("GBP1", u8 count, then per shop u8 n + n item
- * numbers). The price level is the area byte 0x28 the script sets first —
+ * tables in the game's executable, read from the design's DQK.EXE
+ * (g_gbs_dqk_items), or, in a converted design, from the GBSHOP.DAT
+ * tools/gbgeo.py --exe copies them into ("GBP1", u8 count, then per shop
+ * u8 n + n item numbers). The price level is the area byte 0x28 the script sets first —
  * 16 in an ordinary shop, 8, 24 and 32 elsewhere — read here as sixteenths
  * of list price, which is an inference from those four values, not something
  * read out of the game's shop code.
@@ -107889,26 +107918,37 @@ static int gbs_shop(ecl_vm *vm, short type)
 {
 	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
 	unsigned char  raw[5 + 9 * 256 / 4];
+	const unsigned char *stock;
 	short          n, i, k, off, count, best = 10;
 	long           want, err, e;
 
-	n = gbs_read("GBSHOP.DAT", raw, (short)sizeof raw);
-	if (rec == NULL || n < 5 || raw[0] != 'G' || raw[1] != 'B'
-	 || raw[2] != 'P' || raw[3] != '1')
+	if (rec == NULL)
 		return 0;
 	if (type < 1)
 		type = 1;
-	if (type > (short)raw[4])
-		return 0;
-	off = 5;
-	for (i = 1; i < type; i++) {
-		if (off >= n)
+	if (g_gbs_dqk_items != NULL) {
+		if (type > GBI_SHOPS)
 			return 0;
-		off = (short)(off + 1 + raw[off]);
+		count = g_gbs_dqk_items->shop_n[type - 1];
+		stock = g_gbs_dqk_items->shop[type - 1];
+	} else {
+		n = gbs_read("GBSHOP.DAT", raw, (short)sizeof raw);
+		if (n < 5 || raw[0] != 'G' || raw[1] != 'B'
+		 || raw[2] != 'P' || raw[3] != '1')
+			return 0;
+		if (type > (short)raw[4])
+			return 0;
+		off = 5;
+		for (i = 1; i < type; i++) {
+			if (off >= n)
+				return 0;
+			off = (short)(off + 1 + raw[off]);
+		}
+		if (off >= n || off + 1 + raw[off] > n)
+			return 0;
+		count = raw[off];
+		stock = raw + off + 1;
 	}
-	if (off >= n || off + 1 + raw[off] > n)
-		return 0;
-	count = raw[off];
 
 	want = 1000L * (long)(ecl_peek(vm, 0x0028) ? ecl_peek(vm, 0x0028) : 16) / 16;
 	err = 0x7fffffffL;
@@ -107926,8 +107966,8 @@ static int gbs_shop(ecl_vm *vm, short type)
 	g_gbs_pic = 0;
 	jt73();                         /* the shop sells the pile: start it empty */
 	for (i = count; i >= 1; i--)    /* jt187 prepends, so last first */
-		if (raw[off + i] >= 1 && raw[off + i] <= 254)
-			jt187((short)raw[off + i], 1);
+		if (stock[i - 1] >= 1 && stock[i - 1] <= 254)
+			jt187((short)stock[i - 1], 1);
 	rec[40] = (unsigned char)best;
 	jt183();
 	jt73();
@@ -108502,11 +108542,13 @@ static int gbs_script_load(short id)
 }
 
 /* The item table. FRUA loads item.dat once, at session start, and a design
- * cannot replace it. A converted game brings its own (GBITEM.DAT: the same
- * 254 entries, 18 bytes each, with that game's prices and statistics), so it
- * is read over the engine's table when a script area comes up and FRUA's is
- * put back when an ordinary area does. The read and the two word swaps are
- * jt87's. The item TYPE table (ITEMS.DAT) follows the design's rules (gbs_item_types). */
+ * cannot replace it. A Gold Box game brings its own, the same 254 entries
+ * with that game's prices and statistics: its ITEM.DAT, read as the game
+ * keeps it (17 bytes an entry; gbi_item_table makes FRUA's 18), or a
+ * converted design's GBITEM.DAT (FRUA's 18 already). It is read over the
+ * engine's table when a script area comes up and FRUA's is put back when an
+ * ordinary area does. The two word swaps are jt87's. The item TYPE table
+ * (ITEMS.DAT) follows the design's rules (gbs_item_types). */
 static char g_gbs_items;            /* the table in memory is a design's own */
 
 static void gbs_items(int want)
@@ -108525,9 +108567,16 @@ static void gbs_items(int want)
 	}
 	if (g_gbs_items)
 		return;
-	if (gbs_read("GBITEM.DAT", base + 18, (short)4572) != 4572) {
-		l5304();                    /* none, or short: FRUA's, whole */
-		return;
+	{
+		static unsigned char raw[GBI_ITEMS * GBI_ITEM_IN];
+		short                n = gbs_read_game("ITEM.DAT", raw, (short)sizeof raw);
+
+		if (n >= 0 && gbi_item_table(raw, n, base + 18) >= 0)
+			dbg_log("gbs: the game's own ITEM.DAT");
+		else if (gbs_read("GBITEM.DAT", base + 18, (short)4572) != 4572) {
+			l5304();                /* none, or short: FRUA's, whole */
+			return;
+		}
 	}
 	for (i = 1; i <= 254; i++) {
 		unsigned char *rec = base + (long)i * 18;
@@ -108541,8 +108590,9 @@ static void gbs_items(int want)
 /* Item-name words. jt28 names an item from three word numbers into FRUA's
  * table (A5 -13628), which has 126 words; a Gold Box game's table has the
  * same 126 and more of its own (the Dark Queen: Hoopak, Dragonlance,
- * Solamnic Plate, ... 29 in all), and its items use them. gbgeo.py --exe
- * copies them out of the executable as GBWORDS.DAT:
+ * Solamnic Plate, ... 29 in all), and its items use them. A design holding
+ * DQK.EXE has them read from it (g_gbs_dqk_items); for a converted one,
+ * gbgeo.py --exe copies them out of the executable as GBWORDS.DAT:
  *
  *   "GBW1", u8 first word number (126), u8 count, the words NUL-ended
  *
@@ -108558,6 +108608,11 @@ static const char *gbs_word(short idx)
 	const char           *dir = (const char *)&g_a5_31336;
 	short                 n, k, p;
 
+	if (g_gbs_dqk_items != NULL) {
+		if (idx < GBI_FIRST_WORD || idx >= GBI_FIRST_WORD + g_gbs_dqk_items->words)
+			return NULL;
+		return g_gbs_dqk_items->word[idx - GBI_FIRST_WORD];
+	}
 	if (strcmp(dir, have) != 0) {
 		for (k = 0; k < (short)sizeof have - 1 && dir[k] != 0; k++)
 			have[k] = dir[k];
@@ -108600,7 +108655,7 @@ static void gbs_item_types(int design)
 		return;
 	if (design) {
 		own = 1;                        /* a short read is put right below */
-		if (gbs_read("ITEMS.DAT", dst, (short)2048) == 2048) {
+		if (gbs_read_game("ITEMS.DAT", dst, (short)2048) == 2048) {
 			dbg_log("rules: the design's own item types (ITEMS.DAT)");
 			return;
 		}
@@ -108613,6 +108668,18 @@ static void gbs_item_types(int design)
 		(void)jt401(ref, dst, (short)2048);
 		jt411(ref);
 	}
+}
+
+/* gbi_load_dqk's reader: DQK.EXE, open on *ctx. */
+static long gbs_exe_read(void *ctx, long off, void *buf, long len)
+{
+	short refnum = *(short *)ctx;
+	long  count = len;
+
+	if (SetFPos(refnum, fsFromStart, off) != noErr)
+		return -1;
+	(void)FSRead(refnum, &count, buf);   /* eofErr on a short read: count says */
+	return count;
 }
 
 static void gbs_rules(void)
@@ -108628,13 +108695,26 @@ static void gbs_rules(void)
 		have[k] = dir[k];
 	have[k] = 0;
 	g_gbs_rules = NULL;
+	g_gbs_dqk_items = NULL;
 	g_rules = &g_rules_frua;
 	dpath[0] = 0;
 	jt431(dpath, dir);
 	jt431(dpath, "DQK.EXE");
 	refnum = jt398(dpath, 0);
 	if (refnum >= 0) {
+		static gbi_tables items;
+		const char       *which = 0;
+
 		g_gbs_rules = rules_load_dqk(refnum);
+		if (g_gbs_rules != NULL) {
+			if (gbi_load_dqk(gbs_exe_read, &refnum, &items, 1, &which) == GBI_OK) {
+				g_gbs_dqk_items = &items;
+				dbg_log("rules: the Dark Queen's item words and shops");
+			} else {
+				dbg_log("rules: DQK.EXE's item words or shops not read:");
+				dbg_log(which ? which : "-");
+			}
+		}
 		jt411(refnum);
 	}
 	if (g_gbs_rules != NULL) {
