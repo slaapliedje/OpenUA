@@ -16,6 +16,7 @@
 #define GBR_XP_LEVELS 19
 #define GBR_KIND_ROW  15        /* race_kinds row: count + 14 kinds       */
 #define GBR_NAME_MAX  32
+#define GBR_SPELL_ROWS 8        /* spell_slots rows, 261 bytes each       */
 
 /* The tables in the layout the engine indexes: bytes as the game keeps
  * them, words and longs big-endian, rows at the strides rules.h states. */
@@ -31,6 +32,7 @@ typedef struct gbr_tables {
 	unsigned char xp[4 * GBR_XP_LEVELS * GBR_PROGS];
 	unsigned char xp_step[4 * GBR_PROGS];
 	unsigned char spell_row[GBR_PROGS];
+	unsigned char spell_slots[261 * GBR_SPELL_ROWS];
 	unsigned char slot_thac0[22 * 7];
 	unsigned char slot_saves[110 * 7];
 	unsigned char slot_item_bit[7];

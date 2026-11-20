@@ -36730,6 +36730,7 @@ static long jt26(long ctx, short level, short cls) __attribute__((unused));
 static long jt26(long ctx, short level, short cls)
 {
 	const unsigned char *rec;
+	short                prog, last;
 
 	PROBE("jt26");
 	(void)ctx;
@@ -36737,13 +36738,18 @@ static long jt26(long ctx, short level, short cls)
 	cls   &= 0xff;
 	if (level >= 41)
 		return 0x7fffffffL;
-	rec = (const unsigned char *)g_rules->slot_xp + (long)cls * 48;
-	if (level < 12)
+	/* PORT (ADR-0026): by the slot's progression, and the ruleset's row
+	 * length (FRUA: the slot, 12 thresholds, so 48 / 12 / 11 / 44). */
+	prog = PROG(ctx, cls);
+	last = (short)(g_rules->xp_levels - 1);
+	rec = (const unsigned char *)g_rules->slot_xp
+	    + (long)prog * g_rules->xp_levels * 4;
+	if (level <= last)
 		return *(const long *)(rec + (long)level * 4);
 	{
 		long inc = *(const long *)((const unsigned char *)g_rules->slot_xp_step
-		                           + (long)cls * 4);
-		return jt4((long)(level - 11), inc) + *(const long *)(rec + 44);
+		                           + (long)prog * 4);
+		return jt4((long)(level - last), inc) + *(const long *)(rec + (long)last * 4);
 	}
 }
 
@@ -62368,7 +62374,7 @@ static void l2d78(long item_l, short mode)
 			n = 29;
 		else if (n < 1)
 			n = 1;
-		slots = g_a5_buf(-29876)[(long)g_rules->slot_spell_row[5] * 261
+		slots = g_rules->spell_slots[(long)g_rules->slot_spell_row[PROG(member, 5)] * 261
 		                         + (long)(n - 1) * 9 + 4];
 		if (mode != 0) {
 			member[377] = (unsigned char)(slots + slots);
@@ -63448,13 +63454,13 @@ static void jt911(long ent_l)
 	if ((short)(unsigned char)lvl > 29)
 		lvl = 29;
 	for (k = 1; k <= 7; k++) {
-		sel = (unsigned char)g_rules->slot_spell_row[0];
+		sel = (unsigned char)g_rules->slot_spell_row[PROG(ent, 0)];
 		if ((short)(unsigned char)sel == 255)
 			ent[355 + (k - 1)] = 0;
 		else
 			ent[355 + (k - 1)] = (unsigned char)
-			    g_a5_byte(-29876 + (long)sel * 261 +
-				      ((long)lvl - 1) * 9 + (k - 1));
+			    g_rules->spell_slots[(long)sel * 261 +
+				      ((long)lvl - 1) * 9 + (k - 1)];
 	}
 	if ((short)(unsigned char)ent[117] > 12 &&
 	    (unsigned char)ent[355] > 0)
@@ -63556,10 +63562,9 @@ static void jt908(long ent_l)
 			for (k = 1; k <= 4; k++)
 				ent[355 + (k - 1)] = (unsigned char)
 				    (ent[355 + (k - 1)] +
-				     (unsigned char)g_a5_byte(-29876 +
-					(long)(unsigned char)
-					g_rules->slot_spell_row[3] * 261 +
-					((long)lvl - 1) * 9 + (k - 1)));
+				     (unsigned char)g_rules->spell_slots[(long)(unsigned char)
+					g_rules->slot_spell_row[PROG(ent, 3)] * 261 +
+					((long)lvl - 1) * 9 + (k - 1)]);
 			for (s = 1; s <= 126; s++) {
 				if ((unsigned char)
 				    g_a5_byte(-16906 + (long)s * 16) != 0)
@@ -63578,20 +63583,18 @@ static void jt908(long ent_l)
 				for (k = 1; k <= 4; k++)
 					ent[364 + (k - 1)] = (unsigned char)
 					    (ent[364 + (k - 1)] +
-					     (unsigned char)g_a5_byte(-29876 +
-						(long)(unsigned char)
-						g_rules->slot_spell_row[4] * 261 +
+					     (unsigned char)g_rules->spell_slots[(long)(unsigned char)
+						g_rules->slot_spell_row[PROG(ent, 4)] * 261 +
 						((long)lvl - 1) * 9 +
-						(k - 1)));
+						(k - 1)]);
 				for (k = 5; k <= 8; k++) {
 					m = (unsigned char)(k - 4);
 					ent[373 + (m - 1)] = (unsigned char)
 					    (ent[373 + (m - 1)] +
-					     (unsigned char)g_a5_byte(-29876 +
-						(long)(unsigned char)
-						g_rules->slot_spell_row[4] * 261 +
+					     (unsigned char)g_rules->spell_slots[(long)(unsigned char)
+						g_rules->slot_spell_row[PROG(ent, 4)] * 261 +
 						((long)lvl - 1) * 9 +
-						(k - 1)));
+						(k - 1)]);
 				}
 			}
 			for (s = 1; s <= 126; s++) {
@@ -63618,20 +63621,19 @@ static void jt908(long ent_l)
 		case 5:
 #ifdef FRUA_SPELLTRACE
 			dbg_file_num("jt908 mage lvl", (long)lvl);
-			dbg_file_num("   sel -30215", (long)(unsigned char)g_rules->slot_spell_row[5]);
+			dbg_file_num("   sel -30215", (long)(unsigned char)g_rules->slot_spell_row[PROG(ent, 5)]);
 			{ short q; for (q = 0; q < 9; q++)
 				dbg_file_num("   prog[]", (long)(unsigned char)
-				    g_a5_byte(-29876
-				      + (long)(unsigned char)g_rules->slot_spell_row[5] * 261
-				      + ((long)lvl - 1) * 9 + q)); }
+				    g_rules->spell_slots[
+				      (long)(unsigned char)g_rules->slot_spell_row[PROG(ent, 5)] * 261
+				      + ((long)lvl - 1) * 9 + q]); }
 #endif
 			for (k = 1; k <= 9; k++) {
 				ent[373 + (k - 1)] = (unsigned char)
 				    (ent[373 + (k - 1)] +
-				     (unsigned char)g_a5_byte(-29876 +
-					(long)(unsigned char)
-					g_rules->slot_spell_row[5] * 261 +
-					((long)lvl - 1) * 9 + (k - 1)));
+				     (unsigned char)g_rules->spell_slots[(long)(unsigned char)
+					g_rules->slot_spell_row[PROG(ent, 5)] * 261 +
+					((long)lvl - 1) * 9 + (k - 1)]);
 				jt912(ent_l);
 			}
 #ifdef FRUA_SPELLTRACE

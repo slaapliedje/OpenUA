@@ -65,6 +65,10 @@ typedef struct ruleset {
 	const unsigned char *slot_hd_count;  /* -23000  7: dice at level 1       */
 	const unsigned char *slot_hd_size;   /* -22993  7: die size              */
 	const unsigned char *slot_spell_row; /* -30220  7: spell row, 255 none   */
+	const unsigned char *spell_slots;    /* -29876  rows x 261 (29 levels x
+	                                        9 spell levels), by spell row    */
+	const unsigned char *slot_prog;      /* 7: the progression each slot
+	                                        plays by (FRUA: the slot)        */
 
 	/* thief skills */
 	const unsigned char *thief_skills;   /* -22980  18 levels x 8            */
@@ -91,6 +95,12 @@ extern const ruleset_t *g_rules;         /* the rules being played under     */
 enum { RACE_ELF, RACE_HALF_ELF, RACE_DWARF, RACE_GNOME, RACE_HALFLING,
        RACE_HUMAN, RACE_MONSTER };
 #define RACE(r) (g_rules->race_base[(unsigned char)(r)])
+
+/* The progression (row of slot_xp, slot_xp_step, slot_spell_row) a
+ * character's class slot plays by. Krynn's depends on the character (a
+ * cleric's god, a knight's order, a mage's robe: ADR-0026 step (e)); until
+ * then every character takes the ruleset's default for the slot. */
+#define PROG(rec, slot) ((void)(rec), g_rules->slot_prog[(unsigned char)(slot)])
 
 /* The Dark Queen of Krynn's rules, read from DQK.EXE (open on `refnum`).
  * Returns them, or NULL when the file is not the DQK.EXE they can be read

@@ -186,5 +186,9 @@ def test_real_exe_says_what_the_journal_says():
         assert not {2, 5, 8} & set(al[12 * k + 1:12 * k + 1 + al[12 * k]])
     assert t["race_labels"][0] == "SILVANESTI ELF"
     assert t["kind_labels"][9] == "CLERIC/FIGHTER/M-U"
+    # Spell slots: the white robe's row is FRUA's mage row; a 1st-level
+    # cleric of good has one 1st-level spell, a 9th-level paladin one
+    ss = t["spell_slots"]
+    assert ss[0] == 1 and ss[261 * 7 + 8 * 9] == 1 and ss[261 * 7 + 7 * 9] == 0
     # A human may be any of the seven single classes; a half-elf, 14 kinds
     assert t["race_kinds"][6 * 15] == 7 and t["race_kinds"][2 * 15] == 14

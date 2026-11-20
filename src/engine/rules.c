@@ -67,6 +67,8 @@ const ruleset_t g_rules_frua = {
 	.slot_hd_count    = A5(-23000),
 	.slot_hd_size     = A5(-22993),
 	.slot_spell_row   = A5(-30220),
+	.spell_slots      = A5(-29876),
+	.slot_prog        = k_race_identity,   /* 0..6: each slot its own */
 
 	.thief_skills     = A5(-22980),
 	.race_thief_adj   = A5(-22836),
@@ -86,6 +88,10 @@ static long       s_dqk_kind_names[GBR_KINDS + 1];
 static long       s_dqk_race_names[GBR_RACES + 1];
 static unsigned char s_dqk_race_base[256];
 static const char   *s_dqk_race_labels[GBR_RACES];
+
+/* Until a character's god, order and robe are read (step (e)): a cleric of
+ * good, a Knight of the Crown, a White Robe (gbrules.PROGRESSIONS). */
+static const unsigned char k_dqk_slot_prog[7] = { 0, 3, 2, 10, 6, 7, 9 };
 static const char   *s_dqk_kind_labels[GBR_KINDS];
 static unsigned char s_dqk_kind_list[GBR_KINDS];
 
@@ -193,6 +199,8 @@ const ruleset_t *rules_load_dqk(short refnum)
 		.slot_hd_count    = s_dqk.slot_hd_count,
 		.slot_hd_size     = s_dqk.slot_hd_size,
 		.slot_spell_row   = s_dqk.spell_row,
+		.spell_slots      = s_dqk.spell_slots,
+		.slot_prog        = k_dqk_slot_prog,
 
 		.thief_skills     = s_dqk.thief_skills,
 		.race_thief_adj   = s_dqk.race_thief_adj,

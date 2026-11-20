@@ -32,6 +32,8 @@ WHAT DIFFERS FROM FRUA'S SHAPES
                      mages by robe (rows named below, checked against the
                      Adventurer's Journal's Level Advancement Tables)
     xp levels        19 thresholds a row (FRUA 12)
+    spell slots      FRUA's table shape (29 levels x 9 spell levels a row),
+                     8 rows: the spell row of each progression names one
 
 Saving throws, THAC0, hit dice, name level, the item and training-hall
 class bits and the thief skill table keep FRUA's shapes, by slot.
@@ -72,6 +74,7 @@ KINDS = 17
 PROGS = 11
 XP_LEVELS = 19
 KIND_SLOTS = 14            # race_kinds: kinds a row can list
+SPELL_ROWS = 8             # spell_slots: rows of 29 levels x 9 spell levels
 
 # name, DS offset, bytes, 16-bit sum of the bytes in the Steam DQK.EXE
 TABLES = (
@@ -97,6 +100,7 @@ TABLES = (
     ("kind_names",       0x3b3e, 4 * KINDS,              0x4bd6),
     ("race_names",       0x3b86, 4 * (RACES + 1),        0x1da4),
     ("labels",           0x7330, 296,                    0x4b9f),
+    ("spell_slots",      0x0b96, 261 * SPELL_ROWS,       0x1308),
 )
 NAME_TABLES = ("kind_names", "race_names")   # sums: of the strings, see sums()
 
@@ -180,7 +184,7 @@ def engine_tables(exe):
     names. Byte tables pass through; DOS words and longs become big-endian;
     race_kinds and kind_aligns lose their DOS word padding."""
     t = {}
-    for name in ("race_abilities", "kind_ability_min", "spell_row",
+    for name in ("race_abilities", "kind_ability_min", "spell_row", "spell_slots",
                  "slot_saves", "race_level_cap", "slot_thac0",
                  "slot_item_bit", "slot_hall_bit", "slot_name_level",
                  "slot_hd_count", "slot_hd_size", "thief_skills",

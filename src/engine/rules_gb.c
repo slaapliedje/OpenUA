@@ -20,7 +20,7 @@ enum {
 	T_XP_STEP, T_RACE_AB, T_RACE_KINDS, T_START_AGE, T_AGE_CAT, T_KIND_MIN,
 	T_ALIGNS, T_SPELL_ROW, T_XP, T_SAVES, T_LEVEL_CAP, T_THAC0, T_ITEM_BIT,
 	T_HALL_BIT, T_NAME_LEVEL, T_HD_COUNT, T_HD_SIZE, T_THIEF, T_RACE_THIEF,
-	T_KIND_NAMES, T_RACE_NAMES, T_LABELS, T_COUNT
+	T_KIND_NAMES, T_RACE_NAMES, T_LABELS, T_SPELL_SLOTS, T_COUNT
 };
 
 static const struct {
@@ -49,9 +49,10 @@ static const struct {
 	{ 0x3b3e,   68, 0x4bd6, "kind_names" },
 	{ 0x3b86,   32, 0x1da4, "race_names" },
 	{ 0x7330,  296, 0x4b9f, "labels" },
+	{ 0x0b96, 2088, 0x1308, "spell_slots" },
 };
 
-#define RAW_MAX 836             /* the largest table (xp)                   */
+#define RAW_MAX 2088            /* the largest table (spell_slots)          */
 
 /* The creation screen's labels: one block of NUL-ended strings, 7 races,
  * 2 genders, 17 kinds. */
@@ -217,6 +218,7 @@ int gbr_load_dqk(gbr_read_fn rd, void *ctx, gbr_tables *t, int verify,
 		case T_HD_SIZE:     memcpy(out.slot_hd_size, raw, sizeof out.slot_hd_size);         break;
 		case T_THIEF:       memcpy(out.thief_skills, raw, sizeof out.thief_skills);         break;
 		case T_RACE_THIEF:  memcpy(out.race_thief_adj, raw, sizeof out.race_thief_adj);     break;
+		case T_SPELL_SLOTS: memcpy(out.spell_slots, raw, sizeof out.spell_slots);           break;
 		case T_LABELS:
 			if ((rc = split_labels(raw, k_dqk[tab].len, &out)) != GBR_OK)
 				return rc;

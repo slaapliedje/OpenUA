@@ -55,6 +55,7 @@ int main(int argc, char **argv)
 	HEX(race_age_cat);     HEX(race_level_cap);  HEX(race_thief_adj);
 	HEX(kind_ability_min); HEX(kind_aligns);     HEX(xp);
 	HEX(xp_step);          HEX(spell_row);       HEX(slot_thac0);
+	HEX(spell_slots);
 	HEX(slot_saves);       HEX(slot_item_bit);   HEX(slot_hall_bit);
 	HEX(slot_name_level);  HEX(slot_hd_count);   HEX(slot_hd_size);
 	HEX(thief_skills);
