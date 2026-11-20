@@ -1861,6 +1861,37 @@ through gbchar, and after a save the list still six (read from the `.CCH`
 files). FRUA: seeded HEIRS Add list, hall, entry chain and creation sheets
 pixel-identical to the previous commit (with an A/A control).
 
+**Step (e) landed: Knights, gods, robes and orders.** DQK.EXE 0xbb19
+chooses the progression a class slot plays by from three bytes of the
+character: the god (0x19b; 1 Paladine, 2 Majere, 3 Kiri-Jolith, 4 Mishakal,
+5 Sirrion, 6 Reorx, 7 Shinare; above 4 a cleric of neutrality), the robe
+(0x19d; white 1, otherwise red) and the knightly order (0x19a; Crown, Sword,
+Rose). The engine keeps them packed in rec[91] (REC_KRYNN), which FRUA's
+record leaves 0. No lifted or Mac code reads it, and every FRUA character
+holds 0. PROG() asks the ruleset's prog(). The .QCH reader and gbmon keep
+the bytes. Behind `g_rules->knights`: past level 5, Sword and Rose knights
+add their order's row to all seven clerical slots (jt908, from DQK
+0x62146); a Knight of the Rose below level 40 has no race cap (0xbc2c); and
+creation sets the three bytes as the game does. A knight is of the Crown.
+The robe follows alignment. A cleric picks his god in FRUA's list picker
+from his alignment's gods, and a dwarf's is Reorx. Creation also gives a
+Krynn knight his class slot, which FRUA's per-class setup (l13ee) never
+did for kind 1. Checked, traced in Hatari: Cinder (Sirrion, WIS 18) has
+6/6/4/3 cleric slots, the neutral row; a Sword copy of Roland has 4/2/1.
+Characters created and read back: Mishakal, a red robe, Reorx, the Crown
+with class mask 16. FRUA: seeded HEIRS runs match the previous commit.
+Open:
+- what each god grants (DQK 0x3ddff ORs a flag byte, 0x15e, which lands
+  among FRUA's spellbook bits, and gives Kiri-Jolith and dwarven Reorx an
+  ability point; not given, since as FRUA spells those bits would be wrong
+  ones);
+- promotion to the Sword and Rose, which scripts do through the character
+  cells (DQK 0x406cd reads all three bytes; the cells are not mapped);
+- a human who changes class into mage gets no robe (DQK's 0x3c3e5 does
+  that; its caller is not traced);
+- the sheet does not show the god, robe or order;
+- GOLDBOX.DSN's monsters were converted before gbmon kept the bytes.
+
 **Context.** The Gold Box games OpenUA is opening up to (ADR-0023) do not all
 share FRUA's classes and races. The Krynn games have seven player races
 (Silvanesti and Qualinesti elves, half-elves, mountain and hill dwarves,
