@@ -33282,6 +33282,78 @@ static int  jt159(const char *prompt, short b);
  * gender/alignment headers + the option lists) on the shared stone chrome,
  * then holds until a key. The selection + stat-roll state machine is the
  * deferred remainder (docs/menu-wiring-plan.md / TODO). */
+/* PORT (ADR-0026 step (e)): a new Krynn character's god, robe and order,
+ * as the Dark Queen sets them once race, class and alignment are picked
+ * (rec[91], rules.h). A knight joins the Order of the Crown (DQK 0x3b32f).
+ * A mage takes the white robe when good and the red when neutral (0x3c0d4);
+ * an evil one none. A cleric's god (0x3db70): none for a character with no
+ * clerical levels; Reorx for a dwarf; otherwise he picks from his
+ * alignment's gods, Paladine, Majere, Kiri-Jolith or Mishakal when good,
+ * Sirrion, Reorx or Shinare when neutral. The game's Escape returns to the
+ * pick screen; here the choice is asked again. What each god grants (DQK
+ * 0x3ddff: a flag byte and one ability point) is not given yet. */
+static void jt167(short count, long head_holder);
+static void jt147(void *headp);
+static int  jt169(long h1, long h2, short top, short left,
+                  short right, short bottom, long head,
+                  short a, short b,
+                  unsigned char *flag, short *idx, long *next);
+
+/* The gods of alignment `al` (0 good, 1 neutral) in FRUA's list picker,
+ * the one Add Character uses: a button bar cannot hold them, two of the
+ * good gods sharing an initial. Returns the 0-based pick. */
+static short krynn_pick_god(short al)
+{
+	static const char *const k_gods[2][4] = {
+		{ "PALADINE", "MAJERE", "KIRI-JOLITH", "MISHAKAL" },
+		{ "SIRRION", "REORX", "SHINARE", NULL },
+	};
+	short n = al == 0 ? 4 : 3, k, idx = 0, input;
+
+	for (;;) {
+		long          head = 0, cursor, entry = 0;
+		unsigned char flag = 1;
+
+		jt167(n, (long)(uintptr_t)&head);
+		for (cursor = head, k = 0; cursor != 0 && k < n; k++) {
+			unsigned char *e = (unsigned char *)(uintptr_t)cursor;
+
+			jt384((char *)(e + 5), k_gods[al][k]);
+			e[4] = 0;
+			cursor = *(long *)(uintptr_t)e;
+		}
+		jt76();
+		jt179((short)0);
+		input = (short)jt169((long)(uintptr_t)"PICK A GOD",
+		                     (long)(uintptr_t)"Select", 1, 2, 38, 22,
+		                     head, 1, 0, &flag, &idx, &entry);
+		for (cursor = head, k = 0; cursor != 0 && cursor != entry; k++)
+			cursor = *(long *)(uintptr_t)cursor;
+		cursor = head;
+		jt147(&cursor);
+		if (input != 27 && entry != 0 && k < n)
+			return k;
+	}
+}
+
+static void krynn_creation(unsigned char *rec)
+{
+	short         al = (short)(rec[93] % 3);   /* 0 good, 1 neutral, 2 evil */
+	unsigned char god = 0, robe = 0, order = 0;
+
+	if (rec[157 + 1] != 0)
+		order = ORDER_CROWN;
+	if (rec[157 + 5] != 0 && al != 2)
+		robe = al == 0 ? ROBE_WHITE : ROBE_RED;
+	if (rec[157] != 0) {
+		if (RACE(rec[88]) == RACE_DWARF)
+			god = 6;
+		else if (al != 2)
+			god = (unsigned char)((al == 0 ? 1 : 5) + krynn_pick_god(al));
+	}
+	rec[REC_KRYNN] = KRYNN_PACK(god, robe, order);
+}
+
 static int  jt574(long ctx)
 {
 	unsigned char *px; short pitch, sw, sh, yy;
@@ -33331,6 +33403,8 @@ static int  jt574(long ctx)
 		g_a5_18882 = jt1199(g_a5_18844);   /* new-character starting XP (CHAR_XP) */
 
 		if (l3666() != 0) {
+			if (g_rules->knights)        /* Krynn: god, robe, order */
+				krynn_creation(cg_rec);
 			/* Done committed: jt572 made cg_rec current (g_a5_-27932), with the
 			 * faithful picks in rec[88/89/92/93].
 			 *
