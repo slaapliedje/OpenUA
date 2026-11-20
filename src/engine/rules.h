@@ -91,7 +91,30 @@ typedef struct ruleset {
 	 * with a low prime requisite, a rule written into the code; Krynn has
 	 * one maximum per race and class, its race_level_cap. */
 	unsigned char         prime_limits;  /* FRUA 1, Krynn 0                  */
+
+	/* The progression a character's class slot plays by, when it depends
+	 * on the character (Krynn: a cleric's god, a knight's order, a mage's
+	 * robe, kept in rec[REC_KRYNN]); NULL: the slot's, slot_prog. */
+	unsigned char (*prog)(const unsigned char *rec, int slot);
+	/* Knights of the Sword and Rose cast clerical spells (jt908), and a
+	 * Knight of the Rose has no race level cap (jt557). FRUA 0. */
+	unsigned char         knights;
 } ruleset_t;
+
+/* rec[91], which FRUA's record leaves 0 (no code reads it; every FRUA
+ * character and monster holds 0): a Krynn character's god (bits 0-2, DQK
+ * rec 0x19b: 1 Paladine, 2 Majere, 3 Kiri-Jolith, 4 Mishakal, 5 Sirrion,
+ * 6 Reorx, 7 Shinare), robe (bits 3-4, DQK 0x19d: 1 white, 2 red,
+ * 3 black) and knightly order (bits 5-6, DQK 0x19a: 1 Crown, 2 Sword,
+ * 3 Rose). 0 is none. */
+#define REC_KRYNN 91
+#define KRYNN_GOD(rec)   ((rec)[REC_KRYNN] & 7)
+#define KRYNN_ROBE(rec)  ((rec)[REC_KRYNN] >> 3 & 3)
+#define KRYNN_ORDER(rec) ((rec)[REC_KRYNN] >> 5 & 3)
+#define KRYNN_PACK(god, robe, order) \
+	((unsigned char)(((god) & 7) | ((robe) & 3) << 3 | ((order) & 3) << 5))
+enum { ORDER_CROWN = 1, ORDER_SWORD, ORDER_ROSE };
+enum { ROBE_WHITE = 1, ROBE_RED, ROBE_BLACK };
 
 extern const ruleset_t  g_rules_frua;
 extern const ruleset_t *g_rules;         /* the rules being played under     */
@@ -102,10 +125,11 @@ enum { RACE_ELF, RACE_HALF_ELF, RACE_DWARF, RACE_GNOME, RACE_HALFLING,
 #define RACE(r) (g_rules->race_base[(unsigned char)(r)])
 
 /* The progression (row of slot_xp, slot_xp_step, slot_spell_row) a
- * character's class slot plays by. Krynn's depends on the character (a
- * cleric's god, a knight's order, a mage's robe: ADR-0026 step (e)); until
- * then every character takes the ruleset's default for the slot. */
-#define PROG(rec, slot) ((void)(rec), g_rules->slot_prog[(unsigned char)(slot)])
+ * character's class slot plays by: the slot's own in FRUA, the character's
+ * god, order or robe in Krynn (ADR-0026 step (e)). */
+#define PROG(rec, slot) (g_rules->prog \
+	? g_rules->prog((const unsigned char *)(rec), (slot)) \
+	: g_rules->slot_prog[(unsigned char)(slot)])
 
 /* The Dark Queen of Krynn's rules, read from DQK.EXE (open on `refnum`).
  * Returns them, or NULL when the file is not the DQK.EXE they can be read

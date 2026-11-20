@@ -49,6 +49,10 @@ name.)
   design holding DQK.EXE PLAYS by them (chosen in jt361; its ITEMS.DAT too).
   FRUA's rules written into code test races through RACE(r) (race_base) and
   class slots through PROG(rec, slot): never compare rec[88] to a number.
+  A Krynn character's god, robe and knightly order live in rec[91]
+  (REC_KRYNN, rules.h; FRUA leaves it 0) and pick the progression as
+  DQK.EXE 0xbb19 does; Sword and Rose knights cast clerical spells (jt908
+  case 1) and a Rose knight has no race cap, behind `g_rules->knights`.
   The hall reads Dark Queen heroes (.QCH in the design's SAVE) itself:
   `src/engine/qch.c` (reference gbchar.py) makes the .CCH stream and jt577
   reads it from memory; a .CCH of the same stem shadows the .QCH, and the

@@ -90,9 +90,25 @@ static long       s_dqk_race_names[GBR_RACES + 1];
 static unsigned char s_dqk_race_base[256];
 static const char   *s_dqk_race_labels[GBR_RACES];
 
-/* Until a character's god, order and robe are read (step (e)): a cleric of
- * good, a Knight of the Crown, a White Robe (gbrules.PROGRESSIONS). */
+/* The slots' progressions with no character to ask (gbrules.PROGRESSIONS):
+ * a cleric of good, a Knight of the Crown, a White Robe. */
 static const unsigned char k_dqk_slot_prog[7] = { 0, 3, 2, 10, 6, 7, 9 };
+
+/* DQK.EXE 0xbb19, the progression a character's slot plays by: a cleric's
+ * god above Mishakal (4) is of neutrality (1), else of good (0); a knight's
+ * order Crown/Sword/Rose is 3/4/5; a mage in the white robe is 7, any other
+ * robe (none included) red, 8. The game leaves an order of 0 undefined; it
+ * plays as the Crown here. */
+static unsigned char dqk_prog(const unsigned char *rec, int slot)
+{
+	switch (slot) {
+	case 0: return KRYNN_GOD(rec) > 4 ? 1 : 0;
+	case 1: return KRYNN_ORDER(rec) == ORDER_SWORD ? 4
+	             : KRYNN_ORDER(rec) == ORDER_ROSE ? 5 : 3;
+	case 5: return KRYNN_ROBE(rec) == ROBE_WHITE ? 7 : 8;
+	default: return k_dqk_slot_prog[slot >= 0 && slot < 7 ? slot : 2];
+	}
+}
 static const char   *s_dqk_kind_labels[GBR_KINDS];
 static unsigned char s_dqk_kind_list[GBR_KINDS];
 
@@ -210,6 +226,8 @@ const ruleset_t *rules_load_dqk(short refnum)
 		.kind_label_text  = s_dqk_kind_labels,
 		.kind_list        = s_dqk_kind_list,
 		.default_race     = 6,         /* human */
+		.prog             = dqk_prog,
+		.knights          = 1,
 	};
 	dbg_log("rules: Dark Queen of Krynn's read from DQK.EXE");
 	return &s_rules_dqk;

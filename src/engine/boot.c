@@ -36040,6 +36040,10 @@ static void jt557(void)
 		if (!g_rules->prime_limits
 		    && curLvl >= g_rules->race_level_cap[(long)rec[88] * 7 + i])
 			atLimit = 1;
+		/* a Knight of the Rose below level 40 has none (DQK 0xbc2c) */
+		if (g_rules->knights && i == 1
+		    && KRYNN_ORDER(rec) == ORDER_ROSE && curLvl < 40)
+			atLimit = 0;
 		if (g_rules->prime_limits)
 		switch (RACE(rec[88])) {                      /* race: AD&D level limits */
 		case 0:                                 /* L6e28 */
@@ -63732,6 +63736,34 @@ static void jt908(long ent_l)
 					(long)((s - 1) & 7));
 			}
 			break;
+		case 1:
+			/* PORT (ADR-0026): Krynn's knights. A Knight of the Sword
+			 * or Rose past level 5 adds his order's row to all seven
+			 * clerical slots and learns what they open, as the paladin
+			 * below does (DQK.EXE 0x62146); the Crown's row is none.
+			 * FRUA's slot 1, the druid, casts nothing here. */
+			if (!g_rules->knights || (short)(unsigned char)lvl <= 5
+			 || (unsigned char)g_rules->slot_spell_row[PROG(ent, 1)] == 255)
+				break;
+			for (k = 1; k <= 7; k++)
+				ent[355 + (k - 1)] = (unsigned char)
+				    (ent[355 + (k - 1)] +
+				     (unsigned char)g_rules->spell_slots[(long)(unsigned char)
+					g_rules->slot_spell_row[PROG(ent, 1)] * 261 +
+					((long)lvl - 1) * 9 + (k - 1)]);
+			for (s = 1; s <= 126; s++) {
+				if ((unsigned char)
+				    g_a5_byte(-16906 + (long)s * 16) != 0)
+					continue;
+				if ((unsigned char)ent[355 +
+				    (unsigned char)g_a5_byte(-16906 +
+					(long)s * 16 + 1) - 1] == 0)
+					continue;
+				ent[339 + ((s - 1) >> 3)] |=
+				    (unsigned char)g_a5_byte(-18893 +
+					(long)((s - 1) & 7));
+			}
+			break;
 		case 3:
 			if ((short)(unsigned char)lvl <= 8)
 				break;
@@ -63816,10 +63848,15 @@ static void jt908(long ent_l)
 			dbg_file_num("   -> ent[373]", (long)(unsigned char)ent[373]);
 #endif
 			break;
-		default:	/* classes 1, 2, 6, 7 */
+		default:	/* classes 2, 6, 7 */
 			break;
 		}
 	}
+#ifdef FRUA_SPELLTRACE
+	dbg_file_str("jt908 slots for", (const char *)ent + 96);
+	for (k = 0; k < 27; k++)
+		dbg_file_num("   slot", (long)k * 100 + ent[355 + k]);
+#endif
 	for (it = *(unsigned char **)(void *)(ent + 8); it != 0;
 	     it = *(unsigned char **)(void *)it) {
 		if ((short)(unsigned char)it[56] == 129 &&
