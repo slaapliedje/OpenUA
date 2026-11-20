@@ -23,6 +23,17 @@ typedef struct ruleset {
 	unsigned char races;             /* player races, 0 .. races-1          */
 	unsigned char monster_race;      /* the race number meaning "monster"   */
 
+	/* Shapes. FRUA's readers still use FRUA's numbers; a Gold Box game's
+	 * tables are stated in these, and the readers take them up when the
+	 * game's rules are played by (ADR-0026 step (c)). */
+	unsigned char race_kinds_stride; /* race_kinds row: FRUA 14, Krynn 15   */
+	unsigned char progressions;      /* rows of slot_xp, slot_xp_step and
+	                                    slot_spell_row: FRUA's are its 7
+	                                    slots; Krynn has 11 (clerics by
+	                                    god, knights by order, mages by
+	                                    robe: tools/gbrules.py)             */
+	unsigned char xp_levels;         /* thresholds a slot_xp row: 12 / 19   */
+
 	/* names */
 	const unsigned char *kind_names;     /* -14636  17 char * by kind        */
 	const unsigned char *race_names;     /* -14564  char * by race (+monster)*/
@@ -36,7 +47,7 @@ typedef struct ruleset {
 	const unsigned char *race_start_age; /* -30780  race x 7 {w, dice, sides}*/
 	const unsigned char *race_level_cap; /* -28048  race x 7 slots           */
 
-	/* progression, by slot */
+	/* progression, by slot (the first three by progression, above) */
 	const unsigned char *slot_xp;        /* -30212  7 x 12 longs             */
 	const unsigned char *slot_xp_step;   /* -31228  7 longs, past level 11   */
 	const unsigned char *slot_thac0;     /* -23184  7 x 22, by level         */
@@ -55,5 +66,10 @@ typedef struct ruleset {
 
 extern const ruleset_t  g_rules_frua;
 extern const ruleset_t *g_rules;         /* the rules being played under     */
+
+/* The Dark Queen of Krynn's rules, read from DQK.EXE (open on `refnum`).
+ * Returns them, or NULL when the file is not the DQK.EXE they can be read
+ * from (logged). Reading does not play by them: g_rules is not changed. */
+const ruleset_t *rules_load_dqk(short refnum);
 
 #endif

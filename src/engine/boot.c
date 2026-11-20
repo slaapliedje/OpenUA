@@ -108261,6 +108261,36 @@ static const char *gbs_word(short idx)
 	return words[idx - first];
 }
 
+/* The game's class and race rules (ADR-0026). A converted Dark Queen design
+ * carries the game's own DQK.EXE (gbgeo.py --exe copies it in), and the
+ * rules are read out of it when a script area first comes up in that design
+ * folder. Read, not yet played by: g_rules stays FRUA's until the creation
+ * screen, sheet and hall can take Krynn's shapes (step (c)). */
+static const ruleset_t *g_gbs_rules;
+
+static void gbs_rules(void)
+{
+	static char have[202];
+	const char *dir = (const char *)&g_a5_31336;
+	char        dpath[202];
+	short       refnum, k;
+
+	if (strcmp(dir, have) == 0)
+		return;
+	for (k = 0; k < (short)sizeof have - 1 && dir[k] != 0; k++)
+		have[k] = dir[k];
+	have[k] = 0;
+	g_gbs_rules = NULL;
+	dpath[0] = 0;
+	jt431(dpath, dir);
+	jt431(dpath, "DQK.EXE");
+	refnum = jt398(dpath, 0);
+	if (refnum < 0)
+		return;                         /* none: the design is FRUA's rules */
+	g_gbs_rules = rules_load_dqk(refnum);
+	jt411(refnum);
+}
+
 /* SAVED GAMES. Everything a script remembers — which doors are open, who has
  * been met, how far the story has got — is its 16-bit memory, and FRUA's save
  * file has nowhere to put it. So it goes in a file of its own beside the
@@ -108418,6 +108448,8 @@ static void gbs_area_load(short geo_num)
 	jt394(name, "GBD%03d.DAT", (int)(unsigned char)geo_num);
 	n = gbs_read(name, g_gbs_desc, (short)sizeof g_gbs_desc);
 	gbs_items(n >= 0);
+	if (n >= 0)
+		gbs_rules();
 	if (n < 0) {
 		g_gbs_init_pending = 0;
 		return;                     /* an ordinary FRUA area */

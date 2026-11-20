@@ -53,7 +53,7 @@ Containers handled:
     python3 tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --monsters MONCHA.GLB,ITEM.DAT
                                                       # ...and its own monsters (tools/gbmon.py)
     python3 tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --exe DQK.EXE
-                                                      # ...and what its shops sell
+                                                      # ...its shops, item words and rules
 
 No game data is needed to use or test the module (tests/test_gbgeo.py builds
 its own maps); pointing it at a real file is the user's own copy.
@@ -574,6 +574,15 @@ def main(argv):
             else:
                 write_words(folder, words)
                 print("  item words: %d past FRUA's (%s ...)" % (len(words), words[0]))
+            import gbrules
+            try:
+                gbrules.verify(exe)
+            except gbrules.GbRulesError:
+                print("  rules: not the Dark Queen's DQK.EXE; FRUA's rules")
+            else:                   # the engine reads them from the EXE itself
+                with open(os.path.join(folder, "DQK.EXE"), "wb") as f:
+                    f.write(exe)
+                print("  rules: the Dark Queen's (DQK.EXE copied in)")
         m = maps[start]
         e = m.find_entry()
         print("  %d areas; starting in area %d (source id %s), party at x=%d y=%d facing %s"
