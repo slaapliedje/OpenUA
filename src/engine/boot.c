@@ -32417,6 +32417,13 @@ static void l13ee(unsigned char *rec)
 	case 0: case 2: case 5: case 6:                /* single class */
 		rec[157 + rec[89]] = 1;
 		break;
+	case 1:
+		/* PORT (ADR-0026): FRUA never offers kind 1, its druid, and
+		 * sets nothing for it; Krynn's kind 1 is the Knight, whose
+		 * slot is 1 (DQK 0x3b31a sets his level to 1 here). */
+		if (g_rules->knights)
+			rec[158] = 1;
+		break;
 	case 3:                                        /* Ranger */
 		rec[128] = 1; rec[160] = 1;
 		jt876(rl, 8, 0, 255, 0);
@@ -32462,7 +32469,7 @@ static void l13ee(unsigned char *rec)
 		rec[162] = 1; rec[163] = 1;
 		*(long *)(rec + 68) = jt7(g_a5_long(-18882), 2);
 		break;
-	default:                                       /* 1, 7, out of range */
+	default:                                       /* 7, out of range */
 		break;
 	}
 }
