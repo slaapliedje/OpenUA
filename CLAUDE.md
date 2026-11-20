@@ -42,7 +42,10 @@ name.)
   default, so FRUA modules must play byte-identically through every step;
   a game's own rules are read from its files (DQK.EXE); a new game writes a
   ruleset file. The Python converters (gbgeo, gbmon, gbchar) become reference
-  implementations the C loaders are tested against.
+  implementations the C loaders are tested against. Dark Queen's rules are
+  read from DQK.EXE by `src/engine/rules_gb.c` (reference `tools/gbrules.py`):
+  7 races, 15-byte race-class rows, and XP/spell rows for 11 progressions
+  (clerics by god, knights by order, mages by robe), not the 7 slots.
 - **The bitplane machines render natively in planes**, not through the Mac's
   chunky surface — writers stamp bitplanes at draw time and the present skips
   the conversion for the rows they own (ADR-0016). Shipping on **all three**:

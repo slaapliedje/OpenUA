@@ -1778,6 +1778,26 @@ sheet plus two rerolls, are pixel-identical (AE 0; the baseline repeats at
 AE 0). The positive control is a build whose THAC0 pointer is shifted one
 class row: the sheet then reads THAC0 57 for 18 and the comparison catches it.
 
+**Step (b) landed:** `tools/gbrules.py` (the reference) and
+`src/engine/rules_gb.c` (plain C99, held to it by `tests/test_rules_gb.py`
+on synthetic files and on the real DQK.EXE when present) read the Dark
+Queen's 21 tables at fixed data-segment offsets, each checked by a 16-bit
+sum. The tables sit in CKIT.EXE's order; what differs is Krynn's shapes:
+7 player races, race-class rows of 14 kinds (the engine's row becomes 15
+bytes), and XP, XP step and spell row kept for 11 PROGRESSIONS rather than
+the 7 slots (clerics by their god's alignment, knights by order, mages by
+robe). `rules.h` states the shapes (`race_kinds_stride`, `progressions`,
+`xp_levels`); FRUA's readers keep FRUA's numbers until step (c). A design
+holding DQK.EXE (`gbgeo.py --exe` copies it in) has the ruleset read when
+its first script area comes up (checked in Hatari); `g_rules` is not
+switched yet. Checked against the Adventurer's Journal: names, the level
+caps, every progression's XP and step, Knights and Paladins lawful good, no
+evil characters. Two things in the data are the games', not the port's:
+DQK indexes its thief race adjustments, Pool of Radiance's rows in that
+game's race order, by its own race number (a kender gets the half-orc's);
+and FRUA's own saving-throw table gives thieves an all-zero row, its druid
+row holding thief values (the Mac DATA agrees). Both are kept as they are.
+
 **Context.** The Gold Box games OpenUA is opening up to (ADR-0023) do not all
 share FRUA's classes and races. The Krynn games have seven player races
 (Silvanesti and Qualinesti elves, half-elves, mountain and hill dwarves,
