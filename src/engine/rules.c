@@ -16,6 +16,13 @@
 
 #define A5(off) ((const unsigned char *)(g_a5_below + A5_BELOW_SIZE + (off)))
 
+#define R4(n)  (n), (n) + 1, (n) + 2, (n) + 3
+#define R16(n) R4(n), R4((n) + 4), R4((n) + 8), R4((n) + 12)
+#define R64(n) R16(n), R16((n) + 16), R16((n) + 32), R16((n) + 48)
+static const unsigned char k_race_identity[256] = {
+	R64(0), R64(64), R64(128), R64(192)
+};
+
 const ruleset_t g_rules_frua = {
 	.name             = "FRUA",
 	.races            = 6,         /* elf, half-elf, dwarf, gnome, halfling, human */
@@ -23,6 +30,7 @@ const ruleset_t g_rules_frua = {
 	.race_kinds_stride = 14,
 	.progressions     = 7,
 	.xp_levels        = 12,
+	.race_base        = k_race_identity,
 
 	.kind_names       = A5(-14636),
 	.race_names       = A5(-14564),
@@ -57,6 +65,17 @@ const ruleset_t *g_rules = &g_rules_frua;
 static gbr_tables s_dqk;
 static long       s_dqk_kind_names[GBR_KINDS + 1];
 static long       s_dqk_race_names[GBR_RACES + 1];
+static unsigned char s_dqk_race_base[256];
+
+/* Each Krynn race plays FRUA's rules written into code for its nearest FRUA
+ * race: both elves as elves, the dwarves as dwarves, kender as halflings
+ * (small, resistant to magic and poison, as the Journal has them); race 7
+ * is the monster. What Krynn adds to a race (the kender's taunt, ...) is a
+ * feature for later (ADR-0026 decision 6). */
+static const unsigned char k_dqk_race_base[GBR_RACES] = {
+	RACE_ELF, RACE_ELF, RACE_HALF_ELF, RACE_DWARF, RACE_DWARF,
+	RACE_HALFLING, RACE_HUMAN
+};
 static ruleset_t  s_rules_dqk;
 
 static long dqk_read(void *ctx, long off, void *buf, long len)
@@ -87,6 +106,8 @@ const ruleset_t *rules_load_dqk(short refnum)
 		s_dqk_kind_names[i] = (long)(uintptr_t)s_dqk.kind_name[i];
 	for (i = 0; i <= GBR_RACES; i++)
 		s_dqk_race_names[i] = (long)(uintptr_t)s_dqk.race_name[i];
+	for (i = 0; i < 256; i++)               /* 7 and up: monsters, as FRUA's 6 */
+		s_dqk_race_base[i] = (unsigned char)(i < GBR_RACES ? k_dqk_race_base[i] : i - 1);
 
 	s_rules_dqk = (ruleset_t){
 		.name             = "Dark Queen of Krynn",
@@ -95,6 +116,7 @@ const ruleset_t *rules_load_dqk(short refnum)
 		.race_kinds_stride = GBR_KIND_ROW,
 		.progressions     = GBR_PROGS,
 		.xp_levels        = GBR_XP_LEVELS,
+		.race_base        = s_dqk_race_base,
 
 		.kind_names       = (const unsigned char *)s_dqk_kind_names,
 		.race_names       = (const unsigned char *)s_dqk_race_names,

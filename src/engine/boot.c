@@ -2217,7 +2217,7 @@ static short jt263(short state, long *result, void *ctxp)
 			          (short)0) != 0
 			    && jt574((long)(uintptr_t)rec) != 0) {
 				/* re-create confirmed + jt574 (char-gen) succeeded */
-				if (rec[88] == 5
+				if (RACE(rec[88]) == RACE_HUMAN
 				    && jt159(ua_strs_at(0x2fc6)
 				             /* "Try to change class?" */,
 				             (short)0) != 0) {
@@ -32157,10 +32157,11 @@ static void l2f74(void)
 static short jt180(void) __attribute__((unused));
 static short jt180(void) { PROBE("jt180"); return (short)(unsigned char)g_a5_byte(-12647); }
 
-/* JT[909] (CODE 19 + 0x6af2) — "is this record dead?" predicate: rec[88] == 5
- * (status 5 = dead). Leaf used by jt556's change-class qualification check. */
+/* JT[909] (CODE 19 + 0x6af2) — "is this character human?" (rec[88] == 5;
+ * an earlier comment read it as status 5, dead). Leaf used by jt556's
+ * change-class qualification check: only humans dual-class. */
 static short jt909(void *rec) __attribute__((unused));
-static short jt909(void *rec) { PROBE("jt909"); return (short)(*((unsigned char *)rec + 88) == 5 ? 1 : 0); }
+static short jt909(void *rec) { PROBE("jt909"); return (short)(RACE(*((unsigned char *)rec + 88)) == RACE_HUMAN ? 1 : 0); }
 
 static void jt568(void) __attribute__((unused));
 static void jt568(void)
@@ -32304,7 +32305,7 @@ static void l2284(unsigned char *rec)
 	long rl = (long)(uintptr_t)rec;
 
 	PROBE("L2284");
-	switch (rec[88]) {
+	switch (RACE(rec[88])) {
 	case 0:                                        /* Elf */
 		jt876(rl, 95, 0, 255, 0);
 		break;
@@ -32515,11 +32516,11 @@ static void jt566(void)
 
 	PROBE("jt566");
 	rec[88] = (unsigned char)((short)g_a5_word(-7026) - 1);
-	count = ((unsigned char *)g_rules->race_kinds + (long)rec[88] * 14)[0];
+	count = ((unsigned char *)g_rules->race_kinds + (long)rec[88] * g_rules->race_kinds_stride)[0];
 
 	for (cls = 0; cls <= 16; cls++) {
 		unsigned char *e = (unsigned char *)g_rules->race_kinds
-		    + (long)rec[88] * 14;
+		    + (long)rec[88] * g_rules->race_kinds_stride;
 		short matched = 0, i;
 		for (i = 0; i < count && matched == 0; i++) {
 			if ((short)(signed char)e[1 + i] == cls) {
@@ -32588,7 +32589,7 @@ static short jt558(unsigned char *rec)
 	short slot;
 
 	PROBE("jt558");
-	if (rec[88] != 5)
+	if (RACE(rec[88]) != RACE_HUMAN)
 		return 17;
 	for (slot = 0; slot < 6; slot++)
 		if (rec[164 + slot] != 0)
@@ -32619,7 +32620,7 @@ static void l0006_c17(void)
 	a3  = (short)(rec[93] % 3);
 
 	if (rec[92] == 0) {                      /* MALE */
-		if (rec[88] == 0 || rec[88] == 1) {
+		if (RACE(rec[88]) == RACE_ELF || RACE(rec[88]) == RACE_HALF_ELF) {
 			switch (cls) {
 			case 0: case 11:
 				rec[188] = (a3 == 0) ? 23 : (a3 == 1) ? 26 : 45; break;
@@ -32632,7 +32633,7 @@ static void l0006_c17(void)
 			case 6:                                  rec[188] = 19; break;
 			default: break;
 			}
-		} else if (rec[88] == 5) {
+		} else if (RACE(rec[88]) == RACE_HUMAN) {
 			switch (cls) {
 			case 0: case 11:
 				rec[188] = (a3 == 0) ? 23 : (a3 == 1) ? 26 : 45; break;
@@ -32646,21 +32647,21 @@ static void l0006_c17(void)
 			case 7:                                  rec[188] = 1; break;
 			default: break;
 			}
-		} else if (rec[88] == 2) {
+		} else if (RACE(rec[88]) == RACE_DWARF) {
 			switch (cls) {
 			case 2: case 8: case 9:
 			case 13: case 14: case 15:               rec[188] = 34; break;
 			case 6: case 12: case 16:                rec[188] = 47; break;
 			default: break;
 			}
-		} else if (rec[88] == 3) {
+		} else if (RACE(rec[88]) == RACE_GNOME) {
 			switch (cls) {
 			case 2: case 8: case 9:
 			case 13: case 14: case 15:               rec[188] = 41; break;
 			case 6: case 12: case 16:                rec[188] = 42; break;
 			default: break;
 			}
-		} else if (rec[88] == 4) {
+		} else if (RACE(rec[88]) == RACE_HALFLING) {
 			switch (cls) {
 			case 2: case 8: case 9:
 			case 13: case 14: case 15:               rec[188] = 37; break;
@@ -32669,7 +32670,7 @@ static void l0006_c17(void)
 			}
 		}
 	} else {                                 /* FEMALE */
-		if (rec[88] == 0 || rec[88] == 1) {
+		if (RACE(rec[88]) == RACE_ELF || RACE(rec[88]) == RACE_HALF_ELF) {
 			switch (cls) {
 			case 0: case 11:
 				rec[188] = (a3 == 0) ? 24 : (a3 == 1) ? 25 : 46; break;
@@ -32682,7 +32683,7 @@ static void l0006_c17(void)
 			case 6: case 12: case 16:                rec[188] = 21; break;
 			default: break;
 			}
-		} else if (rec[88] == 5) {
+		} else if (RACE(rec[88]) == RACE_HUMAN) {
 			switch (cls) {
 			case 0: case 11:
 				rec[188] = (a3 == 0) ? 24 : (a3 == 1) ? 25 : 46; break;
@@ -32696,21 +32697,21 @@ static void l0006_c17(void)
 			case 7:                                  rec[188] = 0; break;
 			default: break;
 			}
-		} else if (rec[88] == 2) {
+		} else if (RACE(rec[88]) == RACE_DWARF) {
 			switch (cls) {
 			case 2: case 8: case 9:
 			case 13: case 14: case 15:               rec[188] = 35; break;
 			case 6: case 12: case 16:                rec[188] = 48; break;
 			default: break;
 			}
-		} else if (rec[88] == 3) {
+		} else if (RACE(rec[88]) == RACE_GNOME) {
 			switch (cls) {
 			case 2: case 8: case 9:
 			case 13: case 14: case 15:               rec[188] = 43; break;
 			case 6: case 12: case 16:                rec[188] = 44; break;
 			default: break;
 			}
-		} else if (rec[88] == 4) {
+		} else if (RACE(rec[88]) == RACE_HALFLING) {
 			switch (cls) {
 			case 2: case 8: case 9:
 			case 13: case 14: case 15:               rec[188] = 39; break;
@@ -35571,7 +35572,7 @@ static signed char l6bee(unsigned char *rec)
 	short       cls;
 
 	PROBE("L6bee");
-	if (rec[88] != 5)
+	if (RACE(rec[88]) != RACE_HUMAN)
 		return result;
 	for (cls = 0; cls < 6; cls++)
 		if (rec[164 + cls] != 0)
@@ -35590,7 +35591,7 @@ static signed char l6c60(unsigned char *rec)
 	short       cls;
 
 	PROBE("L6c60");
-	if (rec[88] != 5)
+	if (RACE(rec[88]) != RACE_HUMAN)
 		return result;
 	for (cls = 0; cls < 6; cls++)
 		if (rec[157 + cls] != 0)
@@ -35685,7 +35686,7 @@ static int jt556(long rec_l)
 		return 17;
 	}
 
-	count = (short)g_rules->race_kinds[(long)rec[88] * 14];
+	count = (short)g_rules->race_kinds[(long)rec[88] * g_rules->race_kinds_stride];
 
 	/* the header row */
 	jt477(bucket, (short)40, &head);
@@ -35701,7 +35702,7 @@ static int jt556(long rec_l)
 	     (short)g_a5_byte(-22307) <= count;
 	     g_a5_byte(-22307)++) {
 		signed char c = (signed char)
-		    g_rules->race_kinds[(long)rec[88] * 14
+		    g_rules->race_kinds[(long)rec[88] * g_rules->race_kinds_stride
 		                     + (signed char)g_a5_byte(-22307)];
 
 		if (!l6578((short)c, rec))
@@ -35943,7 +35944,7 @@ static void jt557(void)
 		atLimit = 0;
 		curLvl  = rec[157 + i];
 
-		switch (rec[88]) {                      /* race: AD&D level limits */
+		switch (RACE(rec[88])) {                      /* race: AD&D level limits */
 		case 0:                                 /* L6e28 */
 			if (i == 2) {
 				if (curLvl == 7
@@ -42962,7 +42963,7 @@ static void l08f4(unsigned char *m)
 	}
 	m[393] = (unsigned char)((signed char)m[393] + tmp);    /* damage += bonus */
 
-	if (m[88] == 0) {                               /* proficiency +1 */
+	if (RACE(m[88]) == RACE_ELF) {                               /* proficiency +1 */
 		short it = item[40];
 		if ((it >= 21 && it <= 27) || it == 19 || it == 18)
 			tmp++;
@@ -43140,7 +43141,7 @@ static void jt21(long mp)
 	m[386] = (unsigned char)((signed char)adj[2] + (signed char)adj[5]
 	                       + (signed char)adj[4] + (signed char)adj[3] - 2);
 	m[148] = 1;
-	if (m[88] == 6)                         /* class 6 (monster): no save calc */
+	if (RACE(m[88]) == RACE_MONSTER)                         /* class 6 (monster): no save calc */
 		return;
 	m[148] = (unsigned char)jt397(m[148], (short)(l2fd8(m, 2) & 0xff));
 	m[148] = (unsigned char)jt397(m[148], (short)(l2fd8(m, 4) & 0xff));
@@ -44187,7 +44188,7 @@ static void l1276(void)
 	 * appends "/<class>"; painted at (1,5). */
 	multi = 0;
 	jt384(buf, (const char *)(uintptr_t)(*(const long *)(g_rules->kind_names + ((long)rec[89] * 4))));
-	if (rec[88] == 5) {
+	if (RACE(rec[88]) == RACE_HUMAN) {
 		for (i = 0; i <= 6; i++) {
 			if ((short)rec[164 + i] <= 0)
 				continue;
@@ -44855,7 +44856,7 @@ static unsigned char jt35(const unsigned char *rec)
 	short i;
 
 	PROBE("jt35");
-	if (rec == NULL || rec[88] != 5)
+	if (rec == NULL || RACE(rec[88]) != RACE_HUMAN)
 		return 0;
 	for (i = 0; i < 6; i++)
 		if (rec[157 + i] != 0)
@@ -47802,7 +47803,7 @@ static void jt651(void)	/* +0x2e28; id 96 */
 	if (caster == 0)
 		return;
 	cas = (unsigned char *)(uintptr_t)caster;
-	if (cas[88] < 6 || (cas[191] & 2)) {
+	if (RACE(cas[88]) < RACE_MONSTER || (cas[191] & 2)) {
 		short level = jt17((short)(unsigned char)g_a5_byte(-25262), 1);
 		short packed = (short)((level & 0xff)
 		    + (((unsigned char *)(uintptr_t)g_a5_long(-27932))[95] << 7));
@@ -48111,7 +48112,7 @@ static void jt668(void)	/* +0x23ea; id 75 — raise dead */
 	 * sets 1 HP [395] and announces "is raised". */
 	if ((cas[94] == 6 || cas[94] == 1)			/* 23fe / 240e */
 	    && cas[120] != 0					/* 2420 */
-	    && cas[88] != 0) {					/* 2430 */
+	    && RACE(cas[88]) != RACE_ELF) {					/* 2430 */
 		g_a5_byte(-25258) = 1;				/* 2436 */
 		jt878((long)(uintptr_t)cas, 55, 0L);		/* 2444 */
 		g_a5_byte(-25258) = 0;				/* 244c */
@@ -48181,7 +48182,7 @@ static void jt673(void)	/* +0x32ae; id 105 — resurrect */
 	 * announce "is resurrected". */
 	if (cas[94] == 6					/* 32be */
 	    && cas[120] != 0					/* 32d0 */
-	    && cas[88] != 0) {					/* 32de */
+	    && RACE(cas[88]) != RACE_ELF) {					/* 32de */
 		jt878((long)(uintptr_t)cas, 55, 0L);		/* 32f0 */
 		cas[94] = 0;					/* 32fc */
 		cas[382] = 1;					/* 3306 */
@@ -48408,7 +48409,7 @@ static void jt686(void)	/* +0x0236; id 10,63 — the gaze/charm effect */
 
 	/* immunity gate (0248-0278): class-6 ([88]==6) without flag bit [191]&2,
 	 * or hit-dice [130] > 1, makes the target "is unaffected". */
-	if ((cas[88] == 6 && (cas[191] & 2) == 0)
+	if ((RACE(cas[88]) == RACE_MONSTER && (cas[191] & 2) == 0)
 	    || (unsigned char)cas[130] > 1) {			/* 0252-0278 */
 		jt18((void *)(uintptr_t)caster,
 		     (long)(uintptr_t)ua_strs_at(0x4d9c) /* "is unaffected" */,
@@ -48861,7 +48862,7 @@ static void jt698(void)	/* +0x05fc; id 21 — sleep */
 		case 3:  g_a5_byte(-6865) = 4; break;		/* L0666 */
 		case 4:  g_a5_byte(-6865) = 6; break;		/* L066e */
 		case 5:						/* L0676 */
-			g_a5_byte(-6865) = (rec[88] == 6) ? 10 : 20;
+			g_a5_byte(-6865) = (RACE(rec[88]) == RACE_MONSTER) ? 10 : 20;
 			break;
 		default: g_a5_byte(-6865) = 20; break;		/* L06a8 */
 		}
@@ -58392,7 +58393,7 @@ static signed char l476e_c14(long actor_l, short spell, short side)
 			result = 4;
 		break;
 	case 96:
-		if (a[88] < 6 || (a[191] & 2))
+		if (RACE(a[88]) < RACE_MONSTER || (a[191] & 2))
 			result = 4;
 		break;
 	case 10:
@@ -58409,7 +58410,7 @@ static signed char l476e_c14(long actor_l, short spell, short side)
 			result = 4;
 		break;
 	case 49: case 23:
-		if (a[88] < 6 && (a[192] & 2) && jt41(actor_l, 52, &d6) == 0)
+		if (RACE(a[88]) < RACE_MONSTER && (a[192] & 2) && jt41(actor_l, 52, &d6) == 0)
 			result = 4;
 		break;
 	case 37:
@@ -64445,7 +64446,7 @@ static void l4b64(short need)
 	} else {
 		unsigned char *m = (unsigned char *)(uintptr_t)g_a5_27932;
 
-		if (m[88] == 6) {
+		if (RACE(m[88]) == RACE_MONSTER) {
 			unsigned char lvl = (unsigned char)
 				(((unsigned char)need - 1) * 2 + 5);
 			if (lvl > m[137])
@@ -66713,7 +66714,7 @@ static void jt831(long rec_l, long node, short flag)
 		lf = 0;
 		if ((unsigned char)g_a5_buf(-25298)[m[95]] >= 6)
 			lf = (unsigned char)(lf + 1);
-		if (m[88] == 5)
+		if (RACE(m[88]) == RACE_HUMAN)
 			lf = (unsigned char)(lf + 2);
 		sv = (unsigned char)jt866((long)(uintptr_t)m, 0,
 					  (short)lf);
@@ -67197,7 +67198,7 @@ static void jt852(long rec_l, long node, short flag)
 	PROBE("jt852");
 	(void)node; (void)flag;
 	ent = *(unsigned char **)(*(unsigned char **)(rec + 64) + 12);
-	if (ent[88] == 0)
+	if (RACE(ent[88]) == RACE_ELF)
 		return;
 	l3d3a(rec_l, 63, 0);
 }
@@ -70438,7 +70439,7 @@ static unsigned char l4e2c(long rec_l, short spell, short flag)
 		if (rec[115] <= 8)
 			break;
 		if ((jt40(rec, 5) & 0xff) > 0) {
-			if (!(rec[88] == 5
+			if (!(RACE(rec[88]) == RACE_HUMAN
 			      && *(long *)(void *)(rec + 20) != 0
 			      && g_a5_byte(-27990) == 5))
 				ok = 1;
@@ -80515,7 +80516,7 @@ static void l7026(short mod, const char *msg)
 			v7 = tbl[8];                            /* 0x7160 */
 		}
 
-		if (ent[88] == 6                                 /* 0x716c */
+		if (RACE(ent[88]) == RACE_MONSTER                                 /* 0x716c */
 		    && ((unsigned char)g_a5_byte(-25262) == 23   /* 0x717c */
 		        || (unsigned char)g_a5_byte(-25262) == 49))     /* 0x7188 */
 			saved = 1;                              /* 0x718e */
@@ -83736,7 +83737,7 @@ static void l3bbc(short cmd)
 	case 8: {                               /* L3f40 — "Old Class:" line */
 		short i;
 
-		if (stage[88] != 5)
+		if (RACE(stage[88]) != RACE_HUMAN)
 			return;
 		for (i = 0; i <= 6; i++) {
 			if (stage[i + 164] == 0)
@@ -103718,7 +103719,7 @@ static void l4916(long ev_l)
 
 /* L4c18 (CODE 12 + 0x4c18) — Raise Dead (1100p). Three gates, each with its own
  * refusal prompt: the target must actually be dead (status 6) or fled (1);
- * a class-0 (monster/NPC) target gets -13984; a status-8 (destroyed/ash) target
+ * an elf (race 0: elves cannot be raised; the flag is named noclass) gets -13984; a status-8 (destroyed/ash) target
  * gets -13980; anything else gets the generic -13976. Only a genuinely-dead,
  * classed, non-destroyed body reaches JT[598](75) — the Raise Dead payload. */
 static void l4c18(long ev_l)
@@ -103735,7 +103736,7 @@ static void l4c18(long ev_l)
 	if (m[94] == 6 || m[94] == 1)                   /* 0x4c30 */
 		dead = 1;
 	destroyed = (unsigned char)(m[94] == 8 ? 1 : 0);  /* 0x4c5a */
-	if (m[88] < 1)                                  /* 0x4c6e — no class */
+	if (RACE(m[88]) == RACE_ELF)                    /* 0x4c6e: Mac `< 1` */
 		noclass = 1;
 
 	if (!dead || noclass) {                         /* 0x4c84 */
@@ -103917,7 +103918,7 @@ static void l5012(long ev_l)
 		destroyed = 0;
 	else
 		destroyed = 1;
-	if (m[88] < 1)                                  /* 0x507c */
+	if (RACE(m[88]) == RACE_ELF)                    /* 0x507c: Mac `< 1` */
 		noclass = 1;
 
 	if (!dead || noclass) {                         /* 0x5092 */
@@ -103986,7 +103987,7 @@ static void l54c8(long ev_l)
 			m[94]  = 0;
 		}
 
-		if (m[94] == 6 && m[88] != 0) {         /* L55de */
+		if (m[94] == 6 && RACE(m[88]) != RACE_ELF) {         /* L55de */
 			g_a5_long(-23508) = (long)(uintptr_t)m;
 			g_a5_byte(-25262) = 105;
 			jt598(105);
@@ -104969,7 +104970,7 @@ static void l1fcc(short *n_dead, short *n_curse, short *n_blind, short *n_wound,
 		long ml = (long)(uintptr_t)m;
 
 		*n_drain = (short)(*n_drain + l1f50(ml) * 2);      /* 0x2018 */
-		if (m[94] == 6 && m[88] > 0)                       /* 0x2028 — dead */
+		if (m[94] == 6 && RACE(m[88]) != RACE_ELF)         /* 0x2028 — dead, raisable */
 			*n_dead = (short)(*n_dead + 2);
 		if (m[94] == 7)                                    /* 0x204a — stoned */
 			*n_stone = (short)(*n_stone + 1);
@@ -105094,7 +105095,7 @@ static void l288c(short *s34, short *s30, short *s26, short *s42,
 		}
 
 		/* DEAD: resurrection (s24) outranks raise-dead (s26) */
-		if ((*s26 > 0 || *s24 > 0) && m[94] == 6 && m[88] > 0) {   /* L2a82 */
+		if ((*s26 > 0 || *s24 > 0) && m[94] == 6 && RACE(m[88]) != RACE_ELF) {   /* L2a82 */
 			g_a5_byte(-25258) = 1;
 			jt878(ml, (short)55, 0L);
 			g_a5_byte(-25258) = 0;

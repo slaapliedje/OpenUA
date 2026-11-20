@@ -34,6 +34,13 @@ typedef struct ruleset {
 	                                    robe: tools/gbrules.py)             */
 	unsigned char xp_levels;         /* thresholds a slot_xp row: 12 / 19   */
 
+	/* The FRUA race each race number plays as, 256 entries. FRUA's rules
+	 * written into code test race numbers (0 elf ... 5 human, 6 and up
+	 * monster): every such test reads RACE(r) instead, so a ruleset's
+	 * races keep their own numbers and inherit those rules. FRUA's is the
+	 * identity. */
+	const unsigned char *race_base;
+
 	/* names */
 	const unsigned char *kind_names;     /* -14636  17 char * by kind        */
 	const unsigned char *race_names;     /* -14564  char * by race (+monster)*/
@@ -66,6 +73,11 @@ typedef struct ruleset {
 
 extern const ruleset_t  g_rules_frua;
 extern const ruleset_t *g_rules;         /* the rules being played under     */
+
+/* FRUA's race numbers, as RACE() returns them. */
+enum { RACE_ELF, RACE_HALF_ELF, RACE_DWARF, RACE_GNOME, RACE_HALFLING,
+       RACE_HUMAN, RACE_MONSTER };
+#define RACE(r) (g_rules->race_base[(unsigned char)(r)])
 
 /* The Dark Queen of Krynn's rules, read from DQK.EXE (open on `refnum`).
  * Returns them, or NULL when the file is not the DQK.EXE they can be read
