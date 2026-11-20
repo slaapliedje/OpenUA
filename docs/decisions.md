@@ -1813,10 +1813,31 @@ seeded creation, entry-chain and kobold-fight runs are pixel-identical. A
 fight that never reaches a spell or a save cannot see a change to those
 tests (the monster-as-human control left the kobold fight unchanged), which
 is why the object-code comparison is the proof here and the runs the check.
-Still to come in (c): the creation screen's lists from the ruleset; XP,
-levels and spell rows by progression with the spell-slot table moved in;
-the training hall's prime-requisite limits for Krynn; then the Dark Queen
-design switched onto its rules.
+
+**Step (c) landed.** The creation screen builds its race and class lists
+from the ruleset (labels, class rows, default race; DQK.EXE's own creation
+labels; every DLItem index after the race list moves with the race count;
+the class column moves right when a race label is long, "SILVANESTI ELF").
+XP and spell slots are read by progression, and the spell-slot table is in
+the ruleset (DQK.EXE's 8 rows at DS 0xb96). The training hall stops a Krynn
+character at its race_level_cap, Krynn having one maximum per race and class
+where FRUA has prime-requisite exceptions in code. A design holding DQK.EXE
+now PLAYS by the Dark Queen's rules, chosen when the design is loaded (jt361)
+and FRUA's for any other, with the game's own item type table (ITEMS.DAT)
+when it holds one; gbgeo.py --exe copies both in, and gbmon / gbchar keep
+the game's race numbers (monsters 7, kender 5, humans 6) for such a design.
+Each slice was held to FRUA by object-code comparison where the change is
+an indirection, and by seeded creation and entry-chain runs (AE 0).
+Checked in Hatari on the converted design: Krynn's creation screen (a
+Human Knight offered Lawful Good only, LEVEL 3 at 15,000 XP by the Crown's
+table), the six heroes in the hall (Roland of Dust a level 11 Knight with
+his Solamnic plate readied; Walker Keys a kender cleric/thief 10/12; Roark a
+hill dwarf), and a fight with the game's own monsters played out by
+FRUA_CBTPLAY. Open, for later steps: a character's god, order and robe (a
+Krynn cleric is of good, a knight of the Crown, a mage a White Robe until
+then; step (e)); Roland's AC recomputes to -7 against the -11 his save
+carries (an item property, for (f)); money and item words are still FRUA's
+("PLATINUM"); FRUA's age roll adds 10 years, unchecked against Krynn's.
 
 **Context.** The Gold Box games OpenUA is opening up to (ADR-0023) do not all
 share FRUA's classes and races. The Krynn games have seven player races
