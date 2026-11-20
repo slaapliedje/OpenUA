@@ -56,7 +56,14 @@ def synthetic():
             b = s.encode() + b"\0"
             exe[gbrules.DS + sp:gbrules.DS + sp + len(b)] = b
             sp += len(b)
+    _, off, n, _ = gbrules._table("labels")
+    blk = b"".join(s.encode() + b"\0" for s in LABELS)
+    exe[gbrules.DS + off:gbrules.DS + off + n] = blk + bytes(n - len(blk))
     return bytes(exe)
+
+
+LABELS = (["RACE%d" % k for k in range(gbrules.RACES)] + ["MALE", "FEMALE"]
+          + ["KIND%d" % k for k in range(gbrules.KINDS)])
 
 
 def c_tables(cbin, path, verify=False):
@@ -65,7 +72,7 @@ def c_tables(cbin, path, verify=False):
     lines = r.stdout.splitlines()
     if lines[0] != "OK":
         return lines[0], None
-    t = {"kind_names": [], "race_names": []}
+    t = {"kind_names": [], "race_names": [], "race_labels": [], "kind_labels": []}
     for ln in lines[1:]:
         if ln.startswith("name "):
             _, field, _, text = ln.split(" ", 3)
@@ -91,6 +98,7 @@ def test_synthetic_matches_reference(cbin, tmp_path):
     for field in pt:
         assert ct[field] == pt[field], field
     assert ct["kind_names"] == KINDS and ct["race_names"] == RACES
+    assert ct["race_labels"] == LABELS[:7] and ct["kind_labels"] == LABELS[9:]
 
 
 def test_byte_order_and_strides():
@@ -176,5 +184,7 @@ def test_real_exe_says_what_the_journal_says():
     assert al[12:14] == bytes([1, 0]) and al[36:38] == bytes([1, 0])
     for k in range(gbrules.KINDS):
         assert not {2, 5, 8} & set(al[12 * k + 1:12 * k + 1 + al[12 * k]])
+    assert t["race_labels"][0] == "SILVANESTI ELF"
+    assert t["kind_labels"][9] == "CLERIC/FIGHTER/M-U"
     # A human may be any of the seven single classes; a half-elf, 14 kinds
     assert t["race_kinds"][6 * 15] == 7 and t["race_kinds"][2 * 15] == 14

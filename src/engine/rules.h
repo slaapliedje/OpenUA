@@ -69,6 +69,19 @@ typedef struct ruleset {
 	/* thief skills */
 	const unsigned char *thief_skills;   /* -22980  18 levels x 8            */
 	const unsigned char *race_thief_adj; /* -22836  race x 8, signed         */
+
+	/* The creation screen (l3666). A label is STRS text (FRUA's, by pool
+	 * offset) or the game's own (`*_label_text`, when not NULL). The class
+	 * list holds its kinds in kind order: kind_list[k] is the kind's row,
+	 * with bit 7 set for a kind no race may take, which L3666 flags (jt452
+	 * cmd 17) and gives a neighbour's row, as it does FRUA's druid, monk
+	 * and cleric/thief. No race enabling it, the row is never shown. */
+	const unsigned short *race_label_strs;
+	const unsigned short *kind_label_strs;
+	const char *const    *race_label_text;
+	const char *const    *kind_label_text;
+	const unsigned char  *kind_list;     /* 17                               */
+	unsigned char         default_race;  /* the race the screen starts on    */
 } ruleset_t;
 
 extern const ruleset_t  g_rules_frua;

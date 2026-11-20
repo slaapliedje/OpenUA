@@ -32094,6 +32094,11 @@ static void l2f8e(void)
 	}
 }
 
+/* PORT (ADR-0026): the creation screen's DLItems are addressed by index, and
+ * every group after the race list (gender 7.., class 10.., alignment 28..)
+ * moves with the number of races the ruleset has. FRUA's six: no change. */
+#define CG_ITEM(n) ((short)((n) + g_rules->races - 6))
+
 /* L30de (CODE 17 + 0x30de) — redraw the option-list highlight: for each of the
  * three columns, test whether the current selection ((-7024-1)*3 + col - 1) is
  * a valid option value and enable (group 24) or disable (group 16) that
@@ -32121,7 +32126,7 @@ static void l30de(void)
 				matched = 1;
 			g_a5_byte(-22307)++;
 		}
-		jt444((short)(col + 32), matched ? 24 : 16, 0, 0);
+		jt444(CG_ITEM(col + 32), matched ? 24 : 16, 0, 0);
 	}
 }
 
@@ -32175,15 +32180,15 @@ static void jt568(void)
 
 	switch (step - 1) {                     /* JT[3] @0x339a — column enables */
 	case 1: case 3:                         /* alignment: enable col 29, hide 30/31 */
-		jt444(29, 24, 0, 0);
-		jt444(30, 16, 0, 0);
-		jt444(31, 16, 0, 0);
+		jt444(CG_ITEM(29), 24, 0, 0);
+		jt444(CG_ITEM(30), 16, 0, 0);
+		jt444(CG_ITEM(31), 16, 0, 0);
 		break;
 	case 0: case 2: case 4: case 5: case 6: case 8: case 9:
 	case 10: case 11: case 12: case 13: case 14: case 15: case 16:
-		jt444(29, 24, 0, 0);            /* race/gender/class: enable all 3 */
-		jt444(30, 24, 0, 0);
-		jt444(31, 24, 0, 0);
+		jt444(CG_ITEM(29), 24, 0, 0);   /* race/gender/class: enable all 3 */
+		jt444(CG_ITEM(30), 24, 0, 0);
+		jt444(CG_ITEM(31), 24, 0, 0);
 		break;
 	default:                                /* step 7 / out of range: no change */
 		break;
@@ -32244,8 +32249,8 @@ static void jt568(void)
 
 	/* L35ce — redraw the list + set the two highlight DLItems */
 	l30de();
-	jt444(28, 4, (short)g_a5_word(-7024), 0);
-	jt444(32, 4, (short)g_a5_word(-7022), 0);
+	jt444(CG_ITEM(28), 4, (short)g_a5_word(-7024), 0);
+	jt444(CG_ITEM(32), 4, (short)g_a5_word(-7022), 0);
 }
 
 /* JT[567] (CODE 17 + 0x3372) — the GENDER list action proc: store the picked
@@ -32276,7 +32281,7 @@ static void jt570(void)
 	PROBE("jt570");
 	l30de();
 	l2f8e();
-	jt444(32, 4, (short)g_a5_word(-7022), 0);
+	jt444(CG_ITEM(32), 4, (short)g_a5_word(-7022), 0);
 	l2f74();
 }
 
@@ -32530,15 +32535,15 @@ static void jt566(void)
 			}
 		}
 		if (matched) {
-			jt444((short)(cls + 11), 24, 0, 0);    /* enable */
+			jt444(CG_ITEM(cls + 11), 24, 0, 0);    /* enable */
 		} else {
 			if (cls == (short)g_a5_word(-7018) - 1)
 				invalid = 1;
-			jt444((short)(cls + 11), 16, 0, 0);    /* disable */
+			jt444(CG_ITEM(cls + 11), 16, 0, 0);    /* disable */
 		}
 	}
 	if (invalid)
-		jt444(10, 4, (short)(firstok + 1), 0);         /* reset selection */
+		jt444(CG_ITEM(10), 4, (short)(firstok + 1), 0); /* reset selection */
 	g_a5_byte(-7027) = 0;
 }
 
@@ -32872,6 +32877,48 @@ static void l238e_c17(unsigned char *rec)
 	(void)jt91();                            /* mirrors the Mac's trailing read */
 }
 
+/* PORT (ADR-0026): the creation screen's race and class lists, from the
+ * ruleset. L3666 streams each list into jt452 in one to three calls; one call
+ * per row is the same stream, as jt452 keeps nothing between calls but the
+ * item it made last. Rows: races from y 8012 at x 8006, classes from y 8018
+ * at x 8070, four units a line; `tag` is each row's rec[31]. */
+static const char *cg_label(const unsigned short *strs, const char *const *text,
+                            short i)
+{
+	return text != NULL ? text[i] : ua_strs_at((long)strs[i]);
+}
+
+static void cg_list(long count, void (*proc)(void), void *value, int classes)
+{
+	long  tag = (long)g_a5_word(-7000);
+	short i;
+
+	for (i = 0; i < count; i++) {
+		long y, x, lab;
+		int  hidden = 0;
+
+		if (classes) {
+			y      = 8018L + 4L * (g_rules->kind_list[i] & 0x7f);
+			x      = 8070L;
+			hidden = (g_rules->kind_list[i] & 0x80) != 0;
+			lab    = (long)(uintptr_t)cg_label(g_rules->kind_label_strs,
+			                                   g_rules->kind_label_text, i);
+		} else {
+			y      = 8012L + 4L * i;
+			x      = 8006L;
+			lab    = (long)(uintptr_t)cg_label(g_rules->race_label_strs,
+			                                   g_rules->race_label_text, i);
+		}
+		if (i == 0)
+			jt452(2L, count, 34L, (long)(uintptr_t)proc,
+			      35L, (long)(uintptr_t)value, 0L);
+		if (hidden)
+			jt452(3L, y, x, lab, 38L, tag, 17L, 0L);
+		else
+			jt452(3L, y, x, lab, 38L, tag, 0L);
+	}
+}
+
 /* L3666 (CODE 17 + 0x3666) — character-creation screen init + header draw.
  * Sets the window dims for the display mode, paints the PICK headers, and
  * seeds the wizard state (step g_a5_-7018), then builds the option lists and
@@ -32901,12 +32948,12 @@ static int l3666(void)
 	}
 	l35f8();                             /* PICK headers */
 	jt117();
-	g_a5_word(-7026) = 6;                /* default race index */
+	g_a5_word(-7026) = (short)(g_rules->default_race + 1);   /* default race index */
 	g_a5_word(-7024) = 1;
 	g_a5_word(-7022) = 1;
 	g_a5_word(-7020) = 1;
 	g_a5_word(-7018) = 3;                /* default class index */
-	rec[88] = 5; rec[93] = 0; rec[92] = 0; rec[89] = 2;
+	rec[88] = g_rules->default_race; rec[93] = 0; rec[92] = 0; rec[89] = 2;
 
 	jt174();
 	jt447();                             /* reset the DLItem table */
@@ -32917,15 +32964,8 @@ static int l3666(void)
 	 * (cmd 34 = action proc, 35 = value addr, 38 = rec[31] row tag, 17 = the
 	 * default-row flag). g_a5_-7000 = the per-row tag (15 deep / 135 shallow). */
 
-	/* RACE list (jt566 -> g_a5_-7026): ELF..HUMAN */
-	jt452(2L, 6L, 34L, (long)(uintptr_t)&jt566, 35L, (long)(uintptr_t)&g_a5_byte(-7026),
-	      3L, 8012L, 8006L, (long)(uintptr_t)ua_strs_at(0x48c6), 38L, (long)g_a5_word(-7000),
-	      3L, 8016L, 8006L, (long)(uintptr_t)ua_strs_at(0x48ca), 38L, (long)g_a5_word(-7000),
-	      3L, 8020L, 8006L, (long)(uintptr_t)ua_strs_at(0x48d4), 38L, (long)g_a5_word(-7000),
-	      3L, 8024L, 8006L, (long)(uintptr_t)ua_strs_at(0x48da), 38L, (long)g_a5_word(-7000),
-	      3L, 8028L, 8006L, (long)(uintptr_t)ua_strs_at(0x48e0), 38L, (long)g_a5_word(-7000),
-	      3L, 8032L, 8006L, (long)(uintptr_t)ua_strs_at(0x48ea), 38L, (long)g_a5_word(-7000),
-	      0L);
+	/* RACE list (jt566 -> g_a5_-7026): the ruleset's races (FRUA: ELF..HUMAN) */
+	cg_list((long)g_rules->races, &jt566, &g_a5_byte(-7026), 0);
 
 	/* GENDER list (jt567 -> g_a5_-7020): MALE, FEMALE */
 	jt452(2L, 2L, 34L, (long)(uintptr_t)&jt567, 35L, (long)(uintptr_t)&g_a5_byte(-7020),
@@ -32933,29 +32973,10 @@ static int l3666(void)
 	      3L, 8086L, 8006L, (long)(uintptr_t)ua_strs_at(0x48f6), 38L, (long)g_a5_word(-7000),
 	      0L);
 
-	/* CLASS list (jt568 -> g_a5_-7018), built in three jt452 calls: the single
-	 * classes then the multi-class combos (cmd 17 flags the default row). */
-	jt452(2L, 17L, 34L, (long)(uintptr_t)&jt568, 35L, (long)(uintptr_t)&g_a5_byte(-7018),
-	      3L, 8018L, 8070L, (long)(uintptr_t)ua_strs_at(0x48fe), 38L, (long)g_a5_word(-7000),
-	      3L, 8022L, 8070L, (long)(uintptr_t)ua_strs_at(0x4906), 38L, (long)g_a5_word(-7000), 17L,
-	      3L, 8022L, 8070L, (long)(uintptr_t)ua_strs_at(0x490c), 38L, (long)g_a5_word(-7000),
-	      3L, 8026L, 8070L, (long)(uintptr_t)ua_strs_at(0x4914), 38L, (long)g_a5_word(-7000),
-	      3L, 8030L, 8070L, (long)(uintptr_t)ua_strs_at(0x491c), 38L, (long)g_a5_word(-7000),
-	      0L);
-	jt452(3L, 8034L, 8070L, (long)(uintptr_t)ua_strs_at(0x4924), 38L, (long)g_a5_word(-7000),
-	      3L, 8038L, 8070L, (long)(uintptr_t)ua_strs_at(0x4930), 38L, (long)g_a5_word(-7000),
-	      3L, 8042L, 8070L, (long)(uintptr_t)ua_strs_at(0x4936), 38L, (long)g_a5_word(-7000), 17L,
-	      3L, 8042L, 8070L, (long)(uintptr_t)ua_strs_at(0x493c), 38L, (long)g_a5_word(-7000),
-	      3L, 8046L, 8070L, (long)(uintptr_t)ua_strs_at(0x494c), 38L, (long)g_a5_word(-7000),
-	      3L, 8050L, 8070L, (long)(uintptr_t)ua_strs_at(0x4960), 38L, (long)g_a5_word(-7000),
-	      0L);
-	jt452(3L, 8054L, 8070L, (long)(uintptr_t)ua_strs_at(0x496e), 38L, (long)g_a5_word(-7000),
-	      3L, 8054L, 8070L, (long)(uintptr_t)ua_strs_at(0x4980), 38L, (long)g_a5_word(-7000), 17L,
-	      3L, 8058L, 8070L, (long)(uintptr_t)ua_strs_at(0x498e), 38L, (long)g_a5_word(-7000),
-	      3L, 8062L, 8070L, (long)(uintptr_t)ua_strs_at(0x49a2), 38L, (long)g_a5_word(-7000),
-	      3L, 8066L, 8070L, (long)(uintptr_t)ua_strs_at(0x49b0), 38L, (long)g_a5_word(-7000),
-	      3L, 8070L, 8070L, (long)(uintptr_t)ua_strs_at(0x49c2), 38L, (long)g_a5_word(-7000),
-	      0L);
+	/* CLASS list (jt568 -> g_a5_-7018): the 17 kinds, single classes then the
+	 * multi-class combos, on the ruleset's rows (cmd 17 marks a kind no race
+	 * may take; FRUA's druid, monk and cleric/thief). */
+	cg_list(17L, &jt568, &g_a5_byte(-7018), 1);
 
 	/* ALIGNMENT: axis-2 law/chaos (jt570 -> g_a5_-7024) then axis-1 good/evil
 	 * (jt569 -> g_a5_-7022), both in one jt452 call. */

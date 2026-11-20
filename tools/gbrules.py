@@ -44,7 +44,10 @@ half-orc's and a hill dwarf the halfling's. That is how the game plays, so
 the rows are read as they stand.
 
 The names are DQK's own pointer tables: the class kinds (the "Magic-User"
-table, as FRUA's) and the races, eight with "Monster".
+table, as FRUA's) and the races, eight with "Monster". The creation
+screen's labels ("SILVANESTI ELF", "CLERIC/FIGHTER/M-U") are one block of
+NUL-ended strings its code addresses directly: 7 races, 2 genders, 17
+kinds, in that order.
 
     python3 tools/gbrules.py DQK.EXE            # print the rules
     python3 tools/gbrules.py DQK.EXE --sums     # the C table of positions
@@ -93,6 +96,7 @@ TABLES = (
     ("race_thief_adj",   0x64b5, 8 * RACES,              0x085f),
     ("kind_names",       0x3b3e, 4 * KINDS,              0x4bd6),
     ("race_names",       0x3b86, 4 * (RACES + 1),        0x1da4),
+    ("labels",           0x7330, 296,                    0x4b9f),
 )
 NAME_TABLES = ("kind_names", "race_names")   # sums: of the strings, see sums()
 
@@ -214,7 +218,19 @@ def engine_tables(exe):
 
     t["kind_names"] = names(exe, "kind_names")
     t["race_names"] = names(exe, "race_names")
+    lab = labels(exe)
+    t["race_labels"] = lab[:RACES]
+    t["kind_labels"] = lab[RACES + 2:RACES + 2 + KINDS]
     return t
+
+
+def labels(exe):
+    """The creation screen's 26 labels (races, genders, kinds)."""
+    b = bytes(raw(exe, "labels"))
+    out = b.split(b"\0")
+    if len(out) < RACES + 2 + KINDS or b[-1] != 0:
+        raise GbRulesError("labels: not %d NUL-ended strings" % (RACES + 2 + KINDS))
+    return [x.decode("latin-1") for x in out[:RACES + 2 + KINDS]]
 
 
 def read_dqk(exe, check=True):

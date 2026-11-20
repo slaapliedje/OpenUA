@@ -41,6 +41,8 @@ typedef struct gbr_tables {
 	unsigned char thief_skills[8 * 18];
 	char          kind_name[GBR_KINDS][GBR_NAME_MAX];
 	char          race_name[GBR_RACES + 1][GBR_NAME_MAX];   /* + Monster */
+	char          race_label[GBR_RACES][GBR_NAME_MAX];      /* creation   */
+	char          kind_label[GBR_KINDS][GBR_NAME_MAX];
 } gbr_tables;
 
 /* Read `len` bytes at file offset `off` into `buf`; return the count read. */
@@ -50,6 +52,7 @@ typedef long (*gbr_read_fn)(void *ctx, long off, void *buf, long len);
 #define GBR_EREAD    -1         /* a table could not be read whole        */
 #define GBR_ESUM     -2         /* a table's sum is not this build's      */
 #define GBR_ENAME    -3         /* a name pointer is not into the DS      */
+                                /* (or the label block does not split)    */
 
 /* Fill `t` from DQK.EXE. With `verify`, every table's 16-bit sum must be
  * the Steam DQK.EXE's (a different build is refused, nothing is filled
