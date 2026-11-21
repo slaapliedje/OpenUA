@@ -1892,6 +1892,42 @@ Open:
 - the sheet does not show the god, robe or order;
 - GOLDBOX.DSN's monsters were converted before gbmon kept the bytes.
 
+**Step (f) landed: items, monsters, maps, scripts and saves read natively.**
+A design holding the Dark Queen's files needs none of the converted ones;
+each reader is plain C99 held to its Python reference by tests on synthetic
+files and on the real game's, when present. The design folder is looked in
+first, then the game's DISK1..3 folders, so the files can stay where the
+game installs them (a subfolder rides in the file name, "DISK1\ITEM.DAT":
+joined with jt431 the shims cut it away and open FRUA's root file instead).
+- `src/engine/gbitems.c` (6683e15c, reference gbgeo.py): the item table from
+  the game's ITEM.DAT (17-byte entries made FRUA's 18), the item words past
+  FRUA's 126 and the nine shop stock lists from DQK.EXE, at fixed positions
+  checked by sums. Krynn's coin is steel (4adc8319): the same record word
+  as FRUA's platinum, named from DQK.EXE's money table through
+  `rules_money_name()` and `rules_coin_text()`.
+- `src/engine/gbmon.c` (42f58bdf, reference gbmon.py): a script's monster
+  read from member nnn of MONCHA.GLB when the design has no MONSTnnn.DAT,
+  in FRUA's 450-byte layout, its items numbered from 1 (a6fd7f6f: entry k
+  is item k + 1, settled by the two monsters both games share).
+- `src/engine/gbmaps.c` (26ab9295, reference gbgeo.py): GEOnnn, GBDnnn,
+  GBMAP and ECLnnn made from GEO.GLB and ECL.GLB when missing, the bytes
+  gbgeo.py would write, all 20 maps and 47 scripts compared.
+- `src/engine/gbsave.c` (ce6de3b9, 582f102f, reference gbsave.py): the
+  game's own saved games, SAVGAMx.QSV, listed by the load menu beside the
+  engine's slots (a .CSV of the same slot shadows it; the .QSV is never
+  written). The layout was found by saving in the game in DOSBox: 1024
+  script cells, the square and facing, then the party as .QCH records. A
+  load restores the party (an NPC keeps its bit), the map, square and
+  facing and the script memory, so the running script resumes; checked on
+  a Caergoth save whose dragon ambush strikes on the same step as in DOS.
+FRUA modules: every slice was held to the previous commit by seeded HEIRS
+runs (Add list, hall, sheet, treasure chain; the saves also the load
+picker, loaded party and walk) with an A/A control.
+Open:
+- a save's clock and the vault (VAULTx.DAT) are not carried;
+- Roland's AC still recomputes to -7 against the -11 his save carries;
+- writing back in the game's own formats (decision 4) is not begun.
+
 **Context.** The Gold Box games OpenUA is opening up to (ADR-0023) do not all
 share FRUA's classes and races. The Krynn games have seven player races
 (Silvanesti and Qualinesti elves, half-elves, mountain and hill dwarves,
