@@ -38,7 +38,8 @@ character. After the last record come 17 bytes of 0xff and a block that is
 the same in every save (shifted along by a longer party); nothing here reads
 it.
 
-The vault (VAULTx.DAT) is not read here.
+The vault (VAULTx.DAT) is not read here. The engine loads a save through
+boot.c's gbs_qsv_load.
 
     python3 tools/gbsave.py SAVGAMA.QSV              # summary
     python3 tools/gbsave.py SAVGAMA.QSV --qch DIR    # each member as a .QCH

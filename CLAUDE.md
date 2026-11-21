@@ -391,6 +391,18 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   sets it and the game never prints it — so fights get FRUA's "nobody
   surprised". SETUP_MONSTER's sprite comes from SPRIT (an event record with
   ev[7] bit 7 CLEAR; set selects the PIC libraries).
+- **The Dark Queen's own saves load too** (`SAVGAM<c>.QSV` in the design's
+  SAVE; `src/engine/gbsave.c`, reference `tools/gbsave.py`, whose docstring
+  has the layout found by saving in DOSBox). jt582's picker lists them beside
+  the engine's slots and `gbs_qsv_load` reads one unless the port has saved
+  that slot (.CSV shadows .QSV); the party goes through qch.c (an NPC keeps
+  its bit), the square/facing/map go into the record with h[134] = 1 so
+  l0bbc RESUMES (without it Begin cleared script memory and replayed the
+  arrival), and the 1024 script cells are poked back, one byte a cell. A
+  save at map 0 (the one the game ships) starts like a new game. Checked:
+  Caergoth save D walks into the dragon ambush on the same step as in DOS.
+  Not carried: the clock and the vault. Real saves for tests live in
+  `data/work/dqk-saves` (README there; E/F/G are from an HP-edited save).
 - **Script memory is saved beside the slot** (`<design>\SAVE\GBSAV<slot>.DAT`,
   written after FRUA's own file, read back at the end of `l143e`). Two traps
   found doing it: the engine reloads the level AGAIN when the player leaves

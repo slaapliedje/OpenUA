@@ -66,6 +66,7 @@
 #include "gbitems.h"          /* ADR-0026: its items, words and shops      */
 #include "gbmon.h"            /* ADR-0026: its monsters                    */
 #include "gbmaps.h"           /* ADR-0026: its maps                        */
+#include "gbsave.h"           /* ADR-0026: its saved games                 */
 
 /* #125c: the play-step / compose TickCount brackets in this file were gated on
  * FRUA_MONOPROF — but that flag CANNOT BE USED ON A COLOUR BUILD. Its own
@@ -11907,6 +11908,8 @@ static signed char l00e0(const char *fn, void *cb);
 static signed char l00e0_load(const char *fn, void *cb);
 static void gbs_state_load(int slot);   /* PORT: Gold Box script memory, at the end */
 static void gbs_state_save(int slot);
+static int  gbs_qsv_load(int slot);     /* PORT: a save the Dark Queen wrote */
+static void qsv_path(char *out, int c);
 static signed char l_cch_read(const char *fn, unsigned char *rec);
 static signed char qch_read(const char *fn, unsigned char *rec);
 static int qch_shadowed(const char *qname);
@@ -43663,6 +43666,16 @@ static void savgam_path(char *out, int c)
 #endif
 }
 
+/* The same slot as the Dark Queen names it: "<design>.DSN\SAVE\SAVGAM<c>.QSV"
+ * (ADR-0026 step (f)). The port never writes one. */
+static void qsv_path(char *out, int c)
+{
+	char base[16];
+
+	jt394(base, "SAVGAM%c.QSV", c);
+	design_save_path(out, base);
+}
+
 /* Make sure "<design>.DSN\SAVE" exists before a slot is written into it.
  *
  * GEMDOS Fcreate will not make the folder, and neither will AmigaDOS Open() —
@@ -44022,14 +44035,35 @@ static void l143e_body(const char *fn)
  * L143e (and JT[407]) are the I/O core — the next step toward a real
  * round-trip with jt585. NULL-guarded on g_a5_-28006 like jt585, since the
  * port's boot has no player record until the design-load chain runs. */
+/* Mark the slots A..J that `glob` finds in present[]. */
+static void savgam_scan(unsigned char *present, char *glob)
+{
+	signed char is_dir;
+	void       *entry;
+
+	jt990((short)0, glob, NULL, (short)1, (short)0);
+	for (entry = (void *)(uintptr_t)jt991(&is_dir); entry != NULL;
+	     entry = (void *)(uintptr_t)jt991(&is_dir)) {
+		const char   *nm = (const char *)entry;
+		unsigned char ch;
+
+		if (jt407(nm, "SavGam") == 0)
+			continue;
+		ch = (unsigned char)nm[6];
+		if (ch >= 'a' && ch <= 'z')              /* GEMDOS may upper/lower-case */
+			ch = (unsigned char)(ch - 32);
+		if (ch < 'A' || ch > 'J')
+			continue;
+		present[ch - 'A'] = 1;
+	}
+}
+
 static void jt582(void)
 {
 	char           fn[44];
 	char           path[266];
 	unsigned char  present[10];
-	signed char    is_dir;
 	const char    *ext;
-	void          *entry;
 	short          j, counter, letter, sel;
 	unsigned char *player;
 
@@ -44054,22 +44088,9 @@ static void jt582(void)
 	 * -> flat, the pre-fix behaviour). Fsfirst is case-insensitive, so this
 	 * finds the port's SavGam<X>.csv and a shipped SAVGAM<X>.CSV alike. */
 	savgam_path(path, '*');                      /* "<design>\SavGam*.csv" */
-	jt990((short)0, path, NULL, (short)1, (short)0);
-
-	for (entry = (void *)(uintptr_t)jt991(&is_dir); entry != NULL;
-	     entry = (void *)(uintptr_t)jt991(&is_dir)) {
-		const char   *nm = (const char *)entry;
-		unsigned char ch;
-
-		if (jt407(nm, "SavGam") == 0)
-			continue;
-		ch = (unsigned char)nm[6];
-		if (ch >= 'a' && ch <= 'z')              /* GEMDOS may upper/lower-case */
-			ch = (unsigned char)(ch - 32);
-		if (ch < 'A' || ch > 'J')
-			continue;
-		present[ch - 'A'] = 1;
-	}
+	savgam_scan(present, path);
+	qsv_path(path, '*');                         /* ... and the Dark Queen's own */
+	savgam_scan(present, path);
 
 	jt399(g_a5_24126, (short)40, (short)0xFF);
 	j = 0;
@@ -44103,7 +44124,8 @@ static void jt582(void)
 	jt176();
 	jt94((short)0, (short)24, (short)7, (short)0, "%s", "Loading...Please Wait");
 
-	if (g_a5_22733 == 1)
+	if (g_a5_22733 == 1
+	 && !gbs_qsv_load((int)(unsigned char)g_a5_byte(-6923)))
 		l143e(fn);                       /* open + read the slot file */
 
 	jt176();
@@ -109133,6 +109155,134 @@ static short gbs_slot_of(unsigned char map)
 		if (g_gbs_index[i][0] == map)
 			return (short)g_gbs_index[i][1];
 	return 0;
+}
+
+/* A SAVED GAME THE DARK QUEEN WROTE (ADR-0026 step (f)): "SAVGAM<slot>.QSV"
+ * in the design's SAVE folder, read by gbsave.c (tools/gbsave.py has the
+ * layout). The load menu lists it beside the engine's own slots; a slot the
+ * port has saved into (a .CSV) is read in its place, as a hero's .CCH
+ * shadows the .QCH, and the .QSV is never written.
+ *
+ * It does what jt579 and l143e do for the engine's own file: the party
+ * replaces the pool (each record a .QCH, through qch.c into jt577; a
+ * companion keeps its NPC bit), the record's position and level are set
+ * where jt582's tail reads them, the level is loaded, and then the script
+ * memory is put back as gbs_state_load would and the script that was
+ * running resumes. A save from before the game began (map 0: the one the
+ * game ships) starts at the design's start area with its start-up script,
+ * as a new game does.
+ *
+ * Not carried yet: the clock (cells 0x06..0x0a) and the vault. Returns 1
+ * when the save was loaded. */
+static int gbs_qsv_load(int slot)
+{
+	static unsigned char q[GBV_SIZE + 512];
+	unsigned char *h = (unsigned char *)g_a5_28006;
+	unsigned char  pstr[64];
+	char           fn[48];
+	gbv_save       s;
+	short          ref, level;
+	long           n = (long)sizeof q;
+	unsigned       i, c;
+	int            native;
+
+	if (h == NULL)
+		return 0;
+	savgam_path(fn, slot);
+	str_c2p(pstr, fn);
+	if (FSOpen((ConstStr255Param)pstr, 0, &ref) == noErr) {
+		(void)FSClose(ref);
+		return 0;                       /* the port's own save of this slot */
+	}
+	qsv_path(fn, slot);
+	str_c2p(pstr, fn);
+	if (FSOpen((ConstStr255Param)pstr, 0, &ref) != noErr)
+		return 0;
+	(void)FSRead(ref, &n, q);           /* eofErr: n says how much */
+	(void)FSClose(ref);
+	if (gbv_read(q, n, &s) != 0 || s.members == 0) {
+		dbg_log("gbs: not a Dark Queen saved game:");
+		dbg_log(fn);
+		return 0;
+	}
+	level = s.map != 0 ? gbs_slot_of(s.map) : (short)g_a5_buf(-18876)[48];
+	if (level <= 4) {
+		dbg_log_num("gbs: a saved game on a map this design lacks: ", (long)s.map);
+		return 0;
+	}
+
+	/* the party, as jt579 builds it */
+	native = qch_native();
+	g_a5_long(-27928) = 0;
+	g_a5_long(-27932) = 0;
+	h[32] = 0;
+	for (i = 0; i < s.members; i++) {
+		long len = qch_to_cch(q + s.at[i], s.len[i], s_qch_stream,
+		                      (long)sizeof s_qch_stream, native);
+
+		if (len < 0)
+			break;
+		memset(cg_pool[i], 0, 512);
+		s_qch_len = len;
+		s_qch_pos = 0;
+		g_a5_long(-6902) = (long)(uintptr_t)cg_pool[i];
+		n = jt577(QCH_MEMREF);
+		s_qch_len = 0;
+		if (n == 0)
+			break;
+		jt21((long)(uintptr_t)cg_pool[i]);
+	}
+	cg_pool_count = (short)i;
+	for (i = 0; i < (unsigned)cg_pool_count; i++) {
+		*(long *)cg_pool[i] = 0;
+		jt590(cg_pool[i]);
+	}
+	save_roster();
+
+	/* where, read back by jt582's tail (record -> globals) */
+	g_a5_byte(-6924)  = h[58];
+	g_a5_byte(-22218) = (signed char)slot;
+	g_a5_18485 = 0;                     /* the Dark Queen's maps are dungeons */
+	h[19] = (unsigned char)level;
+	h[67] = s.x;
+	h[68] = s.y;
+	h[17] = (unsigned char)(s.facing * 2);
+	/* l0bbc resumes (keeps the square, and the script memory below) only
+	 * with the "view established" flag up; without it Begin re-entered as a
+	 * new game, cleared the memory and replayed the area's arrival */
+	h[134] = (unsigned char)(s.map != 0);
+
+	/* l143e's reload: the members' sprites, the level, dungeon play */
+	g_a5_long(-27932) = g_a5_long(-27928);
+	while (g_a5_long(-27932) != 0) {
+		unsigned char *m = (unsigned char *)g_a5_ptr(-27932);
+
+		if (m[147] < 128)
+			l03d2((short)1);
+		else
+			jt56("CPIC", (short)m[181], (short)m[189]);
+		g_a5_long(-27932) = *(long *)(uintptr_t)m;
+	}
+	g_a5_long(-27932) = g_a5_long(-27928);
+	gbs_new_game();
+	jt198(level);
+	jt952();
+	if (g_a5_byte(-6924) != h[58])
+		jt85((short)h[58]);
+
+	/* the script memory, one byte a cell, and the script that was running */
+	if (g_gbs_active && g_gbs_ready) {
+		for (c = 1; c <= GBV_CELLS; c++)
+			if (s.cells[c - 1] != 0)
+				ecl_poke(&g_gbs_vm, (unsigned short)c, s.cells[c - 1]);
+		if (s.map != 0 && gbs_script_load((short)s.script)) {
+			g_gbs_init_pending = 0;     /* it was already running when saved */
+			g_gbs_resume = s.script;
+		}
+		g_gbs_nmon = 0;
+	}
+	dbg_log_num("gbs: Dark Queen save loaded, map ", (long)s.map);
+	return 1;
 }
 
 /* Tell the script where the party is. */
