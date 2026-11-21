@@ -53,9 +53,10 @@ Containers handled:
     python3 tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --monsters MONCHA.GLB,ITEM.DAT
                                                       # ...and its own monsters (tools/gbmon.py)
     python3 tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --exe DQK.EXE
-                                                      # ...its rules, items, shops and item words
-                                                      # (DQK.EXE, ITEM.DAT and ITEMS.DAT copied
-                                                      # in and read by the engine as they are)
+                                                      # ...its rules, items, shops, item words and
+                                                      # monsters (DQK.EXE, ITEM.DAT, ITEMS.DAT and
+                                                      # MONCHA.GLB copied in and read by the engine
+                                                      # as they are)
 
 No game data is needed to use or test the module (tests/test_gbgeo.py builds
 its own maps); pointing it at a real file is the user's own copy.
@@ -573,9 +574,13 @@ def main(argv):
                 with open(os.path.join(folder, "ITEM.DAT" if native else "GBITEM.DAT"),
                           "wb") as f:
                     f.write(table if native else item_table(table))
-            print("  monsters: %d%s" % (gbmon.write_design(folder, mons, items,
-                                                           native=bool(native)),
-                                        " (the game's own race numbers)" if native else ""))
+            if native:              # read by the engine as it is (gbmon.c)
+                with open(os.path.join(folder, "MONCHA.GLB"), "wb") as f, \
+                        open(parts[0], "rb") as g:
+                    f.write(g.read())
+                print("  monsters: %d, the game's own MONCHA.GLB copied in" % len(mons))
+            else:
+                print("  monsters: %d" % gbmon.write_design(folder, mons, items))
         if exe is not None and not native:
             shops = find_shops(exe)
             if shops is None:
@@ -597,12 +602,13 @@ def main(argv):
                 f.write(exe)
             print("  rules: the Dark Queen's (DQK.EXE copied in)")
             # its item table and item TYPE table (which classes use
-            # which item), read by the engine as they are; the game
-            # keeps both in DISK1
+            # which item) and its monster library, read by the engine
+            # as they are; the game keeps them in DISK1 and DISK2
             exe_dir = os.path.dirname(os.path.abspath(args[args.index("--exe") + 1]))
             for name, fits, what in (
                     ("ITEMS.DAT", lambda n: n == 2048, "item types"),
-                    ("ITEM.DAT", lambda n: n and n % 17 == 0, "items")):
+                    ("ITEM.DAT", lambda n: n and n % 17 == 0, "items"),
+                    ("MONCHA.GLB", lambda n: n > 16, "monsters")):
                 for d in [exe_dir] + sorted(os.path.join(exe_dir, x) for x in os.listdir(exe_dir)):
                     src = os.path.join(d, name)
                     if os.path.isfile(src) and fits(os.path.getsize(src)):

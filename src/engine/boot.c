@@ -64,6 +64,7 @@
 #include "ecl.h"              /* ADR-0023: the Gold Box script interpreter */
 #include "qch.h"              /* ADR-0026: Dark Queen characters (.QCH)    */
 #include "gbitems.h"          /* ADR-0026: its items, words and shops      */
+#include "gbmon.h"            /* ADR-0026: its monsters                    */
 
 /* #125c: the play-step / compose TickCount brackets in this file were gated on
  * FRUA_MONOPROF — but that flag CANNOT BE USED ON A COLOUR BUILD. Its own
@@ -41780,6 +41781,7 @@ static unsigned char jt125(short refnum, void *spec)
  * count read; the engine's load routines read it back. */
 static void jt127(const char *prefix, short num, short *out, void *buffer)
                                                 __attribute__((unused));
+static int gbs_monster(short num, void *buffer, short *out);  /* PORT, below */
 static void jt127(const char *prefix, short num, short *out, void *buffer)
 {
 	char  path[402];
@@ -41803,6 +41805,10 @@ static void jt127(const char *prefix, short num, short *out, void *buffer)
 		jt411(refnum);
 		return;
 	}
+	/* PORT (ADR-0026): a Gold Box design's monsters are the game's own,
+	 * read from its library ahead of FRUA's stock one. */
+	if (strcmp(prefix, "MONST") == 0 && gbs_monster(num, buffer, out))
+		return;
 
 	/* L01d6 — the .glb shared-library fallback. */
 	jt394(dpath, "%s.glb", path);            /* "MONST.glb"            */
@@ -108047,9 +108053,9 @@ static int gbs_training(ecl_vm *vm)
  * l159a, the handler behind its combat event, and it reads everything from a
  * 20-byte event record: six {count, monster number} slots from byte 8. So the
  * roster goes into a record of our own and the engine does the rest —
- * spawning (through jt588, which reads the design's MONSTnnn.DAT first, and
- * tools/gbmon.py has put the game's own monsters there), the fight, then
- * experience and the death of the party.
+ * spawning (through jt588, whose jt127 reads the design's MONSTnnn.DAT
+ * first and then the game's own monster library, gbs_monster), the fight,
+ * then experience and the death of the party.
  *
  * Returns 1 when the party was destroyed: the walk loop is about to end the
  * game, and the script must not run on.
@@ -108672,6 +108678,82 @@ static void gbs_item_types(int design)
 }
 
 /* gbi_load_dqk's reader: DQK.EXE, open on *ctx. */
+static long gbs_exe_read(void *ctx, long off, void *buf, long len);
+
+/* Open one of a Gold Box game's own files where gbs_read_game would read
+ * it; the refnum, or -1. */
+static short gbs_open_game(const char *name)
+{
+	static const char *const sub[] = { "", "DISK1\\", "DISK2\\", "DISK3\\" };
+	char  dpath[202], file[24];
+	short k, refnum;
+
+	for (k = 0; k < 4; k++) {
+		strcpy(file, sub[k]);           /* not jt431: see gbs_read_game */
+		strcat(file, name);
+		dpath[0] = 0;
+		jt431(dpath, &g_a5_31336);
+		jt431(dpath, file);
+		refnum = jt398(dpath, 0);
+		if (refnum >= 0)
+			return refnum;
+	}
+	return -1;
+}
+
+/* MONSTERS. A script's LOAD_MONSTER names a monster by the game's own
+ * number, and jt127 asks here for MONSTnnn when the design has no
+ * MONSTnnn.DAT of its own: the record is member nnn of the game's library
+ * (the Dark Queen's MONCHA.GLB, in DISK2), rewritten in FRUA's layout by
+ * gbm_convert (reference tools/gbmon.py), its items numbered from the
+ * game's ITEM.DAT. Under the game's own rules (the design holds DQK.EXE)
+ * it keeps the game's race numbers. A number the library lacks, or a
+ * design without one, goes on to FRUA's MONST.GLB. */
+static int gbs_monster(short num, void *buffer, short *out)
+{
+	static unsigned char q[GBM_MAX];
+	static unsigned char items[GBI_ITEMS * GBI_ITEM_IN];
+	static long          nitems;
+	static char          have[202], absent, known;
+	const char          *dir = (const char *)&g_a5_31336;
+	short                refnum, k;
+	long                 n;
+
+	if (!known || strcmp(dir, have) != 0) {
+		for (k = 0; k < (short)sizeof have - 1 && dir[k] != 0; k++)
+			have[k] = dir[k];
+		have[k] = 0;
+		known = 1;
+		absent = 0;
+		nitems = -1;
+	}
+	if (absent)
+		return 0;
+	refnum = gbs_open_game("MONCHA.GLB");
+	if (refnum < 0) {
+		absent = 1;
+		return 0;
+	}
+	n = gbm_member(gbs_exe_read, &refnum, (int)(unsigned char)num, q, (long)sizeof q);
+	jt411(refnum);
+	if (n < 0) {
+		dbg_file_num("gbs: monster not in MONCHA.GLB", (long)(unsigned char)num);
+		return 0;
+	}
+	if (nitems < 0) {
+		short r = gbs_read_game("ITEM.DAT", items, (short)sizeof items);
+
+		nitems = r > 0 && r % GBI_ITEM_IN == 0 ? r : 0;
+	}
+	if (gbm_convert(q, n, nitems ? items : NULL, nitems, g_gbs_rules != NULL,
+	                (unsigned char *)buffer) != 0)
+		return 0;
+	if (out != NULL)
+		*out = GBM_SIZE;
+	dbg_file_num("gbs: monster from MONCHA.GLB", (long)(unsigned char)num);
+	return 1;
+}
+
 static long gbs_exe_read(void *ctx, long off, void *buf, long len)
 {
 	short refnum = *(short *)ctx;

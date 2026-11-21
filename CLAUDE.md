@@ -441,12 +441,15 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   subfolder in the file name ("DISK1\ITEM.DAT"), never join it with jt431.
 - **Fights run through `l159a`, FRUA's combat event handler,** on a 20-byte
   record built from the groups LOAD_MONSTER queued (`gbs_combat`). The
-  monsters are the game's OWN: `tools/gbmon.py` rewrites each Dark Queen
-  record (MONCHA.GLB) in FRUA's 450-byte layout as the design's
-  `MONSTnnn.DAT`, which the engine reads before the stock library. The field
-  map is in that file's docstring and was derived from the 29 monsters both
-  games share, not guessed — re-run `gbmon.py --compare MONST.GLB` after
-  touching it.
+  monsters are the game's OWN: jt127 asks `gbs_monster` for MONSTnnn when the
+  design has no MONSTnnn.DAT, and `src/engine/gbmon.c` reads member nnn of
+  the game's MONCHA.GLB (design folder or DISK2) and rewrites it in FRUA's
+  450-byte layout; a design without it falls back to `tools/gbmon.py`'s
+  converted MONSTnnn.DAT, then the stock library. The field map is in
+  gbmon.py's docstring and was derived from the 29 monsters both games share,
+  not guessed — re-run `gbmon.py --compare MONST.GLB` after touching it. A
+  monster's items are numbers into the item table counting from 1 (ITEM.DAT
+  entry k is item k + 1).
 - **TREASURE stages, COMBAT hands out.** The original adds to a pending pile
   and shows nothing until the next COMBAT; FRUA has the same pile (-25314
   money, -25310 gems, -25306 jewelry, items at -25302), so the script stages

@@ -349,6 +349,7 @@ def test_native_design_gets_the_games_own_files(tmp_path):
                        "--exe", os.path.join(d, "DQK.EXE")]) == 0
     (out,) = [p for p in tmp_path.iterdir() if p.name.endswith(".DSN")]
     names = set(os.listdir(out))
-    assert {"DQK.EXE", "ITEM.DAT", "ITEMS.DAT"} <= names
+    assert {"DQK.EXE", "ITEM.DAT", "ITEMS.DAT", "MONCHA.GLB"} <= names
     assert not names & {"GBSHOP.DAT", "GBWORDS.DAT", "GBITEM.DAT"}
     assert any(x.endswith(".QCH") for x in os.listdir(out / "SAVE"))
+    assert not any(x.startswith("MONST") for x in names)
