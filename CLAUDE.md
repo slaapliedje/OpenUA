@@ -59,7 +59,12 @@ name.)
   hall never writes or deletes a .QCH.
   Krynn's one coin is steel where FRUA's is platinum (same record word,
   rec[76], one for one); its name is DQK.EXE's money table
-  (`g_rules->coin`). A money row's name comes from `rules_money_name(i)`,
+  (`g_rules->coin`). A design holding RULES.DAT plays by THAT, in place
+  of DQK.EXE's rules: `tools/rules.py` compiles it from text and writes
+  FRUA's or Krynn's rules as text to start from (`rules.py frua RFORK`,
+  `rules.py dqk DQK.EXE`); `src/engine/rules_file.c` parses it in place
+  (reference rules.py, `tests/test_rules_file.py`), `rules_load_file()`
+  in rules.c makes the ruleset, `gbs_rules` (jt361) chooses it. A money row's name comes from `rules_money_name(i)`,
   never the -14492 slot directly, and text that says "platinum" goes
   through `rules_coin_text()` (FRUA's rules: the text itself).
 - **The bitplane machines render natively in planes**, not through the Mac's

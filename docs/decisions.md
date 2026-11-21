@@ -1928,6 +1928,34 @@ Open:
 - Roland's AC still recomputes to -7 against the -11 his save carries;
 - writing back in the game's own formats (decision 4) is not begun.
 
+**Step (g) landed: a design can bring its own rules** (6ddba91c, 9af5eb54).
+`tools/rules.py` compiles RULES.DAT from a text file (a statement or a table
+row a line, each row named in a comment) and decompiles one back; it writes
+FRUA's rules (from the Mac resource fork) or the Dark Queen's (from DQK.EXE)
+as text for a designer to start from. The file carries the shapes, names and
+creation labels and every table of rules.h in the layout the engine indexes,
+each chunk on a long boundary so the tables are played in place, and,
+optionally, the progression a slot plays by picked by god, order or robe:
+DQK.EXE 0xbb19 as data. The class list is carried, not derived, because
+FRUA's creation screen gives its flagged cleric/thief the row before where
+the rule used for DQK.EXE gives the row after. `src/engine/rules_file.c`
+parses it (plain C99, held to rules.py by `tests/test_rules_file.py`), and a
+design whose folder holds RULES.DAT plays by it, in place of DQK.EXE's rules
+(a design started from Krynn's keeps the game's items and words). Checked in
+Hatari, seeded: FRUA's rules as a file give HEIRS the same creation screen,
+sheet and reroll as the built-in rules (AE 0, A/A 0); one start age changed
+in that file changes the sheet; Krynn's file, a race renamed, lists its seven
+races on a design with no DQK.EXE. HEIRS without the file matches the
+previous commit. Open:
+- the creation screen has room for seven races, so a file is held to seven;
+- choosing a ruleset in the editor (Create New Design) is not done: the file
+  is copied into the design folder;
+- `rules.py frua` reads the Mac resource fork; a DOS-only install has no way
+  to write FRUA's rules as text yet;
+- what a ruleset cannot say is still code: the racial rules written into the
+  engine are reached through `race_base`, and Krynn's knights, gods and robes
+  through the `knights` flag.
+
 **Context.** The Gold Box games OpenUA is opening up to (ADR-0023) do not all
 share FRUA's classes and races. The Krynn games have seven player races
 (Silvanesti and Qualinesti elves, half-elves, mountain and hill dwarves,
