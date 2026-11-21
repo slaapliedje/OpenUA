@@ -1,0 +1,157 @@
+"""src/engine/gbsave.c against tools/gbsave.py: a Dark Queen saved game
+(SAVGAMx.QSV) read as the game writes it.
+
+The Python is the reference (ADR-0026). The C must find the same header
+fields and the same party records, on synthetic saves (records with and
+without affect chains, a full party, the error cases) and on the real saves
+when the machine has them: the two the Steam release ships, and any made in
+the game under data/work/dqk-saves (git-ignored). The game data is never
+committed.
+"""
+import glob
+import os
+import random
+import struct
+import subprocess
+import sys
+
+import pytest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
+
+import gbsave                                                  # noqa: E402
+
+ROOT = os.path.join(os.path.dirname(__file__), "..")
+SRC = [os.path.join(ROOT, "src", "engine", "gbsave.c"),
+       os.path.join(ROOT, "tests", "gbsave_host.c")]
+GAME = os.path.expanduser(
+    "~/.local/share/Steam/steamapps/common/Dungeons & Dragons Krynn Series/"
+    "games/The Dark Queen of Krynn/GAME/DQK")
+REAL = (sorted(glob.glob(os.path.join(GAME, "SAVGAM?.QSV")))
+        + sorted(glob.glob(os.path.join(GAME, "SAVE", "SAVGAM?.QSV")))
+        + sorted(glob.glob(os.path.join(ROOT, "data", "work", "dqk-saves",
+                                        "*", "SAVGAM?.QSV"))))
+
+
+@pytest.fixture(scope="module")
+def cbin(tmp_path_factory):
+    exe = str(tmp_path_factory.mktemp("gbsave") / "gbsave_host")
+    subprocess.run(["cc", "-O2", "-std=gnu99", "-Wall", "-Wextra", "-Werror",
+                    "-o", exe] + SRC, check=True)
+    return exe
+
+
+def c_read(cbin, path):
+    out = subprocess.run([cbin, str(path)], check=True, capture_output=True,
+                         text=True).stdout.split("\n")
+    if out[0].startswith("ERR"):
+        return int(out[0].split()[1])
+    head = tuple(int(v) for v in out[0].split())
+    return head, [bytes.fromhex(line) for line in out[1:] if line]
+
+
+def py_read(data):
+    s = gbsave.GbSave(data)
+    return (s.map, s.script, s.x, s.y, s.facing, s.desc), s.members
+
+
+def record(rnd, items, nodes, name=b"HERO"):
+    r = bytearray(rnd.randrange(256) for _ in range(gbsave.QCH_FIXED))
+    r[8] = items
+    struct.pack_into("<I", r, 4, rnd.randrange(1, 1 << 32) if nodes else 0)
+    r[0x68:0x78] = name.ljust(16, b"\0")
+    r += bytes(rnd.randrange(256) for _ in range(gbsave.ITEM * items))
+    for k in range(nodes):
+        node = bytearray(rnd.randrange(256) for _ in range(gbsave.NODE))
+        struct.pack_into("<I", node, 5,
+                         0 if k == nodes - 1 else rnd.randrange(1, 1 << 32))
+        r += node
+    return bytes(r)
+
+
+def save(rnd, members, cells=None):
+    head = bytearray(cells if cells is not None
+                     else bytes(rnd.randrange(256) for _ in range(gbsave.CELLS)))
+    head += bytes(rnd.randrange(256) for _ in range(gbsave.PARTY - gbsave.CELLS))
+    struct.pack_into("<H", head, gbsave.COUNT, len(members))
+    body = bytes(head) + b"".join(members) + b"\xff" * 17
+    return body + bytes(rnd.randrange(256)
+                        for _ in range(max(0, gbsave.SIZE - len(body))))
+
+
+def test_synthetic_saves_match_reference(cbin, tmp_path):
+    rnd = random.Random(26)
+    for case in range(12):
+        n = case % (gbsave.MEMBERS + 1)
+        members = [record(rnd, rnd.randrange(0, 12),
+                          rnd.choice((0, 0, 1, 2, 5)), b"M%d" % k)
+                   for k in range(n)]
+        data = save(rnd, members)
+        p = tmp_path / ("s%d.qsv" % case)
+        p.write_bytes(data)
+        ref = py_read(data)
+        assert ref[1] == members
+        assert c_read(cbin, p) == ref
+
+
+def test_header_fields(cbin, tmp_path):
+    rnd = random.Random(3)
+    cells = bytearray(gbsave.CELLS)
+    cells[gbsave.CELL_MAP - 1] = 47
+    cells[gbsave.CELL_SCRIPT - 1] = 46
+    data = bytearray(save(rnd, [record(rnd, 2, 1)], cells))
+    data[gbsave.X], data[gbsave.Y] = 21, 3          # not on the diagonal
+    data[gbsave.FACING], data[gbsave.DESC] = 6, 171
+    p = tmp_path / "h.qsv"
+    p.write_bytes(bytes(data))
+    head, members = c_read(cbin, p)
+    assert head == (47, 46, 21, 3, 3, 171)
+    assert py_read(bytes(data))[0] == head
+    assert len(members) == 1 and members[0][0x68:0x6a] == b"HE"
+
+
+def test_errors(cbin, tmp_path):
+    rnd = random.Random(5)
+    cases = {
+        "short": (save(rnd, [])[:gbsave.PARTY - 1], -1),
+        "count": (save(rnd, [record(rnd, 0, 0)] * 9), -2),
+    }
+    endless = bytearray(record(rnd, 1, 3))
+    struct.pack_into("<I", endless, len(endless) - gbsave.NODE + 5, 1)
+    cases["chain"] = ((save(rnd, [bytes(endless)])[:gbsave.PARTY + len(endless) + 17]), -3)
+    cases["past"] = (save(rnd, [record(rnd, 3, 0)])[:gbsave.PARTY + 100], -3)
+    for name, (data, code) in cases.items():
+        p = tmp_path / (name + ".qsv")
+        p.write_bytes(data)
+        assert c_read(cbin, p) == code, name
+        with pytest.raises(gbsave.GbSaveError):
+            gbsave.GbSave(data)
+
+
+@pytest.mark.skipif(not REAL, reason="no Dark Queen saves on this machine")
+def test_real_saves_match_reference(cbin):
+    for path in REAL:
+        data = open(path, "rb").read()
+        assert len(data) == gbsave.SIZE, path
+        ref = py_read(data)
+        assert c_read(cbin, path) == ref, path
+        end = gbsave.PARTY + sum(len(r) for r in ref[1])
+        assert data[end:end + 17] == b"\xff" * 17, path   # the records end there
+
+
+@pytest.mark.skipif(not glob.glob(os.path.join(GAME, "SAVE", "*.QCH")),
+                    reason="no Dark Queen heroes on this machine")
+def test_shipped_party_is_the_shipped_heroes():
+    """The save in SAVE holds the six .QCH heroes beside it; each record is
+    its .QCH but for the live pointer words."""
+    s = gbsave.GbSave(open(os.path.join(GAME, "SAVE", "SAVGAMA.QSV"), "rb").read())
+    heroes = {}
+    for f in glob.glob(os.path.join(GAME, "SAVE", "*.QCH")):
+        q = open(f, "rb").read()
+        heroes[gbsave.name_of(q)] = q
+    assert sorted(gbsave.name_of(r) for r in s.members) == sorted(heroes)
+    for r in s.members:
+        q = heroes[gbsave.name_of(r)]
+        assert len(r) == len(q)
+        same = sum(a == b for a, b in zip(r, q))
+        assert same >= len(q) - 20
