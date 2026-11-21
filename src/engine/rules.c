@@ -9,10 +9,12 @@
 #include <stdint.h>
 
 #include "rules.h"
+#include "rules_file.h"
 #include "rules_gb.h"
 #include "data_pool_replay.h"
 #include "dbglog.h"
-#include "files.h"              /* SetFPos / FSRead */
+#include "files.h"              /* SetFPos / FSRead / GetEOF */
+#include "macmemory.h"          /* NewPtr / DisposePtr */
 
 #define A5(off) ((const unsigned char *)(g_a5_below + A5_BELOW_SIZE + (off)))
 
@@ -232,6 +234,130 @@ const ruleset_t *rules_load_dqk(short refnum)
 	};
 	dbg_log("rules: Dark Queen of Krynn's read from DQK.EXE");
 	return &s_rules_dqk;
+}
+
+/* A design's own, from its RULES.DAT (tools/rules.py compiles it). The
+ * file is read whole into a block of its own and its tables are played in
+ * place; the name tables are pointers, a long each, as the engine reads
+ * FRUA's. */
+static unsigned char *s_file;           /* the file, NewPtr'd               */
+static rlf_rules      s_rlf;
+static long           s_file_kind_names[RLF_KINDS];
+static long           s_file_race_names[RLF_MAX_RACES + 1];
+static unsigned char  s_file_race_base[256];
+static ruleset_t      s_rules_file;
+
+/* The progression a character's slot plays by, picked by its god, order
+ * or robe where the file says so (DQK.EXE 0xbb19 as data), else the
+ * slot's own. */
+static unsigned char file_prog(const unsigned char *rec, int slot)
+{
+	unsigned char by[RLF_SELECTORS];
+	int           i;
+
+	by[0] = KRYNN_GOD(rec);
+	by[1] = KRYNN_ORDER(rec);
+	by[2] = KRYNN_ROBE(rec);
+	for (i = 0; i < RLF_SELECTORS; i++)
+		if (s_rlf.sel_slot[i] == slot)
+			return s_rlf.sel[i][by[i]];
+	return s_rlf.table[RLF_SLOT_PROG][slot >= 0 && slot < RLF_SLOTS ? slot : 0];
+}
+
+const ruleset_t *rules_load_file(short refnum)
+{
+	const char *what = 0;
+	long        len = 0, count;
+	int         rc, i;
+
+	if (s_file != NULL) {           /* the last design's; g_rules is FRUA's */
+		DisposePtr((Ptr)s_file);
+		s_file = NULL;
+	}
+	if (GetEOF(refnum, &len) != noErr || len < 8 || len > 0xffffL) {
+		dbg_log("rules: RULES.DAT could not be read");
+		return NULL;
+	}
+	s_file = (unsigned char *)NewPtr(len);
+	count = len;
+	if (s_file == NULL || SetFPos(refnum, fsFromStart, 0) != noErr
+	    || FSRead(refnum, &count, s_file) != noErr || count != len) {
+		dbg_log("rules: RULES.DAT could not be read");
+		goto fail;
+	}
+	rc = rlf_parse(s_file, len, &s_rlf, &what);
+	if (rc != 0) {
+		dbg_log("rules: RULES.DAT is not a ruleset this engine reads; chunk:");
+		dbg_log(what ? what : "-");
+		goto fail;
+	}
+	for (i = 0; i < RLF_KINDS; i++)
+		s_file_kind_names[i] = (long)(uintptr_t)s_rlf.kind_name[i];
+	for (i = 0; i <= s_rlf.races; i++)
+		s_file_race_names[i] = (long)(uintptr_t)s_rlf.race_name[i];
+	/* past the player races, monsters: race `races` plays as FRUA's 6 */
+	for (i = 0; i < 256; i++) {
+		int m = i - s_rlf.races + RACE_MONSTER;
+
+		s_file_race_base[i] = (unsigned char)(i < s_rlf.races
+		        ? s_rlf.table[RLF_RACE_BASE][i] : m > 255 ? 255 : m);
+	}
+
+	s_rules_file = (ruleset_t){
+		.name             = s_rlf.name,
+		.races            = s_rlf.races,
+		.monster_race     = s_rlf.races,
+		.race_kinds_stride = s_rlf.kind_row,
+		.progressions     = s_rlf.progressions,
+		.xp_levels        = s_rlf.xp_levels,
+		.race_base        = s_file_race_base,
+
+		.kind_names       = (const unsigned char *)s_file_kind_names,
+		.race_names       = (const unsigned char *)s_file_race_names,
+
+		.race_kinds       = s_rlf.table[RLF_RACE_KINDS],
+		.kind_aligns      = s_rlf.table[RLF_KIND_ALIGNS],
+		.kind_ability_min = s_rlf.table[RLF_KIND_ABILITY_MIN],
+		.race_abilities   = s_rlf.table[RLF_RACE_ABILITIES],
+		.race_age_cat     = s_rlf.table[RLF_RACE_AGE_CAT],
+		.race_start_age   = s_rlf.table[RLF_RACE_START_AGE],
+		.race_level_cap   = s_rlf.table[RLF_RACE_LEVEL_CAP],
+
+		.slot_xp          = s_rlf.table[RLF_SLOT_XP],
+		.slot_xp_step     = s_rlf.table[RLF_SLOT_XP_STEP],
+		.slot_thac0       = s_rlf.table[RLF_SLOT_THAC0],
+		.slot_saves       = s_rlf.table[RLF_SLOT_SAVES],
+		.slot_item_bit    = s_rlf.table[RLF_SLOT_ITEM_BIT],
+		.slot_hall_bit    = s_rlf.table[RLF_SLOT_HALL_BIT],
+		.slot_name_level  = s_rlf.table[RLF_SLOT_NAME_LEVEL],
+		.slot_hd_count    = s_rlf.table[RLF_SLOT_HD_COUNT],
+		.slot_hd_size     = s_rlf.table[RLF_SLOT_HD_SIZE],
+		.slot_spell_row   = s_rlf.table[RLF_SLOT_SPELL_ROW],
+		.spell_slots      = s_rlf.table[RLF_SPELL_SLOTS],
+		.slot_prog        = s_rlf.table[RLF_SLOT_PROG],
+
+		.thief_skills     = s_rlf.table[RLF_THIEF_SKILLS],
+		.race_thief_adj   = s_rlf.table[RLF_RACE_THIEF_ADJ],
+
+		.race_label_text  = s_rlf.race_label,
+		.kind_label_text  = s_rlf.kind_label,
+		.kind_list        = s_rlf.table[RLF_KIND_LIST],
+		.default_race     = s_rlf.default_race,
+		.prime_limits     = (s_rlf.flags & RLF_FLAG_PRIME_LIMITS) != 0,
+		.prog             = (s_rlf.sel_slot[0] != 255 || s_rlf.sel_slot[1] != 255
+		                     || s_rlf.sel_slot[2] != 255) ? file_prog : NULL,
+		.knights          = (s_rlf.flags & RLF_FLAG_KNIGHTS) != 0,
+		.coin             = s_rlf.coin,
+	};
+	dbg_log("rules: the design's own, from RULES.DAT:");
+	dbg_log(s_rlf.name);
+	return &s_rules_file;
+
+fail:
+	if (s_file != NULL)
+		DisposePtr((Ptr)s_file);
+	s_file = NULL;
+	return NULL;
 }
 
 const char *rules_money_name(int i)

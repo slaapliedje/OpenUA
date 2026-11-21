@@ -150,4 +150,10 @@ const char *rules_coin_text(const char *s);
  * from (logged). Reading does not play by them: g_rules is not changed. */
 const ruleset_t *rules_load_dqk(short refnum);
 
+/* A design's own rules, read from its RULES.DAT (open on `refnum`;
+ * tools/rules.py compiles it, src/engine/rules_file.c parses it). Returns
+ * them, or NULL when the file is not one (logged). Reading frees the last
+ * file read, so call it only while g_rules is not that file's. */
+const ruleset_t *rules_load_file(short refnum);
+
 #endif

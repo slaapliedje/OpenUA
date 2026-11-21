@@ -108678,7 +108678,8 @@ static const char *gbs_word(short idx)
 
 /* The game's class and race rules (ADR-0026). A converted Dark Queen design
  * carries the game's own DQK.EXE (gbgeo.py --exe copies it in); when such a
- * design is loaded (jt361) its rules are read out of it and played by. Any
+ * design is loaded (jt361) its rules are read out of it and played by. A
+ * design holding RULES.DAT (tools/rules.py) plays by that instead. Any
  * other design plays by FRUA's. Read once per design folder. */
 static const ruleset_t *g_gbs_rules;
 
@@ -108921,6 +108922,20 @@ static void gbs_rules(void)
 			}
 		}
 		jt411(refnum);
+	}
+	/* A design's own RULES.DAT (tools/rules.py) is played by in place of
+	 * any game's, so a design started from Krynn's can change them and
+	 * keep the game's items and words. */
+	dpath[0] = 0;
+	jt431(dpath, dir);
+	jt431(dpath, "RULES.DAT");
+	refnum = jt398(dpath, 0);
+	if (refnum >= 0) {
+		const ruleset_t *own = rules_load_file(refnum);
+
+		jt411(refnum);
+		if (own != NULL)
+			g_gbs_rules = own;
 	}
 	if (g_gbs_rules != NULL) {
 		g_rules = g_gbs_rules;
