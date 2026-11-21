@@ -71,6 +71,7 @@ PROGRESSIONS = ("cleric of good", "cleric of neutrality", "fighter",
 
 RACES = 7
 KINDS = 17
+MONEY = 3          # the money types: the coin (Steel), Gems, Jewelry
 PROGS = 11
 XP_LEVELS = 19
 KIND_SLOTS = 14            # race_kinds: kinds a row can list
@@ -99,10 +100,11 @@ TABLES = (
     ("race_thief_adj",   0x64b5, 8 * RACES,              0x085f),
     ("kind_names",       0x3b3e, 4 * KINDS,              0x4bd6),
     ("race_names",       0x3b86, 4 * (RACES + 1),        0x1da4),
+    ("money_names",      0x3bd2, 4 * MONEY,              0x066b),
     ("labels",           0x7330, 296,                    0x4b9f),
     ("spell_slots",      0x0b96, 261 * SPELL_ROWS,       0x1308),
 )
-NAME_TABLES = ("kind_names", "race_names")   # sums: of the strings, see sums()
+NAME_TABLES = ("kind_names", "race_names", "money_names")   # sums: of the strings, see sums()
 
 
 class GbRulesError(ValueError):
@@ -222,6 +224,7 @@ def engine_tables(exe):
 
     t["kind_names"] = names(exe, "kind_names")
     t["race_names"] = names(exe, "race_names")
+    t["money_names"] = names(exe, "money_names")   # coin, gems, jewelry
     lab = labels(exe)
     t["race_labels"] = lab[:RACES]
     t["kind_labels"] = lab[RACES + 2:RACES + 2 + KINDS]

@@ -99,6 +99,10 @@ typedef struct ruleset {
 	/* Knights of the Sword and Rose cast clerical spells (jt908), and a
 	 * Knight of the Rose has no race level cap (jt557). FRUA 0. */
 	unsigned char         knights;
+	/* The coin's name, as its money row shows it ("Steel"); NULL: FRUA's
+	 * platinum. FRUA has one coin and so do the Krynn games, held in the
+	 * same record word (rec[76]), so only the name differs. */
+	const char           *coin;
 } ruleset_t;
 
 /* rec[91], which FRUA's record leaves 0 (no code reads it; every FRUA
@@ -130,6 +134,16 @@ enum { RACE_ELF, RACE_HALF_ELF, RACE_DWARF, RACE_GNOME, RACE_HALFLING,
 #define PROG(rec, slot) (g_rules->prog \
 	? g_rules->prog((const unsigned char *)(rec), (slot)) \
 	: g_rules->slot_prog[(unsigned char)(slot)])
+
+/* The name of money type `i` (0 the coin, 1 gems, 2 jewelry) for a money
+ * row: FRUA's -14492 table, the coin's from the rules being played. */
+const char *rules_money_name(int i);
+
+/* `s` with the word "platinum" in it, in any of its cases, as the coin of
+ * the rules being played ("steel", "Steel", "STEEL"). Under FRUA's rules
+ * `s` itself; otherwise one of a few rotating buffers, good until the
+ * fourth call after. */
+const char *rules_coin_text(const char *s);
 
 /* The Dark Queen of Krynn's rules, read from DQK.EXE (open on `refnum`).
  * Returns them, or NULL when the file is not the DQK.EXE they can be read

@@ -57,6 +57,11 @@ name.)
   `src/engine/qch.c` (reference gbchar.py) makes the .CCH stream and jt577
   reads it from memory; a .CCH of the same stem shadows the .QCH, and the
   hall never writes or deletes a .QCH.
+  Krynn's one coin is steel where FRUA's is platinum (same record word,
+  rec[76], one for one); its name is DQK.EXE's money table
+  (`g_rules->coin`). A money row's name comes from `rules_money_name(i)`,
+  never the -14492 slot directly, and text that says "platinum" goes
+  through `rules_coin_text()` (FRUA's rules: the text itself).
 - **The bitplane machines render natively in planes**, not through the Mac's
   chunky surface — writers stamp bitplanes at draw time and the present skips
   the conversion for the rows they own (ADR-0016). Shipping on **all three**:

@@ -20,7 +20,7 @@ enum {
 	T_XP_STEP, T_RACE_AB, T_RACE_KINDS, T_START_AGE, T_AGE_CAT, T_KIND_MIN,
 	T_ALIGNS, T_SPELL_ROW, T_XP, T_SAVES, T_LEVEL_CAP, T_THAC0, T_ITEM_BIT,
 	T_HALL_BIT, T_NAME_LEVEL, T_HD_COUNT, T_HD_SIZE, T_THIEF, T_RACE_THIEF,
-	T_KIND_NAMES, T_RACE_NAMES, T_LABELS, T_SPELL_SLOTS, T_COUNT
+	T_KIND_NAMES, T_RACE_NAMES, T_MONEY_NAMES, T_LABELS, T_SPELL_SLOTS, T_COUNT
 };
 
 static const struct {
@@ -48,6 +48,7 @@ static const struct {
 	{ 0x64b5,   56, 0x085f, "race_thief_adj" },
 	{ 0x3b3e,   68, 0x4bd6, "kind_names" },
 	{ 0x3b86,   32, 0x1da4, "race_names" },
+	{ 0x3bd2,   12, 0x066b, "money_names" },
 	{ 0x7330,  296, 0x4b9f, "labels" },
 	{ 0x0b96, 2088, 0x1308, "spell_slots" },
 };
@@ -152,10 +153,12 @@ int gbr_load_dqk(gbr_read_fn rd, void *ctx, gbr_tables *t, int verify,
 	memset(&out, 0, sizeof out);
 	for (tab = 0; tab < T_COUNT; tab++) {
 		*which = k_dqk[tab].name;
-		if (tab == T_KIND_NAMES || tab == T_RACE_NAMES) {
+		if (tab == T_KIND_NAMES || tab == T_RACE_NAMES || tab == T_MONEY_NAMES) {
 			rc = tab == T_KIND_NAMES
 			   ? read_names(rd, ctx, tab, &out.kind_name[0][0], GBR_KINDS, &sum)
-			   : read_names(rd, ctx, tab, &out.race_name[0][0], GBR_RACES + 1, &sum);
+			   : tab == T_RACE_NAMES
+			   ? read_names(rd, ctx, tab, &out.race_name[0][0], GBR_RACES + 1, &sum)
+			   : read_names(rd, ctx, tab, &out.money_name[0][0], GBR_MONEY, &sum);
 			if (rc != GBR_OK)
 				return rc;
 			if (verify && sum != k_dqk[tab].sum)

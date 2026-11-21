@@ -29,6 +29,7 @@ SRC = [os.path.join(ROOT, "src", "engine", "rules_gb.c"),
 
 KINDS = ["Kind%d" % k for k in range(gbrules.KINDS)]
 RACES = ["Race %c" % (65 + k) for k in range(gbrules.RACES)] + ["Monster"]
+MONEY = ["Coin", "Stones", "Trinkets"]
 
 
 @pytest.fixture(scope="module")
@@ -49,7 +50,8 @@ def synthetic():
         p = gbrules.DS + off
         exe[p:p + n] = bytes((seed * 31 + i * 7 + 1) & 0xff for i in range(n))
     sp = 0x7000
-    for name, strings in (("kind_names", KINDS), ("race_names", RACES)):
+    for name, strings in (("kind_names", KINDS), ("race_names", RACES),
+                          ("money_names", MONEY)):
         _, off, _, _ = gbrules._table(name)
         for k, s in enumerate(strings):
             struct.pack_into("<HH", exe, gbrules.DS + off + 4 * k, sp, gbrules.DS_SEG)
@@ -72,7 +74,8 @@ def c_tables(cbin, path, verify=False):
     lines = r.stdout.splitlines()
     if lines[0] != "OK":
         return lines[0], None
-    t = {"kind_names": [], "race_names": [], "race_labels": [], "kind_labels": []}
+    t = {"kind_names": [], "race_names": [], "money_names": [], "race_labels": [],
+         "kind_labels": []}
     for ln in lines[1:]:
         if ln.startswith("name "):
             _, field, _, text = ln.split(" ", 3)
@@ -98,6 +101,7 @@ def test_synthetic_matches_reference(cbin, tmp_path):
     for field in pt:
         assert ct[field] == pt[field], field
     assert ct["kind_names"] == KINDS and ct["race_names"] == RACES
+    assert ct["money_names"] == MONEY
     assert ct["race_labels"] == LABELS[:7] and ct["kind_labels"] == LABELS[9:]
 
 
@@ -166,6 +170,7 @@ def test_real_exe_says_what_the_journal_says():
     assert t["race_names"] == ["Silvanesti Elf", "Qualinesti Elf", "Half-Elf",
                                "Mountain Dwarf", "Hill Dwarf", "Kender", "Human",
                                "Monster"]
+    assert t["money_names"] == ["Steel", "Gems", "Jewelry"]
     assert t["kind_names"][:7] == ["Cleric", "Knight", "Fighter", "Paladin",
                                    "Ranger", "Magic-User", "Thief"]
     # Maximum Level Limits by Race and Class (human knight 18, kender cleric 12)

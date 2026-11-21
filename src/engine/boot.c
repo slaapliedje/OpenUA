@@ -36072,7 +36072,7 @@ static void jt557(void)
 	    && g_a5_22730 == 0
 	    && jt180() == 0
 	    && g_a5_22269 == 0) {
-		jt101(jt488("Training costs %s platinum.",
+		jt101(jt488(rules_coin_text("Training costs %s platinum."),
 		            jt70(g_a5_long(-18480))), 11, 0);
 		return;
 	}
@@ -44685,7 +44685,7 @@ static void l4334(void)
 				*(long *)(uintptr_t)head = prev;
 
 				jt384(money, jt59(amt));
-				name    = (const char *)(uintptr_t)g_a5_long(-14492 + (long)i * 4);
+				name    = rules_money_name(i);
 				namelen = jt423(name);
 				amtlen  = jt423(money);
 				numSpaces = (unsigned char)(18 - namelen - amtlen);
@@ -44770,7 +44770,7 @@ static void   l19ac(void)
 		short xp = (short)(((unsigned)rec[76 + i * 2] << 8) | rec[77 + i * 2]);
 		if (xp <= 0)
 			continue;
-		jt384(buf, (const char *)(uintptr_t)g_a5_long(-14492 + (long)i * 4));
+		jt384(buf, rules_money_name(i));
 		jt94((short)20, row, (short)7, (short)0, "%s", buf);
 		if (i == 0)
 			jt384(buf, jt70((long)xp));
@@ -100999,8 +100999,9 @@ static void l21d6(long member_l, long amount, short type)
 /* JT[884] (CODE 19 + 0x3f16) — map a money row's label (`row`, e.g. "Platinum",
  * "Gems", "Jewelry") to its pool index (Platinum 0 / Gems 1 / Jewelry 2) and
  * copy the canonical name into *out_name. JT[1] switch on the first non-space
- * letter. Part of the jt929 money path (jt924 dep). */
-static unsigned char jt884(const char *row, char *out_name) __attribute__((unused));
+ * letter. Part of the jt929 money path (jt924 dep). A row starting 'S' is
+ * the coin too, as the Krynn games' "Steel" is; the name copied is the coin
+ * of the rules being played. */
 static unsigned char jt884(const char *row, char *out_name)
 {
 	short          i = 1;            /* fp@(-2) */
@@ -101014,9 +101015,9 @@ static unsigned char jt884(const char *row, char *out_name)
 	switch (c) {                                 /* JT[1] @ 0x3f5c */
 	case 71:  /* 'G' */ result = 1;
 		jt384(out_name, ua_strs_at(0x5c9a)); break;   /* "Gems "     */
-	case 80:  /* 'P' */ jt384(out_name, ua_strs_at(0x5ca0)); /* "Platinum " */
+	case 80:  /* 'P' */ jt384(out_name, rules_coin_text(ua_strs_at(0x5ca0))); /* "Platinum " */
 		result = 0; break;
-	case 83:  /* 'S' */ jt384(out_name, ua_strs_at(0x5caa)); /* "Platinum " */
+	case 83:  /* 'S' */ jt384(out_name, rules_coin_text(ua_strs_at(0x5caa))); /* "Platinum " */
 		result = 0; break;
 	case 74:  /* 'J' */ jt384(out_name, ua_strs_at(0x5cb4)); /* "Jewelry "  */
 		result = 2; break;
@@ -101246,7 +101247,7 @@ static void jt924(void)
 			}
 			*(long *)node = oldhead;         /* new->next = old head */
 			jt394(buf, ua_strs_at(0x60d2), money);          /* "%ld"   */
-			name = (const char *)(uintptr_t)g_a5_long(-14492 + (long)i * 4);
+			name = rules_money_name(i);
 			jt384((char *)(node + 5),
 			      jt488(ua_strs_at(0x60d6), name, buf));    /* "%s %s" */
 			node[4] = 0;
@@ -101645,7 +101646,7 @@ static void jt894(short flag)
 			if (node == NULL) { head = oldhead; continue; }
 			*(long *)node = oldhead;
 			jt384(buf40, jt59(money));
-			name = (const char *)(uintptr_t)g_a5_long(-14492 + (long)i * 4);
+			name = rules_money_name(i);
 			pad = (short)(18 - jt483(name));
 			pad = (short)(pad - jt483(buf40));
 			jt384(buf58, ua_strs_at(0x5cf8));            /* "" */
@@ -102055,7 +102056,7 @@ static void jt189(long chr_l, long item)
 
 	if (price > 0) {                                       /* L441a */
 		jt96(1, 21, 38, 22, 11, 0, 1,
-		     (long)(uintptr_t)jt488(ua_strs_at(0x2836),  /* "I'll give you %ld platinum pieces for your %s" */
+		     (long)(uintptr_t)jt488(rules_coin_text(ua_strs_at(0x2836)),  /* "I'll give you %ld platinum pieces for your %s" */
 		          price, (const char *)(it + 5)), 0);
 		jt384(buf, ua_strs_at(0x2864));               /* "Will you sell " */
 		if (it[53] < 2 || it[40] == 73)
@@ -102126,7 +102127,7 @@ static void jt190(long chr_l, long item, unsigned char *redraw)
 
 	jt28(chr_l, item, 0, 0, 0, 0);
 	jt96(1, 21, 38, 22, 11, 0, 1,
-	     (long)(uintptr_t)jt488(ua_strs_at(0x2998),       /* "For 20 platinum pieces I'll identify your %s" */
+	     (long)(uintptr_t)jt488(rules_coin_text(ua_strs_at(0x2998)),       /* "For 20 platinum pieces I'll identify your %s" */
 	          (const char *)(it + 5)), 0);
 
 	if (jt159(ua_strs_at(0x29c6), 1)) {                   /* "Is It a Deal? " */
@@ -102744,7 +102745,7 @@ static void jt922_settle(unsigned char *chr, short value, long label,
 
 	jt478(value, buf);
 	jt384(buf, jt488(ua_strs_at(0x610c),             /* "%s%s%s" */
-	      (const char *)(uintptr_t)label, buf, ua_strs_at(0x6114)));  /* " platinum." */
+	      (const char *)(uintptr_t)label, buf, rules_coin_text(ua_strs_at(0x6114))));  /* " platinum." */
 	jt94(1, 12, 11, 0, buf);
 	jt399(&g_a5_byte(-24126), 40, 255);
 	g_a5_byte(-24126) = 0;
@@ -103739,18 +103740,18 @@ static unsigned char jt896(long limit, short arg2)
 				jt384(name, jt59(*(short *)(party + 76)));      /* 0x4aa8 */
 			else
 				jt384(name, jt70(pool));                       /* 0x4ac0 */
-			pcount = (short)((18 - jt483((const char *)(uintptr_t)g_a5_long(-14492)))
+			pcount = (short)((18 - jt483(rules_money_name(0)))
 			                 - jt483(name));                       /* 0x4ac6-0x4ae6 */
 			jt384(pad, "");                                        /* 0x4aec */
 			for (i = 1; i <= pcount; i++)                          /* 0x4b04-0x4b2c */
 				jt384(pad, jt488("%s ", pad));                 /* append a space */
 			jt384(line, jt488("%s%s%s",                            /* 0x4b3a */
-			      (const char *)(uintptr_t)g_a5_long(-14492), pad, name));
+			      rules_money_name(0), pad, name));
 
 			/* draw the line + run the donation field (jt96 s9 arg unused) */
 			jt96(1, 17, 38, 22, 7, 0, 1, (long)(uintptr_t)line, 0);   /* 0x4b84 */
 			prompt[0] = 0;                                         /* 0x4b8c */
-			jt384(prompt, "How much PLATINUM do you donate?");     /* 0x4b9a */
+			jt384(prompt, rules_coin_text("How much PLATINUM do you donate?"));     /* 0x4b9a */
 			if (*(short *)(party + 76) != 0) {                     /* 0x4ba4 */
 				amount = l3fd2((long)(unsigned short)*(short *)(party + 76),
 				               prompt, 7);                     /* 0x4bbe */
@@ -103859,7 +103860,7 @@ static unsigned char l46f6(const char *name, long base, short kind)
 		      name,
 		      ua_strs_at(0x653c),               /* " will only cost " */
 		      cost,
-		      ua_strs_at(0x654e));              /* " platinum pieces." */
+		      rules_coin_text(ua_strs_at(0x654e)));              /* " platinum pieces." */
 		jt96(1, 17, 38, 22, 7, 0, 1,
 		     (long)(uintptr_t)buf, 0);          /* 0x4760 */
 

@@ -12,6 +12,7 @@
 
 #define GBR_RACES      7        /* Dark Queen's player races              */
 #define GBR_KINDS     17
+#define GBR_MONEY      3        /* the coin (Steel), Gems, Jewelry        */
 #define GBR_PROGS     11        /* XP progressions (gbrules.PROGRESSIONS) */
 #define GBR_XP_LEVELS 19
 #define GBR_KIND_ROW  15        /* race_kinds row: count + 14 kinds       */
@@ -43,6 +44,7 @@ typedef struct gbr_tables {
 	unsigned char thief_skills[8 * 18];
 	char          kind_name[GBR_KINDS][GBR_NAME_MAX];
 	char          race_name[GBR_RACES + 1][GBR_NAME_MAX];   /* + Monster */
+	char          money_name[GBR_MONEY][GBR_NAME_MAX];      /* FRUA -14492 */
 	char          race_label[GBR_RACES][GBR_NAME_MAX];      /* creation   */
 	char          kind_label[GBR_KINDS][GBR_NAME_MAX];
 } gbr_tables;

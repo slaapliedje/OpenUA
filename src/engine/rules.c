@@ -228,7 +228,51 @@ const ruleset_t *rules_load_dqk(short refnum)
 		.default_race     = 6,         /* human */
 		.prog             = dqk_prog,
 		.knights          = 1,
+		.coin             = s_dqk.money_name[0],
 	};
 	dbg_log("rules: Dark Queen of Krynn's read from DQK.EXE");
 	return &s_rules_dqk;
+}
+
+const char *rules_money_name(int i)
+{
+	if (i == 0 && g_rules->coin != NULL)
+		return g_rules->coin;
+	return (const char *)(uintptr_t)*(const long *)A5(-14492 + 4 * i);
+}
+
+static int up(int c)  { return c >= 'a' && c <= 'z' ? c - 32 : c; }
+static int low(int c) { return c >= 'A' && c <= 'Z' ? c + 32 : c; }
+
+const char *rules_coin_text(const char *s)
+{
+	static const char word[] = "platinum";
+	static char       buf[4][160];
+	static int        next;
+	const char       *coin = g_rules->coin;
+	char             *d;
+	int               n = 0, k;
+
+	if (coin == NULL)
+		return s;
+	d = buf[next];
+	next = (next + 1) & 3;
+	while (*s != 0 && n < (int)sizeof buf[0] - 1) {
+		for (k = 0; word[k] != 0 && low((unsigned char)s[k]) == word[k]; k++)
+			;
+		if (word[k] != 0) {
+			d[n++] = *s++;
+			continue;
+		}
+		/* "PLATINUM" upper case, "Platinum" capitalised, else lower */
+		for (k = 0; coin[k] != 0 && n < (int)sizeof buf[0] - 1; k++) {
+			int c = (unsigned char)coin[k];
+
+			d[n++] = (char)(s[1] >= 'A' && s[1] <= 'Z' ? up(c)
+			              : k == 0 && s[0] >= 'A' && s[0] <= 'Z' ? up(c) : low(c));
+		}
+		s += sizeof word - 1;
+	}
+	d[n] = 0;
+	return d;
 }

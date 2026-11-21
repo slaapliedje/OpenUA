@@ -63,6 +63,8 @@ int main(int argc, char **argv)
 		printf("name kind_names %d %s\n", i, t.kind_name[i]);
 	for (i = 0; i <= GBR_RACES; i++)
 		printf("name race_names %d %s\n", i, t.race_name[i]);
+	for (i = 0; i < GBR_MONEY; i++)
+		printf("name money_names %d %s\n", i, t.money_name[i]);
 	for (i = 0; i < GBR_RACES; i++)
 		printf("name race_labels %d %s\n", i, t.race_label[i]);
 	for (i = 0; i < GBR_KINDS; i++)
