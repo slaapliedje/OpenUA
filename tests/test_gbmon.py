@@ -115,7 +115,7 @@ def test_items_become_item_table_numbers():
     unknown = bytes([0x99] * 17)
     f, notes = gbmon.convert(record(items=(bytes(worn), unknown,
                                            bytes(table[5 * 17:6 * 17]))), index)
-    assert list(f[0x18e:0x191]) == [3, 5, 0]
+    assert list(f[0x18e:0x191]) == [4, 6, 0]               # entry k is item k + 1
     assert notes.count("item type 153 left off") == 1
 
 
@@ -160,3 +160,17 @@ def test_native_keeps_the_games_race_numbers():
     q[0x58] = 6                                             # a human
     assert gbmon.convert(bytes(q))[0][0x58] == 5
     assert gbmon.convert(bytes(q), native=True)[0][0x58] == 6
+
+
+@pytest.mark.skipif(_real() is None, reason="game data not present")
+def test_real_items_are_fruas_numbers():
+    """The two shared monsters that carry items carry FRUA's numbers for them."""
+    stock_path, dq_path = _real()
+    stock = gbmon.load_library(open(stock_path, "rb").read())
+    dq = gbmon.load_library(open(dq_path, "rb").read())
+    items = gbmon.item_index(open(os.path.join(os.path.dirname(os.path.dirname(dq_path)),
+                                               "DISK1", "ITEM.DAT"), "rb").read())
+    by_name = {gbmon.name_of(r, True).upper(): r for r in stock.values()}
+    for name in ("CAPTAIN DAENOR", "GRUNSCHKA"):
+        q = next(r for r in dq.values() if gbmon.name_of(r).upper() == name)
+        assert gbmon.convert(q, items)[0][0x18e:0x19e] == by_name[name][0x18e:0x19e], name

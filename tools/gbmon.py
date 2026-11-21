@@ -58,7 +58,9 @@ the list; every monster converts to the same bytes either way.)
 ITEMS. The Dark Queen keeps a monster's items inline, FRUA keeps numbers into
 ITEM.DAT. The two games' ITEM.DAT have the same 254 entries in the same order,
 and an inline item is one of them with its "readied" bytes set, so the number
-is found by matching the first ten bytes. Without --items the items are left
+is found by matching the first ten bytes; entry k is item k + 1, as in the
+engine's table (FRUA's Captain Daenor and Grunschka carry exactly the Dark
+Queen's entries plus one). Without --items the items are left
 off and reported.
 
     python3 tools/gbmon.py MONCHA.GLB                         # list
@@ -125,10 +127,13 @@ def name_of(rec, frua=False):
 
 
 def item_index(item_table):
-    """ITEM.DAT (17 bytes an entry in the Dark Queen) -> {first ten bytes: number}."""
+    """ITEM.DAT (17 bytes an entry in the Dark Queen) -> {first ten bytes: number}.
+    Item numbers count from 1: the engine keeps entry k at number k + 1 (as
+    FRUA's own monster records show: Captain Daenor's and Grunschka's items
+    are the Dark Queen's entries plus one)."""
     index = {}
     for k in range(len(item_table) // 17):
-        index.setdefault(bytes(item_table[k * 17:k * 17 + ITEM_KEY]), k)
+        index.setdefault(bytes(item_table[k * 17:k * 17 + ITEM_KEY]), k + 1)
     return index
 
 
