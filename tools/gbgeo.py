@@ -53,10 +53,12 @@ Containers handled:
     python3 tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --monsters MONCHA.GLB,ITEM.DAT
                                                       # ...and its own monsters (tools/gbmon.py)
     python3 tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --exe DQK.EXE
-                                                      # ...its rules, items, shops, item words and
-                                                      # monsters (DQK.EXE, ITEM.DAT, ITEMS.DAT and
-                                                      # MONCHA.GLB copied in and read by the engine
-                                                      # as they are)
+                                                      # ...its rules, items, shops, item words,
+                                                      # monsters, maps and scripts: DQK.EXE,
+                                                      # ITEM.DAT, ITEMS.DAT, MONCHA.GLB, GEO.GLB
+                                                      # and ECL.GLB copied in and read by the engine
+                                                      # as they are, so no GEOnnn/GBDnnn/ECLnnn/
+                                                      # GBMAP files (the start area runs script 1)
 
 No game data is needed to use or test the module (tests/test_gbgeo.py builds
 its own maps); pointing it at a real file is the user's own copy.
@@ -531,10 +533,36 @@ def main(argv):
     if "--design" in args:
         out = args[args.index("--design") + 1]
         start = pick("--start") if "--start" in args else 0
+        exe = native = None
+        if "--exe" in args:
+            import gbrules
+            with open(args[args.index("--exe") + 1], "rb") as f:
+                exe = f.read()
+            try:
+                gbrules.verify(exe)
+                native = True       # the design plays by the game's own rules
+            except gbrules.GbRulesError:
+                native = False
         d = build_design(maps, start=start)
-        folder = d.write(out, make_current=("--current" in args))
+        # A design playing by the game's own rules has its maps and scripts
+        # read by the engine from GEO.GLB and ECL.GLB (src/engine/gbmaps.c),
+        # so only GAME001.DAT is written: no GEOnnn, GBDnnn, ECLnnn, GBMAP.
+        folder = d.write(out, make_current=("--current" in args), areas=not native)
         print("wrote", folder)
-        if "--ecl" in args:
+        if native:
+            with open(path, "rb") as f, open(os.path.join(folder, "GEO.GLB"), "wb") as g:
+                g.write(f.read())
+            print("  maps: %d, the game's own GEO.GLB copied in" % len(maps))
+            if "--ecl" in args:
+                eclp = args[args.index("--ecl") + 1].split(",")
+                if len(eclp) != 1:
+                    raise GbGeoError("the engine reads one ECL.GLB; give one file")
+                with open(eclp[0], "rb") as f, open(os.path.join(folder, "ECL.GLB"), "wb") as g:
+                    g.write(f.read())
+                print("  scripts: the game's own ECL.GLB copied in")
+            if "--boot-script" in args:
+                print("  (--boot-script: the engine starts script 1 in the start area)")
+        elif "--ecl" in args:
             import ecl
             blocks = []
             for path in args[args.index("--ecl") + 1].split(","):
@@ -548,16 +576,6 @@ def main(argv):
         if "--pictures" in args:
             got = write_pictures(folder, args[args.index("--pictures") + 1].split(","))
             print("  pictures: %s" % (", ".join(got) or "none found"))
-        exe = native = None
-        if "--exe" in args:
-            import gbrules
-            with open(args[args.index("--exe") + 1], "rb") as f:
-                exe = f.read()
-            try:
-                gbrules.verify(exe)
-                native = True       # the design plays by the game's own rules
-            except gbrules.GbRulesError:
-                native = False
         if "--monsters" in args:
             import gbmon
             parts = args[args.index("--monsters") + 1].split(",")
@@ -602,13 +620,16 @@ def main(argv):
                 f.write(exe)
             print("  rules: the Dark Queen's (DQK.EXE copied in)")
             # its item table and item TYPE table (which classes use
-            # which item) and its monster library, read by the engine
-            # as they are; the game keeps them in DISK1 and DISK2
+            # which item), its monster library and its scripts, read by
+            # the engine as they are; the game keeps them in DISK1..3
             exe_dir = os.path.dirname(os.path.abspath(args[args.index("--exe") + 1]))
             for name, fits, what in (
                     ("ITEMS.DAT", lambda n: n == 2048, "item types"),
                     ("ITEM.DAT", lambda n: n and n % 17 == 0, "items"),
-                    ("MONCHA.GLB", lambda n: n > 16, "monsters")):
+                    ("MONCHA.GLB", lambda n: n > 16, "monsters"),
+                    ("ECL.GLB", lambda n: n > 16, "scripts")):
+                if os.path.exists(os.path.join(folder, name)):
+                    continue        # given on the command line
                 for d in [exe_dir] + sorted(os.path.join(exe_dir, x) for x in os.listdir(exe_dir)):
                     src = os.path.join(d, name)
                     if os.path.isfile(src) and fits(os.path.getsize(src)):

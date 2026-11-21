@@ -5,74 +5,24 @@
 #include <string.h>
 
 #include "gbmon.h"
+#include "gblib.h"
 
 #define ITEM_KEY 10             /* leading bytes that identify an entry      */
-#define MEMBERS 512             /* library members we can index              */
-
-static unsigned rd16(const unsigned char *p, int big)
-{
-	return big ? (unsigned)p[0] << 8 | p[1] : p[0] | (unsigned)p[1] << 8;
-}
-
-static unsigned long rd32(const unsigned char *p, int big)
-{
-	return big
-	    ? (unsigned long)p[0] << 24 | (unsigned long)p[1] << 16
-	      | (unsigned long)p[2] << 8 | p[3]
-	    : p[0] | (unsigned long)p[1] << 8 | (unsigned long)p[2] << 16
-	      | (unsigned long)p[3] << 24;
-}
 
 long gbm_member(gbr_read_fn rd, void *ctx, int id, unsigned char *out, long max)
 {
-	static unsigned char buf[4 * (MEMBERS + 1)];
+	static gbl_lib       lib;
 	static unsigned char packed[2 * GBM_MAX];
-	unsigned long off0, off1, at, end;
-	unsigned      n, k, i, index = 0;
-	long          len, size, o, p;
-	int           big;
+	long                 at, len, size, o, p;
+	int                  rc;
 
-	if (rd(ctx, 0, buf, 16) != 16)
-		return GBM_EREAD;
-	if (memcmp(buf, "HLIB", 4) == 0)
-		big = 0;
-	else if (memcmp(buf, "GLIB", 4) == 0)
-		big = 1;
-	else
-		return GBM_ENOTLIB;
-	n = rd16(buf + 8, big);
-	if (n < 1 || n > MEMBERS)
-		return GBM_ENOTLIB;
-	if (rd(ctx, 16, buf, 4 * ((long)n + 1)) != 4 * ((long)n + 1))
-		return GBM_EREAD;
-	off0 = rd32(buf, big);
-	off1 = rd32(buf + 4, big);
-
-	/* member 0: the id table, {count, count x (id, index)} */
-	{
-		static unsigned char table[2 + 4 * MEMBERS];
-		long tl = (long)(off1 - off0);
-
-		if (off1 < off0 + 2 || tl > (long)sizeof table)
-			return GBM_ENOTLIB;
-		if (rd(ctx, (long)off0, table, tl) != tl)
-			return GBM_EREAD;
-		k = rd16(table, big);
-		if (2 + 4 * (long)k > tl)
-			return GBM_ENOTLIB;
-		for (i = 0; i < k; i++)
-			if ((int)rd16(table + 2 + 4 * i, big) == id)
-				index = rd16(table + 4 + 4 * i, big);   /* the last, as
-				                                           gbmon's dict */
-	}
-	if (index == 0 || index >= n)
+	if ((rc = gbl_open(rd, ctx, &lib)) != 0)
+		return rc;                  /* the GBL_E codes are the GBM_E ones */
+	if (id < 0 || gbl_find(&lib, (unsigned)id, &at, &len) != 0)
 		return GBM_ENONE;
-	at = rd32(buf + 4 * index, big);
-	end = rd32(buf + 4 * (index + 1), big);
-	len = (long)(end - at);
-	if (end < at + 2 || len > (long)sizeof packed)
+	if (len < 2 || len > (long)sizeof packed)
 		return GBM_ESHAPE;
-	if (rd(ctx, (long)at, packed, len) != len)
+	if (rd(ctx, at, packed, len) != len)
 		return GBM_EREAD;
 
 	/* a big-endian length, then PackBits */

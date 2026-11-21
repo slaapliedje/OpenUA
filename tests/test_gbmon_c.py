@@ -22,6 +22,7 @@ from test_gbmon import library, record                         # noqa: E402
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 SRC = [os.path.join(ROOT, "src", "engine", "gbmon.c"),
+       os.path.join(ROOT, "src", "engine", "gblib.c"),
        os.path.join(ROOT, "tests", "gbmon_host.c")]
 
 

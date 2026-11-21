@@ -316,7 +316,12 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
 - **Converter:** `tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --start N`
   writes an ordinary design folder plus `GBDnnn.DAT` (per area slot: the map's
   cell-descriptor plane), `ECLnnn.DAT` (per SCRIPT, numbered as the game
-  numbers it) and `GBMAP.DAT` (map numbers to area slots). Scripts and maps
+  numbers it) and `GBMAP.DAT` (map numbers to area slots). With the Dark
+  Queen's DQK.EXE (`--exe`) none of those are written: the engine makes each
+  from the game's GEO.GLB and ECL.GLB when the design lacks the file
+  (`src/engine/gbmaps.c`, held byte for byte to gbgeo.py by
+  `tests/test_gbmaps.py`; area slot 5 + i is the library's map i), and the
+  design's start area runs script 1, the game's start-up script. Scripts and maps
   are numbered separately in these games — Dark Queen has 47 scripts over 20
   maps.
 - **`tools/ecl.py`** disassembles the scripts (Champions, Death Knights, Dark

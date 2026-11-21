@@ -80,16 +80,18 @@ class Design:
         rec[_OFF_EQUIP] = self.equipment & 0xff
         return bytes(rec)
 
-    def write(self, base_dir, make_current=False):
-        """Write `<base_dir>/<NAME>.DSN/` with GAME001.DAT + each GEO<NNN>.DAT.
-        With make_current, also write `<base_dir>/start.dat` pointing at it."""
+    def write(self, base_dir, make_current=False, areas=True):
+        """Write `<base_dir>/<NAME>.DSN/` with GAME001.DAT + each GEO<NNN>.DAT
+        (without `areas`, GAME001.DAT alone: a Gold Box design whose maps
+        the engine reads from the game's GEO.GLB). With make_current, also
+        write `<base_dir>/start.dat` pointing at it."""
         if not self.areas:
             raise GeoError("design has no areas")
         folder = os.path.join(base_dir, self.name)
         os.makedirs(folder, exist_ok=True)
         with open(os.path.join(folder, "GAME001.DAT"), "wb") as f:
             f.write(self.game001())
-        for n, geo in sorted(self.areas.items()):
+        for n, geo in sorted(self.areas.items()) if areas else ():
             with open(os.path.join(folder, "GEO%03d.DAT" % n), "wb") as f:
                 f.write(geo.build())
         if make_current:

@@ -65,6 +65,7 @@
 #include "qch.h"              /* ADR-0026: Dark Queen characters (.QCH)    */
 #include "gbitems.h"          /* ADR-0026: its items, words and shops      */
 #include "gbmon.h"            /* ADR-0026: its monsters                    */
+#include "gbmaps.h"           /* ADR-0026: its maps                        */
 
 /* #125c: the play-step / compose TickCount brackets in this file were gated on
  * FRUA_MONOPROF — but that flag CANNOT BE USED ON A COLOUR BUILD. Its own
@@ -1560,6 +1561,9 @@ static void gbs_new_game(void);   /* PORT: Gold Box script memory, at the end */
 static char g_entry_harness_spent;  /* harness: l63c0 has run, stop forcing */
 #endif
 static void gbs_items(int want);   /* PORT: a converted game's item table */
+static int  gbs_geo(short num, void *buffer, short *out);  /* PORT: its maps */
+static short gbs_native_script(short id);
+static void gbs_native_index(void);
 static void gbs_rules(void);        /* PORT: a design's class and race rules */
 
 static void  l0bbc(void)
@@ -23554,8 +23558,9 @@ void port_test_seed_design(void)
 				jt431(dpath, &g_a5_31336);
 				jt431(dpath, path);
 				refnum = jt398(dpath, 0);
-				if (refnum >= 0) {
+				if (refnum >= 0)
 					(void)jt411(refnum);
+				if (refnum >= 0 || gbs_geo(hlv, NULL, NULL)) {
 					g_port_entry_level = hlv;       /* start level   */
 					g_a5_18827 = gh[49];            /* start entry +1 */
 				}
@@ -41808,6 +41813,8 @@ static void jt127(const char *prefix, short num, short *out, void *buffer)
 	/* PORT (ADR-0026): a Gold Box design's monsters are the game's own,
 	 * read from its library ahead of FRUA's stock one. */
 	if (strcmp(prefix, "MONST") == 0 && gbs_monster(num, buffer, out))
+		return;
+	if (strcmp(prefix, "GEO") == 0 && gbs_geo(num, buffer, out))
 		return;
 
 	/* L01d6 — the .glb shared-library fallback. */
@@ -106994,6 +107001,10 @@ static void jt500(short rings, short art, short sound)
  *                  exactly as the game ships it
  *   GBMAP.DAT    "GBM1", u8 count, then count x { u8 map number, u8 area slot }
  *
+ * A design without these files has each made from the game's own GEO.GLB
+ * and ECL.GLB instead (ADR-0026; "MAPS AND SCRIPTS read as the game keeps
+ * them", below).
+ *
  * The descriptor plane rides in its own file because it is the SCRIPT's data,
  * not the renderer's: before every run the host puts the party cell's
  * descriptor, its position and facing where the script reads them, and the
@@ -108523,6 +108534,8 @@ static int gbs_script_load(short id)
 	jt394(name, "ECL%03d.DAT", (int)id);
 	n = gbs_read(name, g_gbs_buf, (short)GBS_MAX);
 	if (n < 0)
+		n = gbs_native_script(id);
+	if (n < 0)
 		return 0;                   /* this map has no script of its own */
 	if (n <= GBS_HDR || g_gbs_buf[0] != 'G' || g_gbs_buf[1] != 'B'
 	 || g_gbs_buf[2] != 'S' || g_gbs_buf[3] != '2'
@@ -108701,6 +108714,92 @@ static short gbs_open_game(const char *name)
 	return -1;
 }
 
+/* MAPS AND SCRIPTS read as the game keeps them (ADR-0026 step (f)). A
+ * design without GEOnnn.DAT, GBDnnn.DAT, GBMAP.DAT or ECLnnn.DAT has each
+ * made from the game's own GEO.GLB and ECL.GLB (the design folder, or DISK3
+ * where the Dark Queen installs them) by src/engine/gbmaps.c, the same
+ * bytes tools/gbgeo.py writes: area slot 5 + i is the library's map i, in
+ * its id table's order. */
+static int gbs_native_map(short slot, gbg_map *m)
+{
+	static gbl_lib lib;
+	short          refnum;
+	int            rc;
+
+	if (slot < 5)
+		return 0;
+	refnum = gbs_open_game("GEO.GLB");
+	if (refnum < 0)
+		return 0;
+	rc = gbl_open(gbs_exe_read, &refnum, &lib);
+	if (rc == 0)
+		rc = gbg_read_map(gbs_exe_read, &refnum, &lib, (unsigned)(slot - 5), m);
+	jt411(refnum);
+	return rc == 0;
+}
+
+/* jt127's GEOnnn: the area itself. With no buffer, only whether there is
+ * one (the start-up's check that the design's start area exists). */
+static int gbs_geo(short num, void *buffer, short *out)
+{
+	static gbg_map m;
+	long           n;
+
+	if (!gbs_native_map(num, &m))
+		return 0;
+	if (buffer == NULL)
+		return 1;
+	n = gbg_geo(&m, (unsigned char *)buffer);
+	if (out != NULL)
+		*out = (short)n;
+	dbg_file_num("gbs: area from GEO.GLB, slot", (long)num);
+	return 1;
+}
+
+static void gbs_native_index(void)
+{
+	static gbl_lib lib;
+	short          refnum = gbs_open_game("GEO.GLB");
+	unsigned       i, id;
+	long           at, len;
+
+	if (refnum < 0)
+		return;
+	if (gbl_open(gbs_exe_read, &refnum, &lib) == 0)
+		for (i = 0; i < GBS_MAPS && gbl_entry(&lib, i, &id, &at, &len) == 0; i++) {
+			g_gbs_index[i][0] = (unsigned char)id;
+			g_gbs_index[i][1] = (unsigned char)(5 + i);
+			g_gbs_nindex = (short)(i + 1);
+		}
+	jt411(refnum);
+}
+
+/* Script `id` out of ECL.GLB into g_gbs_buf behind the GBS2 header an
+ * ECLnnn.DAT would carry (the library's scripts are the Dark Queen's,
+ * ECL_GEN2). Returns the length with the header, or -1. */
+static short gbs_native_script(short id)
+{
+	static gbl_lib lib;
+	short          refnum = gbs_open_game("ECL.GLB");
+	long           at, len = 0;
+	int            ok = 0;
+
+	if (refnum < 0)
+		return -1;
+	if (gbl_open(gbs_exe_read, &refnum, &lib) == 0
+	 && gbl_find(&lib, (unsigned)id, &at, &len) == 0
+	 && len > 0 && len <= GBS_MAX - GBS_HDR
+	 && gbs_exe_read(&refnum, at, g_gbs_buf + GBS_HDR, len) == len)
+		ok = 1;
+	jt411(refnum);
+	if (!ok)
+		return -1;
+	memcpy(g_gbs_buf, "GBS2", 4);
+	g_gbs_buf[4] = ECL_GEN2;
+	g_gbs_buf[5] = g_gbs_buf[6] = g_gbs_buf[7] = 0;
+	return (short)(GBS_HDR + len);
+}
+
 /* MONSTERS. A script's LOAD_MONSTER names a monster by the game's own
  * number, and jt127 asks here for MONSTnnn when the design has no
  * MONSTnnn.DAT of its own: the record is member nnn of the game's library
@@ -108779,6 +108878,7 @@ static void gbs_rules(void)
 	have[k] = 0;
 	g_gbs_rules = NULL;
 	g_gbs_dqk_items = NULL;
+	g_gbs_nindex = -1;              /* the map index is the design's */
 	g_rules = &g_rules_frua;
 	dpath[0] = 0;
 	jt431(dpath, dir);
@@ -108963,6 +109063,16 @@ static void gbs_area_load(short geo_num)
 	g_gbs_textlen = 0;
 	jt394(name, "GBD%03d.DAT", (int)(unsigned char)geo_num);
 	n = gbs_read(name, g_gbs_desc, (short)sizeof g_gbs_desc);
+	if (n < 0) {
+		/* the map's own descriptor, from the game's GEO library; the
+		 * area a new game starts in runs the game's start-up script, the
+		 * Dark Queen's number 1, which has no map of its own */
+		static gbg_map m;
+
+		if (gbs_native_map(geo_num, &m))
+			n = (short)gbg_desc(&m, geo_num == g_a5_buf(-18876)[48] ? 1u : 0u,
+			                    g_gbs_desc);
+	}
 	gbs_items(n >= 0);
 	if (n < 0) {
 		g_gbs_init_pending = 0;
@@ -109016,7 +109126,8 @@ static short gbs_slot_of(unsigned char map)
 				g_gbs_index[i][0] = raw[5 + 2 * i];
 				g_gbs_index[i][1] = raw[6 + 2 * i];
 			}
-		}
+		} else if (n < 0)
+			gbs_native_index();
 	}
 	for (i = 0; i < g_gbs_nindex; i++)
 		if (g_gbs_index[i][0] == map)
