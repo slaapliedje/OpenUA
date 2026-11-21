@@ -576,9 +576,7 @@ def main(argv):
             print("  monsters: %d%s" % (gbmon.write_design(folder, mons, items,
                                                            native=bool(native)),
                                         " (the game's own race numbers)" if native else ""))
-        if exe is not None and native:
-            print("  shops, item words: read from DQK.EXE by the engine")
-        elif exe is not None:
+        if exe is not None and not native:
             shops = find_shops(exe)
             if shops is None:
                 print("  shops: no stock tables found in that executable")
@@ -592,39 +590,39 @@ def main(argv):
             else:
                 write_words(folder, words)
                 print("  item words: %d past FRUA's (%s ...)" % (len(words), words[0]))
-            if not native:
-                print("  rules: not the Dark Queen's DQK.EXE; FRUA's rules")
-            else:                   # the engine reads them from the EXE itself
-                with open(os.path.join(folder, "DQK.EXE"), "wb") as f:
-                    f.write(exe)
-                print("  rules: the Dark Queen's (DQK.EXE copied in)")
-                # its item table and item TYPE table (which classes use
-                # which item), read by the engine as they are; the game
-                # keeps both in DISK1
-                exe_dir = os.path.dirname(os.path.abspath(args[args.index("--exe") + 1]))
-                for name, fits, what in (
-                        ("ITEMS.DAT", lambda n: n == 2048, "item types"),
-                        ("ITEM.DAT", lambda n: n and n % 17 == 0, "items")):
-                    for d in [exe_dir] + sorted(os.path.join(exe_dir, x) for x in os.listdir(exe_dir)):
-                        src = os.path.join(d, name)
-                        if os.path.isfile(src) and fits(os.path.getsize(src)):
-                            with open(src, "rb") as f, open(os.path.join(folder, name), "wb") as g:
-                                g.write(f.read())
-                            print("  %s: the game's own %s copied in" % (what, name))
-                            break
-                # its heroes (SAVE\*.QCH beside the EXE): the hall reads
-                # them as they are (ADR-0026 step (d)); one the hall has
-                # saved to a .CCH is read from that instead
-                heroes = os.path.join(exe_dir, "SAVE")
-                qch = sorted(x for x in os.listdir(heroes)
-                             if x.upper().endswith(".QCH")) if os.path.isdir(heroes) else []
-                if qch:
-                    os.makedirs(os.path.join(folder, "SAVE"), exist_ok=True)
-                    for x in qch:
-                        with open(os.path.join(heroes, x), "rb") as f, \
-                                open(os.path.join(folder, "SAVE", x.upper()), "wb") as g:
+            print("  rules: not the Dark Queen's DQK.EXE; FRUA's rules")
+        elif exe is not None:       # the engine reads them from the EXE itself
+            print("  shops, item words: read from DQK.EXE by the engine")
+            with open(os.path.join(folder, "DQK.EXE"), "wb") as f:
+                f.write(exe)
+            print("  rules: the Dark Queen's (DQK.EXE copied in)")
+            # its item table and item TYPE table (which classes use
+            # which item), read by the engine as they are; the game
+            # keeps both in DISK1
+            exe_dir = os.path.dirname(os.path.abspath(args[args.index("--exe") + 1]))
+            for name, fits, what in (
+                    ("ITEMS.DAT", lambda n: n == 2048, "item types"),
+                    ("ITEM.DAT", lambda n: n and n % 17 == 0, "items")):
+                for d in [exe_dir] + sorted(os.path.join(exe_dir, x) for x in os.listdir(exe_dir)):
+                    src = os.path.join(d, name)
+                    if os.path.isfile(src) and fits(os.path.getsize(src)):
+                        with open(src, "rb") as f, open(os.path.join(folder, name), "wb") as g:
                             g.write(f.read())
-                    print("  heroes: %d .QCH copied into SAVE" % len(qch))
+                        print("  %s: the game's own %s copied in" % (what, name))
+                        break
+            # its heroes (SAVE\*.QCH beside the EXE): the hall reads
+            # them as they are (ADR-0026 step (d)); one the hall has
+            # saved to a .CCH is read from that instead
+            heroes = os.path.join(exe_dir, "SAVE")
+            qch = sorted(x for x in os.listdir(heroes)
+                         if x.upper().endswith(".QCH")) if os.path.isdir(heroes) else []
+            if qch:
+                os.makedirs(os.path.join(folder, "SAVE"), exist_ok=True)
+                for x in qch:
+                    with open(os.path.join(heroes, x), "rb") as f, \
+                            open(os.path.join(folder, "SAVE", x.upper()), "wb") as g:
+                        g.write(f.read())
+                print("  heroes: %d .QCH copied into SAVE" % len(qch))
         m = maps[start]
         e = m.find_entry()
         print("  %d areas; starting in area %d (source id %s), party at x=%d y=%d facing %s"

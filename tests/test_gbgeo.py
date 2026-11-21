@@ -7,6 +7,7 @@ future edit could silently undo: the plane packing, the door flags, and above
 all the AXIS AND EDGE ORDER of the FRUA cells, which was wrong twice before a
 walk through an asymmetric map settled it.
 """
+import glob
 import os
 import struct
 import sys
@@ -329,3 +330,25 @@ def test_item_words_past_frua_are_found_by_shape(tmp_path):
 
 def test_no_item_words_without_the_table():
     assert gbgeo.find_words(b"\0" * 4096) is None
+
+
+def _dqk_dir():
+    for p in sorted(glob.glob(os.path.expanduser(
+            "~/.local/share/Steam/steamapps/common/*Krynn*/games/"
+            "The Dark Queen of Krynn/GAME/DQK/DQK.EXE"))):
+        return os.path.dirname(p)
+    return None
+
+
+@pytest.mark.skipif(_dqk_dir() is None, reason="no Dark Queen on this machine")
+def test_native_design_gets_the_games_own_files(tmp_path):
+    """--exe with the real DQK.EXE: the files the engine reads natively are
+    copied in, and none of the converted ones are written."""
+    d = _dqk_dir()
+    assert gbgeo.main([os.path.join(d, "DISK3", "GEO.GLB"), "--design", str(tmp_path),
+                       "--exe", os.path.join(d, "DQK.EXE")]) == 0
+    (out,) = [p for p in tmp_path.iterdir() if p.name.endswith(".DSN")]
+    names = set(os.listdir(out))
+    assert {"DQK.EXE", "ITEM.DAT", "ITEMS.DAT"} <= names
+    assert not names & {"GBSHOP.DAT", "GBWORDS.DAT", "GBITEM.DAT"}
+    assert any(x.endswith(".QCH") for x in os.listdir(out / "SAVE"))
