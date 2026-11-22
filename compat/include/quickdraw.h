@@ -363,6 +363,7 @@ void qd_touch_rows(short y0, short y1);   /* [y0, y1) in surface coords */
 void qd_touch_all(void);
 int  qd_dirty_rows(const unsigned char **rows);   /* backend: !0 = scan all */
 int  qd_dirty_any(void);                          /* !0 = a writer announced rows */
+int  qd_present_due(void);                        /* rows, or a palette a present must carry */
 
 /*
  * Present hook — called by long-running window-tracking loops (DragWindow,

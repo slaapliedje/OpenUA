@@ -378,12 +378,25 @@ static void qd_touch_present_only(void)
 	g_qd_touched = 1;
 }
 
+/* A palette write a present must carry (dsp_backend_t.palette_needs_present)
+ * has not been presented yet. Set by qd_set_palette, cleared by a full
+ * present. Kept out of qd_dirty_any(): the rect presents that ask that only
+ * want rows. */
+static char s_pal_present_due;
+
 /* #61: "did any pixels change since the last present?" — see planar_dirty_any.
  * The engine's idle present asks this; it must NOT ask g_qd_touched, which a
  * bare pointer grab sets. */
 int qd_dirty_any(void)
 {
 	return planar_dirty_any();
+}
+
+/* "Is there anything an idle present would show?" — rows a writer announced,
+ * or a palette write a present must carry (see s_pal_present_due). */
+int qd_present_due(void)
+{
+	return s_pal_present_due || planar_dirty_any();
 }
 
 int qd_dirty_rows(const unsigned char **rows)
@@ -682,6 +695,7 @@ static char qd_present_body(void)
 	 * cursor_restore above grab the pixel pointer (marking touched) but
 	 * are net-neutral writes already reflected in the pack. */
 	g_qd_touched = 0;
+	s_pal_present_due = 0;           /* the backend blitted the moved colours */
 	/* #63: the backend has consumed the row set for this frame. Note that
 	 * qd_present_rect does NOT reset — a rect present updates only the SHOWN
 	 * page, so those rows must stay dirty until a full present has given the
@@ -2351,9 +2365,11 @@ void qd_set_palette(const RGBColor *colors, short first, short count)
 		 * scanning 128,800 rows to convert 782. Backends that own that
 		 * invalidation set palette_self_invalidates and take the cheap arm;
 		 * everyone else keeps the historical blanket. */
-		if (dsp != NULL && dsp->palette_self_invalidates)
+		if (dsp != NULL && dsp->palette_self_invalidates) {
 			qd_touch_present_only();
-		else
+			if (dsp->palette_needs_present)
+				s_pal_present_due = 1;
+		} else
 			qd_touch_all();
 		QDT(3);
 	}

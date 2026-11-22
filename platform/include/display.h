@@ -151,6 +151,21 @@ typedef struct dsp_backend {
 	 * after pixels" a different trade there, and it cannot be tested off the
 	 * real card. */
 	short palette_with_present;
+
+	/* 1 = a palette write on this backend reaches the screen ONLY through a
+	 * present, and the engine's idle present must therefore fire for it
+	 * although no row was drawn (qd_present_due).
+	 *
+	 * The Falcon: its screen holds RGB565 words, so a new CLUT entry shows
+	 * only when a present re-blits the pixels that use it. ab2dd39e made it
+	 * palette_self_invalidates (the present re-blits just those segments),
+	 * which also stopped the shim marking rows on a palette write; jt1134's
+	 * 12-tick idle present asks qd_dirty_any(), saw no rows, and stopped
+	 * presenting pure colour animation. The SSI title's stars froze — its
+	 * wait loop draws nothing, it only cycles the palette.
+	 *
+	 * Last field, so every positional initialiser gets 0 = unchanged. */
+	short palette_needs_present;
 } dsp_backend_t;
 
 /* Probe the host machine and return the best available backend, or NULL. */

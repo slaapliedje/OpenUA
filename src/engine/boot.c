@@ -27658,9 +27658,15 @@ static long jt1134(void)
 		 * because it is the correct predicate for a visibility
 		 * concession, not because it has been shown to help; the win
 		 * arrives only once the announcer is found. Do not cite this
-		 * as a fix. */
+		 * as a fix.
+		 *
+		 * qd_present_due() is qd_dirty_any() plus a palette write the
+		 * backend can show only through a present (the Falcon): pure
+		 * colour animation draws no rows, and without it the SSI
+		 * title's stars froze once the Falcon stopped marking rows on
+		 * a palette write (ab2dd39e). */
 		if ((now - s_present_tick >= 12 || now < s_present_tick)
-		    && qd_dirty_any()) {
+		    && qd_present_due()) {
 			qd_present();
 			s_present_tick = now;
 		}

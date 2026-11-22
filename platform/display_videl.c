@@ -1084,6 +1084,10 @@ static const dsp_backend_t videl_backend = {
 	 * groups moved and the present re-blits the segments that use them. So
 	 * the shim must not blanket-mark the rows (see display.h). */
 	.palette_self_invalidates = 1,
+	/* ...but a moved colour shows only once a present re-blits it, so the
+	 * engine's idle present must still fire for a pure palette write (the
+	 * SSI title's cycling; see display.h). */
+	.palette_needs_present = 1,
 };
 
 /* _VDO cookie: video hardware id in the high word (0 ST shifter, 1 STE,
