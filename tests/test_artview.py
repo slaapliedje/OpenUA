@@ -37,10 +37,10 @@ def test_raw8_pixels_keep_their_x():
     assert rows == {0: {0: 5, 2: 7}}
 
 
-def test_mode7_skip_advances_x_by_257_minus_b():
-    # 2 literals at x0,x1; skip 3 (b=254); 1 literal at x5; 0 ends the row
+def test_mode7_skip_advances_x_by_256_minus_b():
+    # 2 literals at x0,x1; skip 2 (b=254); 1 literal at x4; 0 ends the row
     rows = artview.px_mode7(bytes([2, 40, 41, 254, 1, 42, 0]), 16, 1)
-    assert rows == {0: {0: 40, 1: 41, 5: 42}}
+    assert rows == {0: {0: 40, 1: 41, 4: 42}}
 
 
 def test_mode7_index_zero_is_transparent():

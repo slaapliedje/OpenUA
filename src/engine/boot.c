@@ -702,6 +702,10 @@ static short jt398(const char *path, short flags)
 	if (status != 0)
 		path = l31fc(path);
 	l45d6(buf, path);
+#if !defined(FRUA_ARTCONV_OFF)
+	if (ua_ext_is(path, "ctl"))
+		(void)ua_art_refresh_ctl(path);   /* pre-256-b conversions */
+#endif
 	status = l328e(buf, 0, flags);
 
 #if !defined(FRUA_ARTCONV_OFF)
@@ -3306,6 +3310,16 @@ static OSErr ua_open_art(ConstStr255Param pname, short perm, short *refnum)
 		memcpy(p + 1 + k, n + 1, n[0]);
 		k += n[0];
 		p[0] = (unsigned char)k;
+#if !defined(FRUA_ARTCONV_OFF)
+		if (n[0] > 4 && (n[n[0]] | 32) == 'l'
+		    && (n[n[0] - 1] | 32) == 't' && (n[n[0] - 2] | 32) == 'c'
+		    && n[n[0] - 3] == '.') {
+			char c[256];
+			memcpy(c, p + 1, p[0]);
+			c[p[0]] = 0;
+			(void)ua_art_refresh_ctl(c);  /* pre-256-b conversions */
+		}
+#endif
 		if (FSOpen((ConstStr255Param)p, perm, refnum) == noErr) {
 			/* ADR-0014: a design file holding DOS HLIB bytes is a
 			 * MISS, whatever it is named (a raw PC module's .TLBs
@@ -3349,8 +3363,19 @@ static OSErr ua_open_art(ConstStr255Param pname, short perm, short *refnum)
 #endif
 	}
 	{
-		OSErr err = FSOpen(pname, perm, refnum);
+		OSErr err;
 
+#if !defined(FRUA_ARTCONV_OFF)
+		if (n[0] > 4 && (n[n[0]] | 32) == 'l'
+		    && (n[n[0] - 1] | 32) == 't' && (n[n[0] - 2] | 32) == 'c'
+		    && n[n[0] - 3] == '.') {
+			char c[256];
+			memcpy(c, n + 1, n[0]);
+			c[n[0]] = 0;
+			(void)ua_art_refresh_ctl(c);  /* pre-256-b conversions */
+		}
+#endif
+		err = FSOpen(pname, perm, refnum);
 		if (err == noErr)
 			return err;
 		/* ★ ADR-0014 ON THE ROOT FALLBACK — the path that was missed.
@@ -29968,29 +29993,28 @@ static long unpackbits(const unsigned char *src, long srclen,
  *
  *   b == 0            -> end of row: drop to the next scanline (x = 0)
  *   b in 1..127       -> copy b literal pixels, advance src + dst by b
- *   b in 0x80..0xFF   -> skip (257 - b) transparent pixels (dst only)
+ *   b in 0x80..0xFF   -> skip (256 - b) transparent pixels (dst only)
  *
- * ★ THE SKIP IS 257 - b, NOT 256 - b, AND THE DIFFERENCE IS VISIBLE. This
- * read 256 - b until 2026-07-31, i.e. every transparent gap came out one
- * pixel short. A skip-length error does not corrupt locally, it SHIFTS
- * everything after it and the shifts ACCUMULATE along the row, so the damage
- * scales with how many gaps a row has: solid art (the SSI and Micro Magic
- * logos, the Forgotten Realms plaque) looked perfect while fine lettering —
- * many short runs separated by many gaps — turned into blocky noise. The
- * intro's SSI, AD&D and credits screens were unreadable for months with the
- * logos on the same screens looking fine, which is exactly why it read as
- * "palette corruption" rather than a codec bug.
+ * ★ THE SKIP IS 256 - b, AND AN OFF-BY-ONE HERE IS VISIBLE. A skip-length
+ * error does not corrupt locally, it SHIFTS everything after it and the
+ * shifts ACCUMULATE along the row, so the damage scales with how many gaps
+ * a row has: solid art (the SSI and Micro Magic logos, the Forgotten Realms
+ * plaque) looks perfect while fine lettering — many short runs separated by
+ * many gaps — turns into blocky noise. That is why the intro's SSI, AD&D
+ * and credits text read as "palette corruption" rather than a codec bug.
  *
- * The correct law is the one tools/art_convert.py's m23_decode() has always
- * used for the LINEAR (Mac .ctl) layout, and it is not a guess: that decode
- * re-encodes back to SSI's own DOS bytes exactly for 57 of Pool of Radiance's
- * 62 method-23 items, and is the only candidate that produces zero
- * double-written pixels across the corpus. Rendering this piece both ways
- * settles it in one look — 256 - b gives the noise, 257 - b gives
- * "STRATEGIC SIMULATIONS, INC.". tests/test_glib_t7.py pins it.
+ * This read 257 - b from 2026-07-31 to 2026-11-22, and that was the bug.
+ * The July change was checked against art OUR converter had written, whose
+ * encoder also used 257 - b, so the two errors cancelled; SSI's own Mac
+ * .ctl files (staged since 2026-11-16) came out scrambled. The proof is
+ * SSI's 1993 Mac TITLE.CTL against the DOS TITLE.TLB (whose planar law is
+ * independently proven): read with 256 - b the AD&D piece differs from DOS
+ * by 6 pixels, with 257 - b by 2,535, and the credits piece comes out
+ * DOS's 282 wide (257 - b: 286). tests/test_glib_t7.py pins it against the
+ * real files when they are staged. A .ctl converted before the fix carries
+ * no ARTCONV_TRAILER and is regenerated from its .tlb (ua_art_refresh_ctl).
  *
- * (The DOS planar layout is a DIFFERENT law — x += 4 * (256 - v) — because
- * there the byte counts 4-pixel column groups. Do not unify them.)
+ * (The DOS planar layout counts 4-pixel column groups: x += 4 * (256 - v).)
  *
  * (In the Mac, the 0-byte advance is `a3 = a2 + L04de()` where L04de is
  * the dest row stride, 320 in 8-bit colour; here we model the same as
@@ -30016,8 +30040,8 @@ static const unsigned char *decode_glib_t7(const unsigned char *src,
 				src++;
 				x++;
 			}
-		} else {                              /* skip 257-b transparent */
-			x = (short)(x + (257 - b));
+		} else {                              /* skip 256-b transparent */
+			x = (short)(x + (256 - b));
 		}
 	}
 	return src;

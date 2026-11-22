@@ -304,8 +304,9 @@ static long m23_decode(const unsigned char *payload, long plen,
 				if (v == 0)
 					break;
 				if (v >= 128) {
-					x += planar ? 4L * (256 - v)
-						    : 257L - v;
+					/* 256 - v columns in both layouts
+					 * (art_convert.m23_decode) */
+					x += (planar ? 4L : 1L) * (256 - v);
 					continue;
 				}
 				while (v--) {
@@ -324,40 +325,14 @@ static long m23_decode(const unsigned char *payload, long plen,
 	return i;
 }
 
-/* (px, mask) -> a method-23 stream. The linear layout cannot express
- * 1-pixel transparent gaps; px/mask are MUTATED to pre-fill them (they
- * are scratch buffers in every caller). Returns the stream length. */
-static long m23_encode(unsigned char *px, unsigned char *mask,
+/* (px, mask) -> a method-23 stream. Returns the stream length. */
+static long m23_encode(const unsigned char *px, const unsigned char *mask,
 		       long w, long rows, int planar,
 		       unsigned char *out, long cap)
 {
 	long o = 0, sweep, y;
 	int nsweep = planar ? 4 : 1;
 	long step = planar ? 4 : 1;
-
-	if (!planar) {
-		for (y = 0; y < rows; y++) {
-			long row = y * w, x, first = -1, last = -1;
-			for (x = 0; x < w; x++)
-				if (mask[row + x]) {
-					if (first < 0)
-						first = x;
-					last = x;
-				}
-			if (first < 0)
-				continue;
-			for (x = first + 1; x < last; x++)
-				if (!mask[row + x] && mask[row + x - 1]
-				    && mask[row + x + 1]) {
-					mask[row + x] = 1;
-					px[row + x] = px[row + x - 1];
-				}
-			if (first == 1) {
-				mask[row] = 1;
-				px[row] = px[row + 1];
-			}
-		}
-	}
 
 	for (sweep = 0; sweep < nsweep; sweep++) {
 		for (y = 0; y < rows; y++) {
@@ -376,26 +351,11 @@ static long m23_encode(unsigned char *px, unsigned char *mask,
 					while (k + run <= last
 					       && !mask[row + x0 + (k + run) * step])
 						run++;
-					if (planar) {
-						while (run) {
-							long take = run < 128 ? run : 128;
-							if (o >= cap)
-								return ARTCONV_ERR_SPACE;
-							out[o++] = (unsigned char)(256 - take);
-							k += take;
-							run -= take;
-						}
-						continue;
-					}
 					while (run) {
-						long take = run < 129 ? run : 129;
-						if (run - take == 1)
-							take--;
-						if (take < 2)
-							take = run < 2 ? run : 2;
+						long take = run < 128 ? run : 128;
 						if (o >= cap)
 							return ARTCONV_ERR_SPACE;
-						out[o++] = (unsigned char)(257 - take);
+						out[o++] = (unsigned char)(256 - take);
 						k += take;
 						run -= take;
 					}
@@ -702,6 +662,7 @@ long artconv_convert(const unsigned char *src, long srclen,
 {
 	arena A;
 	const unsigned char *to;
+	long r;
 
 	if (srclen < 4)
 		return ARTCONV_ERR_BAD;
@@ -714,7 +675,14 @@ long artconv_convert(const unsigned char *src, long srclen,
 	A.base = scratch;
 	A.cap = scratchcap;
 	A.used = 0;
-	return conv_container(src, srclen, dst, dstcap, &A, to);
+	r = conv_container(src, srclen, dst, dstcap, &A, to);
+	if (r > 0 && to == MAGIC_GLIB) {
+		if (r + ARTCONV_TRAILER_LEN > dstcap)
+			return ARTCONV_ERR_SPACE;
+		memcpy(dst + r, ARTCONV_TRAILER, ARTCONV_TRAILER_LEN);
+		r += ARTCONV_TRAILER_LEN;
+	}
+	return r;
 }
 
 /* ---- mono (.tlb) synthesis ----------------------------------------------- */

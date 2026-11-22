@@ -110,7 +110,7 @@ def decode_raw8(body, pix_w, height):
 
 def decode_mode7(body, pix_w, height):
     """Transparency RLE (engine decode_glib_t7): 0 = end of row, 1..127 =
-    that many literals, >=128 = skip 257-b transparent. 0 = transparent."""
+    that many literals, >=128 = skip 256-b transparent. 0 = transparent."""
     rows, pos, x, y = {}, 0, 0, 0
     n = len(body)
     while y < height and pos < n:
@@ -128,7 +128,7 @@ def decode_mode7(body, pix_w, height):
                         rows.setdefault(y, set()).add(v)
                 x += 1
         else:
-            x += 257 - b
+            x += 256 - b
     return rows
 
 

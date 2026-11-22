@@ -76,7 +76,7 @@ def px_raw8(body, pix_w, height):
 
 
 def px_mode7(body, pix_w, height):
-    """Transparency RLE: 0 ends the row, 1..127 literals, >=128 skips 257-b.
+    """Transparency RLE: 0 ends the row, 1..127 literals, >=128 skips 256-b.
     Index 0 is transparent."""
     rows, pos, x, y = {}, 0, 0, 0
     n = len(body)
@@ -95,7 +95,7 @@ def px_mode7(body, pix_w, height):
                         rows.setdefault(y, {})[x] = v
                 x += 1
         else:
-            x += 257 - b
+            x += 256 - b
     return rows
 
 

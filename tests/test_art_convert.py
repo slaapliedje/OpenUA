@@ -15,7 +15,7 @@ import struct
 
 import pytest
 
-from art_convert import (MONO_PAL_ITEM, BadContainer, UnsupportedPiece,
+from art_convert import (ARTCONV_TRAILER, MONO_PAL_ITEM, BadContainer, UnsupportedPiece,
                          convert, deplanarize, dos_name, m23_decode,
                          m23_encode, mac_name, mono_family, mono_synth,
                          parse, planarize, rle_decode, rle_encode)
@@ -94,8 +94,9 @@ def test_offsets_and_size_survive_the_swap():
     dos = _container(b"HLIB", [_tile(b"HLIB", rows, w, bytes(w * rows))] * 2)
     mac = convert(dos, to=b"GLIB")
     assert parse(mac)["offsets"] == parse(dos)["offsets"]
-    assert len(mac) == len(dos)
-    assert parse(mac)["size"] == len(mac)
+    assert len(mac) == len(dos) + len(ARTCONV_TRAILER)
+    assert parse(mac)["size"] == len(dos)
+    assert mac.endswith(ARTCONV_TRAILER)
 
 
 def test_colour_table_payload_passes_through_but_words_swap():
@@ -241,7 +242,7 @@ def test_m23_planar_law_round_trips():
 
 def test_m23_planar_skip_byte_is_256_minus_gap():
     # a single sweep-0 row with pixels at x=1 and x=9 (gap of one column):
-    # the skip byte must be 256-1 = 255, NOT the linear layout's 257-n
+    # the skip byte must be 256-1 = 255 (both layouts count 256 - v units)
     w, rows = 12, 1
     px, mask = _sprite(w, rows, {(1, 0): 7, (9, 0): 8})
     stream = m23_encode(px, mask, w, rows, planar=True)
@@ -310,7 +311,7 @@ def test_por_cbody_comspr_convert_byte_exactly():
         dos = open("data/designs/Game39.dsn/%s.TLB" % name, "rb").read()
         mac = open("data/work/fanmods/pormac/POR/GAME39.dsn/%s.CTL" % name,
                    "rb").read()
-        assert convert(dos, to=b"GLIB") == mac
+        assert convert(dos, to=b"GLIB") == mac + ARTCONV_TRAILER
         assert convert(mac, to=b"HLIB") == dos
 
 
@@ -458,6 +459,8 @@ def test_converts_real_dos_art_to_real_mac_art():
         dos = open(hits[0], "rb").read()
         want = open(mac_path, "rb").read()
         got = convert(dos, to=b"GLIB")
+        assert got.endswith(ARTCONV_TRAILER)
+        got = got[:-len(ARTCONV_TRAILER)]
 
         if got == want:
             exact += 1

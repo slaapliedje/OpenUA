@@ -12,4 +12,10 @@
  * failure) — callers just fall through to the base art. */
 int ua_dos_art_convert_file(const char *in_path, const char *out_path);
 
+/* Before opening a .ctl: if it is a GLIB this engine converted before
+ * ARTCONV_TRAILER existed (linear skips written as 257 - v) and its DOS
+ * HLIB .tlb is still beside it, convert it again over the old file.
+ * Checks each path once per session. Returns 1 when it rewrote. */
+int ua_art_refresh_ctl(const char *ctl_path);
+
 #endif /* ARTCONV_LOAD_H */

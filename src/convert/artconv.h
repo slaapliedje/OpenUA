@@ -19,6 +19,15 @@ enum {
 	ARTCONV_ERR_SPACE = -3		/* dst or scratch buffer too small */
 };
 
+/* Appended after the declared end of every GLIB artconv_convert writes.
+ * It says the file's linear method-23 skips are 256 - v; GLIBs converted
+ * before 2026-11-22 lack it and used 257 - v, so the engine regenerates
+ * an unmarked converted .ctl from its DOS .tlb twin (ua_art_refresh_ctl,
+ * src/engine/artconv_load.c). Not in the header: the engine rejects a
+ * GLIB whose byte [10] (a library type flag) is not 0. */
+#define ARTCONV_TRAILER "OpUA"
+#define ARTCONV_TRAILER_LEN 4
+
 /* Mono-synthesis stream modes (MONO_FAMILIES in the Python). */
 enum {
 	ARTCONV_MONO_PLANAR = 0,	/* 0x90 plain / 0x91 keep-mask+data */

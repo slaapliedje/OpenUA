@@ -40,8 +40,8 @@ def test_unpackbits_literal_and_run():
     assert pos == len(data)
 
 
-def test_mode7_skip_is_257_minus_b():
-    # 2 literals, skip 3 (b = 254), 1 literal, end of row
+def test_mode7_skip_is_256_minus_b():
+    # 2 literals, skip 2 (b = 254), 1 literal, end of row
     body = bytes([2, 40, 41, 254, 1, 42, 0])
     rows = perband.decode_mode7(body, 16, 1)
     assert rows[0] == {40, 41, 42}

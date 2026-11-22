@@ -74,6 +74,11 @@ import sys
 
 HLIB, GLIB = b"HLIB", b"GLIB"
 HDR = 16                      # magic + size + count + flags + tag
+# Appended after the declared end of every GLIB file convert() writes: it
+# says "linear method-23 skips are 256 - v" (see m23_decode).  Not in the
+# header: the engine rejects a GLIB whose byte [10] (a library type flag)
+# is not 0.  Trailing bytes are harmless; many fan files have them.
+ARTCONV_TRAILER = b"OpUA"
 # (drawing-method constants live next to _convert_entry)
 
 
@@ -305,7 +310,9 @@ DRAW_ID_LIST = 25
 # method-23 stream is skip/literal, per row:
 #
 #     v == 0    end of row
-#     v >= 128  SKIP (257 - v) pixels -- they stay TRANSPARENT
+#     v >= 128  SKIP (256 - v) pixels -- they stay TRANSPARENT
+#               (linear Mac layout: 256 - v pixels; planar DOS layout:
+#               4 * (256 - v) -- see m23_decode)
 #     v <  128  the next v bytes are literal pixels
 #
 # The layouts differ, exactly as the uncompressed paths do:
@@ -336,7 +343,18 @@ def m23_decode(payload, w, rows, planar):
     the corpus (every rejected layout family produced thousands).  The
     residual differences against the Mac-edition render are the Mac's own
     re-dithered art, not the codec.  Note x == 0 is unreachable in this
-    layout (sweep 3 covers the x % 4 == 0 class from x = 4)."""
+    layout (sweep 3 covers the x % 4 == 0 class from x = 4).
+
+    The LINEAR (Mac .ctl) layout skips 256 - v too -- SOLVED 2026-11-22
+    against SSI's own 1993 Mac TITLE.CTL, which decoded this way matches
+    the DOS TITLE.TLB (decoded by the planar law above) to within 6
+    pixels on the AD&D piece; 257 - v puts 2,535 pixels wrong and draws
+    the credits piece 286 wide where DOS draws 282.  This code read
+    257 - v from July to November 2026: the art it was checked against
+    had been written by this converter's own 257 - v encoder, so the
+    two errors cancelled and only SSI's real Mac files came out
+    scrambled.  GLIBs written since end in ARTCONV_TRAILER so the engine
+    can tell the old ones apart (convert())."""
     px, mask = bytearray(w * rows), bytearray(w * rows)
     i, n = 0, len(payload)
     for sweep in range(4 if planar else 1):
@@ -349,10 +367,8 @@ def m23_decode(payload, w, rows, planar):
                 if v == 0:
                     break                        # end of row
                 if v >= 128:
-                    if planar:
-                        x += 4 * (256 - v)       # transparent skip
-                    else:
-                        x += 257 - v
+                    # transparent skip: 256 - v columns of this layout
+                    x += (4 if planar else 1) * (256 - v)
                     continue
                 for _ in range(v):              # literal run
                     if i >= n:
@@ -368,36 +384,11 @@ def m23_decode(payload, w, rows, planar):
 def m23_encode(px, mask, w, rows, planar):
     """(pixels, mask) -> a method-23 stream in the requested layout.
 
-    Planar column sets and skip units follow the solved law (see
-    m23_decode): sweep p owns x = p+1, p+5, ...; a gap of g columns is a
-    skip byte 257 - (g + 1) [decoded as 4*(256 - v) = 4g]."""
+    Column sets and skip units follow the solved law (see m23_decode):
+    planar sweep p owns x = p+1, p+5, ...; linear owns every x.  A gap of
+    g columns is the skip byte 256 - g, g in 1..128 per byte."""
     out = bytearray()
     step = 4 if planar else 1
-    if not planar:
-        # The linear layout CANNOT express a 1-pixel transparent gap
-        # (skip n = 257 - v is >= 2 by construction), and SSI's own Mac
-        # streams contain none — their pipeline evidently filled them.
-        # Do the same: an isolated gap between opaque pixels becomes a
-        # literal carrying its left neighbour's value (1px of background
-        # lost; the alternative is dropping an opaque pixel).
-        px, mask = bytearray(px), bytearray(mask)
-        for y in range(rows):
-            row = y * w
-            xs = [x for x in range(w) if mask[row + x]]
-            if not xs:
-                continue
-            for x in range(xs[0] + 1, xs[-1]):
-                if (not mask[row + x] and mask[row + x - 1]
-                        and mask[row + x + 1]):
-                    mask[row + x] = 1
-                    px[row + x] = px[row + x - 1]
-            if xs[0] == 1:
-                # a LEADING 1-gap is equally inexpressible. SSI faced the
-                # same wall: their Mac streams have no first-opaque-at-1
-                # rows but 209 first-at-0 rows — a column the DOS layout
-                # cannot even produce. Fill x=0 the same way.
-                mask[row] = 1
-                px[row] = px[row + 1]
     for sweep in range(4 if planar else 1):
         for y in range(rows):
             cols = list(range(sweep + 1, w, step)) if planar else list(range(w))
@@ -414,23 +405,9 @@ def m23_encode(px, mask, w, rows, planar):
                     run = 0
                     while k + run <= last and not mask[row + cols[k + run]]:
                         run += 1
-                    if planar:
-                        # v = 256 - g (the solved law); g in 1..128 per byte
-                        while run:
-                            take = min(run, 128)
-                            out.append(256 - take)
-                            k += take
-                            run -= take
-                        continue
                     while run:
-                        # 257-v = n, and v must be a byte >= 128  ->  n in 2..129.
-                        # A 1-skip is NOT encodable; borrow from the next chunk.
-                        take = min(run, 129)
-                        if run - take == 1:
-                            take -= 1
-                        if take < 2:
-                            take = min(run, 2)
-                        out.append(257 - take)
+                        take = min(run, 128)
+                        out.append(256 - take)
                         k += take
                         run -= take
                     continue
@@ -444,6 +421,8 @@ def m23_encode(px, mask, w, rows, planar):
                 k += run
             out.append(0)                        # end of row
     return bytes(out)
+
+
 def c3_decode(payload, w, rows):
     """Decode a Mac-only method-3 (0xc3) COMPOSITE stream to (px, mask).
 
@@ -592,8 +571,10 @@ def _convert_entry(ent, to_mac):
         # m23_decode) was derived against the Mac edition of Pool of
         # Radiance and PROVEN by re-encoding SSI's own DOS streams
         # byte-exactly (57/62; the rest differ only by clipped x==W edge
-        # pixels).  The Mac/CTL linear layout was already proven the same
-        # way (615/615 bytes on POR's PICA1003).
+        # pixels).  The Mac/CTL linear layout (256 - v) was settled on
+        # 2026-11-22 against SSI's Mac TITLE.CTL vs the DOS TITLE.TLB (see
+        # m23_decode); an earlier "615/615 bytes re-encode" proof was a
+        # decode/encode round trip and so could not tell 256 from 257.
         if not (w and height):
             raise UnsupportedPiece("method 23 entry with no geometry")
         if to_mac and w % 8:
@@ -699,6 +680,17 @@ def _swap_u16_array(b):
 
 
 def convert(data, to=None):
+    """Convert a whole container file; a GLIB result ends in
+    ARTCONV_TRAILER (see _convert for the container itself)."""
+    c = parse(data)
+    target = to if to is not None else (GLIB if c["magic"] == HLIB else HLIB)
+    if target == c["magic"]:
+        return data
+    out = _convert(data, target)
+    return out + ARTCONV_TRAILER if target == GLIB else out
+
+
+def _convert(data, to=None):
     """Convert a whole container.  `to` = b'GLIB' | b'HLIB' (default: the other one).
 
     Containers NEST.  The wall libraries (8x8db/8x8dc) are a GLIB-of-GLIBs: their
@@ -716,7 +708,7 @@ def convert(data, to=None):
     e = ">" if to_mac else "<"
 
     if c["tag"] in (HLIB, GLIB):                     # container-of-containers
-        entries = [convert(x, to) if x[:4] in (HLIB, GLIB) else _swap_u16_array(x)
+        entries = [_convert(x, to) if x[:4] in (HLIB, GLIB) else _swap_u16_array(x)
                    for x in c["entries"]]
     else:
         # Entries can nest even under an image tag: the PIC*/BIGPIC event
@@ -724,7 +716,7 @@ def convert(data, to=None):
         # a "TILE"-tagged outer library. Only the entry's own magic says so —
         # treating one as a flat image scrambled every event picture
         # (2026-07-21, gamedata-dos).
-        entries = [convert(x, to) if x[:4] in (HLIB, GLIB)
+        entries = [_convert(x, to) if x[:4] in (HLIB, GLIB)
                    else _convert_entry(x, to_mac) for x in c["entries"]]
 
     # Rebuild the offset table.  Entry sizes are preserved by every transform we
