@@ -2110,6 +2110,18 @@ View paints the stored one, so the port runs jt21 after the change (where
 DQK derives it was not found). The sheet still says "Knight", not "Knight
 of the Sword" (open, with god and robe).
 
+**The sheet's words.** DQK's character sheet (0x5cd06) names a kind from
+a table of its own ("Cleric/Fighter/Mage", where the kind names elsewhere
+say "Magic-User"), then puts a cleric's god and a space in front, a
+mage's robe and a space before the first "M?g", and a knight's order on
+the end: "Sirrion Cleric/Fighter/Red Mage", "Knight of the Sword". Those
+words are part of a ruleset now (`sheet_kind`, `god_name`, `robe_name`,
+`order_name` in rules.h): rules_gb.c reads them from DQK.EXE (0x3af6,
+0x3c0a, 0x3c2a, and the strings at 0x8d8c), RULES.DAT carries them in an
+optional SHET chunk (`sheet_kind`/`god`/`robe`/`order` lines in the text),
+and FRUA's rules have none, so FRUA's sheet is unchanged. The six shipped
+heroes read as in DOS (tests/test_krynn_sheet.py).
+
 **Context.** The Gold Box games OpenUA is opening up to (ADR-0023) do not all
 share FRUA's classes and races. The Krynn games have seven player races
 (Silvanesti and Qualinesti elves, half-elves, mountain and hill dwarves,

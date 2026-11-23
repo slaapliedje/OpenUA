@@ -112,6 +112,10 @@ static unsigned char dqk_prog(const unsigned char *rec, int slot)
 	}
 }
 static const char   *s_dqk_kind_labels[GBR_KINDS];
+static const char   *s_dqk_sheet_kind[GBR_KINDS];
+static const char   *s_dqk_god_name[GBR_GODS];
+static const char   *s_dqk_robe_name[GBR_ROBES];
+static const char   *s_dqk_order_name[GBR_ORDERS];
 static unsigned char s_dqk_kind_list[GBR_KINDS];
 
 /* Each Krynn race plays FRUA's rules written into code for its nearest FRUA
@@ -184,6 +188,14 @@ const ruleset_t *rules_load_dqk(short refnum)
 		s_dqk_race_labels[i] = s_dqk.race_label[i];
 	for (i = 0; i < GBR_KINDS; i++)
 		s_dqk_kind_labels[i] = s_dqk.kind_label[i];
+	for (i = 0; i < GBR_KINDS; i++)
+		s_dqk_sheet_kind[i] = s_dqk.sheet_kind[i];
+	for (i = 0; i < GBR_GODS; i++)
+		s_dqk_god_name[i] = s_dqk.god_name[i];
+	for (i = 0; i < GBR_ROBES; i++)
+		s_dqk_robe_name[i] = s_dqk.robe_name[i];
+	for (i = 0; i < GBR_ORDERS; i++)
+		s_dqk_order_name[i] = s_dqk.order_name[i];
 	kind_list(s_dqk.race_kinds, GBR_RACES, GBR_KIND_ROW, s_dqk_kind_list);
 	for (i = 0; i < 256; i++)               /* 7 and up: monsters, as FRUA's 6 */
 		s_dqk_race_base[i] = (unsigned char)(i < GBR_RACES ? k_dqk_race_base[i] : i - 1);
@@ -231,6 +243,10 @@ const ruleset_t *rules_load_dqk(short refnum)
 		.prog             = dqk_prog,
 		.knights          = 1,
 		.coin             = s_dqk.money_name[0],
+		.sheet_kind       = s_dqk_sheet_kind,
+		.god_name         = s_dqk_god_name,
+		.robe_name        = s_dqk_robe_name,
+		.order_name       = s_dqk_order_name,
 	};
 	dbg_log("rules: Dark Queen of Krynn's read from DQK.EXE");
 	return &s_rules_dqk;
@@ -348,6 +364,10 @@ const ruleset_t *rules_load_file(short refnum)
 		                     || s_rlf.sel_slot[2] != 255) ? file_prog : NULL,
 		.knights          = (s_rlf.flags & RLF_FLAG_KNIGHTS) != 0,
 		.coin             = s_rlf.coin,
+		.sheet_kind       = s_rlf.god_name[0] ? s_rlf.sheet_kind : NULL,
+		.god_name         = s_rlf.god_name[0] ? s_rlf.god_name : NULL,
+		.robe_name        = s_rlf.god_name[0] ? s_rlf.robe_name : NULL,
+		.order_name       = s_rlf.god_name[0] ? s_rlf.order_name : NULL,
 	};
 	dbg_log("rules: the design's own, from RULES.DAT:");
 	dbg_log(s_rlf.name);

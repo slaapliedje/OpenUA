@@ -20,6 +20,9 @@
 #define RLF_MAX_LEVELS  29
 #define RLF_MAX_SPELLS  16      /* spell rows                              */
 #define RLF_SELECTORS   3       /* god, knightly order, robe               */
+#define RLF_GODS        8       /* rec[91]'s values, 0 included            */
+#define RLF_ROBES       4
+#define RLF_ORDERS      4
 
 #define RLF_FLAG_PRIME_LIMITS 1
 #define RLF_FLAG_KNIGHTS      2
@@ -52,6 +55,11 @@ typedef struct rlf_rules {
 	const char *race_name[RLF_MAX_RACES + 1]; /* the last the monster's  */
 	const char *kind_label[RLF_KINDS];
 	const char *race_label[RLF_MAX_RACES];
+	/* SHET, the character sheet's words; all NULL when absent */
+	const char *sheet_kind[RLF_KINDS];
+	const char *god_name[RLF_GODS];
+	const char *robe_name[RLF_ROBES];
+	const char *order_name[RLF_ORDERS];
 
 	const unsigned char *table[RLF_TABLES];  /* by RLF_ name, rules.h's  */
 	long                 table_len[RLF_TABLES];

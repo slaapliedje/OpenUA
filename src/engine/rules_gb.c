@@ -20,7 +20,8 @@ enum {
 	T_XP_STEP, T_RACE_AB, T_RACE_KINDS, T_START_AGE, T_AGE_CAT, T_KIND_MIN,
 	T_ALIGNS, T_SPELL_ROW, T_XP, T_SAVES, T_LEVEL_CAP, T_THAC0, T_ITEM_BIT,
 	T_HALL_BIT, T_NAME_LEVEL, T_HD_COUNT, T_HD_SIZE, T_THIEF, T_RACE_THIEF,
-	T_KIND_NAMES, T_RACE_NAMES, T_MONEY_NAMES, T_LABELS, T_SPELL_SLOTS, T_COUNT
+	T_KIND_NAMES, T_RACE_NAMES, T_MONEY_NAMES, T_LABELS, T_SPELL_SLOTS,
+	T_SHEET_KINDS, T_GOD_NAMES, T_ROBE_NAMES, T_ORDER_NAMES, T_COUNT
 };
 
 static const struct {
@@ -51,6 +52,10 @@ static const struct {
 	{ 0x3bd2,   12, 0x066b, "money_names" },
 	{ 0x7330,  296, 0x4b9f, "labels" },
 	{ 0x0b96, 2088, 0x1308, "spell_slots" },
+	{ 0x3af6,   68, 0x3ea4, "sheet_kind_names" },
+	{ 0x3c0a,   32, 0x1612, "god_names" },
+	{ 0x3c2a,   16, 0x04f9, "robe_names" },
+	{ 0x8d8c,   41, 0x0d13, "order_names" },
 };
 
 #define RAW_MAX 2088            /* the largest table (spell_slots)          */
@@ -74,6 +79,26 @@ static int split_labels(const unsigned char *raw, long n, gbr_tables *t)
 		if (p >= n)
 			return GBR_ENAME;
 		p++;                            /* the NUL */
+	}
+	return GBR_OK;
+}
+
+/* The orders a knight's kind ends with on the sheet: one block of
+ * NUL-ended strings, Crown, Sword, Rose; order 0 has none. */
+static int split_orders(const unsigned char *raw, long n, gbr_tables *t)
+{
+	long p = 0;
+	int  i, k;
+
+	if (n == 0 || raw[n - 1] != 0)
+		return GBR_ENAME;
+	for (i = 1; i < GBR_ORDERS; i++) {
+		for (k = 0; p < n && raw[p] != 0; k++, p++)
+			if (k < GBR_NAME_MAX - 1)
+				t->order_name[i][k] = (char)raw[p];
+		if (p >= n)
+			return GBR_ENAME;
+		p++;
 	}
 	return GBR_OK;
 }
@@ -153,12 +178,20 @@ int gbr_load_dqk(gbr_read_fn rd, void *ctx, gbr_tables *t, int verify,
 	memset(&out, 0, sizeof out);
 	for (tab = 0; tab < T_COUNT; tab++) {
 		*which = k_dqk[tab].name;
-		if (tab == T_KIND_NAMES || tab == T_RACE_NAMES || tab == T_MONEY_NAMES) {
-			rc = tab == T_KIND_NAMES
-			   ? read_names(rd, ctx, tab, &out.kind_name[0][0], GBR_KINDS, &sum)
-			   : tab == T_RACE_NAMES
-			   ? read_names(rd, ctx, tab, &out.race_name[0][0], GBR_RACES + 1, &sum)
-			   : read_names(rd, ctx, tab, &out.money_name[0][0], GBR_MONEY, &sum);
+		if (tab == T_KIND_NAMES || tab == T_RACE_NAMES || tab == T_MONEY_NAMES
+		    || tab == T_SHEET_KINDS || tab == T_GOD_NAMES || tab == T_ROBE_NAMES) {
+			char *dst = tab == T_KIND_NAMES ? &out.kind_name[0][0]
+			          : tab == T_RACE_NAMES ? &out.race_name[0][0]
+			          : tab == T_MONEY_NAMES ? &out.money_name[0][0]
+			          : tab == T_SHEET_KINDS ? &out.sheet_kind[0][0]
+			          : tab == T_GOD_NAMES ? &out.god_name[0][0]
+			          : &out.robe_name[0][0];
+			int   n = tab == T_KIND_NAMES || tab == T_SHEET_KINDS ? GBR_KINDS
+			        : tab == T_RACE_NAMES ? GBR_RACES + 1
+			        : tab == T_MONEY_NAMES ? GBR_MONEY
+			        : tab == T_GOD_NAMES ? GBR_GODS : GBR_ROBES;
+
+			rc = read_names(rd, ctx, tab, dst, n, &sum);
 			if (rc != GBR_OK)
 				return rc;
 			if (verify && sum != k_dqk[tab].sum)
@@ -224,6 +257,10 @@ int gbr_load_dqk(gbr_read_fn rd, void *ctx, gbr_tables *t, int verify,
 		case T_SPELL_SLOTS: memcpy(out.spell_slots, raw, sizeof out.spell_slots);           break;
 		case T_LABELS:
 			if ((rc = split_labels(raw, k_dqk[tab].len, &out)) != GBR_OK)
+				return rc;
+			break;
+		case T_ORDER_NAMES:
+			if ((rc = split_orders(raw, k_dqk[tab].len, &out)) != GBR_OK)
 				return rc;
 			break;
 		}

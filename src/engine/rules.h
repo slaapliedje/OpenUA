@@ -103,6 +103,15 @@ typedef struct ruleset {
 	 * platinum. FRUA has one coin and so do the Krynn games, held in the
 	 * same record word (rec[76]), so only the name differs. */
 	const char           *coin;
+	/* The character sheet's words (DQK.EXE 0x5cc86): the kinds as the
+	 * sheet names them (Krynn's "Mage", where kind_names has
+	 * "Magic-User"), and by rec[91]'s values the god a cleric's kind
+	 * starts with, the robe put before "Mage" and the order put after a
+	 * knight's (" of the Sword"). NULL: kind_names, and none of these. */
+	const char *const    *sheet_kind;
+	const char *const    *god_name;
+	const char *const    *robe_name;
+	const char *const    *order_name;
 } ruleset_t;
 
 /* rec[91], which FRUA's record leaves 0 (no code reads it; every FRUA

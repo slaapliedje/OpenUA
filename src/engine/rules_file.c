@@ -88,9 +88,10 @@ static int strings(chunk c, const char **out, int n)
 int rlf_parse(const unsigned char *q, long len, rlf_rules *r, const char **what)
 {
 	static const char *const named[] = { "HEAD", "NAME", "COIN", "KNAM",
-	                                     "RNAM", "KLAB", "RLAB", "PSEL" };
+	                                     "RNAM", "KLAB", "RLAB", "PSEL",
+	                                     "SHET" };
 	enum { C_HEAD, C_NAME, C_COIN, C_KNAM, C_RNAM, C_KLAB, C_RLAB, C_PSEL,
-	       C_NAMED };
+	       C_SHET, C_NAMED };
 	chunk    c[C_NAMED], t[RLF_TABLES];
 	long     p = 8;
 	int      i, k;
@@ -170,6 +171,22 @@ int rlf_parse(const unsigned char *q, long len, rlf_rules *r, const char **what)
 			if (!strings(c[lists[i].chunk], dst[i], n))
 				return RLF_ENAMES;
 		}
+	}
+
+	*what = "SHET";
+	if (c[C_SHET].data != NULL) {
+		const char *w[RLF_KINDS + RLF_GODS + RLF_ROBES + RLF_ORDERS];
+
+		if (!strings(c[C_SHET], w, (int)(sizeof w / sizeof w[0])))
+			return RLF_ENAMES;
+		for (i = 0; i < (int)(sizeof w / sizeof w[0]); i++)
+			if (strlen(w[i]) > 31)          /* the sheet's line has room */
+				return RLF_ENAMES;
+		memcpy(r->sheet_kind, w, sizeof r->sheet_kind);
+		memcpy(r->god_name, w + RLF_KINDS, sizeof r->god_name);
+		memcpy(r->robe_name, w + RLF_KINDS + RLF_GODS, sizeof r->robe_name);
+		memcpy(r->order_name, w + RLF_KINDS + RLF_GODS + RLF_ROBES,
+		       sizeof r->order_name);
 	}
 
 	for (i = 0; i < RLF_TABLES; i++) {

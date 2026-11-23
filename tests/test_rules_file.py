@@ -52,6 +52,10 @@ def expected(rs):
         "rnam " + "|".join(rs["race_names"]),
         "klab " + "|".join(rs["kind_labels"]),
         "rlab " + "|".join(rs["race_labels"])]
+    if rs.get("god_names") is not None:
+        for tag, (_, field, _) in zip(("sheet", "gods", "robes", "orders"),
+                                      rules.SHEET):
+            L.append(tag + " " + "|".join(rs[field]))
     for field, tag, _, _, _ in rules.TABLES:
         L.append("%s %s" % (tag, rs[field].hex()))
     sel = {name: (slot, row) for name, slot, row in rs.get("prog_by") or ()}
@@ -90,6 +94,8 @@ def synthetic(rnd, races, progs, levels, krow, spells, coin, select):
         rk += bytes(row + [0] * (krow - len(row)))
     rs["race_kinds"] = bytes(rk)
     if select:
+        for _, field, n in rules.SHEET:
+            rs[field] = [word() for _ in range(n)]
         rs["prog_by"] = [(name, rnd.randrange(rules.SLOTS),
                           [rnd.randrange(progs) for _ in range(n)])
                          for name, n in rules.SELECTORS if rnd.randrange(3)]
@@ -238,6 +244,7 @@ def test_dqk_ruleset(cbin, tmp_path):
     t = gbrules.read_dqk(exe)
     assert rs["slot_xp"] == t["xp"] and rs["spell_slots"] == t["spell_slots"]
     assert rs["coin"] == "Steel" and rs["race_labels"][0] == "SILVANESTI ELF"
+    assert rs["god_names"][3] == "Kiri-Jolith" and rs["order_names"][2] == " of the Sword"
     data = rules.to_bytes(rs)
     p = tmp_path / "KRYNN.DAT"
     p.write_bytes(data)

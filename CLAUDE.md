@@ -71,7 +71,10 @@ name.)
   Without the Dark Queen's cells there are no moons (KRYNN_NO_MOON).
   The hall's item 4 under Krynn's rules is "Knight new Order"
   (`krynn_knight_order`, DQK 0x487f2/0x48710; the Dark Queen has no
-  Human Change Class), checked against DOS with Roland.
+  Human Change Class), checked against DOS with Roland. The sheet's
+  class line takes the ruleset's sheet words (`sheet_kind`, `god_name`,
+  `robe_name`, `order_name`; DQK 0x5cd06, RULES.DAT's SHET): "Sirrion
+  Cleric/Fighter/Red Mage", "Knight of the Sword"; NULL under FRUA's.
   The hall reads Dark Queen heroes (.QCH in the design's SAVE) itself:
   `src/engine/qch.c` (reference gbchar.py) makes the .CCH stream and jt577
   reads it from memory; a .CCH of the same stem shadows the .QCH, and the

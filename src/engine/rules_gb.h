@@ -18,6 +18,9 @@
 #define GBR_KIND_ROW  15        /* race_kinds row: count + 14 kinds       */
 #define GBR_NAME_MAX  32
 #define GBR_SPELL_ROWS 8        /* spell_slots rows, 261 bytes each       */
+#define GBR_GODS       8        /* rec[91]'s gods, robes and orders, 0 in */
+#define GBR_ROBES      4
+#define GBR_ORDERS     4
 
 /* The tables in the layout the engine indexes: bytes as the game keeps
  * them, words and longs big-endian, rows at the strides rules.h states. */
@@ -47,6 +50,11 @@ typedef struct gbr_tables {
 	char          money_name[GBR_MONEY][GBR_NAME_MAX];      /* FRUA -14492 */
 	char          race_label[GBR_RACES][GBR_NAME_MAX];      /* creation   */
 	char          kind_label[GBR_KINDS][GBR_NAME_MAX];
+	/* the character sheet's words (DQK 0x5cc86, rules.h sheet_*) */
+	char          sheet_kind[GBR_KINDS][GBR_NAME_MAX];      /* "Mage"     */
+	char          god_name[GBR_GODS][GBR_NAME_MAX];
+	char          robe_name[GBR_ROBES][GBR_NAME_MAX];
+	char          order_name[GBR_ORDERS][GBR_NAME_MAX];     /* 0: ""      */
 } gbr_tables;
 
 /* Read `len` bytes at file offset `off` into `buf`; return the count read. */

@@ -44523,6 +44523,62 @@ static void   jt82(void)
 static unsigned char jt35(const unsigned char *rec);   /* CODE 6+0x2f74 (below) */
 static void          l19ac(void);                      /* JT[898] CODE 19+0x19ac (below) */
 static void          jt892(const unsigned char *rec);  /* JT[892] CODE 19+0x1abe (below) */
+
+/* PORT (ADR-0026): a kind's name on the character sheet, the ruleset's
+ * sheet name where it has one (the Dark Queen's "Mage", DQK 0x5cd06). */
+static const char *sheet_kind_name(unsigned char k)
+{
+	if (g_rules->sheet_kind != NULL)
+		return g_rules->sheet_kind[k];
+	return (const char *)(uintptr_t)(*(const long *)(g_rules->kind_names + ((long)k * 4)));
+}
+
+/* DQK.EXE 0x5cd1b..0x5ce8a, the class line's Krynn words: with cleric
+ * levels the god and a space go in front ("Sirrion Cleric/..."); with mage
+ * levels the robe and a space go in at the first "M?g" ("White Mage"; none
+ * found, at the end); a knight's order goes on the end. Each only if the
+ * line still fits. */
+static void sheet_krynn_words(const unsigned char *rec, char *buf, size_t size)
+{
+	size_t n, w;
+	short  g;
+
+	if (rec[157] > 0) {                             /* DQK 0xa5 */
+		const char *god = g_rules->god_name[KRYNN_GOD(rec)];
+
+		n = strlen(buf);
+		w = strlen(god) + 1;
+		if (n + w < size) {
+			memmove(buf + w, buf, n + 1);
+			memcpy(buf, god, w - 1);
+			buf[w - 1] = ' ';
+		}
+	}
+	if (rec[162] > 0) {                             /* DQK 0xaa */
+		const char *robe = g_rules->robe_name[KRYNN_ROBE(rec)];
+
+		n = strlen(buf);
+		for (g = 1; ; g++) {
+			if (buf[g - 1] == 'M' && (size_t)g + 1 <= n && buf[g + 1] == 'g')
+				break;
+			if ((size_t)g > n)
+				break;
+		}
+		w = strlen(robe) + 1;
+		if (n + w < size) {
+			memmove(buf + g - 1 + w, buf + g - 1, n - (size_t)(g - 1) + 1);
+			memcpy(buf + g - 1, robe, w - 1);
+			buf[g - 1 + w - 1] = ' ';
+		}
+	}
+	if (rec[158] > 0) {                             /* DQK 0xa6 */
+		const char *order = g_rules->order_name[KRYNN_ORDER(rec)];
+
+		if (strlen(buf) + strlen(order) < size)
+			strcat(buf, order);
+	}
+}
+
 static void l1276(void)
 {
 	unsigned char *rec;
@@ -44577,7 +44633,9 @@ static void l1276(void)
 	/* class name g_a5_-14636[rec[89]] -> buf; multi-class (rec[88]==5)
 	 * appends "/<class>"; painted at (1,5). */
 	multi = 0;
-	jt384(buf, (const char *)(uintptr_t)(*(const long *)(g_rules->kind_names + ((long)rec[89] * 4))));
+	jt384(buf, sheet_kind_name(rec[89]));
+	if (g_rules->god_name != NULL)
+		sheet_krynn_words(rec, buf, sizeof buf);
 	if (RACE(rec[88]) == RACE_HUMAN) {
 		for (i = 0; i <= 6; i++) {
 			if ((short)rec[164 + i] <= 0)
@@ -44585,8 +44643,7 @@ static void l1276(void)
 			multi = 1;
 			if ((unsigned char)jt35(rec) <= rec[164 + i])
 				continue;
-			jt384(buf, jt488("%s/%s", buf,
-			      (const char *)(uintptr_t)(*(const long *)(g_rules->kind_names + ((long)i * 4)))));
+			jt384(buf, jt488("%s/%s", buf, sheet_kind_name((unsigned char)i)));
 			break;
 		}
 	}

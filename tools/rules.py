@@ -34,6 +34,11 @@ THE FILE (RULES.DAT)
     RLAB  races creation labels
     SLOT  7 slot names          PROG  progressions names (text only)
     the tables, by the tag in TABLES below; and optionally
+    SHET  the character sheet's words: 17 kind names as the sheet shows
+          them, then 8 gods, 4 robes, 4 knightly orders (rec[91]'s values;
+          a cleric's kind starts with his god, the robe goes before "Mage",
+          the order after a knight's kind; DQK 0x5cc86); absent, the kind
+          names and none of these
     PSEL  the progression a character's slot plays by, picked by its god,
           knightly order or robe (rec[91], rules.h): three groups of a
           slot (255 unused) and 8 / 4 / 4 progressions by that value
@@ -99,6 +104,9 @@ TABLES = (
 WIDTH = {"u8": 1, "s8": 1, "u16": 2, "s32": 4, "age": 4}
 SCALARS = ("races", "progressions", "xp_levels", "kind_row", "spell_rows",
            "default_race", "prime_limits", "knights")
+# The sheet's words (SHET): text keyword, ruleset field, count
+SHEET = (("sheet_kind", "sheet_kind_names", KINDS), ("god", "god_names", 8),
+         ("robe", "robe_names", 4), ("order", "order_names", 4))
 STRINGS = (("kind_names", "KNAM", lambda s: KINDS),
            ("race_names", "RNAM", lambda s: s["races"] + 1),
            ("kind_labels", "KLAB", lambda s: KINDS),
@@ -150,6 +158,14 @@ def check(rs):
         for x in got:
             if "\0" in x or len(x.encode("latin-1")) > 40:
                 raise RulesError("%s: %r is not a name" % (field, x))
+    have = [rs.get(f) is not None for _, f, _ in SHEET]
+    if any(have) and not all(have):
+        raise RulesError("the sheet's words come together: %s"
+                         % ", ".join(k for k, _, _ in SHEET))
+    for key, field, n in SHEET if all(have) else ():
+        if len(rs[field]) != n or any("\0" in x or len(x.encode("latin-1")) > 31
+                                      for x in rs[field]):
+            raise RulesError("%s: %d names of up to 31 bytes" % (key, n))
     for t in TABLES:
         rows, cols, w = shape(rs, t[0])
         b = rs.get(t[0])
@@ -203,6 +219,8 @@ def to_bytes(rs):
         out.append(_chunk(tag, _strs(rs[field])))
     for t in TABLES:
         out.append(_chunk(t[1], rs[t[0]]))
+    if rs.get("god_names") is not None:
+        out.append(_chunk("SHET", _strs(sum((rs[f] for _, f, _ in SHEET), []))))
     if rs.get("prog_by"):
         sel = {name: (slot, row) for name, slot, row in rs["prog_by"]}
         b = bytearray()
@@ -256,6 +274,10 @@ def from_bytes(b):
         if t[1] not in chunks:
             raise RulesError("no %s (%s)" % (t[1], t[0]))
         rs[t[0]] = chunks[t[1]]
+    if "SHET" in chunks:
+        xs = _split(chunks["SHET"], sum(n for _, _, n in SHEET), "SHET")
+        for _, field, n in SHEET:
+            rs[field], xs = xs[:n], xs[n:]
     if "PSEL" in chunks:
         b = chunks["PSEL"]
         if len(b) != sum(1 + n for _, n in SELECTORS):
@@ -390,6 +412,13 @@ def to_text(rs):
         L.append("slot %d %s" % (s, _q(rs["slot_names"][s])))
     for p in range(rs["progressions"]):
         L.append("progression %d %s" % (p, _q(rs["prog_names"][p])))
+    if rs.get("god_names") is not None:
+        L.append("")
+        L.append("# the character sheet: a kind's name there; the god a cleric's")
+        L.append("# starts with, the robe before \"Mage\", the order after a knight's")
+        for key, field, n in SHEET:
+            for i in range(n):
+                L.append("%s %d %s" % (key, i, _q(rs[field][i])))
     if rs.get("prog_by"):
         L.append("")
         L.append("# prog_by god|order|robe <slot> <progression by value 0..>")
@@ -435,7 +464,8 @@ def _pack(el, tok, where):
 
 def from_text(text):
     rs = {"coin": None}
-    named = {"race": {}, "kind": {}, "slot": {}, "progression": {}}
+    named = {"race": {}, "kind": {}, "slot": {}, "progression": {},
+             "sheet_kind": {}, "god": {}, "robe": {}, "order": {}}
     labels = {"race": {}, "kind": {}}
     rows = {}
     for n, line in enumerate(text.splitlines(), 1):
@@ -502,6 +532,9 @@ def from_text(text):
     rs["slot_names"] = listed("slot", SLOTS, named["slot"])
     rs["prog_names"] = listed("progression", rs["progressions"],
                               named["progression"])
+    for key, field, n in SHEET:
+        if any(named[k] for k, _, _ in SHEET):
+            rs[field] = listed(key, n, named[key])
     for t in TABLES:
         nrows, ncols, _ = shape(rs, t[0])
         got = rows.get(t[0], [])
@@ -647,6 +680,8 @@ def from_dqk(exe):
     rs["kind_labels"] = list(t["kind_labels"])
     rs["slot_names"] = list(gbrules.SLOTS)
     rs["prog_names"] = list(gbrules.PROGRESSIONS)
+    for _, field, _ in SHEET:
+        rs[field] = list(t[field])
     check(rs)
     return rs
 

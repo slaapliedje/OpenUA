@@ -69,5 +69,13 @@ int main(int argc, char **argv)
 		printf("name race_labels %d %s\n", i, t.race_label[i]);
 	for (i = 0; i < GBR_KINDS; i++)
 		printf("name kind_labels %d %s\n", i, t.kind_label[i]);
+	for (i = 0; i < GBR_KINDS; i++)
+		printf("name sheet_kind_names %d %s\n", i, t.sheet_kind[i]);
+	for (i = 0; i < GBR_GODS; i++)
+		printf("name god_names %d %s\n", i, t.god_name[i]);
+	for (i = 0; i < GBR_ROBES; i++)
+		printf("name robe_names %d %s\n", i, t.robe_name[i]);
+	for (i = 0; i < GBR_ORDERS; i++)
+		printf("name order_names %d %s\n", i, t.order_name[i]);
 	return 0;
 }

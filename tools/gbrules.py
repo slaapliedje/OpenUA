@@ -76,6 +76,7 @@ PROGS = 11
 XP_LEVELS = 19
 KIND_SLOTS = 14            # race_kinds: kinds a row can list
 SPELL_ROWS = 8             # spell_slots: rows of 29 levels x 9 spell levels
+GODS, ROBES, ORDERS = 8, 4, 4   # rec[91]'s values, 0 included (rules.h)
 
 # name, DS offset, bytes, 16-bit sum of the bytes in the Steam DQK.EXE
 TABLES = (
@@ -103,8 +104,13 @@ TABLES = (
     ("money_names",      0x3bd2, 4 * MONEY,              0x066b),
     ("labels",           0x7330, 296,                    0x4b9f),
     ("spell_slots",      0x0b96, 261 * SPELL_ROWS,       0x1308),
+    ("sheet_kind_names", 0x3af6, 4 * KINDS,              0x3ea4),
+    ("god_names",        0x3c0a, 4 * GODS,               0x1612),
+    ("robe_names",       0x3c2a, 4 * ROBES,              0x04f9),
+    ("order_names",      0x8d8c, 41,                     0x0d13),
 )
-NAME_TABLES = ("kind_names", "race_names", "money_names")   # sums: of the strings, see sums()
+NAME_TABLES = ("kind_names", "race_names", "money_names",   # sums: of the
+               "sheet_kind_names", "god_names", "robe_names")  # strings
 
 
 class GbRulesError(ValueError):
@@ -228,7 +234,24 @@ def engine_tables(exe):
     lab = labels(exe)
     t["race_labels"] = lab[:RACES]
     t["kind_labels"] = lab[RACES + 2:RACES + 2 + KINDS]
+    t.update(sheet_words(exe))
     return t
+
+
+def sheet_words(exe):
+    """The character sheet's words (DQK 0x5cc86): its own kind names
+    ("Mage", not "Magic-User"), the gods a cleric's kind starts with, the
+    robes put before "Mage", and the orders put after a knight's; the
+    orders are one block of NUL-ended strings, order 0 none."""
+    b = bytes(raw(exe, "order_names"))
+    orders = b.split(b"\0")
+    if len(orders) < ORDERS or b[-1] != 0:
+        raise GbRulesError("order_names: not %d NUL-ended strings" % (ORDERS - 1))
+    return {"sheet_kind_names": names(exe, "sheet_kind_names"),
+            "god_names": names(exe, "god_names"),
+            "robe_names": names(exe, "robe_names"),
+            "order_names": [""] + [x.decode("latin-1")
+                                   for x in orders[:ORDERS - 1]]}
 
 
 def labels(exe):

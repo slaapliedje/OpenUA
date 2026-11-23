@@ -30,6 +30,10 @@ SRC = [os.path.join(ROOT, "src", "engine", "rules_gb.c"),
 KINDS = ["Kind%d" % k for k in range(gbrules.KINDS)]
 RACES = ["Race %c" % (65 + k) for k in range(gbrules.RACES)] + ["Monster"]
 MONEY = ["Coin", "Stones", "Trinkets"]
+SHEET = ["Sheet%d" % k for k in range(gbrules.KINDS)]
+GODS = ["None"] + ["God%d" % k for k in range(1, gbrules.GODS)]
+ROBES = ["", "Pale", "Rust", "Ink"]
+ORDERS = ["", " of A", " of B", " of C"]
 
 
 @pytest.fixture(scope="module")
@@ -43,7 +47,7 @@ def cbin(tmp_path_factory):
 def synthetic():
     """An executable-shaped file: each table's bytes are (seed + i * 7) so
     no two tables or offsets look alike; names at DS:0x7000."""
-    exe = bytearray(gbrules.DS + 0x7400)
+    exe = bytearray(gbrules.DS + 0x9000)
     for seed, (name, off, n, _) in enumerate(gbrules.TABLES):
         if name in gbrules.NAME_TABLES:
             continue
@@ -51,7 +55,8 @@ def synthetic():
         exe[p:p + n] = bytes((seed * 31 + i * 7 + 1) & 0xff for i in range(n))
     sp = 0x7000
     for name, strings in (("kind_names", KINDS), ("race_names", RACES),
-                          ("money_names", MONEY)):
+                          ("money_names", MONEY), ("sheet_kind_names", SHEET),
+                          ("god_names", GODS), ("robe_names", ROBES)):
         _, off, _, _ = gbrules._table(name)
         for k, s in enumerate(strings):
             struct.pack_into("<HH", exe, gbrules.DS + off + 4 * k, sp, gbrules.DS_SEG)
@@ -60,6 +65,9 @@ def synthetic():
             sp += len(b)
     _, off, n, _ = gbrules._table("labels")
     blk = b"".join(s.encode() + b"\0" for s in LABELS)
+    exe[gbrules.DS + off:gbrules.DS + off + n] = blk + bytes(n - len(blk))
+    _, off, n, _ = gbrules._table("order_names")
+    blk = b"".join(s.encode() + b"\0" for s in ORDERS[1:])
     exe[gbrules.DS + off:gbrules.DS + off + n] = blk + bytes(n - len(blk))
     return bytes(exe)
 
@@ -75,7 +83,8 @@ def c_tables(cbin, path, verify=False):
     if lines[0] != "OK":
         return lines[0], None
     t = {"kind_names": [], "race_names": [], "money_names": [], "race_labels": [],
-         "kind_labels": []}
+         "kind_labels": [], "sheet_kind_names": [], "god_names": [],
+         "robe_names": [], "order_names": []}
     for ln in lines[1:]:
         if ln.startswith("name "):
             _, field, _, text = ln.split(" ", 3)
@@ -103,6 +112,8 @@ def test_synthetic_matches_reference(cbin, tmp_path):
     assert ct["kind_names"] == KINDS and ct["race_names"] == RACES
     assert ct["money_names"] == MONEY
     assert ct["race_labels"] == LABELS[:7] and ct["kind_labels"] == LABELS[9:]
+    assert ct["sheet_kind_names"] == SHEET and ct["god_names"] == GODS
+    assert ct["robe_names"] == ROBES and ct["order_names"] == ORDERS
 
 
 def test_byte_order_and_strides():
@@ -189,6 +200,11 @@ def test_real_exe_says_what_the_journal_says():
     assert al[12:14] == bytes([1, 0]) and al[36:38] == bytes([1, 0])
     for k in range(gbrules.KINDS):
         assert not {2, 5, 8} & set(al[12 * k + 1:12 * k + 1 + al[12 * k]])
+    # The sheet's words: "SIRRION CLERIC/FIGHTER/RED MAGE", "KNIGHT OF THE
+    # SWORD" (DOS, 2026-11-23)
+    assert t["sheet_kind_names"][9] == "Cleric/Fighter/Mage"
+    assert t["god_names"][5] == "Sirrion" and t["robe_names"][2] == "Red"
+    assert t["order_names"] == ["", " of the Crown", " of the Sword", " of the Rose"]
     assert t["race_labels"][0] == "SILVANESTI ELF"
     assert t["kind_labels"][9] == "CLERIC/FIGHTER/M-U"
     # Spell slots: the white robe's row is FRUA's mage row; a 1st-level

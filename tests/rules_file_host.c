@@ -48,6 +48,12 @@ int main(int argc, char **argv)
 	list("rnam", r.race_name, r.races + 1);
 	list("klab", r.kind_label, RLF_KINDS);
 	list("rlab", r.race_label, r.races);
+	if (r.god_name[0] != NULL) {
+		list("sheet", r.sheet_kind, RLF_KINDS);
+		list("gods", r.god_name, RLF_GODS);
+		list("robes", r.robe_name, RLF_ROBES);
+		list("orders", r.order_name, RLF_ORDERS);
+	}
 	for (i = 0; i < RLF_TABLES; i++) {
 		printf("%s ", rlf_tag(i));
 		for (k = 0; k < r.table_len[i]; k++)
