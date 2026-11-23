@@ -348,7 +348,8 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   from the game's GEO.GLB and ECL.GLB when the design lacks the file
   (`src/engine/gbmaps.c`, held byte for byte to gbgeo.py by
   `tests/test_gbmaps.py`; area slot 5 + i is the library's map i), and the
-  design's start area runs script 1, the game's start-up script. Scripts and maps
+  design's start area runs script 4, as DQK.EXE 0x32e3a starts a new game
+  (script 1 is SSI's debug jumper, never run by the game). Scripts and maps
   are numbered separately in these games — Dark Queen has 47 scripts over 20
   maps.
 - **`tools/ecl.py`** disassembles the scripts (Champions, Death Knights, Dark

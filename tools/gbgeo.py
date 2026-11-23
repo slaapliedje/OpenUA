@@ -46,8 +46,9 @@ Containers handled:
     python3 tools/gbgeo.py GEO.GLB --design data/work/gamedata --current
     python3 tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --start 4
                                                       # ...with each area's script
-    python3 tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --start 2 --boot-script 1
-                                                      # Dark Queen from its own start-up script
+    python3 tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --start 2 --boot-script 4
+                                                      # Dark Queen as a new game starts (DQK
+                                                      # 0x32e3a: ECL 4; ECL 1 is a debug jumper)
     python3 tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --pictures DISK2
                                                       # ...and the pictures its scripts show
     python3 tools/gbgeo.py GEO.GLB --design OUT --ecl ECL.GLB --monsters MONCHA.GLB,ITEM.DAT
@@ -58,7 +59,8 @@ Containers handled:
                                                       # ITEM.DAT, ITEMS.DAT, MONCHA.GLB, GEO.GLB
                                                       # and ECL.GLB copied in and read by the engine
                                                       # as they are, so no GEOnnn/GBDnnn/ECLnnn/
-                                                      # GBMAP files (the start area runs script 1)
+                                                      # GBMAP files (the start area runs script 4,
+                                                      # as DQK.EXE starts a new game)
 
 No game data is needed to use or test the module (tests/test_gbgeo.py builds
 its own maps); pointing it at a real file is the user's own copy.
@@ -561,7 +563,8 @@ def main(argv):
                     g.write(f.read())
                 print("  scripts: the game's own ECL.GLB copied in")
             if "--boot-script" in args:
-                print("  (--boot-script: the engine starts script 1 in the start area)")
+                print("  (--boot-script: the engine starts script 4 in the start area, "
+                      "as DQK.EXE starts a new game)")
         elif "--ecl" in args:
             import ecl
             blocks = []

@@ -109505,7 +109505,7 @@ static void gbs_state_load(int slot)
  * a moon whose count has reached its period (8, 1 and 6 days) moves to
  * its next phase and starts counting again (0x5d6e), so a phase lasts 9,
  * 2 and 7 days. A new game starts them all at high sanction (0x37f0b).
- * The game's own start-up script stores "BALDRIC_NAME" at cell 509, one
+ * The script a new game starts with stores "BALDRIC_NAME" at cell 509, one
  * character a cell, over the three counts ('B', 'A', 'L'): all three
  * moons move on the first day after, here as there.
  * The phase gives a mage of the robe bonus spells, 1 waxing and 2 at high
@@ -109634,6 +109634,8 @@ static void gbs_new_game(void)
 	g_gbs_want_map = 0;
 }
 
+#define GBS_DQK_NEW_GAME_SCRIPT 4u      /* DQK.EXE 0x32e3a */
+
 /* Is area slot `geo_num` a script area? Called from jt198 once the map is in. */
 static void gbs_area_load(short geo_num)
 {
@@ -109646,12 +109648,16 @@ static void gbs_area_load(short geo_num)
 	n = gbs_read(name, g_gbs_desc, (short)sizeof g_gbs_desc);
 	if (n < 0) {
 		/* the map's own descriptor, from the game's GEO library; the
-		 * area a new game starts in runs the game's start-up script, the
-		 * Dark Queen's number 1, which has no map of its own */
+		 * area a new game starts in runs the script the game starts a
+		 * new game with: DQK.EXE 0x32e21 loads ECL 4 (Palanthas, which
+		 * sets the first square, the clock and the NPC names) when the
+		 * running-script cell 0x16 is 0, ECL 7 in its demo. Script 1 is
+		 * SSI's debug jumper, which the game never runs. */
 		static gbg_map m;
 
 		if (gbs_native_map(geo_num, &m))
-			n = (short)gbg_desc(&m, geo_num == g_a5_buf(-18876)[48] ? 1u : 0u,
+			n = (short)gbg_desc(&m, geo_num == g_a5_buf(-18876)[48]
+			                        ? GBS_DQK_NEW_GAME_SCRIPT : 0u,
 			                    g_gbs_desc);
 	}
 	gbs_items(n >= 0);
@@ -109685,8 +109691,8 @@ static void gbs_area_load(short geo_num)
 	}
 	/* The engine brought us here (a new game, a saved game): start the script
 	 * that goes with this map — or the one the design names instead, which is
-	 * how a game's own start-up script (Dark Queen's is number 1, and has no
-	 * map of its own) gets to run first. */
+	 * how the script a game starts a new game with (Dark Queen's is number
+	 * 4, GBS_DQK_NEW_GAME_SCRIPT) gets to run first. */
 	g_gbs_init_pending = (char)gbs_script_load(
 	    (short)(g_gbs_desc[7] ? g_gbs_desc[7] : g_gbs_map));
 }
@@ -109728,8 +109734,8 @@ static short gbs_slot_of(unsigned char map)
  * where jt582's tail reads them, the level is loaded, and then the script
  * memory is put back as gbs_state_load would and the script that was
  * running resumes. A save from before the game began (map 0: the one the
- * game ships) starts at the design's start area with its start-up script,
- * as a new game does.
+ * game ships) starts at the design's start area with the script a new game
+ * starts with (GBS_DQK_NEW_GAME_SCRIPT), as a new game does.
  *
  * Not carried yet: the clock (cells 0x06..0x0a) and the vault. Returns 1
  * when the save was loaded. */
