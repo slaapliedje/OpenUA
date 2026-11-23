@@ -38003,8 +38003,10 @@ static short jt17(short a, short b)
 				break;
 			/* fall through */
 		case 0:                                 /* L27aa */
+			/* PORT: and DQK's arm takes the knight (slot 1, who casts
+			 * clerical spells there) where FRUA's takes the paladin */
 			res = (signed char)l2fd8(m, 0);
-			tmp = (signed char)l2fd8(m, 3);
+			tmp = (signed char)l2fd8(m, g_rules->knights ? 1 : 3);
 			if (res < tmp)
 				res = tmp;
 			break;
