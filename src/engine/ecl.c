@@ -205,13 +205,29 @@ int ecl_poke(ecl_vm *vm, unsigned short addr, unsigned short v)
 	return 1;
 }
 
+unsigned short ecl_var_get(const ecl_vm *vm, unsigned short addr)
+{
+	unsigned short v = 0;
+
+	if (vm->host && vm->host->var && vm->host->var(vm->host->ctx, addr, &v, 0))
+		return v;
+	return ecl_peek(vm, addr);
+}
+
+int ecl_var_set(ecl_vm *vm, unsigned short addr, unsigned short v)
+{
+	if (vm->host && vm->host->var && vm->host->var(vm->host->ctx, addr, &v, 1))
+		return 1;
+	return ecl_poke(vm, addr, v);
+}
+
 unsigned short ecl_rvalue(const ecl_vm *vm, const ecl_opnd *a)
 {
 	switch (a->code) {
 	case ECL_C_MEM:
 	case ECL_C_MEM3:
 	case ECL_C_GAMEVAR:
-		return ecl_peek(vm, a->word);       /* a variable: its contents */
+		return ecl_var_get(vm, a->word);    /* a variable: its contents */
 	default:
 		return a->word;                     /* a literal, or a marker   */
 	}
@@ -467,7 +483,7 @@ int ecl_run(ecl_vm *vm, long budget)
 				/* text into a string cell: the characters, not a marker */
 				if (!ecl_str_put(vm, a[1].word, t))
 					return fault(vm, at);
-			} else if (!ecl_poke(vm, a[1].word, ecl_rvalue(vm, &a[0]))) {
+			} else if (!ecl_var_set(vm, a[1].word, ecl_rvalue(vm, &a[0]))) {
 				return fault(vm, at);
 			}
 			if (has_text(ins) && call_host(vm, ins, &status))
@@ -492,12 +508,12 @@ int ecl_run(ecl_vm *vm, long budget)
 				if (y == 0)             /* the original faults too */
 					return fault(vm, at);
 				r = x / y;
-				if (!ecl_poke(vm, vm->d->div_rem, (unsigned short)(x % y)))
+				if (!ecl_var_set(vm, vm->d->div_rem, (unsigned short)(x % y)))
 					return fault(vm, at);
 				break;
 			}
 			r &= 0xFFFFUL;
-			if (!ecl_poke(vm, a[2].word, (unsigned short)r))
+			if (!ecl_var_set(vm, a[2].word, (unsigned short)r))
 				return fault(vm, at);
 			/* ★ AND/OR also set the compare flags against zero, which is
 			 * what makes `AND mask, var, tmp ; IF_NE` a bit test. */
@@ -511,8 +527,8 @@ int ecl_run(ecl_vm *vm, long budget)
 
 			if (range == 0)
 				range = 1;
-			if (!ecl_poke(vm, a[1].word,
-			              (unsigned short)(rng_next(vm) % range)))
+			if (!ecl_var_set(vm, a[1].word,
+			                 (unsigned short)(rng_next(vm) % range)))
 				return fault(vm, at);
 			break;
 		}
@@ -550,18 +566,18 @@ int ecl_run(ecl_vm *vm, long budget)
 			 * zero written over a non-zero block byte is the one case this
 			 * cannot tell from "never written".) */
 			unsigned addr = (a[0].word + (ecl_rvalue(vm, &a[1]) & 0xFF)) & 0xFFFFU;
-			unsigned short v = ecl_peek(vm, (unsigned short)addr);
+			unsigned short v = ecl_var_get(vm, (unsigned short)addr);
 
 			if (v == 0 && addr >= vm->d->vbase && in_code(vm, addr - vm->d->vbase))
 				v = vm->raw[addr - vm->d->vbase];
-			if (!ecl_poke(vm, a[2].word, v))
+			if (!ecl_var_set(vm, a[2].word, v))
 				return fault(vm, at);
 			break;
 		}
 
 		case ECL_OP_SAVE_TABLE:         /* SAVE_TABLE value, base, index */
-			if (!ecl_poke(vm, (unsigned short)(a[1].word + ecl_rvalue(vm, &a[2])),
-			              ecl_rvalue(vm, &a[0])))
+			if (!ecl_var_set(vm, (unsigned short)(a[1].word + ecl_rvalue(vm, &a[2])),
+			                 ecl_rvalue(vm, &a[0])))
 				return fault(vm, at);
 			break;
 

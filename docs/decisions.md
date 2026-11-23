@@ -1956,6 +1956,34 @@ previous commit. Open:
   engine are reached through `race_base`, and Krynn's knights, gods and robes
   through the `knights` flag.
 
+**The character cells are mapped** (ADR-0023's open item). In the Dark Queen
+a script variable at 0x401..0x800 is a field of the selected character:
+DQK.EXE sorts every variable address (0x40637) and hands that range to a
+reader (0x406cd: the memorized spells as a range, and a 58-case switch) and
+a writer (0x41e1e: the spells and a 14-case switch); any other cell reads 0
+and takes no write. `tools/gbcells.py` is the reference: it holds the tables
+and recovers them from DQK.EXE's bytes (`parse_exe`, which interprets each
+switch arm), and `tests/test_gbcells.py` holds the two together, holds
+`src/engine/gbcells.c` (plain C99) to the reference, and checks that a cell
+read on the engine's record of a converted .QCH gives what DQK reads on the
+.QCH itself. A DQK offset goes through qch.c's field map and FRUA's
+in-memory byte order (L0ce0), so steel is rec[76] as a big-endian word,
+spells rec[198..], god/robe/order the packed rec[91]. The core asks the host
+first on every numeric read and write a script makes (`ecl_host.var`,
+`ecl_var_get/set`); string cells, and the host's own peeks and pokes, stay
+in script memory, so the name at 0x401 is still served by gbs_seed_who.
+Champions and Death Knights keep the range as script memory. Every cell the
+Dark Queen's scripts use (19 of them; status is compared 112 times, steel
+changed in about 60 places) is covered, and every one they write is one the
+game makes writable. Checked in Hatari on GOLDBOX.DSN with Cinder: a test
+script read steel 200, HP 78, status 0, STR 12, god 5, level 8, added 25
+steel and took 1 HP, and the sheet then showed 225 and 77/78. Open:
+- the race cell reads rec[88] as it is, which is the game's race only under
+  the game's own rules (a design converted without DQK.EXE renumbers it);
+- DQK's word at 0x19c (read with the god) and the nine bytes FRUA lacks read
+  0; the knightly order is read-only in DQK too, so a promotion to the Sword
+  or the Rose is not done through these cells.
+
 **Context.** The Gold Box games OpenUA is opening up to (ADR-0023) do not all
 share FRUA's classes and races. The Krynn games have seven player races
 (Silvanesti and Qualinesti elves, half-elves, mountain and hill dwarves,

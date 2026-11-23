@@ -115,6 +115,13 @@ typedef struct ecl_host {
 	 * for SAVE and COMPARE when an operand is text, so the host can keep the
 	 * string (the core stores only its numeric marker). May be null. */
 	int (*op)(void *ctx, struct ecl_vm *vm, const ecl_insn *ins);
+	/* A script VARIABLE the host serves itself (the Dark Queen's character
+	 * cells, 0x401..0x800, are fields of the selected character). Asked
+	 * before script memory on every numeric read and write a script makes;
+	 * returns 1 when it took the address (*v read, or v written), 0 to leave
+	 * it to script memory. String cells (ecl_str_get/put) and ecl_peek/poke
+	 * never come here. May be null. */
+	int (*var)(void *ctx, unsigned short addr, unsigned short *v, int write);
 } ecl_host;
 
 typedef struct ecl_vm {
@@ -174,8 +181,13 @@ unsigned ecl_str_get(const ecl_vm *vm, unsigned short addr, char *out, unsigned 
 /* Store `s` (at most ECL_STR_MAX characters) in the cell at `addr`. */
 int      ecl_str_put(ecl_vm *vm, unsigned short addr, const char *s);
 
+/* Script memory itself, under any host variable. */
 unsigned short ecl_peek(const ecl_vm *vm, unsigned short addr);
 int            ecl_poke(ecl_vm *vm, unsigned short addr, unsigned short v);
+/* A script variable as the script sees it: the host's, else script memory.
+ * A host's own op handlers write results through ecl_var_set. */
+unsigned short ecl_var_get(const ecl_vm *vm, unsigned short addr);
+int            ecl_var_set(ecl_vm *vm, unsigned short addr, unsigned short v);
 unsigned short ecl_rvalue(const ecl_vm *vm, const ecl_opnd *a);
 void           ecl_set_cmp(ecl_vm *vm, long left, long right);
 

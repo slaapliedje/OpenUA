@@ -12,6 +12,11 @@
  *   HOST <opcode> <argc> <rvalue>... [| text | text ...]
  *   STATUS <status> pc=<offset> steps=<n> unhandled=<n> chain=<n> fault=<offset>
  *   MEM <addr> <value>                        every non-zero cell, ascending
+ *   HVAR <addr> <value>                       the same for host variables
+ *
+ * A run argument "h<addr>=<value>" turns on a host variable hook that serves
+ * 0x401..0x800 from its own table (as the Dark Queen's character cells are
+ * served), preset to <value>.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,6 +28,21 @@ static void *host_alloc(void *ctx, unsigned long bytes)
 {
 	(void)ctx;
 	return calloc(1, bytes);
+}
+
+static unsigned short hvar[0x400];
+static int             hvar_on;
+
+static int host_var(void *ctx, unsigned short addr, unsigned short *v, int write)
+{
+	(void)ctx;
+	if (!hvar_on || addr < 0x401 || addr > 0x800)
+		return 0;
+	if (write)
+		hvar[addr - 0x401] = *v;
+	else
+		*v = hvar[addr - 0x401];
+	return 1;
 }
 
 static int host_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
@@ -86,7 +106,7 @@ int main(int argc, char **argv)
 {
 	static ecl_vm vm;
 	static ecl_insn ins;
-	ecl_host host = { NULL, host_alloc, host_op };
+	ecl_host host = { NULL, host_alloc, host_op, host_var };
 	const ecl_dialect *d;
 	unsigned char *raw;
 	unsigned len;
@@ -127,7 +147,11 @@ int main(int argc, char **argv)
 		for (i = 6; i < argc; i++) {
 			unsigned addr, value;
 
-			if (sscanf(argv[i], "%u=%u", &addr, &value) == 2)
+			if (sscanf(argv[i], "h%u=%u", &addr, &value) == 2
+			 && addr >= 0x401 && addr <= 0x800) {
+				hvar_on = 1;
+				hvar[addr - 0x401] = (unsigned short)value;
+			} else if (sscanf(argv[i], "%u=%u", &addr, &value) == 2)
 				ecl_poke(&vm, (unsigned short)addr, (unsigned short)value);
 		}
 		if (!ecl_enter(&vm, atoi(argv[4]))) {
@@ -148,6 +172,9 @@ int main(int argc, char **argv)
 		for (a = 0; a < 0x10000UL; a++)
 			if (ecl_peek(&vm, (unsigned short)a))
 				printf("MEM %lu %u\n", a, ecl_peek(&vm, (unsigned short)a));
+		for (a = 0; a < 0x400; a++)
+			if (hvar[a])
+				printf("HVAR %lu %u\n", a + 0x401, hvar[a]);
 		return 0;
 	}
 	return 2;

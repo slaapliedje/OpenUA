@@ -373,11 +373,14 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   byte for byte (money rec[76..81], items rec[8] with the item record at
   node[40], affects rec[4] with the id in byte 0, memorized spells
   rec[198]), and the spell and affect numbers are FRUA's.
-  **Not mapped yet:** the character cells 0x401..0x800. DQK reads and
-  writes them through a 58-case switch onto the selected character (DQK
-  0x406cd/0x40b57: 0x41f+n is memorized spell n, 0x54c steel, ...); here
-  they are plain script memory, so a script that uses up a spell by
-  writing 255 there, or checks a member's steel, does not see the record.
+  **The character cells 0x401..0x800 are the selected character's
+  record** in the Dark Queen (DQK 0x406cd reads, 0x41e1e writes:
+  0x41f+n memorized spell n, 0x54c steel, 0x5ee status, 0x5fd HP, ...).
+  `src/engine/gbcells.c` maps them (reference `tools/gbcells.py`, which
+  also reads the tables out of DQK.EXE); the core asks the host first on
+  every numeric read and write (`ecl_host.var`), so a host op that writes
+  a result into a script variable uses `ecl_var_set`, never `ecl_poke`.
+  String cells and the host's own peeks stay in script memory.
   No Dark Queen script uses DESTROY_ITEMS.
   Census: walk every ECLnnn.DAT with tools/ecl.py's Block.walk(). PROGRAM is
   read out of DQK.EXE (0x328cf, a ten-entry jump table): 0 training, 1

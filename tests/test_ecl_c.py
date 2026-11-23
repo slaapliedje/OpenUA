@@ -52,12 +52,18 @@ def c_decode(cbin, tmp_path, raw, dialect, offsets):
 
 
 def c_run(cbin, tmp_path, code, dialect=GEN2, entry=4, budget=10000, pokes=(),
-          entries=None):
+          entries=None, hvars=None):
+    """hvars: {addr: value} turns on a host variable hook over 0x401..0x800
+    (as the Dark Queen's character cells); on return the dict holds the
+    hook's non-zero variables."""
     p = tmp_path / "blk.bin"
     p.write_bytes(block(code, dialect, entries))
     r = subprocess.run([cbin, "run", dialect.name, str(p), str(entry), str(budget)]
-                       + ["%d=%d" % kv for kv in pokes],
+                       + ["%d=%d" % kv for kv in pokes]
+                       + ["h%d=%d" % kv for kv in (hvars or {}).items()],
                        capture_output=True, text=True, check=True)
+    if hvars is not None:
+        hvars.clear()
     host, mem_, status, pauses = [], {}, None, []
     for line in r.stdout.splitlines():
         f = line.split()
@@ -67,6 +73,8 @@ def c_run(cbin, tmp_path, code, dialect=GEN2, entry=4, budget=10000, pokes=(),
             host.append((int(nums[1]), [int(x) for x in nums[3:]], texts))
         elif f[0] == "MEM":
             mem_[int(f[1])] = int(f[2])
+        elif f[0] == "HVAR" and hvars is not None:
+            hvars[int(f[1])] = int(f[2])
         elif f[0] == "PAUSE":
             pauses.append(int(f[1]))
         elif f[0] == "STATUS":
@@ -162,6 +170,29 @@ def test_save_and_arithmetic_destination_is_the_last_operand(cbin, tmp_path):
     assert st["status"] == EXITED
     assert (m[0x10], m[0x11], m[0x12], m[0x13], m[0x14]) == (7, 12, 11, 33, 6)
     assert m[0x29] == 3                                       # Gen2's remainder cell
+
+
+def test_a_host_variable_is_read_and_written_by_the_host(cbin, tmp_path):
+    """Script variables a host serves (the Dark Queen's character cells) go
+    through the host for every numeric read and write; script memory never
+    sees them, and string cells stay in script memory."""
+    code = (bytes([0x04]) + mem(0x5fd) + imm(3) + mem(0x5fd)          # hp += 3
+            + bytes([0x09]) + mem(0x54c) + mem(0x10)                    # [0x10] = steel
+            + bytes([0x35]) + imm(9) + mem(0x0550) + imm(1)             # table write
+            + bytes([0x2a]) + mem(0x0550) + imm(1) + mem(0x11)          # table read
+            + bytes([0x08]) + imm(1) + mem(0x700)                       # RANDOM -> 0
+            + bytes([0x09]) + text("TASSLE") + cell(0x401)              # a string cell
+            + b"\x00")
+    hv = {0x5fd: 10, 0x54c: 1234, 0x700: 5}
+    _, m, st, _ = c_run(cbin, tmp_path, code, hvars=hv)
+    assert st["status"] == EXITED
+    assert hv == {0x5fd: 13, 0x54c: 1234, 0x551: 9}           # 0x700 written 0
+    assert m[0x10] == 1234 and m[0x11] == 9
+    assert not [a for a in m if 0x401 + 6 < a <= 0x800]
+    assert [m.get(0x401 + i, 0) for i in range(7)] == [ord(c) for c in "TASSLE"] + [0]
+    # without a hook the same addresses are plain script memory
+    _, m, _, _ = c_run(cbin, tmp_path, code, pokes=((0x5fd, 10),))
+    assert m[0x5fd] == 13 and m[0x551] == 9
 
 
 def test_divide_remainder_lands_where_the_dialect_says(cbin, tmp_path):

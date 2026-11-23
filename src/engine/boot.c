@@ -67,6 +67,7 @@
 #include "gbmon.h"            /* ADR-0026: its monsters                    */
 #include "gbmaps.h"           /* ADR-0026: its maps                        */
 #include "gbsave.h"           /* ADR-0026: its saved games                 */
+#include "gbcells.h"          /* ADR-0026: its character cells             */
 
 /* #125c: the play-step / compose TickCount brackets in this file were gated on
  * FRUA_MONOPROF — but that flag CANNOT BE USED ON A COLOUR BUILD. Its own
@@ -107337,7 +107338,7 @@ static void gbs_menu(ecl_vm *vm, const ecl_insn *ins, int first, int n,
 	if (shown < n)
 		dbg_log_num("gbs: menu cut to fit the bar, items shown = ", (long)shown);
 	if (shown == 0) {
-		ecl_poke(vm, dest, 0);
+		ecl_var_set(vm, dest, 0);
 		return;
 	}
 	gbs_draw(0);                    /* the question stays up above the bar */
@@ -107345,7 +107346,7 @@ static void gbs_menu(ecl_vm *vm, const ecl_insn *ins, int first, int n,
 	pick = jt182("", (long)(uintptr_t)bar, 0, g_a5_22281);
 	if (pick < 0 || pick >= shown)  /* Escape and friends: the last item, */
 		pick = (short)(shown - 1);  /* which is where LEAVE / EXIT lives  */
-	ecl_poke(vm, dest, (unsigned short)pick);
+	ecl_var_set(vm, dest, (unsigned short)pick);
 	g_gbs_shown = 1;
 }
 
@@ -107692,8 +107693,8 @@ static void gbs_spell(ecl_vm *vm, const ecl_insn *ins)
 		if (*(long *)(uintptr_t)m != 0)
 			place++;
 	}
-	(void)ecl_poke(vm, ins->arg[1].word, slot);
-	(void)ecl_poke(vm, ins->arg[2].word, place);
+	(void)ecl_var_set(vm, ins->arg[1].word, slot);
+	(void)ecl_var_set(vm, ins->arg[2].word, place);
 }
 
 /* FIND_ITEM type (DQK 0x431fb): does anyone in the party carry an item of
@@ -107810,7 +107811,7 @@ static void gbs_input_number(ecl_vm *vm, short digits, unsigned short dest)
 	while (--digits > 0 && cap < 9999)
 		cap = cap * 10 + 9;
 	gbs_draw(0);                    /* the question stays up */
-	ecl_poke(vm, dest, (unsigned short)jt891(cap, "Number: ", 7));
+	ecl_var_set(vm, dest, (unsigned short)jt891(cap, "Number: ", 7));
 	g_gbs_shown = 1;
 }
 
@@ -108299,6 +108300,27 @@ static void gbs_seed_who(void)
 	(void)ecl_str_put(&g_gbs_vm, 0x0401, name);
 }
 
+/* The Dark Queen's character cells: a script variable at 0x401..0x800 is a
+ * field of the selected character's record (DQK.EXE 0x406cd reads, 0x41e1e
+ * writes; the map is gbcells.c, reference tools/gbcells.py). An unmapped
+ * cell reads 0 and takes no write, as in the game. The name at 0x401 is a
+ * STRING cell (gbs_seed_who) and never comes here. Champions and Death
+ * Knights keep these addresses as script memory. */
+static int gbs_var(void *ctx, unsigned short addr, unsigned short *v, int write)
+{
+	unsigned char *who;
+
+	(void)ctx;
+	if (g_gbs_dialect != ECL_GEN2 || !GBC_IS_CELL(addr))
+		return 0;
+	who = (unsigned char *)(uintptr_t)g_a5_long(-27932);
+	if (write)
+		gbc_write(who, addr, *v);
+	else
+		*v = gbc_read(who, addr);
+	return 1;
+}
+
 static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 {
 	(void)ctx;
@@ -108468,7 +108490,7 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 	case 0x37:                      /* FIND_NPC name, dest */
 		if (g_gbs_dialect != ECL_GEN2 || ins->argc < 2)
 			return ECL_HOST_UNHANDLED;
-		(void)ecl_poke(vm, ins->arg[1].word, gbs_find_npc(vm, &ins->arg[0]));
+		(void)ecl_var_set(vm, ins->arg[1].word, gbs_find_npc(vm, &ins->arg[0]));
 		return ECL_HOST_OK;
 	case 0x28:                      /* ROB who, percent, item percent */
 		if (g_gbs_dialect != ECL_GEN2 || ins->argc < 2)
@@ -108599,6 +108621,7 @@ static int gbs_script_load(short id)
 		g_gbs_host.ctx   = NULL;
 		g_gbs_host.alloc = gbs_alloc;
 		g_gbs_host.op    = gbs_op;
+		g_gbs_host.var   = gbs_var;
 		ecl_init(&g_gbs_vm, &g_gbs_host);
 		g_gbs_ready = 1;
 	}
