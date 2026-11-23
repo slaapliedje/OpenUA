@@ -409,7 +409,13 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   arrival), and the 1024 script cells are poked back, one byte a cell. A
   save at map 0 (the one the game ships) starts like a new game. Checked:
   Caergoth save D walks into the dragon ambush on the same step as in DOS.
-  Not carried: the clock and the vault. Real saves for tests live in
+  The clock IS script cells 5..11 in the Dark Queen (rounds, minutes,
+  tens, hours, days, months, years, carried lazily): the same seven fields
+  and radices as FRUA's game clock h[5..11], so `gbs_var` serves those
+  cells from h[] and the load copies them there. The vault, VAULT<c>.DAT,
+  is FRUA's vault file with 17-byte items (866 bytes, a size FRUA's never
+  has): jt74 reads either, and jt75 writes the game's format in a design
+  holding DQK.EXE. Real saves for tests live in
   `data/work/dqk-saves` (README there; E/F/G are from an HP-edited save).
 - **Script memory is saved beside the slot** (`<design>\SAVE\GBSAV<slot>.DAT`,
   written after FRUA's own file, read back at the end of `l143e`). Two traps
@@ -482,7 +488,8 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   monsters, with the monsters' own loot when it has. With no monsters and
   area byte 0x14 set, COMBAT is a temple instead (`l216a`; the level and
   price band are this port's choice, the game has neither). Area byte 0x31
-  selects a third screen that is not identified yet.
+  set makes it the vault (the Imperial Bank of Kristophan): `gbs_vault`
+  runs jt185, FRUA's vault screen, whole.
 - **To test a script opcode in the engine, write a script.** `tests/test_ecl.py`
   has the assembler (`block`, `imm`, `text`); "GBS2", the dialect byte, three
   zeros and the block is an `ECLnnn.DAT`. Build with `-DFRUA_CBTPLAY` to have

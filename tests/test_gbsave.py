@@ -155,3 +155,47 @@ def test_shipped_party_is_the_shipped_heroes():
         assert len(r) == len(q)
         same = sum(a == b for a, b in zip(r, q))
         assert same >= len(q) - 20
+
+
+# The times dqk-saves/README records for each save, made in the game.
+README_TIMES = {"B": (11, 0), "C": (11, 2), "D": (11, 19), "G-edited": (15, 41)}
+
+
+@pytest.mark.skipif(not REAL, reason="no Dark Queen saves on this machine")
+def test_the_clock_is_script_cells_5_to_11():
+    base = os.path.join(ROOT, "data", "work", "dqk-saves")
+    seen = 0
+    for d, hm in README_TIMES.items():
+        for path in glob.glob(os.path.join(base, d, "SAVGAM?.QSV")):
+            s = gbsave.GbSave(open(path, "rb").read())
+            assert s.time_of_day == hm, (d, s.clock)
+            seen += 1
+    if not seen:
+        pytest.skip("the README's saves are not here")
+    # B -> C: two minutes on, and day 38 of month 0 carried to day 8 of month 1
+    b = gbsave.GbSave(open(glob.glob(os.path.join(base, "B", "*.QSV"))[0], "rb").read())
+    c = gbsave.GbSave(open(glob.glob(os.path.join(base, "C", "*.QSV"))[0], "rb").read())
+    days = lambda k: k.clock["months"] * gbsave.RADIX[4] + k.clock["days"]
+    assert days(b) == days(c) and b.clock["months"] != c.clock["months"]
+
+
+def test_vault_layout():
+    rnd = random.Random(3)
+    item = bytes(rnd.randrange(256) for _ in range(gbsave.ITEM))
+    v = bytearray(struct.pack("<3I", 7, 1, 2) + b"\xff\xff" + struct.pack("<H", 1)
+                  + item + bytes(gbsave.ITEM * (gbsave.VAULT_ITEMS - 1)))
+    assert len(v) == gbsave.VAULT_SIZE == 12 + 4 + 17 * 50
+    assert gbsave.read_vault(bytes(v)) == ((7, 1, 2), [item])
+    with pytest.raises(gbsave.GbSaveError):
+        gbsave.read_vault(bytes(v) + b"\0")     # FRUA's is never this size
+    v[12] = 0
+    with pytest.raises(gbsave.GbSaveError):
+        gbsave.read_vault(bytes(v))
+
+
+@pytest.mark.skipif(not glob.glob(os.path.join(GAME, "SAVE", "VAULT?.DAT")),
+                    reason="no Dark Queen vault on this machine")
+def test_shipped_vault_is_empty_and_866_bytes():
+    for path in glob.glob(os.path.join(GAME, "SAVE", "VAULT?.DAT")):
+        money, items = gbsave.read_vault(open(path, "rb").read())
+        assert money == (0, 0, 0) and items == []

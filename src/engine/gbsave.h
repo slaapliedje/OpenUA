@@ -18,6 +18,15 @@
 #define GBV_CELL_FACING 0x11    /* 0=N 1=E 2=S 3=W                         */
 #define GBV_CELL_MAP    0x13    /* the map loaded                          */
 #define GBV_CELL_SCRIPT 0x16    /* the script running                      */
+/* The clock is script memory: cells 5..11 are rounds, minutes, tens of
+ * minutes, hours, days, months and years (FRUA's game record h[5..11],
+ * the same seven fields and radices 10/10/6/24/30/12/100). */
+#define GBV_CELL_CLOCK  0x05
+#define GBV_CLOCK_N     7
+
+/* VAULT<c>.DAT: FRUA's vault file (12 bytes of money, 0xffff and a count,
+ * the items) with 17-byte item records, always 50 of them. */
+#define GBV_VAULT_SIZE  866
 
 #define GBV_ESHORT   -1         /* shorter than the header                 */
 #define GBV_ECOUNT   -2         /* more party records than a party holds   */

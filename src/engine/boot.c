@@ -101396,8 +101396,16 @@ static short jt75(short refnum)
 {
 	long  node, bundle;
 	short count, written, i, w, hdrbuf[2];
+	short isz = 18, recs = 200;
 
 	PROBE("jt75");
+	/* PORT: a design that plays the Dark Queen from its own files keeps its
+	 * vaults in the game's format (17-byte items, 50 records; see jt74), so
+	 * the game itself can still read a slot the port saved into. */
+	if (qch_native()) {
+		isz  = 17;
+		recs = 50;
+	}
 
 	/* money: swap BE->LE in place, then write the 12-byte block */
 	for (i = 0; i <= 2; i++)
@@ -101424,10 +101432,10 @@ static short jt75(short refnum)
 
 		*(short *)(n + 44) = jt1180(*(short *)(n + 44));
 		*(short *)(n + 46) = jt1180(*(short *)(n + 46));
-		w = jt410(refnum, n + 40, (short)18);
+		w = jt410(refnum, n + 40, isz);
 		*(short *)(n + 44) = jt1180(*(short *)(n + 44));
 		*(short *)(n + 46) = jt1180(*(short *)(n + 46));
-		if (w != 18)
+		if (w != isz)
 			return 0;
 		written++;
 		if (n[40] == 73) {                       /* bundle: write each member */
@@ -101440,10 +101448,10 @@ static short jt75(short refnum)
 				bn = (unsigned char *)(uintptr_t)bundle;
 				*(short *)(bn + 44) = jt1180(*(short *)(bn + 44));
 				*(short *)(bn + 46) = jt1180(*(short *)(bn + 46));
-				w = jt410(refnum, bn + 40, (short)18);
+				w = jt410(refnum, bn + 40, isz);
 				*(short *)(bn + 44) = jt1180(*(short *)(bn + 44));
 				*(short *)(bn + 46) = jt1180(*(short *)(bn + 46));
-				if (w != 18)
+				if (w != isz)
 					return 0;
 				written++;
 				g_a5_byte(-22307) = (unsigned char)(g_a5_byte(-22307) + 1);
@@ -101452,10 +101460,19 @@ static short jt75(short refnum)
 	}
 
 	/* pad to 200 records from the -27920 item-template table */
-	if (written < 200) {
-		short pad = (short)((200 - written) * 18);
+	if (written < recs && isz == 18) {
+		short pad = (short)((recs - written) * 18);
 		if (jt410(refnum, (void *)(uintptr_t)g_a5_long(-27920), pad) != pad)
 			return 0;
+	} else if (written < recs) {
+		/* the Dark Queen pads from its item table too, 17 bytes a record */
+		const unsigned char *t =
+		    (const unsigned char *)(uintptr_t)g_a5_long(-27920);
+
+		for (i = written; i < recs; i++)
+			if (jt410(refnum, (void *)(uintptr_t)(t + (long)(i - written) * 18),
+			          isz) != isz)
+				return 0;
 	}
 	jt73();                                          /* l6114: free the list */
 	return 1;
@@ -101491,11 +101508,17 @@ static short jt74(short refnum)
 {
 	unsigned char nodebuf[62];
 	unsigned char hdr[4];
-	long          tail = 0, btail;
-	short         count, itemcount = 0, w, i;
+	long          tail = 0, btail, eof = 0;
+	short         count, itemcount = 0, w, i, isz = 18;
 	unsigned char error = 0;
 
 	PROBE("jt74");
+	/* PORT: The Dark Queen writes the same file (VAULT<c>.DAT, its money,
+	 * the 0xffff/count header, then the items) with its own 17-byte item
+	 * records, always 50 of them: 866 bytes, a size FRUA's never has. Its
+	 * item is FRUA's less the last byte (gbi_item_table adds a 0). */
+	if (GetEOF(refnum, &eof) == noErr && eof == GBV_VAULT_SIZE)
+		isz = 17;
 	jt73();
 	if (jt401(refnum, &g_a5_byte(-25314), (short)12) != 12)
 		return 0;
@@ -101509,8 +101532,8 @@ static short jt74(short refnum)
 
 	while (count > 0 && !error) {
 		jt399(nodebuf, (short)62, (short)0);
-		w = jt401(refnum, nodebuf + 40, (short)18);
-		if (w != 18)
+		w = jt401(refnum, nodebuf + 40, isz);
+		if (w != isz)
 			error = 1;
 		*(short *)(nodebuf + 44) = jt1180(*(short *)(nodebuf + 44));
 		*(short *)(nodebuf + 46) = jt1180(*(short *)(nodebuf + 46));
@@ -101534,8 +101557,8 @@ static short jt74(short refnum)
 				while ((unsigned char)g_a5_byte(-22307) <=
 				       ((unsigned char *)(uintptr_t)tail)[53]) {
 					jt399(nodebuf, (short)62, (short)0);
-					w = jt401(refnum, nodebuf + 40, (short)18);
-					if (w != 18)
+					w = jt401(refnum, nodebuf + 40, isz);
+					if (w != isz)
 						error = 1;
 					*(short *)(nodebuf + 44) =
 					    jt1180(*(short *)(nodebuf + 44));
@@ -107944,6 +107967,32 @@ static void gbs_treasure_show(void)
 	g_gbs_shown = 1;
 }
 
+/* The vault: jt185, FRUA's vault screen (the body of its vault event, l3a32,
+ * whose picture and "The party enters the vault." the script has already
+ * replaced with its own), between a save and a restore of the play state as
+ * gbs_treasure_show does. It is FRUA's vault in full: the pile is read from
+ * Vault<c>.DAT (c the slot, 'T' after a visit; jt74 also reads the Dark
+ * Queen's own VAULT<c>.DAT) and written back on the way out. */
+static void gbs_vault(void)
+{
+	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-28006);
+	unsigned char  saved;
+
+	gbs_draw(0);
+	if (g_gbs_pic)
+		g_gbs_pic_letter = gbs_pic_letter(g_gbs_pic_id);
+	saved = g_a5_byte(-22268);
+	g_a5_byte(-22268) = 0;
+	jt185();
+	g_a5_byte(-27990) = (rec != NULL && rec[34] == 0 && rec[36] == 1) ? 3 : 4;
+	g_a5_byte(-22281) = 0;
+	jt23();
+	g_a5_byte(-22268) = saved;
+	g_gbs_pic_letter = 0;
+	g_gbs_pic = 0;
+	g_gbs_shown = 1;
+}
+
 /* A temple: l216a, FRUA's temple event, on the record its city event builds
  * for the same purpose (l5bde). The Dark Queen has no temple levels or price
  * bands; 7 is the lowest level FRUA offers every service at, and 10 is list
@@ -108126,8 +108175,9 @@ static int gbs_training(ecl_vm *vm)
  *
  * With NO monsters queued the original's COMBAT (file offset 0x3253b) is
  * something else, chosen by two bytes of the area block that scripts set just
- * before it: 0x31 = 1 a screen not identified yet, 0x14 = 1 a temple, and
- * otherwise the treasure pile is handed out. Both bytes are cleared.
+ * before it: 0x31 = 1 the vault (gbs_vault; "WELCOME TO THE IMPERIAL BANK OF
+ * KRISTOPHAN."), 0x14 = 1 a temple, and otherwise the treasure pile is
+ * handed out. Both bytes are cleared.
  *
  * Treasure staged before a fight rides into it: FRUA shows the pile together
  * with what the monsters carried.
@@ -108142,7 +108192,8 @@ static int gbs_combat(ecl_vm *vm)
 	if (g_gbs_nmon == 0) {
 		if (g_gbs_dialect == ECL_GEN2 && ecl_peek(vm, 0x0031) == 1) {
 			ecl_poke(vm, 0x0031, 0);
-			return -1;
+			gbs_vault();
+			return 0;
 		}
 		if (g_gbs_dialect == ECL_GEN2 && ecl_peek(vm, 0x0014) == 1) {
 			ecl_poke(vm, 0x0014, 0);
@@ -108300,7 +108351,8 @@ static void gbs_seed_who(void)
 	(void)ecl_str_put(&g_gbs_vm, 0x0401, name);
 }
 
-/* The Dark Queen's character cells: a script variable at 0x401..0x800 is a
+/* The Dark Queen's clock cells (5..11) are FRUA's game clock, below. Its
+ * character cells: a script variable at 0x401..0x800 is a
  * field of the selected character's record (DQK.EXE 0x406cd reads, 0x41e1e
  * writes; the map is gbcells.c, reference tools/gbcells.py). An unmapped
  * cell reads 0 and takes no write, as in the game. The name at 0x401 is a
@@ -108311,7 +108363,24 @@ static int gbs_var(void *ctx, unsigned short addr, unsigned short *v, int write)
 	unsigned char *who;
 
 	(void)ctx;
-	if (g_gbs_dialect != ECL_GEN2 || !GBC_IS_CELL(addr))
+	if (g_gbs_dialect != ECL_GEN2)
+		return 0;
+	if (addr >= GBV_CELL_CLOCK && addr < GBV_CELL_CLOCK + GBV_CLOCK_N) {
+		/* The clock: in the Dark Queen it IS these script cells (one byte
+		 * each, carried lazily: a script adds 15 days, or sets the minutes
+		 * to 59, and the next tick carries). Here it is FRUA's game clock,
+		 * h[5..11], the same seven fields and radices. */
+		unsigned char *h = (unsigned char *)g_a5_28006;
+
+		if (h == NULL)
+			return 0;
+		if (write)
+			h[addr] = (unsigned char)*v;
+		else
+			*v = h[addr];
+		return 1;
+	}
+	if (!GBC_IS_CELL(addr))
 		return 0;
 	who = (unsigned char *)(uintptr_t)g_a5_long(-27932);
 	if (write)
@@ -109337,6 +109406,12 @@ static int gbs_qsv_load(int slot)
 	jt952();
 	if (g_a5_byte(-6924) != h[58])
 		jt85((short)h[58]);
+
+	/* the clock, which the game keeps in script cells 5..11: FRUA's game
+	 * clock h[5..11] is the same seven fields (gbs_var serves those cells
+	 * from it). Copied as saved; the next tick carries, as in the game. */
+	for (c = 0; c < GBV_CLOCK_N; c++)
+		h[GBV_CELL_CLOCK + c] = s.cells[GBV_CELL_CLOCK - 1 + c];
 
 	/* the script memory, one byte a cell, and the script that was running */
 	if (g_gbs_active && g_gbs_ready) {

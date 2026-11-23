@@ -21,8 +21,17 @@ A save is always 7965 bytes:
                            the game loads the map itself
                      0x34, 0x35  "INITIAL X,Y POSITION" (the debug menu)
                      0x1b9 + 17n  name strings, a character a cell
-                   and 0x06..0x0a the clock (minutes, tens of minutes, hour,
-                   day, ...).
+                     0x05..0x0b  THE CLOCK: rounds, minutes, tens of
+                           minutes, hours, days, months, years. It is FRUA's
+                           game clock (the game record's h[5..11], the same
+                           fields and radices 10/10/6/24/30/12/100), and
+                           the game keeps it nowhere else. It is carried
+                           lazily: scripts add 15 days or set the minutes to
+                           59, and the next tick carries one radix at a
+                           time (save B has day 38 of month 0, save C two
+                           minutes later day 8 of month 1). The engine
+                           serves these cells from h[5..11] (boot.c
+                           gbs_var).
     1024, 1025     the party's square, x east and y south
     1026           its facing, 0=N 2=E 4=S 6=W
     1027           (not identified)
@@ -38,8 +47,15 @@ character. After the last record come 17 bytes of 0xff and a block that is
 the same in every save (shifted along by a longer party); nothing here reads
 it.
 
-The vault (VAULTx.DAT) is not read here. The engine loads a save through
-boot.c's gbs_qsv_load.
+The vault, VAULTx.DAT beside the save, is FRUA's vault file with the game's
+17-byte item records (an ITEM.DAT entry; FRUA's record is the same and one
+byte longer, gbitems.c): 12 bytes of money (steel, gems, jewelry, three
+little-endian longs), 0xffff, a little-endian count, then the items, padded
+to 50 records from the item table. Always 866 bytes. read_vault() reads one;
+the engine's vault screen (jt74) reads it, and a design that plays the game
+from its own files writes its vaults this way too (jt75). The vault itself
+is the Imperial Bank of Kristophan: a COMBAT with no monsters and area byte
+0x31 set. The engine loads a save through boot.c's gbs_qsv_load.
 
     python3 tools/gbsave.py SAVGAMA.QSV              # summary
     python3 tools/gbsave.py SAVGAMA.QSV --qch DIR    # each member as a .QCH
@@ -62,6 +78,11 @@ ITEM = 17
 NODE = 9
 NODES = 64          # a chain longer than this is not one
 
+CELL_CLOCK = 0x05
+CLOCK = ("rounds", "minutes", "tens", "hours", "days", "months", "years")
+RADIX = (10, 10, 6, 24, 30, 12, 100)
+VAULT_SIZE = 866
+VAULT_ITEMS = 50
 CELL_FACING = 0x11
 CELL_MAP = 0x13
 CELL_SCRIPT = 0x16
@@ -120,6 +141,29 @@ class GbSave:
     @property
     def script(self):
         return self.cell(CELL_SCRIPT)
+
+    @property
+    def clock(self):
+        """The seven clock fields as saved (not carried)."""
+        return dict(zip(CLOCK, (self.cell(CELL_CLOCK + i) for i in range(7))))
+
+    @property
+    def time_of_day(self):
+        """(hour, minute) as the game shows it."""
+        c = self.clock
+        return c["hours"], c["tens"] * 10 + c["minutes"]
+
+
+def read_vault(data):
+    """VAULTx.DAT -> (steel, gems, jewelry), [17-byte item records]."""
+    if len(data) != VAULT_SIZE:
+        raise GbSaveError("a vault is %d bytes, not %d" % (VAULT_SIZE, len(data)))
+    money = struct.unpack_from("<3I", data, 0)
+    mark, count = struct.unpack_from("<HH", data, 12)
+    if mark != 0xffff or count > VAULT_ITEMS:
+        raise GbSaveError("not a vault header: %04x, %d items" % (mark, count))
+    return money, [bytes(data[16 + ITEM * k:16 + ITEM * (k + 1)])
+                   for k in range(count)]
 
 
 def name_of(record):

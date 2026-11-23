@@ -1984,6 +1984,30 @@ steel and took 1 HP, and the sheet then showed 225 and 77/78. Open:
   0; the knightly order is read-only in DQK too, so a promotion to the Sword
   or the Rose is not done through these cells.
 
+**The clock and the vault are carried** (step (f)'s open item). The Dark
+Queen keeps its clock nowhere but script cells 5..11 (rounds, minutes, tens
+of minutes, hours, days, months, years), and they are FRUA's game clock: the
+game record's h[5..11], the same seven fields with the same radices
+(10/10/6/24/30/12/100, read out of the Mac DATA at -23228). Both carry
+lazily, one radix a tick (save B has day 38 of month 0; save C, two minutes
+later, day 8 of month 1). So `gbs_var` serves those cells from h[] (a script
+that waits "until the turn of the hour" or sails 15 days moves the HUD
+clock), and `gbs_qsv_load` copies them there; `tests/test_gbsave.py` reads
+the README's four times out of the four real saves. The vault: area byte
+0x31 before a COMBAT with no monsters, which the census showed beside
+"WELCOME TO THE IMPERIAL BANK OF KRISTOPHAN.", so `gbs_vault` runs jt185,
+FRUA's vault screen. VAULT<c>.DAT (the same name as FRUA's Vault<c>.DAT) is
+FRUA's layout with the game's 17-byte items, padded to 50: always 866 bytes,
+a size FRUA's never has, so jt74 reads either by size, and jt75 writes the
+game's format in a design holding DQK.EXE so the game can still read a slot
+the port saved into. Reference `gbsave.read_vault`. Checked in Hatari on
+GOLDBOX.DSN: save D loads at 11:19 AM and the first step makes it 11:20; a
+script adding 2 to cell 8 moved the HUD to 2:00 AM; 50 steel deposited came
+back out of an 866-byte VaultT.DAT on the next visit; a vault written as the
+game writes one, holding the first item of Cinder's .QCH, offered "40
+ARROWS +2". Open: more than 50 items in a vault would be written whole,
+which the game cannot read.
+
 **Context.** The Gold Box games OpenUA is opening up to (ADR-0023) do not all
 share FRUA's classes and races. The Krynn games have seven player races
 (Silvanesti and Qualinesti elves, half-elves, mountain and hill dwarves,
