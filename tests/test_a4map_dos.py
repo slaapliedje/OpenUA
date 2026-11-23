@@ -194,3 +194,37 @@ def test_pitch_table_stays_residue(full_map):
     for a5 in range(-804, -780):
         assert not any(s <= a5 < s + len(b) for s, b, _ in loc)
         assert not any(s <= a5 < s + len(b) for s, b, _, _ in swp)
+
+
+def test_rule_tables_are_whole():
+    """FRUA's rule tables reach a DOS-only install whole: every non-zero Mac
+    byte of each is in a DOS run (exact or swapped) after main()'s passes.
+    Before table_pass, a lone non-zero byte between zeros was left out: a
+    1st-level cleric had no 1st-level spell (A5-29876) and the cleric's and
+    druid's ability minimums were 0 (A5-30550, -30547, -30544). The two
+    tables CKIT.EXE keeps word-padded are port-authored (a5_scalars.c,
+    tests/test_a5_scalars.py)."""
+    sys.path.insert(0, "tools")
+    import a4map
+    img, drel, _ = a4map.load(RFORK)
+    dos = open(DOSEXE, "rb").read()
+    runs = a4map.scalar_runs(img, drel)
+    loc, res = a4map.split_by_dos(a4map.coalesce_runs_by_dos(runs, dos), dos)
+    swp, res = a4map.swap_pass(res, img, dos)
+    swp2, res = a4map.swap_coalesce_pass(res, img, dos)
+    swp, res = a4map.finish_swapped(swp + swp2, res, img, dos)
+    loc, swp, res = a4map.table_pass(loc, swp, res, img, dos)
+    covered = set()
+    for slot, b, off in loc:
+        assert dos[off:off + len(b)] == b
+        covered.update(range(slot, slot + len(b)))
+    for slot, b, off, flag in swp:
+        w, st = {f: (w, st) for f, w, st in a4map._SWAP_MODES}[flag]
+        assert dos[off:off + len(b)] == a4map._byteswap(b, w, st)
+        covered.update(range(slot, slot + len(b)))
+    for slot, n in a4map.RULE_TABLES:
+        for k in range(n):
+            if img[len(img) + slot + k]:
+                assert slot + k in covered, f"A5{slot}+{k} not in a DOS run"
+    for slot in (-29876, -30550, -30547, -30544):
+        assert slot in covered

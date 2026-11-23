@@ -565,6 +565,67 @@ def swap16_pass(residue, img, dos, min_run=8):
     return [(s, b, o) for s, b, o, _ in out], rest
 
 
+# FRUA's rule tables (rules.c g_rules_frua, tools/rules.py FRUA_A5): A5 slot
+# and length. Their extents are known, so each is located WHOLE in CKIT.EXE
+# rather than as non-zero crumbs; a lone non-zero byte between zeros (a
+# cleric's minimum WIS, a 1st-level cleric's one spell) is too short for
+# split_by_dos to locate and was left out of DOS-only installs. Two are not
+# in CKIT.EXE in this shape (its race/class and class/alignment rows are
+# word-padded) and are port-authored instead (a5_scalars.c).
+RULE_TABLES = (
+    (-30552, 102), (-30960, 96), (-30612, 60), (-30780, 168), (-28048, 42),
+    (-30212, 336), (-31228, 28), (-23184, 154), (-28818, 770), (-23030, 7),
+    (-23023, 7), (-23007, 7), (-23000, 7), (-22993, 7), (-30220, 7),
+    (-29876, 1044), (-22980, 144), (-22836, 48),
+)
+
+
+def table_pass(loc, swp, residue, img, dos, tables=RULE_TABLES, max_len=1024):
+    """(loc', swp', residue') — each table with a non-zero byte no run
+    covers, located whole in the DOS image (exactly, else in one of the
+    swap modes; one match only) and added as runs of at most `max_len`.
+    The runtime fills only bytes still zero, so overlaps are harmless."""
+    covered = set()
+    for slot, b, _ in loc:
+        covered.update(range(slot, slot + len(b)))
+    for slot, b, _, _ in swp:
+        covered.update(range(slot, slot + len(b)))
+    added = set()
+    for slot, n in tables:
+        mac = bytes(img[len(img) + slot:len(img) + slot + n])
+        if all(v == 0 or slot + k in covered for k, v in enumerate(mac)):
+            continue
+        for flag, width, stride in (("0", 1, 1),) + _SWAP_MODES:
+            want = mac if flag == "0" else _byteswap(mac, width, stride)
+            if dos.count(want) == 1:
+                break
+        else:
+            continue
+        off = dos.find(want)
+        for k in range(0, n, max_len):
+            part = (slot + k, mac[k:k + max_len], off + k)
+            if flag == "0":
+                loc.append(part)
+            else:
+                swp.append(part + (flag,))
+        added.update(range(slot, slot + n))
+    out = []
+    for slot, b in residue:
+        run = None
+        for k, v in enumerate(b):
+            if slot + k in added:
+                if run:
+                    out.append(tuple(run))
+                    run = None
+            elif run is None:
+                run = [slot + k, bytes([v])]
+            else:
+                run[1] += bytes([v])
+        if run:
+            out.append(tuple(run))
+    return loc, swp, out
+
+
 def emit_c_dos_scalars(locatable, fh, swapped=()):
     fh.write("\n/* Scalar runs recoverable from the user's DOS CKIT.EXE:\n"
              " * \"the A5 global at `slot` is `len` bytes taken from DOS+`off`\".\n"
@@ -686,6 +747,7 @@ def main(argv=None):
                 swp, res = swap_pass(res, img, dosimg)
                 swp2, res = swap_coalesce_pass(res, img, dosimg)
                 swp, res = finish_swapped(swp + swp2, res, img, dosimg)
+                loc, swp, res = table_pass(loc, swp, res, img, dosimg)
                 lb = sum(len(b) for _, b, _ in loc)
                 sb = sum(len(b) for _, b, _, _ in swp)
                 rb = sum(len(b) for _, b in res)
