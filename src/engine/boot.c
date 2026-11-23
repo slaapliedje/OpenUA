@@ -31714,12 +31714,17 @@ static int l0aae(void)
 		 * phr -> rec[16] (top), page -> rec[18] (left). */
 		/* Raw phrase row — jt137 owns the baseline (the old +4 nudge
 		 * compensated the retired baseline-anchored renderer). */
+		/* PORT: under Krynn's rules item 4 is the Dark Queen's (DQK.EXE
+		 * DS:0x7e11, accelerator K), not Human Change Class */
+		int knight = i == 4 && g_rules->knights;
+
 		jt452(1L,
 		      (long)k_jt918_menu_items[i].phrase,
 		      (long)k_jt918_menu_items[i].page,
-		      (long)(uintptr_t)ua_strs_at(
-		          k_jt918_menu_items[i].label_strs_off),
-		      32L, (long)k_jt918_menu_items[i].selector,
+		      knight ? (long)(uintptr_t)"Knight new Order"
+		             : (long)(uintptr_t)ua_strs_at(
+		                   k_jt918_menu_items[i].label_strs_off),
+		      32L, knight ? (long)'K' : (long)k_jt918_menu_items[i].selector,
 		      36L, 18L,                 /* rec[24]=18: faithful to the original
 		                                 * l0aae (CODE 12+0xaae) + the main menu;
 		                                 * (18+1)*8 = 152px, the full-column
@@ -98428,6 +98433,102 @@ static int l0f60(short a)
  * L1016: pushw 0,255,0,105; movel a5@(-27932),sp@-; jsr JT[876]; falls through
  * L102e: clrb a5@(-27946); braw L1242
  */
+/* KNIGHT NEW ORDER — the Dark Queen's hall item 4, where FRUA has Human
+ * Change Class (DQK.EXE has no Change Class in its hall; it enables this
+ * item exactly as FRUA enables that one, in a training hall).
+ *
+ * DQK.EXE 0x487f2: a knight of the Crown or the Sword petitions for the
+ * next order. The bar is the next order's XP at a fixed knight level (the
+ * game reads the XP table's own cell: DS:0x98e is the Sword's level 3,
+ * DS:0x9de the Rose's level 4) and the base abilities at DS:0x7d98 /
+ * DS:0x7da4. One who qualifies may Change; 0x48710 then raises the order
+ * and, while his XP is short of the new order's threshold for his knight
+ * level, takes a knight level away with its hit points: 2 above 9th level,
+ * else his knight dice HP / (level + 1) and the CON bonus. Recompute and
+ * the can-train flag follow (FRUA's jt910, which 0x13af is, and jt33). The
+ * texts are DQK's (DS:0x494c..0x49aa, 0x502f), and so is where they go. */
+static const unsigned char k_knight_bar_level[2] = { 3, 4 };
+static const unsigned char k_knight_bar_ability[2][6] = {
+	{ 12,  9, 13,  9, 10, 3 },              /* DS:0x7d98, Crown -> Sword */
+	{ 15, 10, 13, 12, 15, 3 },              /* DS:0x7da4, Sword -> Rose  */
+};
+
+static void knight_order_line(short base, short row, const unsigned char *rec,
+                              const char *what)
+{
+	const char *name = (const char *)&rec[96];
+
+	jt94((short)(unsigned char)(base - (jt483(name) + jt483(what)) / 2),
+	     row, 7, 0, "%s%s", name, what);
+}
+
+static void krynn_knight_order(unsigned char *rec)
+{
+	static const char *const order_name[2] = { "sword", "rose" };
+	unsigned char order = (unsigned char)KRYNN_ORDER(rec), next, old, loss, con;
+	long          xp = *(long *)(rec + 68), need;
+	short         i, ok;
+
+	jt103(1, 1, 38, 22);
+	if (rec[158] == 0 || order == ORDER_ROSE)       /* DQK 0xa6: knight */
+		return;
+	jt94((short)(unsigned char)(19 - jt483((const char *)&rec[96]) / 2),
+	     3, 7, 0, "%s", (const char *)&rec[96]);
+	jt94(7, 5, 7, 0, "%s", "is petitioning to become a");
+	if (order != ORDER_CROWN && order != ORDER_SWORD)
+		return;                         /* DQK prints an unset buffer */
+	jt94(10, 7, 7, 0, "%s%s", "knight of the ", order_name[order - 1]);
+
+	/* the next order's XP at the bar level */
+	next = rec[REC_KRYNN];
+	rec[REC_KRYNN] = KRYNN_PACK(KRYNN_GOD(rec), KRYNN_ROBE(rec), order + 1);
+	need = jt26((long)(uintptr_t)rec, k_knight_bar_level[order - 1], 1);
+	rec[REC_KRYNN] = next;
+	if (rec[158] < k_knight_bar_level[order - 1] || xp < need) {
+		knight_order_line(order == ORDER_SWORD ? 20 : 19, 9, rec,
+		                  " is too inexperienced");
+		return;
+	}
+	ok = 1;
+	for (i = 0; i < 6; i++)                 /* base abilities, rec[112 + 2i] */
+		if (k_knight_bar_ability[order - 1][i] > rec[112 + 2 * i])
+			ok = 0;
+	if (!ok) {
+		knight_order_line(order == ORDER_SWORD ? 20 : 19, 9, rec,
+		                  " does not qualify.");
+		return;
+	}
+	knight_order_line(19, 9, rec, " may become a");
+	jt94(10, 11, 7, 0, "%s%s", "knight of the ", order_name[order - 1]);
+	jt179(1);
+	if ((jt182("", (long)(uintptr_t)"Change Exit", 0, 0) & 0xff) != 0)
+		return;
+
+	/* DQK.EXE 0x48710 */
+	rec[REC_KRYNN] = KRYNN_PACK(KRYNN_GOD(rec), KRYNN_ROBE(rec), order + 1);
+	while (jt26((long)(uintptr_t)rec, rec[158], 1) > *(long *)(rec + 68)) {
+		old = rec[158]--;
+		if (old > 9) {
+			loss = 2;
+			con = 0;
+		} else {
+			loss = (unsigned char)(rec[184] / (old + 1));
+			con = (unsigned char)jt881((long)(uintptr_t)rec, 1);
+		}
+		rec[184] = (unsigned char)(rec[184] - loss);
+		rec[129] = (unsigned char)(rec[129] - (unsigned char)(loss + con));
+		if (rec[395] >= rec[129])
+			rec[395] = rec[129];
+	}
+	jt910((long)(uintptr_t)rec);
+	rec[197] = (unsigned char)jt33(rec);
+	/* PORT: DOS's sheet shows the new THAC0 at once (Roland, Crown 11 ->
+	 * Sword 9: 6 -> 8); FRUA's View paints rec[384] as it stands, so
+	 * derive it here. Where DQK does it was not found: not in 0x48710,
+	 * nor its recompute (0x1d99:0x13af IS jt910). */
+	jt21((long)(uintptr_t)rec);
+}
+
 static int l0f74(short a)
 {
 	unsigned char *rec = (unsigned char *)(uintptr_t)g_a5_long(-27932);
@@ -98446,6 +98547,11 @@ static int l0f74(short a)
 	 * re-adds the matching one (jt876). */
 	if (g_a5_14436 == 0)
 		return 0;
+	if (g_rules->knights) {                 /* DQK 0x47d64: no clear after */
+		if (rec != NULL)
+			krynn_knight_order(rec);
+		return 0;
+	}
 	rc = (short)jt556((long)(uintptr_t)rec);
 	if (rc != 17) {
 		if (jt41((long)(uintptr_t)rec, (short)8, (void *)&h) != 0)

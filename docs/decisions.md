@@ -2092,6 +2092,24 @@ now (`krynn_moon_save`, `krynn_moon_level`). A phase is only read where the
 Dark Queen's cells exist; elsewhere krynn_moon_phase answers KRYNN_NO_MOON,
 not low sanction, so no design without them takes the -1.
 
+**Knight new Order.** The Dark Queen's hall has no Human Change Class; its
+item 4 is "Knight new Order" (accelerator K), enabled as FRUA enables item
+4, in a training hall. Under Krynn's rules the port's item 4 is that
+(`krynn_knight_order`, DQK.EXE 0x487f2): a Crown knight may become a Sword
+at knight level 3 with the Sword's level-3 XP, a Sword a Rose at level 4
+with the Rose's level-4 XP (the game compares its XP table's own cells, so
+the port asks jt26 at the next order), each with base abilities from
+DS:0x7d98 / 0x7da4. Changing (0x48710) raises the order and takes away
+knight levels while his XP is short of the new order's threshold for his
+level, each with 2 HP above 9th level, else knight dice HP / (level + 1)
+plus the CON bonus; then jt910 (DQK's 0x1d99:0x13af is FRUA's jt910 call
+for call) and jt33. Checked in DOSBox and Hatari with the shipped Roland
+of Dust (Crown 11, 1,000,001 XP, 134 HP): Sword 9 at 130 HP, then Rose 9,
+the screens line for line. DOS's sheet shows his new THAC0 at once; FRUA's
+View paints the stored one, so the port runs jt21 after the change (where
+DQK derives it was not found). The sheet still says "Knight", not "Knight
+of the Sword" (open, with god and robe).
+
 **Context.** The Gold Box games OpenUA is opening up to (ADR-0023) do not all
 share FRUA's classes and races. The Krynn games have seven player races
 (Silvanesti and Qualinesti elves, half-elves, mountain and hill dwarves,
