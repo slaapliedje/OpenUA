@@ -33393,15 +33393,22 @@ static short krynn_pick_god(short al)
 	}
 }
 
+/* DQK.EXE 0x3c3e5: a mage's robe is his alignment's, white for good, red
+ * for neutral; an evil mage has none (the black robe is not a player's). */
+static unsigned char krynn_robe(const unsigned char *rec)
+{
+	short al = (short)(rec[93] % 3);           /* 0 good, 1 neutral, 2 evil */
+
+	return rec[157 + 5] == 0 || al == 2 ? 0 : al == 0 ? ROBE_WHITE : ROBE_RED;
+}
+
 static void krynn_creation(unsigned char *rec)
 {
 	short         al = (short)(rec[93] % 3);   /* 0 good, 1 neutral, 2 evil */
-	unsigned char god = 0, robe = 0, order = 0;
+	unsigned char god = 0, robe = krynn_robe(rec), order = 0;
 
 	if (rec[157 + 1] != 0)
 		order = ORDER_CROWN;
-	if (rec[157 + 5] != 0 && al != 2)
-		robe = al == 0 ? ROBE_WHITE : ROBE_RED;
 	if (rec[157] != 0) {
 		if (RACE(rec[88]) == RACE_DWARF)
 			god = 6;
@@ -35997,6 +36004,12 @@ static int jt556(long rec_l)
 	rec[137] = 1;
 	rec[l6c60(rec) + 157] = 0;              /* zero the old level slot */
 	rec[cls + 157] = 1;                     /* the new class starts at 1 */
+	/* PORT: under Krynn's rules a new mage takes his robe as at creation
+	 * (the Dark Queen's hall has no Change Class; the editor's NPC
+	 * re-create still reaches this) */
+	if (g_rules->knights && cls == 5 && KRYNN_ROBE(rec) == 0)
+		rec[REC_KRYNN] = KRYNN_PACK(KRYNN_GOD(rec), krynn_robe(rec),
+		                            KRYNN_ORDER(rec));
 	jt399(rec + 355, (short)27, (short)0);
 	jt65((long)(uintptr_t)(rec + 150), (short)7);
 	jt65((long)(uintptr_t)(rec + 198), (short)141);

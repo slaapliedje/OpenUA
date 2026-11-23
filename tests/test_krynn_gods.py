@@ -138,3 +138,36 @@ def test_special_is_cast_at_the_clerical_level():
                      src, re.S).group(1)
     assert re.search(r"case 3:.*?if \(!g_rules->knights\)\s+break;\s+"
                      r"/\* fall through \*/\s+case 0:", body, re.S)
+
+
+@pytest.mark.skipif(not os.path.exists(os.path.join(GAME, "DQK.EXE")),
+                    reason="DQK.EXE not here")
+def test_robe_is_dqk_exes():
+    """DQK.EXE 0x3c3e5 (overlay 5, code base 0x3a4c0): a mage's robe by
+    alignment, through a jump table at CS:0x1f40; boot.c krynn_robe, which
+    creation and (under Krynn's rules) Change Class to mage use."""
+    d = open(os.path.join(GAME, "DQK.EXE"), "rb").read()
+    base, fn = 0x3a4c0, 0x3c3e5
+    assert d[fn + 6:fn + 0x1b] == bytes.fromhex(
+        "c45e06268b4762" "3d0700" "773d" "8bd8d1e3" "2effa7401f")
+    arms = struct.unpack_from("<8H", d, base + 0x1f40)
+
+    def robe(al):
+        if al > 7:
+            return 0
+        i = base + arms[al]
+        if i == fn + 0x4f:                           # straight to the end
+            return 0
+        assert d[i:i + 3] == bytes.fromhex("c45e06")
+        assert d[i + 3:i + 9] == bytes.fromhex("2680bfaa0000")   # mage level
+        assert d[i + 11:i + 16] == bytes.fromhex("26c6879d01")   # rec 0x19d
+        return d[i + 16]
+    dqk = [robe(al) for al in range(9)]
+    src = open(os.path.join(ROOT, "src", "engine", "boot.c")).read()
+    body = re.search(r"static unsigned char krynn_robe\(const unsigned char "
+                     r"\*rec\)\n\{(.*?)\n\}", src, re.S).group(1)
+    assert "rec[93] % 3" in body and "al == 2 ? 0 : al == 0 ? ROBE_WHITE : ROBE_RED" in body
+    assert dqk == [[1, 2, 0][al % 3] for al in range(9)]
+    assert re.search(r"g_rules->knights && cls == 5 && KRYNN_ROBE\(rec\) == 0\)"
+                     r"\s+rec\[REC_KRYNN\] = KRYNN_PACK\(KRYNN_GOD\(rec\), "
+                     r"krynn_robe\(rec\)", src)
