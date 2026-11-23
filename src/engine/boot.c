@@ -32694,6 +32694,7 @@ static void jt572(void)
 		rec[183] = (unsigned char)(rec[183]
 		           + ((unsigned char *)g_rules->slot_item_bit + i)[0]);
 	}
+	rec[127] = (unsigned char)(rec[127] + KRYNN_TOHIT(rec));   /* PORT: a god's */
 	jt906(rec);
 	g_a5_long(-27932) = (long)(uintptr_t)rec;
 }
@@ -33332,7 +33333,8 @@ static int  jt159(const char *prompt, short b);
  * alignment's gods, Paladine, Majere, Kiri-Jolith or Mishakal when good,
  * Sirrion, Reorx or Shinare when neutral. The game's Escape returns to the
  * pick screen; here the choice is asked again. What each god grants (DQK
- * 0x3ddff: a flag byte and one ability point) is not given yet. */
+ * 0x3ddff) is given: its spells here, its to-hit with the THAC0
+ * (rules.h KRYNN_TOHIT, KRYNN_GOD_SPELLS). */
 static void jt167(short count, long head_holder);
 static void jt147(void *headp);
 static int  jt169(long h1, long h2, short top, short left,
@@ -33393,6 +33395,9 @@ static void krynn_creation(unsigned char *rec)
 			god = (unsigned char)((al == 0 ? 1 : 5) + krynn_pick_god(al));
 	}
 	rec[REC_KRYNN] = KRYNN_PACK(god, robe, order);
+	/* what the god grants (DQK 0x3ddff): the god's own spells, as known-
+	 * spell bits (the to-hit is re-derived with the THAC0, KRYNN_TOHIT) */
+	rec[KRYNN_SPELL_BYTE] |= KRYNN_GOD_SPELLS(god);
 }
 
 static int  jt574(long ctx)
@@ -44974,6 +44979,7 @@ static void cg_finalize_stats(unsigned char *rec)
 		if (t > rec[127])
 			rec[127] = t;
 	}
+	rec[127] = (unsigned char)(rec[127] + KRYNN_TOHIT(rec));   /* PORT: a god's */
 
 	if (rec[173] == 0 && rec[175] == 0) {      /* fist 1d2 */
 		rec[173] = 1; rec[175] = 2; rec[177] = 0;
@@ -63703,6 +63709,33 @@ static void jt885(long ent_l, short mask, short ncls, short gain)
 		ent[395] = (unsigned char)(ent[129] - dmg);
 }
 
+/* The slots for spells of class `cls`, level `lvl`: rec[355 + cls*9 +
+ * lvl-1]. PORT: under Krynn's rules a class-3 spell is a god's "Special"
+ * spell (level 0, which that index would read out of the mage 9th-level
+ * slot), and the Dark Queen gives one Special slot per god spell the
+ * character knows: its memorize screen shows "SPECIAL : 1" for Cinder
+ * (Sirrion, one god spell) and "SPECIAL : 3" for Balthir (Mishakal, three;
+ * the fourth bit of his byte is Cure Serious Wounds, class 0). Read off
+ * the game's screen in DOSBox; where DQK.EXE computes it is not found. */
+static unsigned char rec_spell_slots(const unsigned char *rec, short cls, short lvl)
+{
+	if (cls == 3 && g_rules->knights) {
+		const unsigned char *defs = &g_a5_byte(-16906);
+		unsigned char n = 0;
+		short id;
+
+		for (id = 1; id <= 126; id++)
+			if (defs[(long)id * 16] == 3
+			    && (rec[339 + ((id - 1) >> 3)]
+			        & (&g_a5_byte(-18893))[(id - 1) & 7]))
+				n++;
+		return n;
+	}
+	if (cls < 0 || cls > 3 || lvl < 1 || lvl > 9)
+		return cls == 3 ? rec[355 + 3 * 9 - 1] : 0;   /* FRUA's own read */
+	return rec[355 + (long)cls * 9 + (lvl - 1)];
+}
+
 /* L54ac (CODE 18 + 0x54ac) — rebuild the memorized-spell list after a
  * level change: walk the 141 memorized-spell bytes at rec[198..338],
  * counting kept spells per class/level against the slot limits at
@@ -63731,12 +63764,12 @@ static void l54ac(long rec_l)
 		spell = (unsigned char)(rec[198 + i] & 127);
 		cls = (signed char)g_a5_byte(-16906 + (long)spell * 16);
 		lvl = (signed char)g_a5_byte(-16906 + (long)spell * 16 + 1);
-		if ((unsigned short)rec[(short)cls * 9 + (lvl - 1) + 355] >
+		if ((unsigned short)rec_spell_slots(rec, cls, lvl) >
 		    (unsigned short)counts[(short)cls * 9 + (lvl - 1)]) {
 			counts[(short)cls * 9 + (lvl - 1)]++;
 			continue;
 		}
-		if ((short)rec[(short)cls * 9 + (lvl - 1) + 355] != 0 &&
+		if ((short)rec_spell_slots(rec, cls, lvl) != 0 &&
 		    (short)(unsigned char)g_a5_byte(-22727) != 0 &&
 		    cls == 2) {
 			g_a5_byte(-22727) = (char)
@@ -63751,7 +63784,7 @@ static void l54ac(long rec_l)
 		spell = (unsigned char)(rec[198 + i] & 127);
 		cls = (signed char)g_a5_byte(-16906 + (long)spell * 16);
 		lvl = (signed char)g_a5_byte(-16906 + (long)spell * 16 + 1);
-		if ((unsigned short)rec[(short)cls * 9 + (lvl - 1) + 355] >
+		if ((unsigned short)rec_spell_slots(rec, cls, lvl) >
 		    (unsigned short)counts[(short)cls * 9 + (lvl - 1)]) {
 			counts[(short)cls * 9 + (lvl - 1)]++;
 			continue;
@@ -64062,6 +64095,9 @@ static void jt910(long ent_l)
 			break;
 		}
 	}
+	/* PORT: a Krynn god's to-hit, re-added after every recompute as DQK
+	 * 0x625d4 does (rules.h KRYNN_TOHIT) */
+	ent[127] = (unsigned char)(ent[127] + KRYNN_TOHIT(ent));
 	jt908(ent_l);
 	jt906(ent);
 	if ((unsigned char)ent[163] > 0)
@@ -70836,6 +70872,14 @@ static unsigned char l4e2c(long rec_l, short spell, short flag)
 	case 4:
 		ok = 0;
 		break;
+	case 3:
+		/* PORT: a Krynn god's Special spell is cast as a cleric's (DQK's
+		 * own check, 0x5a311, sends class 3 down its class-0 arm); FRUA
+		 * casts none */
+		if (g_rules->knights && rec[117] > 8
+		 && ((jt40(rec, 0) & 0xff) > 0 || (jt40(rec, 3) & 0xff) > 8))
+			ok = 1;
+		break;
 	default:
 		break;
 	}
@@ -71222,7 +71266,7 @@ static unsigned char jt597(short code)
 				continue;
 			cls = defs[(long)i * 16 + 0];
 			lvl = defs[(long)i * 16 + 1];
-			if (actor[355 + (long)cls * 9 + lvl - 1] == 0)
+			if (rec_spell_slots(actor, cls, lvl) == 0)
 				continue;
 			if (!l4e2c((long)(uintptr_t)actor, i, 0))
 				continue;
@@ -106346,7 +106390,7 @@ static short l03b2(short level, short class_, unsigned char *out)
 	if (out != NULL)
 		*out = count;
 
-	cap = rec[355 + (long)class_ * 9 + (level - 1)];
+	cap = rec_spell_slots(rec, class_, level);
 	if (count > cap)              /* clamp count to the cell capacity */
 		count = cap;
 	remaining = (signed char)(cap - count);
@@ -106405,6 +106449,7 @@ static unsigned char jt961(void)
 	signed char    grid[3][9];             /* [class][level-1] remaining */
 	unsigned char  colactive[3] = {0,0,0};
 	unsigned char  anyfree = 0;
+	signed char    special = -1;           /* PORT: Krynn's god spells    */
 	short          cls, lvl, row;
 	char           buf[42];
 
@@ -106426,6 +106471,17 @@ static unsigned char jt961(void)
 					anyfree = 1;
 			}
 		}
+	}
+
+	/* PORT: under Krynn's rules the god spells (class 3, level 0) have
+	 * their own row, as the Dark Queen's memorize screen has: "Special :"
+	 * and the slots left (rec_spell_slots) */
+	if (g_rules->knights && rec_spell_slots(rec, 3, 0) != 0) {
+		unsigned char cnt;
+
+		special = (signed char)l03b2(0, 3, &cnt);
+		if (special != 0)
+			anyfree = 1;
 	}
 
 	if (anyfree == 0)
@@ -106455,6 +106511,12 @@ static unsigned char jt961(void)
 			}
 		}
 		row++;
+	}
+	if (special >= 0) {
+		jt94((short)1, (short)(row + 17), (short)7, (short)0, "%s",
+		     ua_strs_at(0x1058) /* "   Special :" */);
+		jt94((short)14, (short)(row + 17), (short)7, (short)0, "%d",
+		     (int)(unsigned char)special);
 	}
 	return anyfree;
 }

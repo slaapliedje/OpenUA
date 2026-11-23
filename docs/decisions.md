@@ -2008,6 +2008,31 @@ game writes one, holding the first item of Cinder's .QCH, offered "40
 ARROWS +2". Open: more than 50 items in a vault would be written whole,
 which the game cannot read.
 
+**What each god grants** (step (e)'s open item). DQK.EXE 0x3ddff, run at
+creation, sets bits of the character's byte 0x15e and, for Kiri-Jolith and
+for a dwarf of Reorx, adds 1 to byte 0x87. 0x15e is byte 7 of the known-spell
+bitmap (rec[346] here; bit k is spell 57 + k), and the bits are the god's own
+spells: ids 57 and 59..64 are class 3 in both games' spell tables, which
+FRUA kept from Krynn along with the "Special" level name and the label
+"   Special :". 0x87 is the base THAC0 (rec[127]); DQK's recompute (0x624e1)
+clears it, re-derives it from the class tables and adds the god's 1 again
+(0x625d4), so the bonus stands. The shipped heroes carry exactly those bits.
+How the game uses the spells was read off its own screen in DOSBox: Cinder's
+grimoire lists BURNING HANDS under SPECIAL with "SPECIAL : 1", Balthir's
+REMOVE CURSE, BLESS and CHARM PERSON with "SPECIAL : 3" (his fourth bit is
+Cure Serious Wounds, class 0): one Special slot per god spell known. Where
+DQK.EXE computes that count is not found; it is the inference that fits both.
+Done, all behind `g_rules->knights`: the bits at creation, the +1 in all
+three THAC0 derivations, `rec_spell_slots` (class 3 = the god spells known,
+in place of FRUA's rec[355 + 27 - 1], which is the mage 9th-level slot) at
+every slot read, class 3 cast as clerical in l4e2c (DQK's own check sends
+class 3 down its class-0 arm), and a "Special :" row in the memorize grid.
+Checked in Hatari with save D: Cinder's and Balthir's grimoires match the DOS
+screens line for line, and memorizing Burning Hands takes Special to 0.
+Open: the game's "Bonus :" row (spell bonus slots) is not drawn; casting a
+Special spell in a fight is untested; DQK sets a global (DS:-0x387c, 0x15 or
+0x2e by god) whose purpose is unknown.
+
 **Context.** The Gold Box games OpenUA is opening up to (ADR-0023) do not all
 share FRUA's classes and races. The Krynn games have seven player races
 (Silvanesti and Qualinesti elves, half-elves, mountain and hill dwarves,

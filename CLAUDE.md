@@ -53,6 +53,12 @@ name.)
   (REC_KRYNN, rules.h; FRUA leaves it 0) and pick the progression as
   DQK.EXE 0xbb19 does; Sword and Rose knights cast clerical spells (jt908
   case 1) and a Rose knight has no race cap, behind `g_rules->knights`.
+  A god grants (DQK 0x3ddff, rules.h): Kiri-Jolith, and Reorx for a
+  dwarf, +1 base THAC0 re-added on every recompute (`KRYNN_TOHIT`), and
+  the god's own spells, class 3 ids 57..64, as known-spell bits in
+  rec[346] (`KRYNN_GOD_SPELLS`). Those are memorized at "Special" (level
+  0) with one slot per god spell known (`rec_spell_slots`; never index
+  rec[355 + cls*9 + lvl-1] directly) and cast as clerical spells.
   The hall reads Dark Queen heroes (.QCH in the design's SAVE) itself:
   `src/engine/qch.c` (reference gbchar.py) makes the .CCH stream and jt577
   reads it from memory; a .CCH of the same stem shadows the .QCH, and the

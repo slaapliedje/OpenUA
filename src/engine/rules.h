@@ -128,6 +128,23 @@ enum { RACE_ELF, RACE_HALF_ELF, RACE_DWARF, RACE_GNOME, RACE_HALFLING,
        RACE_HUMAN, RACE_MONSTER };
 #define RACE(r) (g_rules->race_base[(unsigned char)(r)])
 
+/* What a Krynn god grants (DQK.EXE 0x3ddff at creation, 0x625d4 on every
+ * THAC0 recompute), behind g_rules->knights:
+ *  - KRYNN_TOHIT: Kiri-Jolith, and Reorx for a dwarf, add 1 to the base
+ *    THAC0 rec[127] (DQK 0x87). DQK clears and re-derives it, then adds
+ *    this, so it is a standing bonus, not a one-off.
+ *  - KRYNN_GOD_SPELLS: the god's own spells, bits of the known-spell byte
+ *    rec[346] (DQK 0x15e; bit k is spell 57 + k, the class-3 "Special"
+ *    spells): Paladine Prot. From Evil 10', Majere Silence 15', Kiri-Jolith
+ *    Detect Magic, Mishakal Remove Curse/Bless/Charm Person, Sirrion
+ *    Burning Hands, Shinare Charm Person; Reorx none. */
+#define KRYNN_TOHIT(rec) ((g_rules->knights \
+	&& (KRYNN_GOD(rec) == 3 \
+	    || (KRYNN_GOD(rec) == 6 && RACE((rec)[88]) == RACE_DWARF))) ? 1 : 0)
+#define KRYNN_SPELL_BYTE 346
+#define KRYNN_GOD_SPELLS(god) \
+	((unsigned char)("\000\001\004\010\160\200\000\100"[(god) & 7]))
+
 /* The progression (row of slot_xp, slot_xp_step, slot_spell_row) a
  * character's class slot plays by: the slot's own in FRUA, the character's
  * god, order or robe in Krynn (ADR-0026 step (e)). */
