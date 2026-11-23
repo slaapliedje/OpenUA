@@ -59,7 +59,9 @@ name.)
   rec[346] (`KRYNN_GOD_SPELLS`). Those are memorized at "Special" (level
   0; DQK 0x44ad8: a cleric has 3 slots for Mishakal, none for Reorx, else
   1, `rec_spell_slots`; never index rec[355 + cls*9 + lvl-1] directly)
-  and cast as clerical spells. Krynn's moons are script cells 0x1fa..0x1ff
+  and cast as clerical spells, at the clerical caster level (jt17 case
+  3); they are studied at DQK 0x6cc9's level (`spell_study_level`), as
+  level 0 they took no rest and never memorized. Krynn's moons are script cells 0x1fa..0x1ff
   in the Dark Queen (phase, then a day count; `krynn_moons_day` from
   l025a's hour-to-day carry, reference `gbsave.moons_day`): a mage of a
   robe gets his moon's bonus spells (1 waxing, 2 high sanction) in FRUA's

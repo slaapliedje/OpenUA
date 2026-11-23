@@ -1563,6 +1563,13 @@ static void  l0ba2(void)
  * player record (offsets 37/38 map, 67/68 saved, 23/24). Finishes by
  * selecting play vs look mode (L0ba2 / L0b88) by level number. */
 static void gbs_new_game(void);   /* PORT: Gold Box script memory, at the end */
+/* PORT: Krynn's three moons, in the Dark Queen's script memory (at the
+ * end of the file, with the rest of the script host). */
+static unsigned char krynn_moon_phase(short robe);
+static void          krynn_moons_day(void);
+static void          krynn_moons_new(void);
+static unsigned char krynn_moon_bonus(const unsigned char *rec);
+
 #if defined(FRUA_ENTRY_LEVEL) && defined(FRUA_ENTRY_COL)
 static char g_entry_harness_spent;  /* harness: l63c0 has run, stop forcing */
 #endif
@@ -37987,6 +37994,14 @@ static short jt17(short a, short b)
 		res = 6;                                /* multi/non-class default */
 	} else {
 		switch ((signed char)cls[0]) {          /* L277e — class category */
+		case 3:
+			/* PORT: under Krynn's rules a god's Special spell is cast
+			 * at the clerical level: DQK.EXE's own copy of this switch
+			 * (0xb56d) sends class 3 down its class-0 arm. FRUA leaves
+			 * it the Mac's stack garbage (0 here). */
+			if (!g_rules->knights)
+				break;
+			/* fall through */
 		case 0:                                 /* L27aa */
 			res = (signed char)l2fd8(m, 0);
 			tmp = (signed char)l2fd8(m, 3);
@@ -38007,8 +38022,7 @@ static short jt17(short a, short b)
 		case 4:                                 /* L2842 */
 			res = 12;
 			break;
-		case 3:                                 /* L2848 — default, no change */
-		default:
+		default:                                /* L2848 — no change */
 			break;
 		}
 	}
@@ -63709,13 +63723,6 @@ static void jt885(long ent_l, short mask, short ncls, short gain)
 		ent[395] = (unsigned char)(ent[129] - dmg);
 }
 
-/* PORT: Krynn's three moons, in the Dark Queen's script memory (at the
- * end of the file, with the rest of the script host). */
-static unsigned char krynn_moon_phase(short robe);
-static void          krynn_moons_day(void);
-static void          krynn_moons_new(void);
-static unsigned char krynn_moon_bonus(const unsigned char *rec);
-
 /* The slots for spells of class `cls`, level `lvl`: rec[355 + cls*9 +
  * lvl-1]. PORT: under Krynn's rules a class-3 spell is a god's "Special"
  * spell (level 0, which that index would read out of the mage 9th-level
@@ -79379,10 +79386,28 @@ static unsigned char l0980(long member, unsigned char *out)
  * bit7 on every pending slot, repaints the clock (L0572), and announces
  * "<name> has memorized <spell>" (l48f4 = JT[670]). Returns the recorded
  * level. Faithful full lift. */
+/* The level spell `id` is studied at. PORT: under Krynn's rules a god's
+ * Special spell is level 0 in the table, and DQK.EXE studies it at the
+ * level 0x6cc9 gives it (its rest time, 0x4480e, and its one-at-a-time
+ * pacing, 0x666e): Prot. from Evil 10' 4, Silence 15' 2, Remove Curse 3,
+ * the rest 1. As 0 the rest time was none and the spell never memorized. */
+static unsigned char spell_study_level(unsigned char id)
+{
+	unsigned char lvl = (unsigned char)g_a5_byte(-16906 + (long)(id & 0x7f) * 16 + 1);
+
+	if (lvl == 0 && g_rules->knights)
+		switch (id & 0x7f) {
+		case 57: return 4;
+		case 59: return 2;
+		case 61: return 3;
+		default: return 1;
+		}
+	return lvl;
+}
+
 static unsigned char l0876(long member_l, unsigned char *out)
 {
 	unsigned char *rec  = (unsigned char *)(uintptr_t)member_l;
-	const unsigned char *defs = &g_a5_byte(-16906);
 	unsigned char  level = 0;
 	short          i;
 
@@ -79398,7 +79423,7 @@ static unsigned char l0876(long member_l, unsigned char *out)
 		if ((s & 0x80) == 0)
 			continue;
 		if (*out == 0) {
-			level = defs[(long)(s & 0x7f) * 16 + 1];
+			level = spell_study_level(s);
 		} else {
 			rec[198 + i] = (unsigned char)(s - 128);   /* clear pending */
 			l0572_c19((short)0);
@@ -106231,7 +106256,7 @@ static short l0006_c21(void *member_v)
 	for (i = 0; i <= 140; i++) {
 		unsigned char slot = member[198 + i];
 		if ((slot & 0x80) && member[382] != 0) {
-			lvl = g_a5_byte(-16906 + ((slot & 0x7f) << 4) + 1);
+			lvl = spell_study_level(slot);
 			if (lvl > maxlvl_a) maxlvl_a = lvl;
 			sum_a = (unsigned short)(sum_a + lvl);
 		}
@@ -109295,11 +109320,8 @@ static void gbs_state_load(int slot)
  * character a cell, over the three counts ('B', 'A', 'L'): all three
  * moons move on the first day after, here as there.
  * The phase gives a mage of the robe bonus spells, 1 waxing and 2 at high
- * sanction (krynn_moon_bonus). The saving throws and the effective level
- * the Journal also gives the moons are nowhere in DQK.EXE (these two are
- * the only readers of a robe's phase), so they are not given here. Only
- * the Dark Queen has the cells: anywhere else the moons stand at low
- * sanction and give nothing. */
+ * sanction (krynn_moon_bonus). Only the Dark Queen has the cells: anywhere
+ * else there are no moons (KRYNN_NO_MOON) and they do nothing. */
 #define GBS_MOON_PHASE  0x1fa
 #define GBS_MOON_COUNT  0x1fd
 
@@ -109341,10 +109363,12 @@ static void krynn_moons_day(void)
 	}
 }
 
+#define KRYNN_NO_MOON   0xff
+
 static unsigned char krynn_moon_phase(short robe)
 {
 	if (robe < 1 || robe > 3 || !krynn_moons_here())
-		return 0;
+		return KRYNN_NO_MOON;
 	return (unsigned char)ecl_peek(&g_gbs_vm,
 	                               (unsigned short)(GBS_MOON_PHASE + robe - 1));
 }

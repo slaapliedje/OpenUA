@@ -2061,6 +2061,20 @@ both show "Bonus : 1". Only the Dark Queen has the cells; elsewhere the
 moons give nothing. Open: the moon jewels under the portrait (DQK draws
 icons 0x1d + phase etc.) are not drawn on FRUA's frame.
 
+**A god's spell, memorized and cast** (the open item above). A Special spell
+is level 0 in the table, and FRUA's rest time (l0006_c21, 4 hours and 15
+minutes a spell level) and its one-at-a-time pacing (l0876) both read that
+level: no rest time, so the pending spell never memorized. DQK.EXE studies a
+level-0 spell at the level 0x6cc9 gives it (Prot. from Evil 10' 4, Silence
+15' 2, Remove Curse 3, the rest 1; its rest time 0x4480e and pacing 0x666e):
+`spell_study_level`. Cinder's Burning Hands then rests 4:15 in both games.
+And the caster level (jt17) had no arm for class 3 (the Mac's stack
+garbage); DQK's copy of the switch (0xb56d) sends class 3 down the clerical
+arm, now done under Krynn's rules. Checked in Hatari: the memorized Special
+spell is offered by CAST in a fight (Caergoth's dragons) and targets with the
+range rule (touch: only an adjacent dragon); the damage at the clerical level
+was not seen, the fight never put Cinder beside a dragon with her turn free.
+
 **Context.** The Gold Box games OpenUA is opening up to (ADR-0023) do not all
 share FRUA's classes and races. The Krynn games have seven player races
 (Silvanesti and Qualinesti elves, half-elves, mountain and hill dwarves,

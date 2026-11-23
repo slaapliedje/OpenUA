@@ -88,3 +88,53 @@ def test_table_is_dqk_exes():
         got.append(v)
     assert all(b in bits or b == 0 for g in got for b in [g & -g])
     assert got == god_spells()
+
+
+def _study_levels():
+    """boot.c spell_study_level: {id: level} for the god spells, and the
+    default."""
+    src = open(os.path.join(ROOT, "src", "engine", "boot.c")).read()
+    body = re.search(r"spell_study_level\(unsigned char id\)\n\{(.*?)\n\}",
+                     src, re.S).group(1)
+    cases = {int(a): int(b) for a, b in
+             re.findall(r"case (\d+): return (\d+);", body)}
+    default = int(re.search(r"default: return (\d+);", body).group(1))
+    return cases, default
+
+
+@pytest.mark.skipif(not os.path.exists(os.path.join(GAME, "DQK.EXE")),
+                    reason="DQK.EXE not here")
+def test_special_study_levels_are_dqk_exes():
+    """DQK.EXE 0x6cc9: the level a level-0 (god) spell is studied at."""
+    d = open(os.path.join(GAME, "DQK.EXE"), "rb").read()
+    f = d[0x6cc9:0x6cf4]
+    assert f[:3] == b"\x55\x8b\xec"
+    ids = [struct.unpack_from("<H", f, m.start() + 1)[0]
+           for m in re.finditer(rb"\x3d..\x74", f, re.S)]
+    vals = [struct.unpack_from("<H", f, m.start() + 1)[0]
+            for m in re.finditer(rb"\xb8..\xeb|\xb8..\x5d", f, re.S)]
+    # arms in source order: 0x39 -> first, 0x3d -> second, 0x3b -> third
+    jumps = [m.start() + 5 + struct.unpack_from("<b", f, m.start() + 4)[0]
+             for m in re.finditer(rb"\x3d..\x74", f, re.S)]
+    arms = sorted(m.start() for m in re.finditer(rb"\xb8..", f, re.S))
+    got = {i: vals[arms.index(j)] for i, j in zip(ids, jumps)}
+    cases, default = _study_levels()
+    assert got == cases and vals[-1] == default == 1
+    assert set(cases) <= {57, 59, 60, 61, 62, 63, 64}
+
+
+@pytest.mark.skipif(not os.path.exists(os.path.join(GAME, "DQK.EXE")),
+                    reason="DQK.EXE not here")
+def test_special_is_cast_at_the_clerical_level():
+    """DQK.EXE's caster level (FRUA's jt17) sends spell class 3 down its
+    class-0 arm (the switch at 0xb56d), and the port does the same under
+    Krynn's rules."""
+    d = open(os.path.join(GAME, "DQK.EXE"), "rb").read()
+    assert d[0xb561:0xb572] == bytes.fromhex("3d04007603e908018bd8d1e32effa79219")
+    t = struct.unpack_from("<5H", d, 0xb572)
+    assert t[3] == t[0] and len(set(t)) == 4
+    src = open(os.path.join(ROOT, "src", "engine", "boot.c")).read()
+    body = re.search(r"static short jt17\(short a, short b\)\n\{(.*?)\n\}",
+                     src, re.S).group(1)
+    assert re.search(r"case 3:.*?if \(!g_rules->knights\)\s+break;\s+"
+                     r"/\* fall through \*/\s+case 0:", body, re.S)
