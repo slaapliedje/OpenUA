@@ -7,6 +7,7 @@ file, RULES.DAT in its design folder, which this tool compiles from a text
 file a designer can read and edit. To start, decompile FRUA's or Krynn's:
 
     python3 tools/rules.py frua UnlimitedAdventures.rfork -o FRUA.TXT
+    python3 tools/rules.py frua CKIT.EXE -o FRUA.TXT      # DOS release
     python3 tools/rules.py dqk DQK.EXE -o KRYNN.TXT
     python3 tools/rules.py compile KRYNN.TXT MYGAME.DSN/RULES.DAT
     python3 tools/rules.py decompile MYGAME.DSN/RULES.DAT
@@ -636,6 +637,86 @@ def from_frua(rfork):
     return rs
 
 
+# The same tables in the DOS release's CKIT.EXE (GOG/Steam v1.2, the build
+# tools/rsrc_from_dos.py verifies): file offset and how a table is kept
+# there. "" as the engine has it; swap16/swap32/swap16q in x86 byte order
+# (every word, every long, the leading word of each 4-byte record); rows:N:W
+# N rows of a count byte and W little-endian words, of which the engine
+# keeps the low bytes (its rows are 1 + W bytes, padded with zeros to the
+# row length). Positions only; found by locating the Mac release's tables.
+FRUA_CKIT = {
+    "race_kinds": (549010, "rows:6:13"), "kind_aligns": (549502, "rows:17:10"),
+    "kind_ability_min": (549400, ""), "race_abilities": (548914, ""),
+    "race_age_cat": (549340, "swap16"), "race_start_age": (549172, "swap16q"),
+    "race_level_cap": (552056, ""), "slot_xp": (549892, "swap32"),
+    "slot_xp_step": (548646, "swap32"), "slot_thac0": (569873, ""),
+    "slot_saves": (551286, ""), "slot_item_bit": (570027, ""),
+    "slot_hall_bit": (570034, ""), "slot_name_level": (570050, ""),
+    "slot_hd_count": (570057, ""), "slot_hd_size": (570064, ""),
+    "slot_spell_row": (549885, ""), "spell_slots": (550228, ""),
+    "thief_skills": (570077, ""), "race_thief_adj": (570221, ""),
+}
+# The kind and race names' STRS pool offsets (the A5 pointers at -14636
+# and -14564 in the Mac release)
+FRUA_KIND_NAME_STRS = (4298, 4306, 4314, 4322, 4330, 4338, 4350, 4356, 4362,
+                       4378, 4404, 4418, 4436, 4450, 4470, 4484, 4510)
+FRUA_RACE_NAME_STRS = (4542, 4546, 4556, 4562, 4568, 4578, 4584)
+
+
+def _ckit_table(exe, field):
+    off, how = FRUA_CKIT[field]
+    n = FRUA_A5[field][1]
+    if how.startswith("rows:"):
+        rows, words = map(int, how.split(":")[1:])
+        width = n // rows
+        out = bytearray()
+        for r in range(rows):
+            p = off + r * (1 + 2 * words)
+            row = bytes([exe[p]]) + bytes(exe[p + 1 + 2 * k] for k in range(words))
+            out += row + bytes(width - len(row))
+        return bytes(out)
+    b = bytearray(exe[off:off + n])
+    if how:
+        step, w = {"swap16": (2, 2), "swap32": (4, 4), "swap16q": (4, 2)}[how]
+        for k in range(0, n - step + 1, step):
+            b[k:k + w] = b[k:k + w][::-1]
+    return bytes(b)
+
+
+def from_frua_dos(exe):
+    """FRUA's rules out of the DOS release's CKIT.EXE, for an install with
+    no Mac files (ADR-0017): the same tables and names from_frua reads from
+    the resource fork."""
+    import json
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import rsrc_from_dos
+    doc = json.load(open(rsrc_from_dos.DEFAULT_MAP))
+    ok, msg = rsrc_from_dos.verify_exe(exe, doc)
+    if not ok:
+        raise RulesError(msg)
+    strs = rsrc_from_dos.build_strs(exe, doc)
+
+    def s(off):
+        return strs[off:strs.index(b"\0", off)].decode("mac-roman")
+
+    rs = {"name": "FRUA", "coin": None, "races": 6, "progressions": 7,
+          "xp_levels": 12, "kind_row": 14, "spell_rows": 4,
+          "default_race": 5, "prime_limits": 1, "knights": 0}
+    for field in FRUA_A5:
+        rs[field] = _ckit_table(exe, field)
+    rs["race_base"] = bytes(range(6))
+    rs["kind_list"] = FRUA_KIND_LIST
+    rs["slot_prog"] = bytes(range(7))
+    rs["kind_names"] = [s(o) for o in FRUA_KIND_NAME_STRS]
+    rs["race_names"] = [s(o) for o in FRUA_RACE_NAME_STRS]
+    rs["race_labels"] = [s(o) for o in FRUA_RACE_STRS]
+    rs["kind_labels"] = [s(o) for o in FRUA_KIND_STRS]
+    rs["slot_names"] = list(FRUA_SLOTS)
+    rs["prog_names"] = list(FRUA_SLOTS)
+    check(rs)
+    return rs
+
+
 def from_dqk(exe):
     """The Dark Queen of Krynn's rules, as rules.c plays them, out of
     DQK.EXE (tools/gbrules.py reads the tables)."""
@@ -690,7 +771,8 @@ def main(argv):
     import argparse
     ap = argparse.ArgumentParser(prog="rules.py", description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name, helptext in (("frua", "FRUA's rules from the Mac resource fork"),
+    for name, helptext in (("frua", "FRUA's rules from the Mac resource fork, "
+                                    "or the DOS release's CKIT.EXE"),
                            ("dqk", "the Dark Queen's rules from DQK.EXE")):
         p = sub.add_parser(name, help=helptext)
         p.add_argument("src")
@@ -705,7 +787,12 @@ def main(argv):
     a = ap.parse_args(argv)
 
     if a.cmd == "frua":
-        rs = from_frua(a.src)
+        with open(a.src, "rb") as fh:
+            head = fh.read(2)
+        if head == b"MZ":                       # the DOS release's CKIT.EXE
+            rs = from_frua_dos(open(a.src, "rb").read())
+        else:
+            rs = from_frua(a.src)
     elif a.cmd == "dqk":
         rs = from_dqk(open(a.src, "rb").read())
     elif a.cmd == "compile":

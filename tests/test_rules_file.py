@@ -22,6 +22,7 @@ ROOT = os.path.join(os.path.dirname(__file__), "..")
 SRC = [os.path.join(ROOT, "src", "engine", "rules_file.c"),
        os.path.join(ROOT, "tests", "rules_file_host.c")]
 RFORK = os.path.join(ROOT, "data", "work", "UnlimitedAdventures.rfork")
+CKIT = os.path.join(ROOT, "data", "dos-frua", "CKIT.EXE")
 DQK = os.path.expanduser(
     "~/.local/share/Steam/steamapps/common/Dungeons & Dragons Krynn Series/"
     "games/The Dark Queen of Krynn/GAME/DQK/DQK.EXE")
@@ -250,3 +251,19 @@ def test_dqk_ruleset(cbin, tmp_path):
     p.write_bytes(data)
     assert c_read(cbin, p) == expected(rs)
     assert rules.to_bytes(rules.from_text(rules.to_text(rs))) == data
+
+
+@pytest.mark.skipif(not os.path.exists(CKIT), reason="no DOS CKIT.EXE staged")
+def test_frua_ruleset_from_dos(tmp_path):
+    """A DOS-only install writes FRUA's rules too (rules.py frua CKIT.EXE):
+    the same ruleset the Mac release gives, every table and name."""
+    exe = open(CKIT, "rb").read()
+    rs = rules.from_frua_dos(exe)
+    assert rs["kind_names"][5] == "Magic-User" and rs["race_names"][6] == "Monster"
+    assert rs["spell_slots"][0] == 1                 # a 1st-level cleric's spell
+    if os.path.exists(RFORK):
+        assert rules.to_bytes(rs) == rules.to_bytes(rules.from_frua(RFORK))
+    bad = bytearray(exe)
+    bad[100] ^= 1
+    with pytest.raises(rules.RulesError):
+        rules.from_frua_dos(bytes(bad))

@@ -83,7 +83,7 @@ name.)
   rec[76], one for one); its name is DQK.EXE's money table
   (`g_rules->coin`). A design holding RULES.DAT plays by THAT, in place
   of DQK.EXE's rules: `tools/rules.py` compiles it from text and writes
-  FRUA's or Krynn's rules as text to start from (`rules.py frua RFORK`,
+  FRUA's or Krynn's rules as text to start from (`rules.py frua RFORK|CKIT.EXE`,
   `rules.py dqk DQK.EXE`); `src/engine/rules_file.c` parses it in place
   (reference rules.py, `tests/test_rules_file.py`), `rules_load_file()`
   in rules.c makes the ruleset, `gbs_rules` (jt361) chooses it. A money row's name comes from `rules_money_name(i)`,

@@ -2122,6 +2122,17 @@ optional SHET chunk (`sheet_kind`/`god`/`robe`/`order` lines in the text),
 and FRUA's rules have none, so FRUA's sheet is unchanged. The six shipped
 heroes read as in DOS (tests/test_krynn_sheet.py).
 
+**FRUA's rules from a DOS-only install** (the open item above). `rules.py
+frua CKIT.EXE` reads the same tables and names out of the DOS release:
+each table at its CKIT.EXE position (`FRUA_CKIT`, positions only, for the
+v1.2 build rsrc_from_dos.py verifies), in x86 byte order where it is kept
+so, and race_kinds and kind_aligns from their word-padded rows; the names
+from the STRS pool rsrc_from_dos rebuilds. It gives the Mac release's
+ruleset byte for byte. Locating the tables found a DOS-only bug: the A5
+world a DOS-only install rebuilds had lost lone non-zero bytes of two of
+them (a 1st-level cleric's spell, the cleric's and druid's ability
+minimums); a4map.py now locates each rule table whole (`table_pass`).
+
 **Context.** The Gold Box games OpenUA is opening up to (ADR-0023) do not all
 share FRUA's classes and races. The Krynn games have seven player races
 (Silvanesti and Qualinesti elves, half-elves, mountain and hill dwarves,
