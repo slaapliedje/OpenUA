@@ -1925,7 +1925,10 @@ runs (Add list, hall, sheet, treasure chain; the saves also the load
 picker, loaded party and walk) with an A/A control.
 Open:
 - a save's clock and the vault (VAULTx.DAT) are not carried;
-- Roland's AC still recomputes to -7 against the -11 his save carries;
+- Roland's AC still recomputes to -7 against the -11 his save carries
+  (closed 2026-11-23: the game itself shows -7 for him, in the hall, in
+  camp and on the walk screen in DOSBox, so the -11 is not the AC it
+  displays and the port agrees with it);
 - writing back in the game's own formats (decision 4) is not begun.
 
 **Step (g) landed: a design can bring its own rules** (6ddba91c, 9af5eb54).
@@ -2032,6 +2035,11 @@ screens line for line, and memorizing Burning Hands takes Special to 0.
 Open: the game's "Bonus :" row (spell bonus slots) is not drawn; casting a
 Special spell in a fight is untested; DQK sets a global (DS:-0x387c, 0x15 or
 0x2e by god) whose purpose is unknown.
+(Later: the Bonus row and the Special spell in a fight are below. The
+global is written only, never read at its own address: 0xff by default,
+0x15 for the good gods (Paladine, Majere, Kiri-Jolith, Mishakal), 0x2e for
+the neutral ones (Sirrion, Reorx, Shinare). A reader would have to come at
+it through a base and an offset; none is found, so nothing is given for it.)
 
 **Krynn's moons** (the "Bonus :" row above). The Bonus is a mage's moon:
 DQK.EXE's grid (0x4501c) gives a character with mage levels and a robe 1
