@@ -102614,7 +102614,9 @@ static void jt893(unsigned char *out)
 					break;
 				}
 				need = (itp[40] == 73) ? (short)(itp[53] + 1) : (short)1;
-				if (jt72() + need > 200 &&
+				/* PORT: a design that keeps the Dark Queen's vaults
+				 * (jt75) holds the game's 50, as DQK.EXE 0x5def7 does */
+				if (jt72() + need > (qch_native() ? 50 : 200) &&
 				    (unsigned char)g_a5_byte(-27990) == 10) {
 					/* L2ba4 — vault full */
 					if (itp[40] == 73)

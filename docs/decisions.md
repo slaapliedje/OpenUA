@@ -2005,8 +2005,8 @@ GOLDBOX.DSN: save D loads at 11:19 AM and the first step makes it 11:20; a
 script adding 2 to cell 8 moved the HUD to 2:00 AM; 50 steel deposited came
 back out of an 866-byte VaultT.DAT on the next visit; a vault written as the
 game writes one, holding the first item of Cinder's .QCH, offered "40
-ARROWS +2". Open: more than 50 items in a vault would be written whole,
-which the game cannot read.
+ARROWS +2". A vault in that format holds 50 items, as the game's does
+(DQK.EXE 0x5def7: "Vault is full!" past 50; FRUA's is 200).
 
 **What each god grants** (step (e)'s open item). DQK.EXE 0x3ddff, run at
 creation, sets bits of the character's byte 0x15e and, for Kiri-Jolith and
