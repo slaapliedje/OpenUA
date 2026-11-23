@@ -98,3 +98,30 @@ def test_rule_is_dqk_exes():
     # 0x37f0b: a new game starts every phase at high sanction
     assert d[0x37f0b:0x37f1d] == bytes.fromhex(
         "26c687fa010226c687fb010226c687fc0102")
+
+
+def _fn(name):
+    return re.search(r"static short " + name + r"\(const unsigned char \*rec\)"
+                     r"\n\{(.*?)\n\}", boot_c(), re.S).group(1)
+
+
+@pytest.mark.skipif(not os.path.exists(DQK_EXE), reason="DQK.EXE not here")
+def test_saves_and_casting_level_are_dqk_exes():
+    """A mage of a robe: his save routine (0x85cc, FRUA's jt866) takes 1
+    off at low sanction and adds 1 at high; his caster level (0xb616,
+    FRUA's jt17) the same, the 1 only above 5th level."""
+    d = open(DQK_EXE, "rb").read()
+    robe = bytes.fromhex("268a879d01b40005f801")        # robe + 0x1f8
+    save = d[0x85cc:0x860b]
+    assert save.startswith(bytes.fromhex("c45e062680bfaa0000"))  # mage level
+    assert robe in save
+    assert re.search(rb"\x0b\xc0\x74.\x3d\x02\x00\x74.\xeb.\xfe\x4e\x0c"
+                     rb"\xeb.\xfe\x46\x0c", save, re.S)
+    lvl = d[0xb616:0xb66d]
+    assert robe in lvl
+    assert bytes.fromhex("fe4efe") in lvl                     # low: -1
+    assert bytes.fromhex("2680bfaa0005") in lvl               # level > 5
+    assert bytes.fromhex("fe46fe") in lvl                     # high: +1
+    s, l = _fn("krynn_moon_save"), _fn("krynn_moon_level")
+    assert "p == 0 ? -1 : p == 2 ? 1 : 0" in s
+    assert "p == 0 ? -1 : (p == 2 && rec[162] > 5) ? 1 : 0" in l

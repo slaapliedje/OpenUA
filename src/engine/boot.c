@@ -1569,6 +1569,8 @@ static unsigned char krynn_moon_phase(short robe);
 static void          krynn_moons_day(void);
 static void          krynn_moons_new(void);
 static unsigned char krynn_moon_bonus(const unsigned char *rec);
+static short         krynn_moon_save(const unsigned char *rec);
+static short         krynn_moon_level(const unsigned char *rec);
 
 #if defined(FRUA_ENTRY_LEVEL) && defined(FRUA_ENTRY_COL)
 static char g_entry_harness_spent;  /* harness: l63c0 has run, stop forcing */
@@ -38020,6 +38022,9 @@ static short jt17(short a, short b)
 			tmp = (signed char)((l2fd8(m, 4) & 255) - 8);
 			if (res < tmp)
 				res = tmp;
+			/* PORT: Krynn's moons (DQK.EXE 0xb616) */
+			if (g_rules->knights)
+				res = (signed char)(res + krynn_moon_level(m));
 			break;
 		case 4:                                 /* L2842 */
 			res = 12;
@@ -38313,6 +38318,10 @@ static short jt866(long member, short idx, short delta)
 		short newv   = value
 		             + (short)(signed char)m[195]
 		             + (short)(signed char)(delta & 0xff);
+
+		/* PORT: Krynn's moons shift a mage's saves (DQK.EXE 0x85cc) */
+		if (g_rules->knights)
+			newv = (short)(newv + krynn_moon_save(m));
 		g_a5_byte(-25269) = (unsigned char)newv;
 		g_a5_byte(-25246) = (unsigned char)(idx & 0xff);
 		jt868(12, (void *)&member);             /* L0420 case 12 */
@@ -109322,8 +109331,9 @@ static void gbs_state_load(int slot)
  * character a cell, over the three counts ('B', 'A', 'L'): all three
  * moons move on the first day after, here as there.
  * The phase gives a mage of the robe bonus spells, 1 waxing and 2 at high
- * sanction (krynn_moon_bonus). Only the Dark Queen has the cells: anywhere
- * else there are no moons (KRYNN_NO_MOON) and they do nothing. */
+ * sanction (krynn_moon_bonus), and shifts his saves and his casting level
+ * (krynn_moon_save, krynn_moon_level). Only the Dark Queen has the cells:
+ * anywhere else there are no moons (KRYNN_NO_MOON) and they do nothing. */
 #define GBS_MOON_PHASE  0x1fa
 #define GBS_MOON_COUNT  0x1fd
 
@@ -109402,6 +109412,31 @@ static unsigned char krynn_moon_bonus(const unsigned char *rec)
 			b = (unsigned char)(n - slots > b ? 0 : b - (n - slots));
 	}
 	return b;
+}
+
+/* A mage of a robe's saving throws: 1 worse at low sanction, 1 better at
+ * high (DQK.EXE 0x85cc, in its save routine, FRUA's jt866). */
+static short krynn_moon_save(const unsigned char *rec)
+{
+	unsigned char p;
+
+	if (rec == NULL || rec[162] == 0 || KRYNN_ROBE(rec) == 0)
+		return 0;
+	p = krynn_moon_phase((short)KRYNN_ROBE(rec));
+	return p == 0 ? -1 : p == 2 ? 1 : 0;
+}
+
+/* And his casting level: 1 lower at low sanction, 1 higher at high for a
+ * mage above 5th level (DQK.EXE 0xb616, in its caster level, FRUA's jt17;
+ * the Journal's INT 15 is not asked). */
+static short krynn_moon_level(const unsigned char *rec)
+{
+	unsigned char p;
+
+	if (rec == NULL || rec[162] == 0 || KRYNN_ROBE(rec) == 0)
+		return 0;
+	p = krynn_moon_phase((short)KRYNN_ROBE(rec));
+	return p == 0 ? -1 : (p == 2 && rec[162] > 5) ? 1 : 0;
 }
 
 /* A new game: forget everything the last one's scripts remembered. Before

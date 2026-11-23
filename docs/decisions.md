@@ -2048,9 +2048,8 @@ reached its period (8, 1, 6) moves a phase and counts from 0 (0x5d6e): 36-,
 8- and 28-day cycles. A new game starts all three at high sanction
 (0x37f0b). The start-up script stores "BALDRIC_NAME" at cell 509, one
 character a cell, over the counts ('B', 'A', 'L'), so all three move on the
-first day. The Journal's other moon effects (saves, effective level) are
-not in DQK.EXE: the grid and the trim are the only readers of a robe's
-phase. The Special slots are now read out of DQK.EXE too (0x44ad8: a
+first day. (That the Journal's other moon effects were not in DQK.EXE,
+as first written here, was wrong; see below.) The Special slots are now read out of DQK.EXE too (0x44ad8: a
 cleric has 3 for Mishakal, none for Reorx, 1 for any other god), the
 inference above confirmed. Checked in DOSBox against Hatari: from save D
 Cinder (Red Robe) shows "Bonus : 2" in both; a sixth 1st-level mage spell
@@ -2074,6 +2073,16 @@ arm, now done under Krynn's rules. Checked in Hatari: the memorized Special
 spell is offered by CAST in a fight (Caergoth's dragons) and targets with the
 range rule (touch: only an adjacent dragon); the damage at the clerical level
 was not seen, the fight never put Cinder beside a dragon with her turn free.
+
+**The moons also shift saves and casting level.** Searching for a robe's
+phase as 0x1f9 + robe found only the grid and the trim; DQK.EXE also reaches
+it as 0x1f8 + robe, then + 1, in two more places. Its save routine (0x85cc,
+FRUA's jt866) gives a mage of a robe -1 at low sanction and +1 at high, and
+its caster level (0xb616, FRUA's jt17's mage arm) the same, the +1 only for
+a mage above 5th level (the Journal's INT 15 is not asked). Both are given
+now (`krynn_moon_save`, `krynn_moon_level`). A phase is only read where the
+Dark Queen's cells exist; elsewhere krynn_moon_phase answers KRYNN_NO_MOON,
+not low sanction, so no design without them takes the -1.
 
 **Context.** The Gold Box games OpenUA is opening up to (ADR-0023) do not all
 share FRUA's classes and races. The Krynn games have seven player races

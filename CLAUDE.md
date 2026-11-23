@@ -66,7 +66,9 @@ name.)
   l025a's hour-to-day carry, reference `gbsave.moons_day`): a mage of a
   robe gets his moon's bonus spells (1 waxing, 2 high sanction) in FRUA's
   own -22727 bonus byte, which jt961 shows as "Bonus :" and l0bc6/l54ac
-  already spend. DQK.EXE gives the moons no save or level effect.
+  already spend, and his saves (jt866) and casting level (jt17) go 1
+  worse at low sanction, 1 better at high (the level only above 5th).
+  Without the Dark Queen's cells there are no moons (KRYNN_NO_MOON).
   The hall reads Dark Queen heroes (.QCH in the design's SAVE) itself:
   `src/engine/qch.c` (reference gbchar.py) makes the .CCH stream and jt577
   reads it from memory; a .CCH of the same stem shadows the .QCH, and the
