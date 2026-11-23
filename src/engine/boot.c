@@ -31684,6 +31684,8 @@ static void l0848(short key)
 	g_a5_long(-27932) = (long)(uintptr_t)node;
 }
 
+static short jt916(short arg, short key);   /* the Hall's keys (CODE 12+0x8f8, below) */
+
 static int l0aae(void)
 {
 #ifdef FRUA_PUMPTRACE
@@ -31731,19 +31733,14 @@ static int l0aae(void)
 		                                 * plate width. */
 		      20L, 21L, 0L);
 	}
-	/* The extra "page switch" item the Mac appends past the 12. Shape 7 =
-	 * callback DLItem; rec[4] = the page-flip callback proc. The Mac passes a
-	 * real proc (roster page-flip, only relevant with >1 page of members); the
-	 * port has not lifted it, so pass NULL.
-	 *
-	 * CRITICAL: this MUST be 0, not a non-NULL marker. jt376's cmd==5
-	 * (accelerator) path does `proc = rec[4]; if (proc != 0) ((fn)proc)(...)`,
-	 * so the old "20 as a non-NULL marker" was a callable-but-invalid pointer:
-	 * Phase 5's accelerator walk reached this item and did a wild `jsr 0x14`,
-	 * crashing the program. That unclean crash left RGB-static screen residue
-	 * over the roster — the intermittent "garbage above Barbarus" (#144).
-	 * With 0, jt376 falls through to l1676 (the faithful no-proc default). */
-	jt452(7L, 0L, 0L);
+	/* The Hall's keyboard source, past the 12 (CODE 12 +0x0cd0): shape 7
+	 * with JT[916] as its proc, which Phase 5 hands every key the buttons
+	 * do not take: the arrows move the roster selection, Page Up/Down page
+	 * it, J is the free-training toggle. It was installed with no proc
+	 * (once with a bogus non-NULL marker, the wild `jsr 0x14` behind the
+	 * #144 garbage), so the arrows beeped and never moved the selection.
+	 * jt376 calls it as proc(item index, key), JT[916]'s own signature. */
+	jt452((long)7, (long)(uintptr_t)&jt916, (long)20, (long)0);
 
 	g_a5_19174 = 8004;
 	g_a5_19172 = 8016;
@@ -74669,7 +74666,8 @@ static short jt916(short arg, short key)
 
 		key = (key == 263 || key == 264) ? 135 : 133;   /* 0x0a2a remap */
 		l0848(key);                              /* 0x0a48 select member */
-		l02dc((long)(uintptr_t)party);           /* 0x0a52 = jt937 roster redraw */
+		party = (unsigned char *)(uintptr_t)g_a5_long(-27932);   /* 0x0a52: */
+		l02dc((long)(uintptr_t)party);           /* the NEW one; jt937 redraw */
 
 		after = (jt909(party) != 0 && jt558(party) == 17) ? 1 : 0;   /* 0x0a5c-0x0a7e */
 		if ((after ^ (short)(signed char)g_a5_byte(-19168)) != 0) {  /* 0x0a80-0x0a8a */
