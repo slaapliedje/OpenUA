@@ -2033,6 +2033,34 @@ Open: the game's "Bonus :" row (spell bonus slots) is not drawn; casting a
 Special spell in a fight is untested; DQK sets a global (DS:-0x387c, 0x15 or
 0x2e by god) whose purpose is unknown.
 
+**Krynn's moons** (the "Bonus :" row above). The Bonus is a mage's moon:
+DQK.EXE's grid (0x4501c) gives a character with mage levels and a robe 1
+bonus spell when his moon is waxing and 2 at high sanction, less every mage
+spell memorized past a level's slots, and its memorize lets a mage spell
+through on it (0x45535). FRUA kept all of that around one byte, -22727:
+jt961 clears it where DQK computes it, l0bc6 spends it, l54ac (DQK's trim,
+0x4f41d) uses it. The moons are script cells: the phases of Solinari,
+Lunitari and Nuitari at 0x1fa..0x1fc (0 low sanction, 1 waxing, 2 high, 3
+waning), a day count each at 0x1fd..0x1ff. When the hours carry into a day
+(DQK's carry, 0x60c8, serves the game clock and the rest countdown, as
+FRUA's l025a does) 0x5e58 counts each moon on, and one whose count has
+reached its period (8, 1, 6) moves a phase and counts from 0 (0x5d6e): 36-,
+8- and 28-day cycles. A new game starts all three at high sanction
+(0x37f0b). The start-up script stores "BALDRIC_NAME" at cell 509, one
+character a cell, over the counts ('B', 'A', 'L'), so all three move on the
+first day. The Journal's other moon effects (saves, effective level) are
+not in DQK.EXE: the grid and the trim are the only readers of a robe's
+phase. The Special slots are now read out of DQK.EXE too (0x44ad8: a
+cleric has 3 for Mishakal, none for Reorx, 1 for any other god), the
+inference above confirmed. Checked in DOSBox against Hatari: from save D
+Cinder (Red Robe) shows "Bonus : 2" in both; a sixth 1st-level mage spell
+takes it to 1 in the port; after a day's rest the row is gone in both;
+DOS save H (four days after D, kept in data/work/dqk-saves) holds exactly
+the cells the rule gives (tests/test_krynn_moons.py), and one day after H
+both show "Bonus : 1". Only the Dark Queen has the cells; elsewhere the
+moons give nothing. Open: the moon jewels under the portrait (DQK draws
+icons 0x1d + phase etc.) are not drawn on FRUA's frame.
+
 **Context.** The Gold Box games OpenUA is opening up to (ADR-0023) do not all
 share FRUA's classes and races. The Krynn games have seven player races
 (Silvanesti and Qualinesti elves, half-elves, mountain and hill dwarves,

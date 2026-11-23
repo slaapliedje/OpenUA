@@ -63709,27 +63709,27 @@ static void jt885(long ent_l, short mask, short ncls, short gain)
 		ent[395] = (unsigned char)(ent[129] - dmg);
 }
 
+/* PORT: Krynn's three moons, in the Dark Queen's script memory (at the
+ * end of the file, with the rest of the script host). */
+static unsigned char krynn_moon_phase(short robe);
+static void          krynn_moons_day(void);
+static void          krynn_moons_new(void);
+static unsigned char krynn_moon_bonus(const unsigned char *rec);
+
 /* The slots for spells of class `cls`, level `lvl`: rec[355 + cls*9 +
  * lvl-1]. PORT: under Krynn's rules a class-3 spell is a god's "Special"
  * spell (level 0, which that index would read out of the mage 9th-level
- * slot), and the Dark Queen gives one Special slot per god spell the
- * character knows: its memorize screen shows "SPECIAL : 1" for Cinder
- * (Sirrion, one god spell) and "SPECIAL : 3" for Balthir (Mishakal, three;
- * the fourth bit of his byte is Cure Serious Wounds, class 0). Read off
- * the game's screen in DOSBox; where DQK.EXE computes it is not found. */
+ * slot), and the slots are DQK.EXE 0x44ad8's: a character with cleric
+ * levels has 3 for Mishakal, none for Reorx, 1 for any other god, which
+ * is one per god spell the god grants (KRYNN_GOD_SPELLS). The game's
+ * memorize screen agrees: "SPECIAL : 1" for Cinder (Sirrion), "SPECIAL :
+ * 3" for Balthir (Mishakal). */
 static unsigned char rec_spell_slots(const unsigned char *rec, short cls, short lvl)
 {
 	if (cls == 3 && g_rules->knights) {
-		const unsigned char *defs = &g_a5_byte(-16906);
-		unsigned char n = 0;
-		short id;
-
-		for (id = 1; id <= 126; id++)
-			if (defs[(long)id * 16] == 3
-			    && (rec[339 + ((id - 1) >> 3)]
-			        & (&g_a5_byte(-18893))[(id - 1) & 7]))
-				n++;
-		return n;
+		if (rec[157] == 0)              /* DQK 0xa5, the cleric level */
+			return 0;
+		return KRYNN_GOD(rec) == 4 ? 3 : KRYNN_GOD(rec) == 6 ? 0 : 1;
 	}
 	if (cls < 0 || cls > 3 || lvl < 1 || lvl > 9)
 		return cls == 3 ? rec[355 + 3 * 9 - 1] : 0;   /* FRUA's own read */
@@ -63756,6 +63756,10 @@ static void l54ac(long rec_l)
 
 	PROBE("l54ac");
 	jt65((long)(uintptr_t)counts, 54);
+	/* PORT: under Krynn's rules the bonus is the mage's moon's (DQK.EXE
+	 * 0x4f41d works it out here from the phase alone) */
+	if (g_rules->knights)
+		g_a5_byte(-22727) = (char)krynn_moon_bonus(rec);
 	for (i = 0; i <= 140; i++) {
 		if (rec[198 + i] == 0)
 			continue;
@@ -105010,6 +105014,11 @@ static void l025a(short *days)
 			days[i + 1]++;
 			days[i] = (short)(days[i]
 			          - g_a5_word(-23228 + (long)i * 2));
+			/* PORT: an hour carried into a day moves Krynn's moons
+			 * (DQK.EXE 0x6128: its carry, which serves the rest
+			 * countdown and the game clock alike, as this does) */
+			if (i == 3 && g_rules->knights)
+				krynn_moons_day();
 		} else {
 			for (m = g_a5_long(-27928); m != 0;
 			     m = *(long *)(uintptr_t)m)
@@ -106455,6 +106464,11 @@ static unsigned char jt961(void)
 
 	PROBE("jt961");
 	g_a5_byte(-22727) = 0;
+	/* PORT: under Krynn's rules a mage of a robe has his moon's bonus
+	 * spells, less those already memorized past a level's slots (DQK.EXE
+	 * 0x4501c); l0bc6 lets a mage spell through on it */
+	if (g_rules->knights)
+		g_a5_byte(-22727) = (char)krynn_moon_bonus(rec);
 
 	for (cls = 0; cls <= 2; cls++) {
 		for (lvl = 1; lvl <= 9; lvl++) {
@@ -106483,6 +106497,8 @@ static unsigned char jt961(void)
 		if (special != 0)
 			anyfree = 1;
 	}
+	if (g_a5_byte(-22727) != 0)
+		anyfree = 1;
 
 	if (anyfree == 0)
 		return 0;
@@ -106517,6 +106533,13 @@ static unsigned char jt961(void)
 		     ua_strs_at(0x1058) /* "   Special :" */);
 		jt94((short)14, (short)(row + 17), (short)7, (short)0, "%d",
 		     (int)(unsigned char)special);
+		row++;
+	}
+	if (g_a5_byte(-22727) != 0) {
+		jt94((short)1, (short)(row + 17), (short)7, (short)0, "%s",
+		     ua_strs_at(0x1066) /* "     Bonus :" */);
+		jt94((short)14, (short)(row + 17), (short)7, (short)0, "%d",
+		     (int)(unsigned char)g_a5_byte(-22727));
 	}
 	return anyfree;
 }
@@ -108755,6 +108778,8 @@ static int gbs_script_load(short id)
 		g_gbs_host.var   = gbs_var;
 		ecl_init(&g_gbs_vm, &g_gbs_host);
 		g_gbs_ready = 1;
+		g_gbs_dialect = g_gbs_buf[4];
+		krynn_moons_new();
 	}
 	g_gbs_dialect = g_gbs_buf[4];
 	if (!ecl_load(&g_gbs_vm, g_gbs_buf + GBS_HDR, (unsigned)(n - GBS_HDR),
@@ -109258,6 +109283,101 @@ static void gbs_state_load(int slot)
 	dbg_log_num("gbs: script memory restored, script ", (long)script);
 }
 
+/* Krynn's three moons, Solinari, Lunitari and Nuitari (the white, red and
+ * black robes' moons, robe 1..3). The Dark Queen keeps them in script
+ * memory: the phase in cells 0x1fa..0x1fc (0 low sanction, 1 waxing, 2
+ * high sanction, 3 waning) and a day count in 0x1fd..0x1ff. Every day
+ * (an hour carried into a day) DQK.EXE 0x5e58 counts each moon on, and
+ * a moon whose count has reached its period (8, 1 and 6 days) moves to
+ * its next phase and starts counting again (0x5d6e), so a phase lasts 9,
+ * 2 and 7 days. A new game starts them all at high sanction (0x37f0b).
+ * The game's own start-up script stores "BALDRIC_NAME" at cell 509, one
+ * character a cell, over the three counts ('B', 'A', 'L'): all three
+ * moons move on the first day after, here as there.
+ * The phase gives a mage of the robe bonus spells, 1 waxing and 2 at high
+ * sanction (krynn_moon_bonus). The saving throws and the effective level
+ * the Journal also gives the moons are nowhere in DQK.EXE (these two are
+ * the only readers of a robe's phase), so they are not given here. Only
+ * the Dark Queen has the cells: anywhere else the moons stand at low
+ * sanction and give nothing. */
+#define GBS_MOON_PHASE  0x1fa
+#define GBS_MOON_COUNT  0x1fd
+
+static int krynn_moons_here(void)
+{
+	return g_gbs_ready && g_gbs_dialect == ECL_GEN2;
+}
+
+static void krynn_moons_new(void)
+{
+	short m;
+
+	if (!krynn_moons_here())
+		return;
+	for (m = 0; m < 3; m++)
+		(void)ecl_poke(&g_gbs_vm, (unsigned short)(GBS_MOON_PHASE + m), 2);
+}
+
+static void krynn_moons_day(void)
+{
+	static const unsigned char period[3] = { 8, 1, 6 };
+	short m;
+
+	if (!krynn_moons_here())
+		return;
+	for (m = 0; m < 3; m++) {
+		unsigned short at = (unsigned short)(GBS_MOON_COUNT + m);
+		unsigned char  n  = (unsigned char)ecl_peek(&g_gbs_vm, at);
+
+		if (n >= period[m]) {
+			unsigned short ph = (unsigned short)(GBS_MOON_PHASE + m);
+			unsigned char  p  = (unsigned char)ecl_peek(&g_gbs_vm, ph);
+
+			(void)ecl_poke(&g_gbs_vm, ph, p >= 3 ? 0 : (unsigned short)(p + 1));
+			(void)ecl_poke(&g_gbs_vm, at, 0);
+		} else {
+			(void)ecl_poke(&g_gbs_vm, at, (unsigned short)(n + 1));
+		}
+	}
+}
+
+static unsigned char krynn_moon_phase(short robe)
+{
+	if (robe < 1 || robe > 3 || !krynn_moons_here())
+		return 0;
+	return (unsigned char)ecl_peek(&g_gbs_vm,
+	                               (unsigned short)(GBS_MOON_PHASE + robe - 1));
+}
+
+/* A mage's bonus spells (DQK.EXE 0x4501c): his moon's, 1 waxing and 2 at
+ * high sanction, for a character with mage levels and a robe, less every
+ * mage spell memorized past a level's slots. */
+static unsigned char krynn_moon_bonus(const unsigned char *rec)
+{
+	const unsigned char *defs = &g_a5_byte(-16906);
+	unsigned char b, p;
+	short lvl, i;
+
+	if (rec == NULL || rec[162] == 0 || KRYNN_ROBE(rec) == 0)
+		return 0;
+	p = krynn_moon_phase((short)KRYNN_ROBE(rec));
+	b = p == 1 ? 1 : p == 2 ? 2 : 0;
+	for (lvl = 1; lvl <= 9 && b != 0; lvl++) {
+		unsigned char n = 0, slots = rec[355 + 2 * 9 + (lvl - 1)];
+
+		for (i = 0; i <= 140; i++) {
+			unsigned char s = rec[198 + i];
+
+			if (s != 0 && defs[(long)(s & 0x7f) * 16] == 2
+			 && defs[(long)(s & 0x7f) * 16 + 1] == lvl)
+				n++;
+		}
+		if (slots < n)
+			b = (unsigned char)(n - slots > b ? 0 : b - (n - slots));
+	}
+	return b;
+}
+
 /* A new game: forget everything the last one's scripts remembered. Before
  * this, starting a new game in the same session (or after loading a save)
  * kept the old game's doors, flags and story progress. */
@@ -109269,6 +109389,7 @@ static void gbs_new_game(void)
 		for (p = 0; p < 256; p++)
 			if (g_gbs_vm.page[p] != NULL)
 				jt399(g_gbs_vm.page[p], (short)512, 0);
+	krynn_moons_new();
 	g_gbs_resume = 0;
 	g_gbs_nmon = 0;
 	g_gbs_want_map = 0;
@@ -109478,7 +109599,8 @@ static int gbs_qsv_load(int slot)
 	/* the script memory, one byte a cell, and the script that was running */
 	if (g_gbs_active && g_gbs_ready) {
 		for (c = 1; c <= GBV_CELLS; c++)
-			if (s.cells[c - 1] != 0)
+			if (s.cells[c - 1] != 0
+			 || ecl_peek(&g_gbs_vm, (unsigned short)c) != 0)
 				ecl_poke(&g_gbs_vm, (unsigned short)c, s.cells[c - 1]);
 		if (s.map != 0 && gbs_script_load((short)s.script)) {
 			g_gbs_init_pending = 0;     /* it was already running when saved */

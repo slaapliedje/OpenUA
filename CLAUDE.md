@@ -57,8 +57,14 @@ name.)
   dwarf, +1 base THAC0 re-added on every recompute (`KRYNN_TOHIT`), and
   the god's own spells, class 3 ids 57..64, as known-spell bits in
   rec[346] (`KRYNN_GOD_SPELLS`). Those are memorized at "Special" (level
-  0) with one slot per god spell known (`rec_spell_slots`; never index
-  rec[355 + cls*9 + lvl-1] directly) and cast as clerical spells.
+  0; DQK 0x44ad8: a cleric has 3 slots for Mishakal, none for Reorx, else
+  1, `rec_spell_slots`; never index rec[355 + cls*9 + lvl-1] directly)
+  and cast as clerical spells. Krynn's moons are script cells 0x1fa..0x1ff
+  in the Dark Queen (phase, then a day count; `krynn_moons_day` from
+  l025a's hour-to-day carry, reference `gbsave.moons_day`): a mage of a
+  robe gets his moon's bonus spells (1 waxing, 2 high sanction) in FRUA's
+  own -22727 bonus byte, which jt961 shows as "Bonus :" and l0bc6/l54ac
+  already spend. DQK.EXE gives the moons no save or level effect.
   The hall reads Dark Queen heroes (.QCH in the design's SAVE) itself:
   `src/engine/qch.c` (reference gbchar.py) makes the .CCH stream and jt577
   reads it from memory; a .CCH of the same stem shadows the .QCH, and the

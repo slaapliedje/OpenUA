@@ -82,6 +82,35 @@ CELL_CLOCK = 0x05
 CLOCK = ("rounds", "minutes", "tens", "hours", "days", "months", "years")
 RADIX = (10, 10, 6, 24, 30, 12, 100)
 VAULT_SIZE = 866
+
+# Krynn's three moons, Solinari, Lunitari and Nuitari (robe 1..3): the phase
+# (0 low sanction, 1 waxing, 2 high sanction, 3 waning) in cells
+# 0x1fa..0x1fc and a day count in 0x1fd..0x1ff. Each day (an hour carried
+# into a day, DQK.EXE 0x6128) a moon whose count has reached its period
+# moves on a phase and counts from 0 again, else counts on (0x5d6e); a new
+# game starts all three at high sanction (0x37f0b). The start-up script
+# stores "BALDRIC_NAME" at cell 509, over the counts, so all three move on
+# the first day. boot.c's krynn_moons_day is held to this.
+MOON_PHASE = 0x1fa
+MOON_COUNT = 0x1fd
+MOON_PERIOD = (8, 1, 6)
+
+
+def moons_day(cells):
+    """One day of the moons on `cells` (a mutable sequence, cell n at n-1)."""
+    for m, period in enumerate(MOON_PERIOD):
+        c = MOON_COUNT + m - 1
+        if cells[c] >= period:
+            p = MOON_PHASE + m - 1
+            cells[p] = 0 if cells[p] >= 3 else cells[p] + 1
+            cells[c] = 0
+        else:
+            cells[c] += 1
+
+
+def moon_bonus(phase):
+    """A mage's bonus spells for his moon's phase (DQK.EXE 0x4501c)."""
+    return {1: 1, 2: 2}.get(phase, 0)
 VAULT_ITEMS = 50
 CELL_FACING = 0x11
 CELL_MAP = 0x13
