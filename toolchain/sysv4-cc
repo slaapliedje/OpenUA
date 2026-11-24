@@ -34,11 +34,12 @@
 #
 #   AMIX_SYSROOT   AMIX's usr/include, usr/lib, usr/ccs/lib and usr/X
 #   MINT_GCC       the modern GCC (default m68k-atari-mint-gcc)
-#   SVR4_AS        the SVR4 assembler (default ~/opt/asv-cross/bin/m68k-cbm-sysv4-as)
+#   SVR4_AS        the SVR4 assembler (default $ASV_CROSS/bin/m68k-cbm-sysv4-as,
+#                  ASV_CROSS defaulting to ~/opt/asv-cross)
 set -e
 : "${AMIX_SYSROOT:?set AMIX_SYSROOT}"
 : "${MINT_GCC:=m68k-atari-mint-gcc}"
-: "${SVR4_AS:=$HOME/opt/asv-cross/bin/m68k-cbm-sysv4-as}"
+: "${SVR4_AS:=${ASV_CROSS:-$HOME/opt/asv-cross}/bin/m68k-cbm-sysv4-as}"
 here=$(cd "$(dirname "$0")" && pwd)
 gccinc=$("$MINT_GCC" -print-file-name=include)
 

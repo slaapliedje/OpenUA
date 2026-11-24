@@ -10,8 +10,10 @@ endif
 export AMIX_SYSROOT
 CC     := toolchain/sysv4-cc
 LD     := toolchain/sysv4-ld
-AR     := $(HOME)/opt/asv-cross/bin/m68k-cbm-sysv4-ar
-STRIP  := $(HOME)/opt/asv-cross/bin/m68k-cbm-sysv4-strip
+ASV_CROSS ?= $(HOME)/opt/asv-cross
+export ASV_CROSS
+AR     := $(ASV_CROSS)/bin/m68k-cbm-sysv4-ar
+STRIP  := $(ASV_CROSS)/bin/m68k-cbm-sysv4-strip
 
 # -mno-align-int: the engine's Mac structures need GCC's 2-byte alignment of
 # int, not SVR4's 4 (see sysv4-cc)
