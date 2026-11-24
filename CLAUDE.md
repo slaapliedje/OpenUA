@@ -411,6 +411,19 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   a result into a script variable uses `ecl_var_set`, never `ecl_poke`.
   String cells and the host's own peeks stay in script memory.
   No Dark Queen script uses DESTROY_ITEMS.
+  **Low cells the GAME keeps** (read by scripts, written by none; FRUA's
+  game record h[] is the same Gold Box block, as the clock showed):
+  0x20 party size, companions counted (= h[32]; 58 party loops use it),
+  0x19 searching (h[25] bits 0/1), 0x13 the map, 0x0d the selected
+  member's place: all served by `gbs_var`. Still NOT served: 0x21 (the
+  last step hit the map edge, DQK 0x43a86; block 66 only) and 0x15 (a
+  count of members, DQK 0x4b4d0; block 64 only). Look in a script area
+  runs searchLocation (`gbs_look`). LOAD_FILES' second operand is the
+  combat backdrop (DQK 0xca03 -> DungCom<n>/WildCom<n>, 1..6); the port
+  ignores it and fights on FRUA's backdrop 1 (hdr[12]): the game's own
+  backdrops are 16-colour, FRUA's DUNGCOM 1-bit, so that is renderer work.
+  To find such gaps again: list every cell a script reads that no script
+  writes (skip block 1, the debug jumper; DIVIDE writes 0x29 implicitly).
   Census: walk every ECLnnn.DAT with tools/ecl.py's Block.walk(). PROGRAM is
   read out of DQK.EXE (0x328cf, a ten-entry jump table): 0 training, 1
   the copy-protection overlay (a no-op here), 3 an energy drain on the
