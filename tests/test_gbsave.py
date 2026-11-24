@@ -199,3 +199,25 @@ def test_shipped_vault_is_empty_and_866_bytes():
     for path in glob.glob(os.path.join(GAME, "SAVE", "VAULT?.DAT")):
         money, items = gbsave.read_vault(open(path, "rb").read())
         assert money == (0, 0, 0) and items == []
+
+
+@pytest.mark.skipif(not REAL, reason="no Dark Queen saves on this machine")
+def test_cell_0x20_is_the_party_size():
+    # companions counted: save G holds six heroes and an NPC
+    for path in REAL:
+        s = gbsave.GbSave(open(path, "rb").read())
+        assert s.cell(gbsave.CELL_PARTY) == len(s.members), path
+
+
+def test_the_port_serves_the_games_own_cells():
+    import re
+    h = open(os.path.join(ROOT, "src", "engine", "gbsave.h")).read()
+    for name in ("PLACE", "SEARCH", "PARTY", "MAP"):
+        want = getattr(gbsave, "CELL_" + name)
+        got = re.search(r"#define GBV_CELL_%s\s+(0x[0-9a-f]+)" % name, h).group(1)
+        assert int(got, 16) == want, name
+    src = open(os.path.join(ROOT, "src", "engine", "boot.c")).read()
+    body = re.search(r"static int gbs_var\(void \*ctx.*?\n\}", src, re.S).group(0)
+    for name in ("PLACE", "SEARCH", "PARTY", "MAP"):
+        assert "case GBV_CELL_%s" % name in body, name
+    assert "[32]" in body and "[25] & 3" in body    # FRUA's h[32] and h[25]

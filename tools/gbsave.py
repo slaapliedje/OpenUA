@@ -115,6 +115,10 @@ VAULT_ITEMS = 50
 CELL_FACING = 0x11
 CELL_MAP = 0x13
 CELL_SCRIPT = 0x16
+# Cells the game keeps, not the scripts (DQK.EXE; gbsave.h, boot.c gbs_var):
+CELL_PLACE = 0x0d     # the selected member's place in the party, from 0
+CELL_SEARCH = 0x19    # 1 while searching (Search on, or a Look)
+CELL_PARTY = 0x20     # members in the party, companions counted
 
 
 class GbSaveError(ValueError):

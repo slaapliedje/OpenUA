@@ -18,6 +18,9 @@
 #define GBV_CELL_FACING 0x11    /* 0=N 1=E 2=S 3=W                         */
 #define GBV_CELL_MAP    0x13    /* the map loaded                          */
 #define GBV_CELL_SCRIPT 0x16    /* the script running                      */
+#define GBV_CELL_PLACE  0x0d    /* the selected member's place, from 0     */
+#define GBV_CELL_SEARCH 0x19    /* 1 while searching (Search on, or Look)  */
+#define GBV_CELL_PARTY  0x20    /* members in the party, companions too    */
 /* The clock is script memory: cells 5..11 are rounds, minutes, tens of
  * minutes, hours, days, months and years (FRUA's game record h[5..11],
  * the same seven fields and radices 10/10/6/24/30/12/100). */

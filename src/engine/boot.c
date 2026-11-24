@@ -108739,6 +108739,59 @@ static int gbs_var(void *ctx, unsigned short addr, unsigned short *v, int write)
 			*v = h[addr];
 		return 1;
 	}
+	switch (addr) {
+	case GBV_CELL_PARTY:
+		/* The party's size, companions counted: DQK adds one as a member
+		 * joins (0x366e1, at most 8) and takes one as he leaves (0xbafc);
+		 * every DOS save holds its party's count here. FRUA's game record
+		 * keeps the same count at h[32] (the hall's add and jt19). The
+		 * scripts loop over the party up to it and RANDOM a member by it. */
+		if (g_a5_28006 == 0)
+			return 0;
+		if (write)
+			((unsigned char *)g_a5_28006)[32] = (unsigned char)*v;
+		else
+			*v = ((unsigned char *)g_a5_28006)[32];
+		return 1;
+	case GBV_CELL_SEARCH:
+		/* 1 while the party searches: Search's toggle (FRUA h[25] bit 0)
+		 * or a Look (DQK 0x32f5e sets the cell to 1 for that one run;
+		 * FRUA's Look sets h[25] bit 1). */
+		if (g_a5_28006 == 0)
+			return 0;
+		if (write) {
+			unsigned char *h = (unsigned char *)g_a5_28006;
+
+			h[25] = (unsigned char)((h[25] & ~1) | (*v & 1));
+		} else
+			*v = (((unsigned char *)g_a5_28006)[25] & 3) != 0;
+		return 1;
+	case GBV_CELL_MAP:
+		/* the map LOAD_FILES loaded (DQK 0x420da); the engine knows it
+		 * as the design's area, so it is read from where the port keeps
+		 * the game's number */
+		if (write)
+			return 0;
+		*v = g_gbs_map;
+		return 1;
+	case GBV_CELL_PLACE: {
+		/* the selected member's place in the party, from 0: the scripts
+		 * keep it (SAVE [0x0d]) to LOAD_CHARACTER the same one back */
+		long  m = g_a5_long(-27928);
+		short n = 0;
+
+		if (write)
+			return 0;
+		while (m != 0 && m != g_a5_long(-27932)) {
+			m = *(long *)(uintptr_t)m;
+			n++;
+		}
+		*v = (unsigned short)(m != 0 ? n : 0);
+		return 1;
+	}
+	default:
+		break;
+	}
 	if (!GBC_IS_CELL(addr))
 		return 0;
 	who = (unsigned char *)(uintptr_t)g_a5_long(-27932);
