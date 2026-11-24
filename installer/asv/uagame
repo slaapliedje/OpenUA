@@ -1,0 +1,21 @@
+#!/bin/sh
+# uagame - play OpenUA full screen at 640x480, on an X server of its own
+# (xatwrun: Ctrl+Alt+F1 back to the desktop, Ctrl+Alt+F2 to the game).
+# Run it from the desktop: a terminal, or a panel button whose command is
+# /opt/openua/bin/uagame. The game data is in $OPENUA_DATA, by default
+# $HOME/openua, put there by ua-getdata.
+DATA=${OPENUA_DATA:-$HOME/openua}
+if [ ! -f "$DATA/frua.rsc" ]; then
+	MSG="No OpenUA game data in $DATA.
+Copy it from your PC with: /opt/openua/bin/ua-getdata PC-ADDRESS"
+	echo "$MSG" >&2
+	if [ -n "$DISPLAY" ] && [ -x /usr/x11r6/bin/xmessage ]; then
+		/usr/x11r6/bin/xmessage -center "$MSG" &
+	fi
+	exit 1
+fi
+cd "$DATA" || exit 1
+if [ -x /usr/local/bin/xatwrun ]; then
+	exec /usr/local/bin/xatwrun -mode 640x480 /opt/openua/bin/openua
+fi
+exec /opt/openua/bin/openua

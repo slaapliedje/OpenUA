@@ -1123,6 +1123,26 @@ release-all:
 	$(MAKE) release-amiga-ecs
 	@echo "all releases staged under dist/:" && ls dist/*.zip
 
+# ── Atari System V package ─────────────────────────────────────────────────
+# make MACHINE=amix AMIX_SYSROOT=... asv-pkg -> dist/openua-$(VERSION).pkg, an
+# SVR4 package datastream for ASV's own `pkgadd -d` (tools/asvpkg.py):
+# /opt/openua/bin/{openua,uagame,ua-getdata} and the README. No game data:
+# ua-getdata copies the player's own from a PC running tools/ua-serve.sh.
+ASV_PKG := dist/openua-$(VERSION).pkg
+asv-pkg: $(TARGET) installer/asv/uagame installer/asv/ua-getdata installer/asv/README installer/asv/pkginfo tools/asvpkg.py
+ifneq ($(MACHINE),amix)
+	$(error asv-pkg needs MACHINE=amix)
+endif
+	@mkdir -p dist build/asvpkg
+	$(STRIP) -o build/asvpkg/openua $(TARGET)
+	{ cat installer/asv/pkginfo; echo VERSION=$(VERSION); echo PSTAMP=openua-$(VERSION); } > build/asvpkg/pkginfo
+	python3 tools/asvpkg.py $(ASV_PKG) build/asvpkg/pkginfo \
+	    /opt/openua/bin/openua=build/asvpkg/openua:0755 \
+	    /opt/openua/bin/uagame=installer/asv/uagame:0755 \
+	    /opt/openua/bin/ua-getdata=installer/asv/ua-getdata:0755 \
+	    /opt/openua/doc/README=installer/asv/README:0644 \
+	    /opt/openua/doc/LICENSE=LICENSE:0644
+
 -include $(DEP)
 
-.PHONY: gamedata-dos installer installer-amiga all run run-ste run-mono run-amiga run-amiga-ecs run-game gamedata probe fc-audit cg-audit test test-slow clean distclean data-pool-regen release release-ste release-amiga release-amiga-ecs release-all strip-target atari-binaries
+.PHONY: gamedata-dos installer installer-amiga all run run-ste run-mono run-amiga run-amiga-ecs run-game gamedata probe fc-audit cg-audit test test-slow clean distclean data-pool-regen release release-ste release-amiga release-amiga-ecs release-all strip-target atari-binaries asv-pkg

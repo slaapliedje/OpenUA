@@ -1,0 +1,74 @@
+OpenUA for Atari System V
+=========================
+
+OpenUA is an open engine for SSI's Unlimited Adventures (FRUA, 1993). This
+package is its AMIX build, for Atari System V on the TT030 with the
+service pack (github.com/slaapliedje/atari-sysv-sp1): it needs the amx
+module, X11R6.3 with Xatw, and xatwrun, which the service pack's card has.
+
+It installs:
+
+  /opt/openua/bin/openua      the game
+  /opt/openua/bin/uagame      runs it full screen at 640x480 on a second
+                              X server (Ctrl+Alt+F1 desktop, F2 the game)
+  /opt/openua/bin/ua-getdata  copies the game data from a PC
+  /opt/openua/doc/            this file and the licence (GPL-2.0)
+
+The game data is NOT in the package: it is SSI's, and you need your own
+copy of Unlimited Adventures (the DOS release works).
+
+
+Install
+-------
+
+As root on the TT, with the package copied over:
+
+    pkgadd -d /var/tmp/openua-VERSION.pkg OPENUA
+
+Remove it with `pkgrm OPENUA` (the game data in your home stays).
+
+
+The game data
+-------------
+
+1. On the PC, in a clone of OpenUA (github.com/slaapliedje/OpenUA), stage
+   the data from your DOS install, as for the Atari builds:
+
+       make -o frua.prg gamedata-dos DOS_DIR=/path/to/FRUA GAMEDATA_DIR=/path/to/stage
+
+   frua.rsc is made from your CKIT.EXE and the art, sounds and music
+   are converted (Python 3 is all it needs; `-o frua.prg` skips building
+   the Atari program, which the TT has no use for).
+
+2. Serve it to the TT (read-only, until Ctrl-C):
+
+       tools/ua-serve.sh /path/to/stage
+
+   It prints the command to run on the TT. UA_ALLOW=192.168.3.0/24 in
+   front of it limits who may connect.
+
+3. On the TT, as the user who will play:
+
+       /opt/openua/bin/ua-getdata PC-ADDRESS
+
+   The data goes to $HOME/openua (or $OPENUA_DATA, or a directory given as
+   the second argument). Running it again copies only what changed and
+   deletes nothing, so saved games stay.
+
+   It needs the service pack's rsync from after 2026-11-24: the one before
+   could not connect to a numeric address ("getaddrinfo: ... Unknown
+   host"). With that one, give the PC a name in /etc/hosts and use it.
+
+
+Play
+----
+
+From a terminal on the desktop, `/opt/openua/bin/uagame`. For a button on
+the panel, right-click the panel, Add..., with the command
+/opt/openua/bin/uagame and the game icon.
+
+Settings, all optional, in the environment:
+
+  OPENUA_DATA      where the game data is (default $HOME/openua)
+  OPENUA_WINDOW=1  a window on the desktop instead of full screen
+  OPENUA_VOLUME=N  the sound driver's volume, 0..40

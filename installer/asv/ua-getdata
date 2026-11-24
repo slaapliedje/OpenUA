@@ -1,0 +1,36 @@
+#!/bin/sh
+# ua-getdata PC[:PORT] [DIR] - copy OpenUA's game data from a PC.
+#
+# On the PC, in the OpenUA tree, serve the data you staged there (see
+# /opt/openua/doc/README):
+#
+#     tools/ua-serve.sh data/work/gamedata
+#
+# then here, as the user who will play:
+#
+#     /opt/openua/bin/ua-getdata 192.168.3.10
+#
+# It pulls the PC's files into DIR (default $OPENUA_DATA, or $HOME/openua)
+# with rsync. Running it again copies only what changed; it never deletes
+# anything here, so saved games stay. PORT defaults to 8731, ua-serve.sh's.
+RSYNC=/usr/local/bin/rsync
+[ $# -ge 1 ] || { echo "usage: ua-getdata PC[:PORT] [DIR]" >&2; exit 2; }
+case "$1" in
+*:*)	HOST=`echo "$1" | sed 's/:.*//'`; PORT=`echo "$1" | sed 's/^[^:]*://'` ;;
+*)	HOST=$1; PORT=8731 ;;
+esac
+DIR=${2:-${OPENUA_DATA:-$HOME/openua}}
+[ -x $RSYNC ] || { echo "ua-getdata: no $RSYNC" >&2; exit 1; }
+[ -d "$DIR" ] || mkdir "$DIR" || exit 1
+echo "== rsync://$HOST:$PORT/openua/ -> $DIR"
+$RSYNC -rtv --copy-links rsync://$HOST:$PORT/openua/ "$DIR/" || {
+	echo "ua-getdata: the copy failed; is tools/ua-serve.sh running on $HOST?" >&2
+	echo "(\"Unknown host\" for an address: this rsync predates the fix; name the PC in /etc/hosts)" >&2
+	exit 1
+}
+if [ -f "$DIR/frua.rsc" ]; then
+	echo "== done: run /opt/openua/bin/uagame from the desktop"
+else
+	echo "ua-getdata: copied, but there is no frua.rsc in $DIR: stage the data on the PC first (README)" >&2
+	exit 1
+fi

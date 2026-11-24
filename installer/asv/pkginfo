@@ -1,0 +1,6 @@
+PKG=OPENUA
+NAME=OpenUA - Unlimited Adventures for Atari System V
+ARCH=m68k
+CATEGORY=application
+VENDOR=OpenUA
+DESC=OpenUA, the open engine for SSI's Unlimited Adventures, as an AMIX program for Atari System V on the TT030 (needs the amx module and X11R6.3). The game data is not included: ua-getdata copies yours from a PC.
