@@ -1426,6 +1426,7 @@ static short l720a(unsigned char *buf)
 static void gbs_area_load(short geo_num);
 static void gbs_arrive(void);
 static void gbs_step(void);
+static int  gbs_look(void);
 
 /* JT[198] (CODE 7 + 0x7124) — load GEOnnn.DAT for the given level
  * number. Reads the file into the GEO buffer (jt1004), checks the
@@ -5452,7 +5453,8 @@ static void jt948(void)
 						    (short)(signed char)g_a5_byte(-12287));
 						g_a5_byte(-18483) =
 						    (unsigned char)special;
-						l709e(special);
+						if (!gbs_look())   /* PORT (ADR-0023) */
+							l709e(special);
 						/* The Mac EXITS the command loop here
 						 * (fp@(-2)=1 -> L44f6) so jt948/jt953 rebuild
 						 * the play dialog from scratch. The port's
@@ -70817,7 +70819,8 @@ static short jt953(void)
 				    (short)(signed char)g_a5_byte(-12288),
 				    (short)(signed char)g_a5_byte(-12287));
 				g_a5_byte(-18483) = (unsigned char)special;
-				l709e(special);
+				if (!gbs_look())           /* PORT (ADR-0023) */
+					l709e(special);
 				exit_flag = 1;
 				break;
 			}
@@ -110177,4 +110180,28 @@ static void gbs_step(void)
 	gbs_run(ECL_ENTRY_STEP);
 	gbs_run(ECL_ENTRY_SEARCH);
 	gbs_after();
+}
+
+/* Look, in a script area: the square's searchLocation once more, as one
+ * who searches. DQK (0x32f51) keeps the search cell, sets it to 1, runs
+ * that entry (0x32c66 with the block's searchLocation) and puts the cell
+ * back; FRUA's Look has already set h[25] bit 1 and moved the clock, and
+ * the cell reads h[25] (gbs_var). A script area has no FRUA cell events,
+ * so this stands in for l709e. */
+static int gbs_look(void)
+{
+	unsigned char *h;
+
+	if (!g_gbs_active)
+		return 0;
+	if (g_gbs_init_pending) {
+		g_gbs_init_pending = 0;
+		gbs_run(ECL_ENTRY_INIT);
+	}
+	gbs_run(ECL_ENTRY_SEARCH);
+	gbs_after();
+	h = (unsigned char *)g_a5_28006;
+	if (h != NULL)
+		h[25] = (unsigned char)(h[25] & 1);
+	return 1;
 }
