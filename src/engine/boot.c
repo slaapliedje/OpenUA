@@ -41866,6 +41866,7 @@ static unsigned char jt125(short refnum, void *spec)
 static void jt127(const char *prefix, short num, short *out, void *buffer)
                                                 __attribute__((unused));
 static int gbs_monster(short num, void *buffer, short *out);  /* PORT, below */
+static int gbs_game_header(void *buffer, short *out);         /* PORT, below */
 static void jt127(const char *prefix, short num, short *out, void *buffer)
 {
 	char  path[402];
@@ -41894,6 +41895,9 @@ static void jt127(const char *prefix, short num, short *out, void *buffer)
 	if (strcmp(prefix, "MONST") == 0 && gbs_monster(num, buffer, out))
 		return;
 	if (strcmp(prefix, "GEO") == 0 && gbs_geo(num, buffer, out))
+		return;
+	if (strcmp(prefix, "GAME") == 0 && num == 1
+	    && gbs_game_header(buffer, out))
 		return;
 
 	/* L01d6 — the .glb shared-library fallback. */
@@ -109300,6 +109304,43 @@ static short gbs_native_script(short id)
 	g_gbs_buf[4] = ECL_GEN2;
 	g_gbs_buf[5] = g_gbs_buf[6] = g_gbs_buf[7] = 0;
 	return (short)(GBS_HDR + len);
+}
+
+/* THE DESIGN HEADER. jt127 asks here for GAME001.DAT when the design has
+ * none: a design holding the Dark Queen's DQK.EXE (a copy of the game's own
+ * folder) gets the header tools/gbgeo.py writes for it (dsn.Design.game001:
+ * start area 5, the library's first map, entry 1; FRUA's default starting
+ * XP 15000, 100 coins and equipment level 2, which only the creation of a
+ * new character reads), titled with the game's name. A design's own
+ * GAME001.DAT always wins. */
+#define GBS_GAME_SIZE 388
+static int gbs_game_header(void *buffer, short *out)
+{
+	static const char title[] = "The Dark Queen of Krynn";
+	unsigned char *g = (unsigned char *)buffer;
+	char           dpath[202];
+	short          refnum;
+
+	dpath[0] = 0;
+	jt431(dpath, &g_a5_31336);
+	jt431(dpath, "DQK.EXE");
+	refnum = jt398(dpath, 0);
+	if (refnum < 0)
+		return 0;
+	jt411(refnum);
+
+	memset(g, 0, GBS_GAME_SIZE);
+	memcpy(g, title, sizeof title);
+	g[32] = 15000 & 0xff;                   /* starting XP, little-endian */
+	g[33] = 15000 >> 8;
+	g[36] = 100;                            /* coins                      */
+	g[48] = 5;                              /* start area: map 0          */
+	g[49] = 1;                              /* start entry                */
+	g[50] = 2;                              /* equipment level            */
+	g_a5_word(-31246) = GBS_GAME_SIZE;
+	if (out != NULL)
+		*out = GBS_GAME_SIZE;
+	return 1;
 }
 
 /* MONSTERS. A script's LOAD_MONSTER names a monster by the game's own

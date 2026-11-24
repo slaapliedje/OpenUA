@@ -349,7 +349,13 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   (`src/engine/gbmaps.c`, held byte for byte to gbgeo.py by
   `tests/test_gbmaps.py`; area slot 5 + i is the library's map i), and the
   design's start area runs script 4, as DQK.EXE 0x32e3a starts a new game
-  (script 1 is SSI's debug jumper, never run by the game). Scripts and maps
+  (script 1 is SSI's debug jumper, never run by the game). **A copy of the
+  game's own folder (DQK.EXE, DISK1..3, SAVE), renamed `<NAME>.DSN`, is a
+  design as it is**: with no GAME001.DAT jt127 asks `gbs_game_header` for
+  the header gbgeo.py would write ("The Dark Queen of Krynn", area 5), and
+  the pictures come from DISK1..3 (`gbs_game_art`, below). Checked in
+  Hatari: nothing is written into it but PICB.ctl/PICC.ctl at its top level
+  and the hall's .CCH in SAVE. Scripts and maps
   are numbered separately in these games — Dark Queen has 47 scripts over 20
   maps.
 - **`tools/ecl.py`** disassembles the scripts (Champions, Death Knights, Dark

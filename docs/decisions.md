@@ -2227,5 +2227,10 @@ into the design folder, never beside the game's file. Checked in Hatari on a
 design that is a plain copy of the game's install folder: Palanthas's
 picture came from DISK2\PICB.TLB, converted byte-identical to
 `art_convert.py`. Copies `gbgeo.py --pictures` made before 2026-11-22 predate
-the type-7 skip fix and differ from a fresh conversion. Still written by
-`gbgeo.py`: the design header GAME001.DAT.
+the type-7 skip fix and differ from a fresh conversion. The design header
+needs no file either: with no GAME001.DAT, jt127 asks `gbs_game_header`,
+which gives a design holding DQK.EXE the header gbgeo.py writes for it,
+titled "The Dark Queen of Krynn". So a copy of the game's install folder,
+renamed `<NAME>.DSN`, is a design as it is (checked in Hatari through the
+design picker, the hall, Palanthas and its bar; the only files written were
+the two converted picture libraries at its top level and the hall's .CCH).
