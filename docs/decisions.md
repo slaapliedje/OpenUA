@@ -2217,3 +2217,15 @@ maps, then saves; (g) choosing or writing a ruleset for a new design.
 **Not decided here:** the editor's rules screen and Krynn's moon magic. (A
 game's own install folder is already 8.3: they are DOS games. Only the Steam
 wrapper folders around it have long names, and nothing needs those.)
+
+**Step (f), pictures (2026-11-23):** a Dark Queen design no longer needs
+converted picture copies. On a miss in the design folder, l17e2 asks
+`gbs_game_art`, which converts the game's own PICA/PICB/PICC/BIGPIC/SPRIT/CPIC
+.TLB from DISK1..3 into the design folder on first open, the same on-load
+conversion every design's DOS art gets (ADR-0019). The result is written
+into the design folder, never beside the game's file. Checked in Hatari on a
+design that is a plain copy of the game's install folder: Palanthas's
+picture came from DISK2\PICB.TLB, converted byte-identical to
+`art_convert.py`. Copies `gbgeo.py --pictures` made before 2026-11-22 predate
+the type-7 skip fix and differ from a fresh conversion. Still written by
+`gbgeo.py`: the design header GAME001.DAT.

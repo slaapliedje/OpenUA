@@ -519,9 +519,14 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   the fight play itself — it also answers every text prompt, so make the
   script end somewhere visible (a NEWECL into a menu).
 - **Pictures go through `l442e`, FRUA's own event-picture painter.** Dark
-  Queen's PICA/PICB/PICC/BIGPIC/SPRIT are FRUA's container and names, so
-  `gbgeo.py --pictures DISK2` only converts them into the design folder. The
-  one difference is which numbers live in which file (Dark Queen: PICA below
+  Queen's PICA/PICB/PICC/BIGPIC/SPRIT/CPIC are FRUA's container and names.
+  A design holding DQK.EXE needs no copies: on a miss in the design folder
+  l17e2 asks `gbs_game_art`, which converts the game's own NAME.TLB from
+  DISK1..3 into the design folder (never beside the game's file), as any
+  design's DOS art converts on first open (ADR-0014/0019); checked
+  byte-identical to `art_convert.py`. (`gbgeo.py --pictures DISK2` still
+  makes the copies ahead of time; copies made before 2026-11-22 predate the
+  type-7 skip fix and are stale.) The one difference is which numbers live in which file (Dark Queen: PICA below
   128, PICB to 150, PICC from 151), bridged by `g_gbs_pic_letter`. Do NOT
   copy the game's FRAME/wall/combat libraries into the design: FRUA's screen
   is built from its own pieces of those and the button bar loses its plates.

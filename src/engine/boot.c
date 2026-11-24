@@ -85841,6 +85841,7 @@ L308e:
  * the caller's read callback, close (jt411); on failure bump the per-group
  * retry counter and try again (up to 3 attempts). The picture-LOAD path is
  * mode 0: open + callback + close. */
+static int gbs_game_art(const char *name, const char *design_path);
 static short l17e2(short kind, const char *name, short mode, void *cbp)
     __attribute__((unused));
 static short l17e2(short kind, const char *name, short mode, void *cbp)
@@ -85900,6 +85901,8 @@ static short l17e2(short kind, const char *name, short mode, void *cbp)
 				jt431(dspec, dsn);
 				jt431(dspec, name);
 				refnum = jt398(dspec, (short)(mode == 3 ? 0 : mode));
+				if (refnum < 0 && gbs_game_art(name, dspec))
+					refnum = jt398(dspec, (short)(mode == 3 ? 0 : mode));
 				if (refnum >= 0)
 					jt384(spec, dspec);
 			}
@@ -107499,6 +107502,61 @@ static short gbs_read_game(const char *name, void *buf, short max)
 			return n;
 	}
 	return -1;
+}
+
+/* A Gold Box game's own picture libraries, for a design holding the game's
+ * DQK.EXE (l17e2, on a miss in the design folder). The game keeps them as DOS
+ * art in DISK1..DISK3; the first open converts NAME.TLB from there into
+ * `design_path` (the design folder's NAME.CTL, the spelling l17e2 probes), as
+ * jt398 converts a design's own .TLB, so the design needs no converted copies.
+ * The result goes into the design folder, never beside the game's file. Only
+ * the libraries a script's pictures come from (gbgeo.PICTURE_LIBS): FRUA's
+ * screen is built from its own FRAME, wall and combat pieces, which the
+ * game's would replace. Returns 1 when `design_path` now exists. */
+static int gbs_game_art(const char *name, const char *design_path)
+{
+	static const char *const lib[] = {
+		"PICA", "PICB", "PICC", "BIGPIC", "SPRIT", "CPIC"
+	};
+	static const char *const sub[] = { "DISK1\\", "DISK2\\", "DISK3\\" };
+	char  base[8], file[24], in[210];
+	short k, refnum;
+
+	if (!ua_ext_is(name, "ctl"))
+		return 0;                       /* mono asks for .tlb: not here */
+	for (k = 0; name[k] != '.' && k < (short)sizeof base - 1; k++)
+		base[k] = (char)((name[k] >= 'a' && name[k] <= 'z')
+		                 ? name[k] - 32 : name[k]);
+	if (name[k] != '.')
+		return 0;
+	base[k] = 0;
+	for (k = 0; k < (short)(sizeof lib / sizeof lib[0]); k++)
+		if (strcmp(base, lib[k]) == 0)
+			break;
+	if (k == (short)(sizeof lib / sizeof lib[0]))
+		return 0;
+
+	in[0] = 0;
+	jt431(in, &g_a5_31336);
+	jt431(in, "DQK.EXE");
+	refnum = jt398(in, 0);
+	if (refnum < 0)
+		return 0;                       /* not the Dark Queen's folder */
+	jt411(refnum);
+
+	for (k = 0; k < 3; k++) {
+		strcpy(file, sub[k]);           /* not jt431, which joins with ':' */
+		strcat(file, base);
+		strcat(file, ".TLB");
+		in[0] = 0;
+		jt431(in, &g_a5_31336);
+		jt431(in, file);
+		if (ua_dos_art_convert_file(in, design_path)) {
+			dbg_file_str("gbs: the game's pictures converted: ", in);
+			return 1;
+		}
+	}
+	return 0;
 }
 
 /* Draw what is in the text buffer in the play screen's message box — the
