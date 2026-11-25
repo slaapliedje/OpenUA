@@ -44,7 +44,7 @@ int main(int argc, char **argv)
 		}
 		for (i = 0; i < s.members; i++)
 			rec[i] = q + s.at[i];
-		w = gbv_write(q, s.x, s.y, s.facing, s.desc, rec, s.len, s.members,
+		w = gbv_write(q, s.x, s.y, s.facing, s.desc, s.backdrop, rec, s.len, s.members,
 		              argc > 3 ? b : NULL, blen, out, (long)sizeof out);
 		if (w < 0) {
 			printf("ERR %ld\n", w);
@@ -63,7 +63,7 @@ int main(int argc, char **argv)
 		printf("ERR %d\n", rc);
 		return 0;
 	}
-	printf("%u %u %u %u %u %u\n", s.map, s.script, s.x, s.y, s.facing, s.desc);
+	printf("%u %u %u %u %u %u %u\n", s.map, s.script, s.x, s.y, s.facing, s.desc, s.backdrop);
 	for (i = 0; i < s.members; i++) {
 		for (k = 0; k < s.len[i]; k++)
 			printf("%02x", q[s.at[i] + k]);

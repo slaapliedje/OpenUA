@@ -52,7 +52,7 @@ def c_read(cbin, path):
 
 def py_read(data):
     s = gbsave.GbSave(data)
-    return (s.map, s.script, s.x, s.y, s.facing, s.desc), s.members
+    return (s.map, s.script, s.x, s.y, s.facing, s.desc, s.backdrop), s.members
 
 
 def record(rnd, items, nodes, name=b"HERO"):
@@ -102,10 +102,11 @@ def test_header_fields(cbin, tmp_path):
     data = bytearray(save(rnd, [record(rnd, 2, 1)], cells))
     data[gbsave.X], data[gbsave.Y] = 21, 3          # not on the diagonal
     data[gbsave.FACING], data[gbsave.DESC] = 6, 171
+    data[gbsave.BACKDROP:gbsave.BACKDROP + 2] = b"\x04\x00"
     p = tmp_path / "h.qsv"
     p.write_bytes(bytes(data))
     head, members = c_read(cbin, p)
-    assert head == (47, 46, 21, 3, 3, 171)
+    assert head == (47, 46, 21, 3, 3, 171, 4)
     assert py_read(bytes(data))[0] == head
     assert len(members) == 1 and members[0][0x68:0x6a] == b"HE"
 
@@ -245,7 +246,8 @@ def test_synthetic_writes_match_reference(cbin, tmp_path):
         s = gbsave.GbSave(p.read_bytes())
         for base in (None, p, saves[(saves.index(p) + 3) % len(saves)]):
             want = gbsave.write_qsv(s.cells, s.x, s.y, s.facing, s.desc,
-                                    s.members, base.read_bytes() if base else None)
+                                    s.members, base.read_bytes() if base else None,
+                                    s.backdrop)
             assert len(want) == gbsave.SIZE
             assert c_write(cbin, p, base) == want, (p, base)
 
@@ -259,9 +261,24 @@ def test_real_saves_write_back_byte_for_byte(cbin):
         data = open(path, "rb").read()
         s = gbsave.GbSave(data)
         assert gbsave.write_qsv(s.cells, s.x, s.y, s.facing, s.desc,
-                                s.members, data) == data, path
+                                s.members, data, s.backdrop) == data, path
         assert c_write(cbin, path, path) == data, path
         other = REAL[(REAL.index(path) + 1) % len(REAL)]
         assert c_write(cbin, path, other) == gbsave.write_qsv(
             s.cells, s.x, s.y, s.facing, s.desc, s.members,
-            open(other, "rb").read()), (path, other)
+            open(other, "rb").read(), s.backdrop), (path, other)
+
+
+@pytest.mark.skipif(not REAL, reason="no Dark Queen saves on this machine")
+def test_backdrop_is_the_areas_art_set():
+    """1033 holds LOAD_FILES' second operand for the area saved in: 4 on
+    Caergoth (map 4: LOAD_FILES 4,4), 2 in the Draconian Caves (map 10:
+    LOAD_FILES 10,2), 0 in a new game's save."""
+    by_map = {}
+    for path in REAL:
+        s = gbsave.GbSave(open(path, "rb").read())
+        by_map.setdefault(s.map, set()).add(s.backdrop)
+    want = {4: {4}, 10: {2}, 0: {0}}
+    for m, v in by_map.items():
+        if m in want:
+            assert v == want[m], (m, v)

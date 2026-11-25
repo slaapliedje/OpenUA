@@ -11,6 +11,7 @@
 #define OFF_Y      1025
 #define OFF_FACING 1026
 #define OFF_DESC   1028
+#define OFF_BACK   1033
 #define OFF_COUNT  1037
 #define OFF_PARTY  1039
 
@@ -61,6 +62,7 @@ int gbv_read(const unsigned char *q, long len, gbv_save *s)
 	s->y      = q[OFF_Y];
 	s->facing = (unsigned char)(q[OFF_FACING] >> 1 & 3);
 	s->desc   = q[OFF_DESC];
+	s->backdrop = (unsigned short)(q[OFF_BACK] | q[OFF_BACK + 1] << 8);
 	s->map    = q[GBV_CELL_MAP - 1];
 	s->script = q[GBV_CELL_SCRIPT - 1];
 	count = q[OFF_COUNT] | (unsigned)q[OFF_COUNT + 1] << 8;
@@ -80,7 +82,7 @@ int gbv_read(const unsigned char *q, long len, gbv_save *s)
 }
 
 long gbv_write(const unsigned char *cells, unsigned char x, unsigned char y,
-               unsigned char facing, unsigned char desc,
+               unsigned char facing, unsigned char desc, unsigned short backdrop,
                const unsigned char *const *rec, const long *rlen, unsigned n,
                const unsigned char *base, long blen,
                unsigned char *out, long max)
@@ -107,6 +109,10 @@ long gbv_write(const unsigned char *cells, unsigned char x, unsigned char y,
 	out[OFF_Y] = y;
 	out[OFF_FACING] = (unsigned char)((facing & 3) << 1);
 	out[OFF_DESC] = desc;
+	if (backdrop != 0) {
+		out[OFF_BACK] = (unsigned char)backdrop;
+		out[OFF_BACK + 1] = (unsigned char)(backdrop >> 8);
+	}
 	out[OFF_COUNT] = (unsigned char)n;
 	out[OFF_COUNT + 1] = 0;
 	for (i = 0; i < n; i++) {

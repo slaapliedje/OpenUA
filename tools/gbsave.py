@@ -36,6 +36,12 @@ A save is always 7965 bytes:
     1026           its facing, 0=N 2=E 4=S 6=W
     1027           (not identified)
     1028           the descriptor byte of the square it stands on
+    1029..1032     (not identified)
+    1033           u16, the area's art set: LOAD_FILES' second operand, which
+                   the game keeps at DS:0xca03 (Caergoth 4, the Draconian
+                   Caves 2, a new game 0). A save with 0 there does not load
+                   ("DISK READ ERROR" and a black view in DOSBox); 1031
+                   changed alone does not matter
     1037           u16, the number of party records (an NPC counts)
     1039           the records, back to back
 
@@ -69,6 +75,7 @@ import sys
 SIZE = 7965
 CELLS = 1024
 X, Y, FACING, DESC = 1024, 1025, 1026, 1028
+BACKDROP = 1033
 COUNT = 1037
 PARTY = 1039
 MEMBERS = 8         # six heroes and two companions
@@ -153,6 +160,7 @@ class GbSave:
         self.x, self.y = data[X], data[Y]
         self.facing = data[FACING] >> 1 & 3
         self.desc = data[DESC]
+        self.backdrop = struct.unpack_from("<H", data, BACKDROP)[0]
         count = struct.unpack_from("<H", data, COUNT)[0]
         if count > MEMBERS:
             raise GbSaveError("%d party records" % count)
@@ -187,7 +195,7 @@ class GbSave:
         return c["hours"], c["tens"] * 10 + c["minutes"]
 
 
-def write_qsv(cells, x, y, facing, desc, members, base=None):
+def write_qsv(cells, x, y, facing, desc, members, base=None, backdrop=0):
     """A save the game loads (ADR-0026 decision 4): the 1024 script cells
     (cell n at n-1), the square, facing 0..3, the square's descriptor, and
     the party records as .QCH bytes (tools/gbchar.py to_qch). What is not
@@ -207,6 +215,8 @@ def write_qsv(cells, x, y, facing, desc, members, base=None):
     head[X], head[Y] = x, y
     head[FACING] = (facing & 3) << 1
     head[DESC] = desc
+    if backdrop:
+        struct.pack_into("<H", head, BACKDROP, backdrop)
     struct.pack_into("<H", head, COUNT, len(members))
     tail = b[PARTY:]
     if base:
