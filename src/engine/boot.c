@@ -108152,6 +108152,15 @@ static void gbs_menu(ecl_vm *vm, const ecl_insn *ins, int first, int n,
 		ecl_var_set(vm, dest, 0);
 		return;
 	}
+	if (shown == 1 && n == 1) {
+		/* One button ("PRESS BUTTON OR RETURN TO CONTINUE." in Champions):
+		 * FRUA's own continue prompt, which takes Return, as the game's
+		 * does; a bar of FRUA's takes no Return (jt138) */
+		gbs_draw(1);
+		ecl_var_set(vm, dest, 0);
+		g_gbs_shown = 1;
+		return;
+	}
 	gbs_draw(0);                    /* the question stays up above the bar */
 	jt179((short)(shown - 1));
 	pick = jt182("", (long)(uintptr_t)bar, 0, g_a5_22281);
@@ -109368,7 +109377,10 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 		gbs_picture((short)ecl_rvalue(vm, &ins->arg[0]));
 		return ECL_HOST_OK;
 	case ECL_OP_LOAD_FILES:         /* operand 0 is the map; honoured after the run */
-		if (ins->argc > 0)
+		/* Champions and Death Knights write 127 for "keep the one loaded"
+		 * (LOAD_FILES 127,127,127; 32,127,255) */
+		if (ins->argc > 0 && !(g_gbs_dialect != ECL_GEN2
+		                       && ecl_rvalue(vm, &ins->arg[0]) == 127))
 			g_gbs_want_map = (unsigned char)ecl_rvalue(vm, &ins->arg[0]);
 		/* operand 1, the Dark Queen's combat backdrop (255: keep it) */
 		if (ins->argc > 1 && g_gbs_dialect == ECL_GEN2) {
@@ -110591,11 +110603,13 @@ static void gbs_new_game(void)
 }
 
 #define GBS_DQK_NEW_GAME_SCRIPT 4u      /* DQK.EXE 0x32e3a */
-/* Champions' and Death Knights' new game: script 16 (Death Knights' "A
- * YEAR HAS PASSED...", NEWECL 36 to the first area; Champions' journey
- * to the outpost, NEWECL 17); script 2 is Death Knights' demo. Read off
- * the scripts, not yet off START.EXE. */
-#define GBS_DAX_NEW_GAME_SCRIPT 16u
+/* Champions' and Death Knights' new game: Death Knights' script 16 ("A
+ * YEAR HAS PASSED...", NEWECL 36 to the first area; script 2 is its
+ * demo), Champions' 36 ("AT THE INN OF THE LAST HOME IN SOLACE...", which
+ * sets cell 0x4bf2 to 36 and goes on to 16, the overland travel script,
+ * whose journey to the outpost needs that). Read off the scripts, not
+ * yet off START.EXE. */
+#define GBS_DAX_NEW_GAME_SCRIPT (gbs_dax_dialect() == ECL_GEN1_DOK ? 16u : 36u)
 static int gbs_dax_game(void);
 
 /* Is area slot `geo_num` a script area? Called from jt198 once the map is in. */
