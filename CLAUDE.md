@@ -415,9 +415,13 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   game record h[] is the same Gold Box block, as the clock showed):
   0x20 party size, companions counted (= h[32]; 58 party loops use it),
   0x19 searching (h[25] bits 0/1), 0x13 the map, 0x0d the selected
-  member's place: all served by `gbs_var`. Still NOT served: 0x21 (the
-  last step hit the map edge, DQK 0x43a86; block 66 only) and 0x15 (a
-  count of members, DQK 0x4b4d0; block 64 only). Look in a script area
+  member's place, 0x15 the monsters fallen in the last fight (= h[21]:
+  DQK's sweep 0x4b4d0 IS FRUA's l4046): all served by `gbs_var`. 0x21
+  is set when a step is held at the map's edge: FRUA's maps are toroidal
+  (l5368), DQK's walk (0x43a6a) clamps, so in a Dark Queen area
+  `gbs_holds_edge` keeps the party there and the step's scripts still
+  run (script 66 leaves its area that way); Champions and Death Knights
+  still wrap, their walks unread. Look in a script area
   runs searchLocation (`gbs_look`). LOAD_FILES' second operand is the
   combat backdrop (DQK 0xca03 -> DungCom<n>/WildCom<n>, 1..6); the port
   ignores it and fights on FRUA's backdrop 1 (hdr[12]): the game's own
