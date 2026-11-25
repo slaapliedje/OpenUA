@@ -377,8 +377,31 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   script's ECL file. A PIC
   frame after the first is XORed with the first; a sprite masks colour 0
   and draws 13 as black (COAB's ovr030.cs load_pic_final). LOAD_FILES 127
-  keeps the loaded map. Monsters, items, rules, CHRDATA characters, party
-  placement and saves are not read yet. Scripts and maps
+  keeps the loaded map. Their monsters are their own (`gbs_dax_monster`,
+  `src/engine/gbdaxmon.c`, reference `tools/gbdaxmon.py`, whose
+  docstring has the map): a monster is a character, block n of
+  MON<file>CHA.DAX (the running script's file in Champions, MON1 in
+  Death Knights), carried Champions -> Death Knights -> Dark Queen by
+  the games' OWN import code (Death Knights' GAME.OVR 0x12cb4, DQK.EXE
+  0x33ec5) and then to FRUA's by gbm_convert; effects (SPC), items (ITM)
+  and a caster's memorized spells (WIZ, or Champions' 0x1e) go with it.
+  A number rides ONE UP into FRUA's fight (Death Knights has a monster 0,
+  FRUA's 0 is "no group"). Items are the Dark Queen's 17-byte entries
+  (DQK 0x3497b's reordering and its word, spell and effect tables):
+  Death Knights' table is ITEM0.DAX (entry k item k + 1, as its
+  treasure shows), then every distinct item record of ITEM1..9.DAX and
+  MON1..9ITM.DAX, which is all of Champions' (`gbs_dax_items`). Their
+  item words come from START.EXE (EXEPACK). Champions' TREASURE is the
+  long frame: silver, copper, bronze, platinum, steel, gems, jewelry,
+  then a block of ITEM<file>.DAX (`gbs_treasure_gen1`); steel is FRUA's
+  coin, the other four coins and random items (128 + n) are not done.
+  The monster-kind bytes (FRUA 0xbf/0xc0, undead and the like) are
+  copied as the Dark Queen's import copies them, but the games encode
+  them differently and only bits 0x08 and 0x02 agree; four Champions
+  quest items (Vial, Spike, Chime, Flask of Oil) are named by their
+  stored text there, which a FRUA item cannot hold, so they show their
+  words (Diamond, Emerald, Sapphire, Ruby). Rules, CHRDATA characters,
+  party placement and saves are not read yet. Scripts and maps
   are numbered separately in these games — Dark Queen has 47 scripts over 20
   maps.
 - **`tools/ecl.py`** disassembles the scripts (Champions, Death Knights, Dark

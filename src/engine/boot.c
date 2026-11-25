@@ -68,6 +68,7 @@
 #include "gbmaps.h"           /* ADR-0026: its maps                        */
 #include "gbdax.h"            /* ADR-0026: Champions' and Death Knights' .DAX */
 #include "gbdaxart.h"         /* ADR-0026: ... and their pictures         */
+#include "gbdaxmon.h"         /* ADR-0026: ... their monsters and items   */
 #include "gbsave.h"           /* ADR-0026: its saved games                 */
 #include "gbcells.h"          /* ADR-0026: its character cells             */
 
@@ -107727,8 +107728,8 @@ static short gbs_read_game(const char *name, void *buf, short max)
  * screen is built from its own FRAME, wall and combat pieces, which the
  * game's would replace. Returns 1 when `design_path` now exists. */
 #define GBS_DAX_PICS 256
-static unsigned char g_gbs_daxbuf[65536];
 #define GBS_DAX_PIC_LETTER 'G'  /* PICn.DAX is PIC<G+n-1>; FRUA has PICA..F */
+static unsigned char g_gbs_daxbuf[65536];
 static short gbs_open_game(const char *name);
 static int   gbs_dax_game(void);
 
@@ -108748,6 +108749,56 @@ static void gbs_treasure(ecl_vm *vm, const ecl_insn *ins)
 	}
 }
 
+/* Champions' TREASURE, the long frame (COAB's CMD_Treasure; Greybox's
+ * "coins7Item"): seven amounts, then an item block. The amounts are the
+ * game's coins in START.EXE's order: silver, copper, bronze, platinum,
+ * steel, gems and jewelry. Steel is FRUA's one coin, as the Dark Queen's
+ * is (gbs_treasure), and gems and jewelry are FRUA's; no exchange for the
+ * other four has been read, so they are logged and left out. An item
+ * operand under 128 is a block of ITEM<n>.DAX, the running script's file
+ * (every block a Champions script names is in its own file): its 63-byte
+ * records are staged, each by its number in gbs_dax_items. 128 + n asks
+ * for n random items (not done), 255 for none. */
+static long        gbs_dax_file_block(const char *name, int id, unsigned char *out,
+                                      long max);                 /* below */
+static int         gbs_dax_items(const unsigned char **table);    /* below */
+static const char *gbs_dax_word(short idx);                       /* below */
+
+static void gbs_treasure_gen1(ecl_vm *vm, const ecl_insn *ins)
+{
+	static unsigned char blk[4096];
+	const unsigned char *table;
+	unsigned char        q[GBX_ITEM];
+	char                 name[16];
+	long                 amount[7], bl, r;
+	int                  k, which, nt, num;
+
+	for (k = 0; k < 7; k++)
+		amount[k] = (long)ecl_rvalue(vm, &ins->arg[k]);
+	g_a5_long(-25314) += amount[4];
+	g_a5_long(-25310) += amount[5];
+	g_a5_long(-25306) += amount[6];
+	for (k = 0; k < 4; k++)
+		if (amount[k] != 0)
+			dbg_file_num("gbs: TREASURE coins left out, slot", (long)k);
+	which = (int)ecl_rvalue(vm, &ins->arg[7]);
+	if (which == 255)
+		return;
+	if (which >= 128) {
+		dbg_file_num("gbs: TREASURE asked for random items (not done)", (long)(which - 128));
+		return;
+	}
+	jt394(name, "ITEM%d.DAX", g_gbs_ecl_file > 0 ? g_gbs_ecl_file : 1);
+	bl = gbs_dax_file_block(name, which, blk, (long)sizeof blk);
+	nt = gbs_dax_items(&table);
+	for (r = 0; r + GBX_ITEM_REC <= bl; r += GBX_ITEM_REC) {
+		gbx_item17(blk + r + GBX_ITEM_TAIL, q);
+		num = gbx_table_find(table, nt, q);
+		if (num >= 1 && num <= 254)
+			jt187((short)num, 0);
+	}
+}
+
 /* Is anything waiting in the treasure pile? */
 static int gbs_treasure_pending(void)
 {
@@ -109339,6 +109390,8 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 			return ECL_HOST_OK;
 		}
 		g_gbs_mon[g_gbs_nmon][0] = (unsigned char)ecl_rvalue(vm, &ins->arg[0]);
+		if (g_gbs_dax)          /* one up: Death Knights has a monster 0 */
+			g_gbs_mon[g_gbs_nmon][0]++;     /* (gbs_dax_monster) */
 		g_gbs_mon[g_gbs_nmon][1] = (unsigned char)ecl_rvalue(vm, &ins->arg[1]);
 		if (g_gbs_mon[g_gbs_nmon][1] == 0)
 			g_gbs_mon[g_gbs_nmon][1] = 1;
@@ -109373,8 +109426,14 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 		default:
 			return ECL_HOST_UNHANDLED;
 		}
-	case 0x27:                      /* TREASURE: the short dialects' frame only */
-		if (g_gbs_dialect == ECL_GEN1 || ins->argc < 4)
+	case 0x27:                      /* TREASURE */
+		if (g_gbs_dialect == ECL_GEN1) {        /* Champions' long frame */
+			if (ins->argc < 8)
+				return ECL_HOST_UNHANDLED;
+			gbs_treasure_gen1(vm, ins);
+			return ECL_HOST_OK;
+		}
+		if (ins->argc < 4)
 			return ECL_HOST_UNHANDLED;
 		gbs_treasure(vm, ins);
 		return ECL_HOST_OK;
@@ -109633,10 +109692,15 @@ static void gbs_items(int want)
 		return;
 	{
 		static unsigned char raw[GBI_ITEMS * GBI_ITEM_IN];
+		const unsigned char *dax;
 		short                n = gbs_read_game("ITEM.DAT", raw, (short)sizeof raw);
+		int                  nd;
 
 		if (n >= 0 && gbi_item_table(raw, n, base + 18) >= 0)
 			dbg_log("gbs: the game's own ITEM.DAT");
+		else if (gbs_dax_game() && (nd = gbs_dax_items(&dax)) > 0
+		         && gbi_item_table(dax, (long)nd * GBX_ITEM, base + 18) >= 0)
+			dbg_log("gbs: the game's own items (.DAX)");
 		else if (gbs_read("GBITEM.DAT", base + 18, (short)4572) != 4572) {
 			l5304();                /* none, or short: FRUA's, whole */
 			return;
@@ -109676,6 +109740,12 @@ static const char *gbs_word(short idx)
 		if (idx < GBI_FIRST_WORD || idx >= GBI_FIRST_WORD + g_gbs_dqk_items->words)
 			return NULL;
 		return g_gbs_dqk_items->word[idx - GBI_FIRST_WORD];
+	}
+	{
+		const char *w = gbs_dax_word(idx);      /* Champions, Death Knights */
+
+		if (w != NULL)
+			return w;
 	}
 	if (strcmp(dir, have) != 0) {
 		for (k = 0; k < (short)sizeof have - 1 && dir[k] != 0; k++)
@@ -109844,6 +109914,196 @@ static unsigned char gbs_dax_dialect(void)
 		return ECL_GEN1;
 	jt411(refnum);
 	return ECL_GEN1_DOK;
+}
+
+/* One .DAX archive of the game, whole, into g_gbs_daxbuf: its length, or
+ * -1 when the game has no such file (or it is too big to hold). */
+static long gbs_dax_load(const char *name)
+{
+	short refnum = gbs_open_game(name), n;
+	long  len = 0, got = 0;
+
+	if (refnum < 0)
+		return -1;
+	if (GetEOF(refnum, &len) != noErr || len > (long)sizeof g_gbs_daxbuf) {
+		jt411(refnum);
+		return -1;
+	}
+	while (got < len) {
+		n = jt401(refnum, g_gbs_daxbuf + got,
+		          (short)(len - got > 16384 ? 16384 : len - got));
+		if (n <= 0)
+			break;
+		got += n;
+	}
+	jt411(refnum);
+	return got;
+}
+
+/* Block `id` of the archive `name` into `out`: its size, or -1. */
+static long gbs_dax_file_block(const char *name, int id, unsigned char *out, long max)
+{
+	long got = gbs_dax_load(name), n;
+
+	if (got < 0)
+		return -1;
+	n = gbdax_block(g_gbs_daxbuf, got, id, out, max);
+	return n < 0 ? -1 : n;
+}
+
+/* CHAMPIONS' AND DEATH KNIGHTS' ITEMS (gbdaxmon.c, reference
+ * tools/gbdaxmon.py item_table): the game's item table as the Dark
+ * Queen's 17-byte entries, entry k item k + 1. Death Knights' ITEM0.DAX
+ * comes first as it is (its scripts' numbers); then every distinct item
+ * of ITEM1..9.DAX and MON1..9ITM.DAX, in archive and block order, which
+ * is all of Champions' table. Built once per design folder; the count. */
+static int gbs_dax_items(const unsigned char **table)
+{
+	static unsigned char t[GBX_ITEMS * GBX_ITEM], blk[8192];
+	static char          have[202];
+	static int           n = -1;
+	const char          *dir = (const char *)&g_a5_31336;
+	unsigned char        ids[256], q[GBX_ITEM];
+	int                  pass, f, c, i;
+	long                 got, bl, r;
+	short                k;
+
+	*table = t;
+	if (n >= 0 && strcmp(dir, have) == 0)
+		return n;
+	for (k = 0; k < (short)sizeof have - 1 && dir[k] != 0; k++)
+		have[k] = dir[k];
+	have[k] = 0;
+	n = 0;
+	got = gbs_dax_load("ITEM0.DAX");
+	if (got > 0 && gbdax_ids(g_gbs_daxbuf, got, ids, 256) > 0
+	 && (bl = gbdax_block(g_gbs_daxbuf, got, ids[0], blk, (long)sizeof blk)) > 0)
+		for (r = 0; r + GBX_ITEM <= bl; r += GBX_ITEM) {
+			gbx_item17(blk + r, q);
+			n = gbx_table_put(t, n, q);
+		}
+	for (pass = 0; pass < 2; pass++)
+		for (f = 1; f <= 9; f++) {
+			char name[16];
+
+			jt394(name, pass ? "MON%dITM.DAX" : "ITEM%d.DAX", f);
+			got = gbs_dax_load(name);
+			if (got <= 0)
+				continue;
+			c = gbdax_ids(g_gbs_daxbuf, got, ids, 256);
+			for (i = 0; i < c && i < 256; i++) {
+				bl = gbdax_block(g_gbs_daxbuf, got, ids[i], blk, (long)sizeof blk);
+				for (r = 0; r + GBX_ITEM_REC <= bl; r += GBX_ITEM_REC) {
+					gbx_item17(blk + r + GBX_ITEM_TAIL, q);
+					n = gbx_table_add(t, n, q);
+				}
+			}
+		}
+	dbg_file_num("gbs: the game's items, entries", (long)n);
+	return n;
+}
+
+/* Their item words (gbs_word): the twenty of the game's own (START.EXE,
+ * unpacked from EXEPACK) that the Dark Queen moves past FRUA's 126, under
+ * the Dark Queen's numbers (gbx_word_source). Read once per design
+ * folder; NULL for a number none moves to, or a design that is neither. */
+static const char *gbs_dax_word(short idx)
+{
+	static char have[202], ok;
+	static char words[GBX_WORDS + 1][GBX_WORD_MAX];
+	const char *dir = (const char *)&g_a5_31336;
+	short       k;
+	int         src;
+
+	if (strcmp(dir, have) != 0) {
+		short          refnum;
+		long           len = 0, got = 0, m;
+		unsigned char *exe = NULL, *img = NULL;
+
+		for (k = 0; k < (short)sizeof have - 1 && dir[k] != 0; k++)
+			have[k] = dir[k];
+		have[k] = 0;
+		ok = 0;
+		refnum = gbs_dax_game() ? gbs_open_game("START.EXE") : -1;
+		if (refnum >= 0) {
+			if (GetEOF(refnum, &len) == noErr && len > 0 && len < 262144L
+			 && (exe = (unsigned char *)NewPtr(len)) != NULL
+			 && (img = (unsigned char *)NewPtr(262144L)) != NULL) {
+				while (got < len) {
+					short n = jt401(refnum, exe + got,
+					                (short)(len - got > 16384 ? 16384 : len - got));
+					if (n <= 0)
+						break;
+					got += n;
+				}
+				m = gbx_unexepack(exe, got, img, 262144L);
+				ok = m > 0 && gbx_game_words(img, m, words) == 0;
+			}
+			jt411(refnum);
+			if (exe != NULL)
+				DisposePtr((Ptr)exe);
+			if (img != NULL)
+				DisposePtr((Ptr)img);
+			dbg_file_num("gbs: the game's item words read", (long)ok);
+		}
+	}
+	if (!ok || (src = gbx_word_source(idx)) == 0)
+		return NULL;
+	return words[src];
+}
+
+/* A monster of Champions or Death Knights (gbs_monster): block num - 1 of
+ * MON<n>CHA.DAX, the running script's file in Champions (every monster a
+ * script loads is in its own file, as its pictures are), MON1 in Death
+ * Knights. The number rides one up because FRUA's fight takes 0 for "no
+ * group" and Death Knights has a monster 0 (LOAD_MONSTER adds the one).
+ * A Champions character goes to Death Knights' form, that to the Dark
+ * Queen's with its spells, effects and items (gbdaxmon.c), and that to
+ * FRUA's (gbm_convert), its items numbered in gbs_dax_items. */
+static int gbs_dax_monster(short num, void *buffer, short *out)
+{
+	static unsigned char cha[512], wiz[256], spc[1024], itm[4096];
+	static unsigned char k[GBX_DKK], q[GBX_DQK], mem[GBX_MEM], m[GBM_MAX];
+	const unsigned char *table;
+	char                 name[16];
+	int                  f = g_gbs_dax_perfile && g_gbs_ecl_file > 0 ? g_gbs_ecl_file : 1;
+	int                  id = (int)(unsigned char)num - 1, has = 0, nt;
+	long                 cn, wn, sn, in, n;
+
+	if (id < 0)
+		return 0;
+	jt394(name, "MON%dCHA.DAX", f);
+	cn = gbs_dax_file_block(name, id, cha, (long)sizeof cha);
+	if (cn >= GBX_COK) {
+		has = gbx_cok_to_dkk(cha, cn, k, mem);
+	} else if (cn >= GBX_DKK) {
+		memcpy(k, cha, GBX_DKK);
+		jt394(name, "MON%dWIZ.DAX", f);
+		wn = gbs_dax_file_block(name, id, wiz, (long)sizeof wiz);
+		if (wn >= GBX_MEM) {
+			memcpy(mem, wiz, GBX_MEM);
+			has = 1;
+		}
+	} else {
+		dbg_file_num("gbs: monster not in MONnCHA.DAX", (long)id);
+		return 0;
+	}
+	if (has < 0 || gbx_dkk_to_dqk(k, GBX_DKK, q) != 0)
+		return 0;
+	jt394(name, "MON%dSPC.DAX", f);
+	sn = gbs_dax_file_block(name, id, spc, (long)sizeof spc);
+	jt394(name, "MON%dITM.DAX", f);
+	in = gbs_dax_file_block(name, id, itm, (long)sizeof itm);
+	n = gbx_member(q, has ? mem : NULL, spc, sn > 0 ? sn : 0, itm, in > 0 ? in : 0,
+	               m, (long)sizeof m);
+	nt = gbs_dax_items(&table);
+	if (n < 0 || gbm_convert(m, n, nt > 0 ? table : NULL, (long)nt * GBX_ITEM,
+	                         g_gbs_rules != NULL, (unsigned char *)buffer) != 0)
+		return 0;
+	if (out != NULL)
+		*out = GBM_SIZE;
+	dbg_file_num("gbs: monster from MONnCHA.DAX", (long)id);
+	return 1;
 }
 
 /* A map of a .DAX game, area slot 5 + i being its i-th map. */
@@ -110020,12 +110280,12 @@ static int gbs_monster(short num, void *buffer, short *out)
 		absent = 0;
 		nitems = -1;
 	}
-	if (absent)
-		return 0;
+	if (absent)                     /* 2: Champions or Death Knights */
+		return absent == 2 && gbs_dax_monster(num, buffer, out);
 	refnum = gbs_open_game("MONCHA.GLB");
 	if (refnum < 0) {
-		absent = 1;
-		return 0;
+		absent = gbs_dax_game() ? 2 : 1;
+		return absent == 2 && gbs_dax_monster(num, buffer, out);
 	}
 	n = gbm_member(gbs_exe_read, &refnum, (int)(unsigned char)num, q, (long)sizeof q);
 	jt411(refnum);
