@@ -365,9 +365,17 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   value in Death Knights, then the 1024 plane bytes, `gbg_from_block`),
   scripts from ECL1..9.DAX by number (Death Knights' dialect when DKK.CFG
   is there), the header from `gbs_game_header`, and the start area runs
-  script 16. Their pictures are .DAX art nothing converts yet, so PICTURE
-  and sprites are skipped (`g_gbs_dax`); monsters, items, rules, CHRDATA
-  characters, party placement and saves are not read yet. Scripts and maps
+  script 16 in Death Knights, 36 in Champions (the inn at Solace; it sets
+  cell 0x4bf2 that 16 needs). Their pictures and sprites are built into
+  the design folder on first open (`gbs_dax_art`: PICA/BIGPIC/SPRIT.ctl
+  from PIC/BIGPIC/SPRIT1..9.DAX, `src/engine/gbdaxart.c`, reference
+  `tools/gbdaxart.py`); a big picture n is FRUA's n + 128. Champions
+  numbers its pictures again in each PIC file, so there PICn.DAX is
+  library PIC<A+n-1>, chosen by the running script's ECL file. A PIC
+  frame after the first is XORed with the first; a sprite masks colour 0
+  and draws 13 as black (COAB's ovr030.cs load_pic_final). LOAD_FILES 127
+  keeps the loaded map. Monsters, items, rules, CHRDATA characters, party
+  placement and saves are not read yet. Scripts and maps
   are numbered separately in these games — Dark Queen has 47 scripts over 20
   maps.
 - **`tools/ecl.py`** disassembles the scripts (Champions, Death Knights, Dark

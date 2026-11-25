@@ -138,13 +138,22 @@ leading/extra byte), so: `width = 16`, `height = (raw_size-8) // 8`. Rendered
 output is coherent dungeon wall / door art, so the 16-px-wide layout is correct;
 the exact meaning of the `+1` byte and the per-tile grouping is **assumed**.
 
-### 4c. Complex / transparent frames — UNSOLVED
-Most `PIC*.DAX` and `SPRIT*.DAX` blocks (and some `WALLDEF*`) use a different,
-richer header: word1 (`width_div8`) is **0** and extra header words are non-zero
-(e.g. SPRIT1 `{3,0,0x5000,0x0700,…}`, PIC1 `{n,0,0x5800,0x0b00,…}` where
-`0x58 = 88`). These are a transparency / multi-sub-frame variant analogous to UA
-"drawing method 23" (`DRAW23.TXT`). The decoder **detects and skips** these rather
-than guessing. Decoding them is the main remaining work item.
+### 4c. Multi-frame pictures and sprites — SOLVED
+Every `PIC*.DAX` and `SPRIT*.DAX` block is a frame count, then per frame a
+u32 delay followed by the standard 17-byte frame header of 4a and its 4-bit
+pixels; the earlier reading began 5 bytes early, which is why word1 looked
+like 0. That accounts for every PIC and SPRIT block of both games to the
+byte. As the games load them (the Curse engine's `load_pic_final`, COAB
+`engine/ovr030.cs`):
+
+- in a **PIC** block every frame after the first is stored XORed with the
+  first, all its bytes but the last;
+- a **SPRIT** block (three frames: the monster near, middle, far, placed by
+  x/y in 8-pixel units) is loaded masked: colour 0 is transparent and colour
+  13 is drawn as 0 (black outline and shadow).
+
+There is no method-23 encoding here. `tools/gbdaxart.py` (reference) and
+`src/engine/gbdaxart.c` write them as FRUA picture libraries.
 
 ---
 
@@ -191,9 +200,6 @@ this palette and the high-nibble-first nibble order.
 - The few trailing pad bytes after standard-frame pixel data.
 
 **UNSOLVED:**
-- The "complex" transparent frame variant used by most `PIC*`/`SPRIT*` blocks
-  (header with `width_div8 == 0` and extra words). Likely a method-23-style
-  transparent / sub-framed encoding; needs its own reversing pass.
 - Whether any block carries an explicit per-file palette override (none seen in
   CoK/DoK; expected, since these are fixed-palette EGA).
 
