@@ -67,6 +67,7 @@
 #include "gbmon.h"            /* ADR-0026: its monsters                    */
 #include "gbmaps.h"           /* ADR-0026: its maps                        */
 #include "gbdax.h"            /* ADR-0026: Champions' and Death Knights' .DAX */
+#include "gbdaxart.h"         /* ADR-0026: ... and their pictures         */
 #include "gbsave.h"           /* ADR-0026: its saved games                 */
 #include "gbcells.h"          /* ADR-0026: its character cells             */
 
@@ -107631,9 +107632,9 @@ static unsigned char  g_gbs_index[GBS_MAPS][2];
 static short          g_gbs_nindex = -1;            /* -1: not read yet        */
 static char           g_gbs_ready, g_gbs_active, g_gbs_init_pending;
 /* Champions' or Death Knights' own folder (gbs_dax_game): their pictures
- * are .DAX art, which nothing converts yet, so a script's PICTURE and its
- * monster sprites are left out rather than asking for a disk that holds
- * no such library */
+ * are built from .DAX (gbs_dax_art) and a big picture n is FRUA's n + 128;
+ * their monster sprites are not converted yet, so they are left out rather
+ * than asking for a disk that holds no such library */
 static char           g_gbs_dax;
 static char           g_gbs_switching;              /* our own jt198 in flight */
 static char           g_gbs_running;                /* inside gbs_run          */
@@ -107718,6 +107719,124 @@ static short gbs_read_game(const char *name, void *buf, short max)
  * the libraries a script's pictures come from (gbgeo.PICTURE_LIBS): FRUA's
  * screen is built from its own FRAME, wall and combat pieces, which the
  * game's would replace. Returns 1 when `design_path` now exists. */
+/* Champions' and Death Knights' pictures (PIC1..9.DAX, BIGPIC1..9.DAX) as
+ * the picture library `out` (PICA.CTL, BIGPIC.CTL in the design folder):
+ * gbdaxart.c, reference tools/gbdaxart.py library over archive_blocks. The
+ * pictures go in archive order, an id seen before left out, each id
+ * `shift` higher (the big pictures, 112.., are FRUA's 240..). Two passes,
+ * so no more than one archive and one picture are held at a time. Returns
+ * 1 when `out` was written. */
+#define GBS_DAX_PICS 256
+static short gbs_open_game(const char *name);
+static int   gbs_dax_game(void);
+
+static int gbs_dax_art(const char *kind, unsigned shift, const char *out)
+{
+	static unsigned      id[GBS_DAX_PICS];
+	static unsigned char fileof[GBS_DAX_PICS];
+	static long          size[GBS_DAX_PICS];
+	static unsigned char head[GBDA_HDR + 4 * (GBS_DAX_PICS + 2) + 2 + 4 * GBS_DAX_PICS];
+	unsigned char *blk = (unsigned char *)NewPtr(65536L);
+	unsigned char *pic = (unsigned char *)NewPtr(131072L);
+	unsigned char  pname[256];
+	unsigned       n = 0, k;
+	int            pass, f, ok = 0;
+	short          ref = -1;
+
+	if (blk == NULL || pic == NULL)
+		goto done;
+	for (pass = 0; pass < 2; pass++) {
+		if (pass == 1) {
+			long count, hl;
+
+			if (n == 0)
+				goto done;
+			hl = gbda_head(id, size, n, shift, head);
+			k = (unsigned)strlen(out);
+			pname[0] = (unsigned char)k;
+			memcpy(pname + 1, out, k);
+			(void)FSDelete((ConstStr255Param)pname, 0);
+			if (Create((ConstStr255Param)pname, 0, 'OpUA', 'GLIB') != noErr
+			 || FSOpen((ConstStr255Param)pname, 0, &ref) != noErr)
+				goto done;
+			count = hl;
+			(void)FSWrite(ref, &count, head);
+		}
+		for (f = 1; f <= 9; f++) {
+			char           name[16];
+			unsigned char  ids[256], *d;
+			short          refnum, r;
+			long           len = 0, got = 0;
+			int            c, i;
+
+			jt394(name, "%s%d.DAX", kind, f);
+			refnum = gbs_open_game(name);
+			if (refnum < 0)
+				continue;
+			if (GetEOF(refnum, &len) != noErr || len <= 0
+			 || (d = (unsigned char *)NewPtr(len)) == NULL) {
+				jt411(refnum);
+				continue;
+			}
+			while (got < len) {
+				r = jt401(refnum, d + got,
+				          (short)(len - got > 16384 ? 16384 : len - got));
+				if (r <= 0)
+					break;
+				got += r;
+			}
+			jt411(refnum);
+			c = gbdax_ids(d, got, ids, 256);
+			for (i = 0; i < c && i < 256; i++) {
+				long bl, pl;
+				unsigned j;
+
+				if (pass == 0) {
+					for (j = 0; j < n; j++)
+						if (id[j] == ids[i])
+							break;
+					if (j < n || n == GBS_DAX_PICS)
+						continue;       /* seen before */
+					bl = gbdax_block(d, got, ids[i], blk, 65536L);
+					pl = bl > 0 ? gbda_picture(blk, bl, NULL, 0) : -1;
+					if (pl <= 0)
+						continue;       /* not a picture this reads */
+					id[n] = ids[i];
+					fileof[n] = (unsigned char)f;
+					size[n] = pl;
+					n++;
+				} else {
+					for (j = 0; j < n; j++)
+						if (id[j] == ids[i] && fileof[j] == f)
+							break;
+					if (j == n)
+						continue;
+					bl = gbdax_block(d, got, ids[i], blk, 65536L);
+					pl = gbda_picture(blk, bl, pic, 131072L);
+					if (pl != size[j]) {
+						DisposePtr((Ptr)d);
+						goto done;
+					}
+					(void)FSWrite(ref, &pl, pic);
+				}
+			}
+			DisposePtr((Ptr)d);
+		}
+	}
+	ok = 1;
+	dbg_file_str("gbs: the game's pictures built: ", out);
+done:
+	if (ref >= 0)
+		FSClose(ref);
+	if (!ok && ref >= 0)
+		(void)FSDelete((ConstStr255Param)pname, 0);
+	if (blk != NULL)
+		DisposePtr((Ptr)blk);
+	if (pic != NULL)
+		DisposePtr((Ptr)pic);
+	return ok;
+}
+
 static int gbs_game_art(const char *name, const char *design_path)
 {
 	static const char *const lib[] = {
@@ -107735,6 +107854,13 @@ static int gbs_game_art(const char *name, const char *design_path)
 	if (name[k] != '.')
 		return 0;
 	base[k] = 0;
+	if (gbs_dax_game()) {               /* Champions, Death Knights */
+		if (strcmp(base, "PICA") == 0)
+			return gbs_dax_art("PIC", 0, design_path);
+		if (strcmp(base, "BIGPIC") == 0)
+			return gbs_dax_art("BIGPIC", 128, design_path);
+		return 0;
+	}
 	for (k = 0; k < (short)(sizeof lib / sizeof lib[0]); k++)
 		if (strcmp(base, lib[k]) == 0)
 			break;
@@ -108481,8 +108607,6 @@ static void gbs_picture(short id)
 	unsigned char ev[20];
 
 	gbs_draw(0);                    /* text printed so far goes up first */
-	if (g_gbs_dax)
-		return;                     /* .DAX pictures are not read yet */
 	if (id <= 0 || id >= 255) {
 		if (g_gbs_pic) {
 			g_gbs_pic = 0;
@@ -108496,6 +108620,8 @@ static void gbs_picture(short id)
 		}
 		return;
 	}
+	if (g_gbs_dax && id >= 112)     /* their big pictures: FRUA's 240.. */
+		id = (short)(id + 128);
 	jt399(ev, (short)sizeof ev, 0);
 	ev[0] = 2;
 	ev[6] = (unsigned char)id;
