@@ -66,6 +66,7 @@
 #include "gbitems.h"          /* ADR-0026: its items, words and shops      */
 #include "gbmon.h"            /* ADR-0026: its monsters                    */
 #include "gbmaps.h"           /* ADR-0026: its maps                        */
+#include "gbdax.h"            /* ADR-0026: Champions' and Death Knights' .DAX */
 #include "gbsave.h"           /* ADR-0026: its saved games                 */
 #include "gbcells.h"          /* ADR-0026: its character cells             */
 
@@ -107629,6 +107630,11 @@ static unsigned char  g_gbs_backdrop;               /* LOAD_FILES' combat set  *
 static unsigned char  g_gbs_index[GBS_MAPS][2];
 static short          g_gbs_nindex = -1;            /* -1: not read yet        */
 static char           g_gbs_ready, g_gbs_active, g_gbs_init_pending;
+/* Champions' or Death Knights' own folder (gbs_dax_game): their pictures
+ * are .DAX art, which nothing converts yet, so a script's PICTURE and its
+ * monster sprites are left out rather than asking for a disk that holds
+ * no such library */
+static char           g_gbs_dax;
 static char           g_gbs_switching;              /* our own jt198 in flight */
 static char           g_gbs_running;                /* inside gbs_run          */
 static unsigned char  g_gbs_resume;                 /* script a loaded save left
@@ -108475,6 +108481,8 @@ static void gbs_picture(short id)
 	unsigned char ev[20];
 
 	gbs_draw(0);                    /* text printed so far goes up first */
+	if (g_gbs_dax)
+		return;                     /* .DAX pictures are not read yet */
 	if (id <= 0 || id >= 255) {
 		if (g_gbs_pic) {
 			g_gbs_pic = 0;
@@ -108898,7 +108906,7 @@ static void gbs_sprite_show(void)
 {
 	unsigned char ev[20];
 
-	if (g_gbs_sprite == 255 || g_gbs_sprite == 0)
+	if (g_gbs_sprite == 255 || g_gbs_sprite == 0 || g_gbs_dax)
 		return;
 	gbs_draw(0);
 	jt399(ev, (short)sizeof ev, 0);
@@ -109549,6 +109557,8 @@ static short gbs_open_game(const char *name)
  * where the Dark Queen installs them) by src/engine/gbmaps.c, the same
  * bytes tools/gbgeo.py writes: area slot 5 + i is the library's map i, in
  * its id table's order. */
+static int gbs_dax_map(short slot, gbg_map *m);
+
 static int gbs_native_map(short slot, gbg_map *m)
 {
 	static gbl_lib lib;
@@ -109559,12 +109569,82 @@ static int gbs_native_map(short slot, gbg_map *m)
 		return 0;
 	refnum = gbs_open_game("GEO.GLB");
 	if (refnum < 0)
-		return 0;
+		return gbs_dax_map(slot, m);    /* Champions, Death Knights */
 	rc = gbl_open(gbs_exe_read, &refnum, &lib);
 	if (rc == 0)
 		rc = gbg_read_map(gbs_exe_read, &refnum, &lib, (unsigned)(slot - 5), m);
 	jt411(refnum);
 	return rc == 0;
+}
+
+/* CHAMPIONS AND DEATH KNIGHTS keep their maps and scripts in DOS .DAX
+ * archives, GEO1..GEO3.DAX and ECL1..ECL3.DAX, block ids the game's own
+ * numbers (gbdax.c, reference tools/ecl.py dax_blocks). Block `want` of
+ * the archives KIND1.DAX..KIND9.DAX into `out`: by id, or (`by_index`) the
+ * archives' blocks counted in order across the files, the area slots'
+ * order (slot 5 + i). Returns its size, or -1; `*idout` is its id. */
+static unsigned char g_gbs_daxbuf[65536];
+
+static long gbs_dax_block(const char *kind, int want, int by_index,
+                          unsigned char *out, long max, unsigned *idout)
+{
+	int  f, seen = 0;
+
+	for (f = 1; f <= 9; f++) {
+		char           name[16];
+		unsigned char  ids[256];
+		short          refnum, n;
+		long           len = 0, got = 0;
+		int            count, i;
+
+		jt394(name, "%s%d.DAX", kind, f);
+		refnum = gbs_open_game(name);
+		if (refnum < 0)
+			continue;
+		if (GetEOF(refnum, &len) != noErr || len > (long)sizeof g_gbs_daxbuf) {
+			jt411(refnum);
+			continue;
+		}
+		while (got < len) {
+			n = jt401(refnum, g_gbs_daxbuf + got,
+			          (short)(len - got > 16384 ? 16384 : len - got));
+			if (n <= 0)
+				break;
+			got += n;
+		}
+		jt411(refnum);
+		count = gbdax_ids(g_gbs_daxbuf, got, ids, 256);
+		for (i = 0; i < count && i < 256; i++, seen++) {
+			if (by_index ? seen != want : ids[i] != want)
+				continue;
+			if (idout != NULL)
+				*idout = ids[i];
+			return gbdax_block(g_gbs_daxbuf, got, ids[i], out, max);
+		}
+	}
+	return -1;
+}
+
+/* The script dialect of a .DAX game: Death Knights' (DKK.CFG beside it)
+ * or Champions'. */
+static unsigned char gbs_dax_dialect(void)
+{
+	short refnum = gbs_open_game("DKK.CFG");
+
+	if (refnum < 0)
+		return ECL_GEN1;
+	jt411(refnum);
+	return ECL_GEN1_DOK;
+}
+
+/* A map of a .DAX game, area slot 5 + i being its i-th map. */
+static int gbs_dax_map(short slot, gbg_map *m)
+{
+	static unsigned char raw[2048];
+	unsigned id = 0;
+	long     n = gbs_dax_block("GEO", slot - 5, 1, raw, (long)sizeof raw, &id);
+
+	return n > 0 && gbg_from_block(raw, n, id, m) == 0;
 }
 
 /* jt127's GEOnnn: the area itself. With no buffer, only whether there is
@@ -109592,8 +109672,17 @@ static void gbs_native_index(void)
 	unsigned       i, id;
 	long           at, len;
 
-	if (refnum < 0)
+	if (refnum < 0) {                   /* Champions, Death Knights */
+		static unsigned char raw[2048];
+
+		for (i = 0; i < GBS_MAPS
+		     && gbs_dax_block("GEO", (int)i, 1, raw, (long)sizeof raw, &id) > 0; i++) {
+			g_gbs_index[i][0] = (unsigned char)id;
+			g_gbs_index[i][1] = (unsigned char)(5 + i);
+			g_gbs_nindex = (short)(i + 1);
+		}
 		return;
+	}
 	if (gbl_open(gbs_exe_read, &refnum, &lib) == 0)
 		for (i = 0; i < GBS_MAPS && gbl_entry(&lib, i, &id, &at, &len) == 0; i++) {
 			g_gbs_index[i][0] = (unsigned char)id;
@@ -109613,8 +109702,16 @@ static short gbs_native_script(short id)
 	long           at, len = 0;
 	int            ok = 0;
 
-	if (refnum < 0)
-		return -1;
+	if (refnum < 0) {                   /* Champions, Death Knights */
+		len = gbs_dax_block("ECL", id, 0, g_gbs_buf + GBS_HDR,
+		                    (long)(GBS_MAX - GBS_HDR), NULL);
+		if (len <= 0)
+			return -1;
+		memcpy(g_gbs_buf, "GBS2", 4);
+		g_gbs_buf[4] = gbs_dax_dialect();
+		g_gbs_buf[5] = g_gbs_buf[6] = g_gbs_buf[7] = 0;
+		return (short)(GBS_HDR + len);
+	}
 	if (gbl_open(gbs_exe_read, &refnum, &lib) == 0
 	 && gbl_find(&lib, (unsigned)id, &at, &len) == 0
 	 && len > 0 && len <= GBS_MAX - GBS_HDR
@@ -109637,9 +109734,26 @@ static short gbs_native_script(short id)
  * new character reads), titled with the game's name. A design's own
  * GAME001.DAT always wins. */
 #define GBS_GAME_SIZE 388
+/* A copy of Champions' or Death Knights' own folder: its maps in .DAX
+ * archives, no GEO.GLB (0 otherwise). */
+static int gbs_dax_game(void)
+{
+	short refnum = gbs_open_game("GEO.GLB");
+
+	if (refnum >= 0) {
+		jt411(refnum);
+		return 0;
+	}
+	refnum = gbs_open_game("GEO1.DAX");
+	if (refnum < 0)
+		return 0;
+	jt411(refnum);
+	return 1;
+}
+
 static int gbs_game_header(void *buffer, short *out)
 {
-	static const char title[] = "The Dark Queen of Krynn";
+	const char    *title = "The Dark Queen of Krynn";
 	unsigned char *g = (unsigned char *)buffer;
 	char           dpath[202];
 	short          refnum;
@@ -109648,12 +109762,16 @@ static int gbs_game_header(void *buffer, short *out)
 	jt431(dpath, &g_a5_31336);
 	jt431(dpath, "DQK.EXE");
 	refnum = jt398(dpath, 0);
-	if (refnum < 0)
+	if (refnum >= 0)
+		jt411(refnum);
+	else if (gbs_dax_game())        /* Champions, Death Knights */
+		title = gbs_dax_dialect() == ECL_GEN1_DOK ? "Death Knights of Krynn"
+		                                          : "Champions of Krynn";
+	else
 		return 0;
-	jt411(refnum);
 
 	memset(g, 0, GBS_GAME_SIZE);
-	memcpy(g, title, sizeof title);
+	memcpy(g, title, strlen(title) + 1);
 	g[32] = 15000 & 0xff;                   /* starting XP, little-endian */
 	g[33] = 15000 >> 8;
 	g[36] = 100;                            /* coins                      */
@@ -110288,6 +110406,12 @@ static void gbs_new_game(void)
 }
 
 #define GBS_DQK_NEW_GAME_SCRIPT 4u      /* DQK.EXE 0x32e3a */
+/* Champions' and Death Knights' new game: script 16 (Death Knights' "A
+ * YEAR HAS PASSED...", NEWECL 36 to the first area; Champions' journey
+ * to the outpost, NEWECL 17); script 2 is Death Knights' demo. Read off
+ * the scripts, not yet off START.EXE. */
+#define GBS_DAX_NEW_GAME_SCRIPT 16u
+static int gbs_dax_game(void);
 
 /* Is area slot `geo_num` a script area? Called from jt198 once the map is in. */
 static void gbs_area_load(short geo_num)
@@ -110310,7 +110434,9 @@ static void gbs_area_load(short geo_num)
 
 		if (gbs_native_map(geo_num, &m))
 			n = (short)gbg_desc(&m, geo_num == g_a5_buf(-18876)[48]
-			                        ? GBS_DQK_NEW_GAME_SCRIPT : 0u,
+			                        ? (gbs_dax_game() ? GBS_DAX_NEW_GAME_SCRIPT
+			                                          : GBS_DQK_NEW_GAME_SCRIPT)
+			                        : 0u,
 			                    g_gbs_desc);
 	}
 	gbs_items(n >= 0);
@@ -110324,6 +110450,7 @@ static void gbs_area_load(short geo_num)
 		dbg_log("gbs: GBD file is not a descriptor plane for this map");
 		return;
 	}
+	g_gbs_dax = (char)gbs_dax_game();
 	g_gbs_w   = g_gbs_desc[4];
 	g_gbs_h   = g_gbs_desc[5];
 	g_gbs_map = g_gbs_desc[6];
