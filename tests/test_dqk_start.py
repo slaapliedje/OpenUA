@@ -25,4 +25,7 @@ def test_new_game_script_is_dqk_exes():
     src = open(os.path.join(ROOT, "src", "engine", "boot.c")).read()
     want = d[0x32e3e]
     assert re.search(r"#define GBS_DQK_NEW_GAME_SCRIPT %du\b" % want, src)
-    assert "? GBS_DQK_NEW_GAME_SCRIPT : 0u" in src
+    # the start area runs it (a .DAX game, Champions or Death Knights, runs
+    # its own, GBS_DAX_NEW_GAME_SCRIPT)
+    assert re.search(r"\?\s*\(gbs_dax_game\(\)\s*\?\s*GBS_DAX_NEW_GAME_SCRIPT\s*:\s*"
+                     r"GBS_DQK_NEW_GAME_SCRIPT\)\s*:\s*0u", src)
