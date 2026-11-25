@@ -1930,6 +1930,18 @@ Open:
   camp and on the walk screen in DOSBox, so the -11 is not the AC it
   displays and the port agrees with it);
 - writing back in the game's own formats (decision 4) is not begun.
+  (Later, 2026-11-25: begun and working for the Dark Queen. A hero goes
+  back to his .QCH whenever the hall writes his .CCH (qch_from_cch, the
+  reference gbchar.py to_qch; .QCH -> .CCH -> .QCH gives the six shipped
+  heroes back byte for byte), and a save is also written as the game's
+  SAVGAM<c>.QSV (gbv_write, the reference gbsave.py write_qsv; every DOS
+  save rebuilds from its own parts byte for byte). Both were loaded in
+  DOSBox: a hero with OpenUA's hit points, experience and readied bow,
+  and a save at the square, facing and time OpenUA left, which walks on.
+  Offset 1033 of a save is the area's art set (LOAD_FILES' second operand,
+  DS:0xca03); with 0 there the game reports a disk read error. Not yet: a
+  hero made in OpenUA gets no .QCH, and what a save's bytes 1027 and
+  1029..1032 hold is taken from a base save, not known.)
 
 **Step (g) landed: a design can bring its own rules** (6ddba91c, 9af5eb54).
 `tools/rules.py` compiles RULES.DAT from a text file (a statement or a table
