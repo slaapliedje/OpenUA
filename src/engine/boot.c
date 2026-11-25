@@ -29135,7 +29135,12 @@ static short l2d3e(void)
 		/* In the walk loop, route movement/control keys to the keyboard
 		 * source (return 0) before the command-bar DLItem match, so they
 		 * reach l63c0's switch(0) -> jt297 rather than exiting the loop. */
-		if (g_walk_input
+		/* Not in a fight: one runs inside the walk loop (a step's event
+		 * starts it), so g_walk_input is still set, and this exit ate
+		 * every arrow before the item's own filter (jt138) could stash
+		 * it for l25b6, which returns 257..264 as the directions
+		 * 129..136 l1162 moves by. */
+		if (g_walk_input && (unsigned char)g_a5_27990 != 5
 		    && ((kc >= 257 && kc <= 264) || kc == 27 || kc == 13)) {
 			g_a5_byte(-820) = 0;    /* ack the consumed key (this return
 						 * skips Phase 5, which would otherwise
