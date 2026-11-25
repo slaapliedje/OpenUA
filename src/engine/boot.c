@@ -1427,6 +1427,8 @@ static void gbs_area_load(short geo_num);
 static void gbs_arrive(void);
 static void gbs_step(void);
 static int  gbs_look(void);
+static int  gbs_holds_edge(short ns, short ew);
+static unsigned char g_gbs_edge;        /* the Dark Queen's cell 0x21 */
 
 /* JT[198] (CODE 7 + 0x7124) — load GEOnnn.DAT for the given level
  * number. Reads the file into the GEO buffer (jt1004), checks the
@@ -18399,6 +18401,10 @@ static void jt297(void *rec_v, short key, long cb)
 	#define JT297_FWD_ROW ((short)(JT297_ROW + (signed char)g_a5_byte(-11693 + g_a5_byte(-12286))))
 	#define JT297_FWD_COL ((short)(JT297_COL + (signed char)g_a5_byte(-11684 + g_a5_byte(-12286))))
 
+	/* every step starts with the Dark Queen's edge cell clear (DQK
+	 * 0x43a86); turns are not steps there and leave it */
+	if (key == 264 || key == 257 || key == 263 || key == 259 || key == 261)
+		g_gbs_edge = 0;
 	switch (key) {
 	case 264:                                /* forward */
 		if (!fp3) {
@@ -18408,6 +18414,9 @@ static void jt297(void *rec_v, short key, long cb)
 		} else if (snapped && !g_geo_editor_active &&
 		           !play_forward_allowed()) {
 			jt1080();       /* play: jt955's wall rule (blocked) */
+		} else if (snapped && !g_geo_editor_active &&
+		           gbs_holds_edge(JT297_FWD_ROW, JT297_FWD_COL)) {
+			/* a Dark Queen map's edge: the party stays */
 		} else {
 			l1908(rec_v, JT297_FWD_ROW, JT297_FWD_COL, facing, 1);
 		}
@@ -18437,6 +18446,9 @@ static void jt297(void *rec_v, short key, long cb)
 			         !play_can_pass(JT297_COL, JT297_ROW,
 			                        (short)g_a5_byte(-12286)))
 				jt1080();
+			else if (snapped && !g_geo_editor_active &&
+			         gbs_holds_edge(JT297_FWD_ROW, JT297_FWD_COL))
+				;       /* a Dark Queen map's edge: the party stays */
 			else
 				l1908(rec_v, JT297_FWD_ROW, JT297_FWD_COL,
 				      (short)g_a5_byte(-12286), 0);
@@ -18456,6 +18468,9 @@ static void jt297(void *rec_v, short key, long cb)
 			         !play_can_pass(JT297_COL, JT297_ROW,
 			                        (short)g_a5_byte(-12286)))
 				jt1080();
+			else if (snapped && !g_geo_editor_active &&
+			         gbs_holds_edge(JT297_FWD_ROW, JT297_FWD_COL))
+				;       /* a Dark Queen map's edge: the party stays */
 			else
 				l1908(rec_v, JT297_FWD_ROW, JT297_FWD_COL,
 				      (short)g_a5_byte(-12286), 0);
@@ -18668,6 +18683,13 @@ static void jt297(void *rec_v, short key, long cb)
 		g_event_step_ctx = 0;
 		if (special != 0)
 			g_event_modal_shown = 1;
+	} else if (snapped && !g_geo_editor_active && g_gbs_edge) {
+		/* Held at a Dark Queen map's edge (gbs_holds_edge): no new
+		 * square, but the step's scripts run all the same. */
+		g_event_modal_shown = 0;
+		g_event_step_ctx = 1;
+		gbs_step();
+		g_event_step_ctx = 0;
 	}
 #endif
 	/* ...unless the step's event changed level (-5221): -12288.. then
@@ -108756,6 +108778,26 @@ static int gbs_var(void *ctx, unsigned short addr, unsigned short *v, int write)
 		else
 			*v = ((unsigned char *)g_a5_28006)[32];
 		return 1;
+	case GBV_CELL_FALLEN:
+		/* The monsters that fell in the last fight: DQK's post-combat
+		 * sweep (0x4b4d0) zeroes it and counts each side-1 or summoned
+		 * member it disbands that is out of the fight. FRUA's sweep,
+		 * l4046, is the same code and counts into h[21]. Block 64 takes
+		 * the gnomes lost from it. */
+		if (g_a5_28006 == 0)
+			return 0;
+		if (write)
+			((unsigned char *)g_a5_28006)[21] = (unsigned char)*v;
+		else
+			*v = ((unsigned char *)g_a5_28006)[21];
+		return 1;
+	case GBV_CELL_EDGE:
+		/* the last step stopped at the map's edge (gbs_holds_edge) */
+		if (write)
+			g_gbs_edge = (unsigned char)*v;
+		else
+			*v = g_gbs_edge;
+		return 1;
 	case GBV_CELL_SEARCH:
 		/* 1 while the party searches: Search's toggle (FRUA h[25] bit 0)
 		 * or a Look (DQK 0x32f5e sets the cell to 1 for that one run;
@@ -110164,6 +110206,7 @@ static void gbs_arrive(void)
 	if (!g_gbs_active || !g_gbs_init_pending)
 		return;
 	g_gbs_init_pending = 0;
+	g_gbs_edge = 0;                 /* DQK 0x32d4b, before initialEntry */
 	gbs_run(ECL_ENTRY_INIT);
 	gbs_after();
 }
@@ -110180,6 +110223,24 @@ static void gbs_step(void)
 	gbs_run(ECL_ENTRY_STEP);
 	gbs_run(ECL_ENTRY_SEARCH);
 	gbs_after();
+}
+
+/* A step off the edge of a Dark Queen map. FRUA's maps are toroidal
+ * (l5368 puts the party on the far side); the Dark Queen's walk (DQK
+ * 0x43a6a) clamps the step at the edge instead, so the party stays where
+ * it is, and sets script cell 0x21 for the step's scripts, which still
+ * run: script 66 leaves its area that way (its vmRun1 reads 0x21). ns is
+ * the north-south coordinate (-12287), ew the east-west one (-12288).
+ * Champions' and Death Knights' walks are not read yet: they wrap. */
+static int gbs_holds_edge(short ns, short ew)
+{
+	if (!g_gbs_active || g_gbs_dialect != ECL_GEN2
+	    || g_gbs_w == 0 || g_gbs_h == 0)
+		return 0;
+	if (ew >= 0 && ew < g_gbs_w && ns >= 0 && ns < g_gbs_h)
+		return 0;
+	g_gbs_edge = 1;
+	return 1;
 }
 
 /* Look, in a script area: the square's searchLocation once more, as one
