@@ -468,6 +468,10 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   has): jt74 reads either, and jt75 writes the game's format in a design
   holding DQK.EXE. Real saves for tests live in
   `data/work/dqk-saves` (README there; E/F/G are from an HP-edited save).
+  Saving in such a design also writes SAVGAM<c>.QSV for the original game
+  (`gbs_qsv_save` over `gbv_write`, reference gbsave.py `write_qsv`;
+  DOSBox loads it); offset 1033 is the area's art set (LOAD_FILES' second
+  operand, DS:0xca03): 0 there and the game cannot load the save.
 - **Script memory is saved beside the slot** (`<design>\SAVE\GBSAV<slot>.DAT`,
   written after FRUA's own file, read back at the end of `l143e`). Two traps
   found doing it: the engine reloads the level AGAIN when the player leaves
