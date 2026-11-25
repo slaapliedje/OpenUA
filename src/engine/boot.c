@@ -107632,9 +107632,8 @@ static unsigned char  g_gbs_index[GBS_MAPS][2];
 static short          g_gbs_nindex = -1;            /* -1: not read yet        */
 static char           g_gbs_ready, g_gbs_active, g_gbs_init_pending;
 /* Champions' or Death Knights' own folder (gbs_dax_game): their pictures
- * are built from .DAX (gbs_dax_art) and a big picture n is FRUA's n + 128;
- * their monster sprites are not converted yet, so they are left out rather
- * than asking for a disk that holds no such library */
+ * and monster sprites are built from .DAX (gbs_dax_art) and a big picture
+ * n is FRUA's n + 128 */
 static char           g_gbs_dax;
 /* Champions numbers its pictures again in each of PIC1..3.DAX, and a
  * script in ECLn.DAX shows PICn's (every picture its scripts show is
@@ -107769,7 +107768,8 @@ static int gbs_dax_perfile(void)
 	return dup;
 }
 
-/* Champions' and Death Knights' pictures (PIC1..9.DAX, BIGPIC1..9.DAX) as
+/* Champions' and Death Knights' pictures (PIC1..9.DAX, BIGPIC1..9.DAX) and
+ * monster sprites (SPRIT1..9.DAX, SPRIT.CTL; gbda_sprite) as
  * the picture library `out` (PICA.CTL, BIGPIC.CTL in the design folder),
  * of archive `only` alone when not 0 (Champions' PICB.CTL is PIC2's):
  * gbdaxart.c, reference tools/gbdaxart.py library over archive_blocks. The
@@ -107789,7 +107789,7 @@ static int gbs_dax_art(const char *kind, unsigned shift, const char *out,
 	unsigned char *pic = (unsigned char *)NewPtr(131072L);
 	unsigned char  pname[256];
 	unsigned       n = 0, k;
-	int            pass, f, ok = 0;
+	int            pass, f, ok = 0, sprite = strcmp(kind, "SPRIT") == 0;
 	short          ref = -1;
 
 	if (blk == NULL || pic == NULL)
@@ -107850,7 +107850,8 @@ static int gbs_dax_art(const char *kind, unsigned shift, const char *out,
 					if (j < n || n == GBS_DAX_PICS)
 						continue;       /* seen before */
 					bl = gbdax_block(d, got, ids[i], blk, 65536L);
-					pl = bl > 0 ? gbda_picture(blk, bl, NULL, 0) : -1;
+					pl = bl <= 0 ? -1 : sprite ? gbda_sprite(blk, bl, NULL, 0)
+					                          : gbda_picture(blk, bl, NULL, 0);
 					if (pl <= 0)
 						continue;       /* not a picture this reads */
 					id[n] = ids[i];
@@ -107864,7 +107865,8 @@ static int gbs_dax_art(const char *kind, unsigned shift, const char *out,
 					if (j == n)
 						continue;
 					bl = gbdax_block(d, got, ids[i], blk, 65536L);
-					pl = gbda_picture(blk, bl, pic, 131072L);
+					pl = sprite ? gbda_sprite(blk, bl, pic, 131072L)
+					            : gbda_picture(blk, bl, pic, 131072L);
 					if (pl != size[j]) {
 						DisposePtr((Ptr)d);
 						goto done;
@@ -107913,6 +107915,8 @@ static int gbs_game_art(const char *name, const char *design_path)
 			                   gbs_dax_perfile() ? base[3] - 'A' + 1 : 0);
 		if (strcmp(base, "BIGPIC") == 0)
 			return gbs_dax_art("BIGPIC", 128, design_path, 0);
+		if (strcmp(base, "SPRIT") == 0)
+			return gbs_dax_art("SPRIT", 0, design_path, 0);
 		return 0;
 	}
 	for (k = 0; k < (short)(sizeof lib / sizeof lib[0]); k++)
@@ -109098,7 +109102,7 @@ static void gbs_sprite_show(void)
 {
 	unsigned char ev[20];
 
-	if (g_gbs_sprite == 255 || g_gbs_sprite == 0 || g_gbs_dax)
+	if (g_gbs_sprite == 255 || g_gbs_sprite == 0)
 		return;
 	gbs_draw(0);
 	jt399(ev, (short)sizeof ev, 0);
