@@ -17825,6 +17825,7 @@ static void        l4226(void *rec_v)
 static short       jt354(void)                          { PROBE("jt354"); return (short)jt1160(); }   /* CODE 8+0x5ef8: thunk to JT[1160] */
 static void        jt365(void);                                                               /* CODE 8+0x7238 — full lift below jt129 */
 static void        port_new_design_rules(const char *dsn);
+static unsigned char gbs_combat_backdrop(unsigned char lib_id);
 static char        g_gbs_rules_again;
 /* JT[358] (CODE 8+0x6e4a) — read the game counter byte g_a5_-10374
  * (shown in the status line via jt367; gated by jt273). */
@@ -56370,6 +56371,9 @@ static void l3f24(void)
 			jt54(ua_strs_at(0x44d2) /* "WildCom1" */,
 			     (short)(unsigned char)lib_id, 0);
 		} else {
+			/* PORT: a Dark Queen area fights on the game's own
+			 * backdrop, the set its LOAD_FILES named */
+			lib_id = gbs_combat_backdrop(lib_id);
 			jt54(ua_strs_at(0x44dc) /* "DungCom1" */,
 			     (short)(unsigned char)lib_id, 0);
 		}
@@ -107559,6 +107563,7 @@ static unsigned char  g_gbs_w, g_gbs_h, g_gbs_dialect;
 static unsigned char  g_gbs_map;                    /* the game's map number   */
 static unsigned char  g_gbs_script;                 /* the loaded script, or 0 */
 static unsigned char  g_gbs_want_map;               /* LOAD_FILES, pending     */
+static unsigned char  g_gbs_backdrop;               /* LOAD_FILES' combat set  */
 static unsigned char  g_gbs_index[GBS_MAPS][2];
 static short          g_gbs_nindex = -1;            /* -1: not read yet        */
 static char           g_gbs_ready, g_gbs_active, g_gbs_init_pending;
@@ -109112,6 +109117,13 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 	case ECL_OP_LOAD_FILES:         /* operand 0 is the map; honoured after the run */
 		if (ins->argc > 0)
 			g_gbs_want_map = (unsigned char)ecl_rvalue(vm, &ins->arg[0]);
+		/* operand 1, the Dark Queen's combat backdrop (255: keep it) */
+		if (ins->argc > 1 && g_gbs_dialect == ECL_GEN2) {
+			unsigned short b = ecl_rvalue(vm, &ins->arg[1]);
+
+			if (b != 255)
+				g_gbs_backdrop = (unsigned char)b;
+		}
 		return ECL_HOST_OK;
 	case 0x2c:                      /* SOUND n (PARLAY in Champions) */
 		/* In Dark Queen 0x2c takes one value and calls the sound and
@@ -110068,6 +110080,7 @@ static void gbs_new_game(void)
 	g_gbs_resume = 0;
 	g_gbs_nmon = 0;
 	g_gbs_want_map = 0;
+	g_gbs_backdrop = 0;
 }
 
 #define GBS_DQK_NEW_GAME_SCRIPT 4u      /* DQK.EXE 0x32e3a */
@@ -110482,6 +110495,139 @@ static int gbs_holds_edge(short ns, short ew)
 		return 0;
 	g_gbs_edge = 1;
 	return 1;
+}
+
+/* The Dark Queen's combat backdrops. LOAD_FILES' second operand names
+ * the set of combat tiles the area's fights are drawn on (1..6; 255 keeps
+ * the last), sets of the game's DUNGCOM.TLB laid out as FRUA's: 27 tiles
+ * a set, entry 0 a table of set ids (the game's: 1 and 5 share a set).
+ * FRUA's own DUNGCOM.CTL must stay as it is (its set 1 is also the combat
+ * figures' art), so the game's sets go into the design as the per-set
+ * overrides l33ac already looks for, under set numbers FRUA does not
+ * have: set n is "DungCom1" set 100 + n, the file DUNG1<100+n>.CTL (the
+ * 8.3 spelling l33ac tries). They are cut, once, from the game's
+ * DUNGCOM.TLB converted into the design as GBDCOM.CTL. A set whose file
+ * cannot be made stays FRUA's: l33ac would otherwise ask FRUA's library
+ * for a set it lacks and wait for that disk forever. */
+static char g_gbs_backdrops_made;
+
+static int gbs_write_file(const char *path, const unsigned char *b, long len)
+{
+	unsigned char pname[256];
+	short         k = (short)strlen(path), ref;
+	long          count = len;
+	int           ok = 0;
+
+	pname[0] = (unsigned char)k;
+	memcpy(pname + 1, path, (size_t)k);
+	if (Create((ConstStr255Param)pname, 0, 'OpUA', 'GLIB') == noErr
+	 && FSOpen((ConstStr255Param)pname, 0, &ref) == noErr) {
+		ok = FSWrite(ref, &count, b) == noErr && count == len;
+		FSClose(ref);
+	}
+	return ok;
+}
+
+static unsigned long gbs_be32(const unsigned char *p)
+{
+	return (unsigned long)p[0] << 24 | (unsigned long)p[1] << 16
+	     | (unsigned long)p[2] << 8 | p[3];
+}
+
+static void gbs_make_backdrops(void)
+{
+	static const char *const sub[] = { "DISK1\\", "DISK2\\", "DISK3\\" };
+	char           in[210], out[210], file[24];
+	unsigned char *buf = NULL;
+	short          k, refnum, n, i;
+	long           len = 0, got = 0, count;
+
+	g_gbs_backdrops_made = 1;
+	out[0] = 0;
+	jt431(out, &g_a5_31336);
+	jt431(out, "GBDCOM.CTL");
+	refnum = jt398(out, 0);
+	for (k = 0; refnum < 0 && k < 3; k++) {
+		strcpy(file, sub[k]);           /* not jt431, which joins with ':' */
+		strcat(file, "DUNGCOM.TLB");
+		in[0] = 0;
+		jt431(in, &g_a5_31336);
+		jt431(in, file);
+		if (ua_dos_art_convert_file(in, out))
+			refnum = jt398(out, 0);
+	}
+	if (refnum < 0)
+		return;
+	if (GetEOF(refnum, &len) == noErr && len > 16 && len < 0x40000L)
+		buf = (unsigned char *)NewPtr(len);
+	while (buf != NULL && got < len) {
+		count = len - got > 16384 ? 16384 : len - got;
+		n = jt401(refnum, buf + got, (short)count);
+		if (n <= 0)
+			break;
+		got += n;
+	}
+	jt411(refnum);
+	if (buf == NULL || got != len || memcmp(buf, "GLIB", 4) != 0)
+		goto done;
+	n = (short)(buf[8] << 8 | buf[9]);              /* entries */
+	if (16 + 4L * (n + 1) > len)
+		goto done;
+	{
+		unsigned long t0 = gbs_be32(buf + 16), t1 = gbs_be32(buf + 20);
+		const unsigned char *tab = buf + t0;
+		short ids;
+
+		if (t1 > (unsigned long)len || t0 + 2 > t1)
+			goto done;
+		ids = (short)(tab[0] << 8 | tab[1]);
+		for (i = 0; i < ids && t0 + 2 + 4L * (i + 1) <= t1; i++) {
+			short id = (short)(tab[2 + 4 * i] << 8 | tab[3 + 4 * i]);
+			short ix = (short)(tab[4 + 4 * i] << 8 | tab[5 + 4 * i]);
+			unsigned long a, b;
+			char name[16];
+
+			if (id < 1 || id > 99 || ix < 1 || ix >= n)
+				continue;
+			a = gbs_be32(buf + 16 + 4 * ix);
+			b = gbs_be32(buf + 20 + 4 * ix);
+			if (b > (unsigned long)len || a >= b || memcmp(buf + a, "GLIB", 4) != 0)
+				continue;
+			jt394(name, "DUNG1%03d.CTL", 100 + id);
+			out[0] = 0;
+			jt431(out, &g_a5_31336);
+			jt431(out, name);
+			refnum = jt398(out, 0);
+			if (refnum >= 0)
+				jt411(refnum);          /* there already */
+			else if (gbs_write_file(out, buf + a, (long)(b - a)))
+				dbg_file_str("gbs: combat backdrop written: ", name);
+		}
+	}
+done:
+	if (buf != NULL)
+		DisposePtr((Ptr)buf);
+}
+
+static unsigned char gbs_combat_backdrop(unsigned char lib_id)
+{
+	char  path[210], name[16];
+	short refnum;
+
+	if (!g_gbs_active || g_gbs_dialect != ECL_GEN2 || g_gbs_backdrop == 0
+	 || g_gbs_backdrop > 99)
+		return lib_id;
+	if (!g_gbs_backdrops_made)
+		gbs_make_backdrops();
+	jt394(name, "DUNG1%03d.CTL", 100 + g_gbs_backdrop);
+	path[0] = 0;
+	jt431(path, &g_a5_31336);
+	jt431(path, name);
+	refnum = jt398(path, 0);
+	if (refnum < 0)
+		return lib_id;                  /* no such set: FRUA's */
+	jt411(refnum);
+	return (unsigned char)(100 + g_gbs_backdrop);
 }
 
 /* Look, in a script area: the square's searchLocation once more, as one
