@@ -221,3 +221,47 @@ def test_the_port_serves_the_games_own_cells():
     for name in ("PLACE", "SEARCH", "PARTY", "MAP"):
         assert "case GBV_CELL_%s" % name in body, name
     assert "[32]" in body and "[25] & 3" in body    # FRUA's h[32] and h[25]
+
+
+# ---- writing a save back (ADR-0026 decision 4) ----------------------------
+
+def c_write(cbin, path, base=None):
+    args = [cbin, "-w", str(path)] + ([str(base)] if base else [])
+    out = subprocess.run(args, check=True, capture_output=True,
+                         text=True).stdout.strip()
+    return bytes.fromhex(out) if not out.startswith("ERR") else out
+
+
+def test_synthetic_writes_match_reference(cbin, tmp_path):
+    rnd = random.Random(44)
+    saves = []
+    for case in range(8):
+        members = [record(rnd, rnd.randrange(0, 10), rnd.choice((0, 1, 3)),
+                          b"W%d" % k) for k in range(case % (gbsave.MEMBERS + 1))]
+        p = tmp_path / ("w%d.qsv" % case)
+        p.write_bytes(save(rnd, members))
+        saves.append(p)
+    for p in saves:
+        s = gbsave.GbSave(p.read_bytes())
+        for base in (None, p, saves[(saves.index(p) + 3) % len(saves)]):
+            want = gbsave.write_qsv(s.cells, s.x, s.y, s.facing, s.desc,
+                                    s.members, base.read_bytes() if base else None)
+            assert len(want) == gbsave.SIZE
+            assert c_write(cbin, p, base) == want, (p, base)
+
+
+@pytest.mark.skipif(not REAL, reason="no Dark Queen saves on this machine")
+def test_real_saves_write_back_byte_for_byte(cbin):
+    """Every save the game wrote, rebuilt from its own cells, square and
+    records over itself, is that save, in the reference and in the C; over
+    another save, the C writes what the reference writes."""
+    for path in REAL:
+        data = open(path, "rb").read()
+        s = gbsave.GbSave(data)
+        assert gbsave.write_qsv(s.cells, s.x, s.y, s.facing, s.desc,
+                                s.members, data) == data, path
+        assert c_write(cbin, path, path) == data, path
+        other = REAL[(REAL.index(path) + 1) % len(REAL)]
+        assert c_write(cbin, path, other) == gbsave.write_qsv(
+            s.cells, s.x, s.y, s.facing, s.desc, s.members,
+            open(other, "rb").read()), (path, other)

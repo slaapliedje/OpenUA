@@ -187,6 +187,37 @@ class GbSave:
         return c["hours"], c["tens"] * 10 + c["minutes"]
 
 
+def write_qsv(cells, x, y, facing, desc, members, base=None):
+    """A save the game loads (ADR-0026 decision 4): the 1024 script cells
+    (cell n at n-1), the square, facing 0..3, the square's descriptor, and
+    the party records as .QCH bytes (tools/gbchar.py to_qch). What is not
+    identified comes from `base`, a save the game wrote (the slot's own, or
+    the one it ships): bytes 1027 and 1029..1036, and the block after the
+    records, which is the same in every save and cut off at SIZE (a longer
+    party keeps less of it; zeros past what `base` has)."""
+    if len(cells) != CELLS:
+        raise GbSaveError("%d cells, not %d" % (len(cells), CELLS))
+    if len(members) > MEMBERS:
+        raise GbSaveError("%d party records" % len(members))
+    b = bytes(base) if base else bytes(PARTY) + b"\xff" * 17
+    if len(b) < PARTY:
+        raise GbSaveError("the base is shorter than the header")
+    head = bytearray(b[:PARTY])
+    head[:CELLS] = cells
+    head[X], head[Y] = x, y
+    head[FACING] = (facing & 3) << 1
+    head[DESC] = desc
+    struct.pack_into("<H", head, COUNT, len(members))
+    tail = b[PARTY:]
+    if base:
+        tail = tail[sum(len(m) for m in GbSave(b).members):]
+    body = bytes(head) + b"".join(bytes(m) for m in members)
+    if len(body) > SIZE:
+        raise GbSaveError("the party does not fit a save")
+    tail = tail[:SIZE - len(body)]
+    return body + tail + bytes(SIZE - len(body) - len(tail))
+
+
 def read_vault(data):
     """VAULTx.DAT -> (steel, gems, jewelry), [17-byte item records]."""
     if len(data) != VAULT_SIZE:

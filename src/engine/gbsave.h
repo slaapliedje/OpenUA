@@ -56,4 +56,19 @@ int gbv_read(const unsigned char *q, long len, gbv_save *s);
  * code. */
 long gbv_record_length(const unsigned char *q, long len, long at);
 
+/* Write a save the game loads (ADR-0026 decision 4; tools/gbsave.py
+ * write_qsv): `cells` the 1024 script cells (cell n at n-1), the square,
+ * facing 0..3, the square's descriptor, and `n` party records as .QCH
+ * bytes. What is not identified comes from `base` (`blen` bytes), a save
+ * the game wrote: bytes 1027 and 1029..1036 and the block after its
+ * records, cut off at GBV_SIZE; NULL gives zeros and 17 bytes of 0xff.
+ * Writes GBV_SIZE bytes into `out` (room for `max`) and returns GBV_SIZE,
+ * or a GBV_E code (GBV_ESHORT: no room, or the base is not a save;
+ * GBV_ECOUNT: too many records, or they do not fit). */
+long gbv_write(const unsigned char *cells, unsigned char x, unsigned char y,
+               unsigned char facing, unsigned char desc,
+               const unsigned char *const *rec, const long *rlen, unsigned n,
+               const unsigned char *base, long blen,
+               unsigned char *out, long max);
+
 #endif

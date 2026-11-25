@@ -3,6 +3,8 @@
  * writes it (ADR-0026 step (f)). See gbsave.h; tools/gbsave.py is the
  * reference.
  */
+#include <string.h>
+
 #include "gbsave.h"
 
 #define OFF_X      1024
@@ -75,4 +77,53 @@ int gbv_read(const unsigned char *q, long len, gbv_save *s)
 	}
 	s->members = count;
 	return 0;
+}
+
+long gbv_write(const unsigned char *cells, unsigned char x, unsigned char y,
+               unsigned char facing, unsigned char desc,
+               const unsigned char *const *rec, const long *rlen, unsigned n,
+               const unsigned char *base, long blen,
+               unsigned char *out, long max)
+{
+	long     at = OFF_PARTY, tail = OFF_PARTY, take, k;
+	unsigned i;
+
+	if (max < GBV_SIZE)
+		return GBV_ESHORT;
+	if (n > GBV_MEMBERS)
+		return GBV_ECOUNT;
+	memset(out, 0, GBV_SIZE);
+	if (base != NULL) {
+		gbv_save b;
+
+		if (blen < OFF_PARTY || gbv_read(base, blen, &b) != 0)
+			return GBV_ESHORT;
+		memcpy(out, base, OFF_PARTY);
+		for (i = 0; i < b.members; i++)
+			tail += b.len[i];
+	}
+	memcpy(out, cells, GBV_CELLS);
+	out[OFF_X] = x;
+	out[OFF_Y] = y;
+	out[OFF_FACING] = (unsigned char)((facing & 3) << 1);
+	out[OFF_DESC] = desc;
+	out[OFF_COUNT] = (unsigned char)n;
+	out[OFF_COUNT + 1] = 0;
+	for (i = 0; i < n; i++) {
+		if (rlen[i] < 0 || at + rlen[i] > GBV_SIZE)
+			return GBV_ECOUNT;
+		memcpy(out + at, rec[i], (size_t)rlen[i]);
+		at += rlen[i];
+	}
+	if (base != NULL) {                     /* the block, cut off at the end */
+		take = blen - tail;
+		if (take > GBV_SIZE - at)
+			take = GBV_SIZE - at;
+		if (take > 0)
+			memcpy(out + at, base + tail, (size_t)take);
+	} else {
+		for (k = 0; k < 17 && at + k < GBV_SIZE; k++)
+			out[at + k] = 0xff;
+	}
+	return GBV_SIZE;
 }
