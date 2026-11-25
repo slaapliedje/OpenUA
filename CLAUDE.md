@@ -423,9 +423,11 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   run (script 66 leaves its area that way); Champions and Death Knights
   still wrap, their walks unread. Look in a script area
   runs searchLocation (`gbs_look`). LOAD_FILES' second operand is the
-  combat backdrop (DQK 0xca03 -> DungCom<n>/WildCom<n>, 1..6); the port
-  ignores it and fights on FRUA's backdrop 1 (hdr[12]): the game's own
-  backdrops are 16-colour, FRUA's DUNGCOM 1-bit, so that is renderer work.
+  combat backdrop set (1..6, 255 keeps it): `gbs_combat_backdrop` gives
+  l3f24 set 100 + n, whose per-set override DUNG1<100+n>.CTL is cut once
+  from the game's DUNGCOM.TLB (converted into the design as GBDCOM.CTL);
+  FRUA's DUNGCOM.CTL is never replaced (its set 1 is also the combat
+  figures). WildCom is not used: the port's Dark Queen areas are dungeons.
   To find such gaps again: list every cell a script reads that no script
   writes (skip block 1, the debug jumper; DIVIDE writes 0x29 implicitly).
   Census: walk every ECLnnn.DAT with tools/ecl.py's Block.walk(). PROGRAM is
