@@ -9,7 +9,8 @@ NAME, ARCH, VERSION, CATEGORY, ...; CLASSES defaults to "none"). Each
 DEST=SRC installs the file SRC at the absolute path DEST, mode 0755 for
 an executable SRC and 0644 otherwise unless MODE is given. A DEST ending
 in '/' with no SRC (`/opt/openua/doc/=`) is just a directory. Directories
-leading to every file are made 0755 root sys, files belong to root bin.
+leading to every file are made 0755 root sys, except the system's own
+(SYSDIRS), which are left out; files belong to root bin.
 
 The layout is the one ASV's own pkgtrans writes (read off a package it
 made in Hatari, which ASV's pkgadd installs):
@@ -35,6 +36,13 @@ import os
 import sys
 
 MTIME = 1767225600          # 2026-01-01: fixed, for byte-identical output
+
+# The system's own directories are left out of the package. Listed, pkgadd
+# compares their mode and owner with the disk's and stops for an answer
+# when they differ ("attribute change only"), as they do on a TT that has
+# been lived in. (Found by the asv-games packages, which share this tool.)
+SYSDIRS = {'/opt', '/usr', '/usr/bin', '/usr/lib', '/usr/share', '/var',
+           '/var/opt', '/etc', '/etc/opt', '/usr/local', '/usr/local/bin'}
 
 
 def cksum(data):
@@ -105,6 +113,7 @@ def build(pkginfo_text, items):
         while d not in ('/', ''):
             dirs.add(d)
             d = os.path.dirname(d)
+    dirs -= SYSDIRS
     clash = dirs & set(files)
     if clash:
         raise SystemExit('both a file and a directory: %s' % ', '.join(sorted(clash)))

@@ -73,7 +73,7 @@ def test_layout_and_pkgmap():
     assert hdr[0] == 'TESTPKG' and hdr[1] == '1'
     assert [n for n, _, _ in a1] == ['TESTPKG/pkginfo', 'TESTPKG/pkgmap']
     names = [n for n, _, _ in a2]
-    assert names == ['pkginfo', 'pkgmap', 'root', 'root/opt', 'root/opt/t', 'root/opt/t/bin',
+    assert names == ['pkginfo', 'pkgmap', 'root', 'root/opt/t', 'root/opt/t/bin',
                      'root/opt/t/bin/prog', 'root/opt/t/doc', 'root/opt/t/doc/README']
     files = {n: (m, data) for n, m, data in a2}
     assert files['root/opt/t/bin/prog'] == (0o100755, exe)
@@ -128,3 +128,16 @@ def test_a_file_where_a_directory_is_refused():
     except SystemExit:
         return
     raise AssertionError('accepted /opt/t as both a file and a directory')
+
+
+def test_system_directories_are_left_out():
+    # listed, pkgadd stops on /opt or /usr whose mode differs from the disk's
+    d = make([('/opt/t/f', b'x', 0o644), ('/usr/bin/g', b'y', 0o755),
+              ('/var/opt/t/', None, None)])
+    _, _, a2 = parse(d)
+    files = {n: data for n, _, data in a2}
+    pkgmap = files['pkgmap'].decode().split()
+    for sysdir in ('/opt', '/usr', '/usr/bin', '/var', '/var/opt'):
+        assert sysdir not in pkgmap
+        assert 'root' + sysdir not in files
+    assert '/opt/t' in pkgmap and '/var/opt/t' in pkgmap and '/usr/bin/g' in pkgmap
