@@ -107597,6 +107597,17 @@ static int gbs_game_art(const char *name, const char *design_path)
  * CONTINUE with nothing new still waits for Return on it. */
 static char g_gbs_cont;
 
+/* The text's colour. DQK's print (0x41f93) is FRUA's jt96 call with the
+ * colour 3 while script cell 0x39 is set, else 7 (the scripts set it to
+ * 14 around what someone says, and back to 0). */
+static unsigned char g_gbs_ink = 7;
+
+static unsigned char gbs_ink_now(void)
+{
+	return (unsigned char)((g_gbs_dialect == ECL_GEN2
+	                        && ecl_peek(&g_gbs_vm, 0x39) != 0) ? 3 : 7);
+}
+
 /* The panel's square, clock and compass while a Dark Queen script runs.
  * The script's own cells are where the party stands and which way it
  * faces (gbs_apply carries them into the engine only when the run ends),
@@ -107667,7 +107678,7 @@ static void gbs_draw(int confirm)
 			if (nl != NULL)
 				*nl = 0;
 			if (*seg)
-				jt96(1, 17, 38, 22, 7, 0, 0, (long)(uintptr_t)seg, 17);
+				jt96(1, 17, 38, 22, g_gbs_ink, 0, 0, (long)(uintptr_t)seg, 17);
 			if (nl == NULL)
 				break;
 			*nl = '\n';
@@ -107697,6 +107708,17 @@ static void gbs_show(void)
 static void gbs_text_put(const char *t, short n)
 {
 	short i;
+	unsigned char ink = gbs_ink_now();
+
+	/* DQK draws each PRINT as it comes, in the colour of the moment: text
+	 * in another colour than what is waiting puts that up first and
+	 * carries on after it at the pen */
+	if (g_gbs_textlen > 0 && ink != g_gbs_ink) {
+		gbs_draw(0);
+		g_gbs_cont = 1;
+	}
+	if (g_gbs_textlen == 0)
+		g_gbs_ink = ink;
 
 	if (g_gbs_textlen > 0 && g_gbs_textlen < GBS_TEXT_MAX - 1
 	 && g_gbs_text[g_gbs_textlen - 1] != '\n')
