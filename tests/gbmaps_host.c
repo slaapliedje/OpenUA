@@ -6,6 +6,9 @@
  *   gbmaps_host <LIB> geo <i>          map i as a GEO file, in hex
  *   gbmaps_host <LIB> desc <i> <boot>  map i's descriptor, in hex
  *   gbmaps_host <LIB> member <id>      member <id> as it is, in hex
+ *   gbmaps_host <BLOCK> block <id> geo|desc <boot>
+ *                                      a raw Gen1 block (1024 bytes, or
+ *                                      1026 as a DAX holds it) as map <id>
  *   (or "ERR <code>")
  */
 #include <stdio.h>
@@ -44,6 +47,23 @@ int main(int argc, char **argv)
 
 	if (argc < 3 || (f = fopen(argv[1], "rb")) == NULL)
 		return 2;
+	if (strcmp(argv[2], "block") == 0 && argc >= 5) {
+		static unsigned char raw[4096];
+
+		n = (long)fread(raw, 1, sizeof raw, f);
+		if ((rc = gbg_from_block(raw, n, (unsigned)atoi(argv[3]), &m)) != 0) {
+			printf("ERR %d\n", rc);
+			return 0;
+		}
+		n = strcmp(argv[4], "geo") == 0 ? gbg_geo(&m, out)
+		  : gbg_desc(&m, argc > 5 ? (unsigned)atoi(argv[5]) : 0, out);
+		if (n < 0) {
+			printf("ERR %ld\n", n);
+			return 0;
+		}
+		hex(out, n);
+		return 0;
+	}
 	if ((rc = gbl_open(host_read, f, &lib)) != 0) {
 		printf("ERR %d\n", rc);
 		return 0;

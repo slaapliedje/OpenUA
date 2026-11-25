@@ -57,6 +57,22 @@ int gbg_read_map(gbr_read_fn rd, void *ctx, const gbl_lib *lib, unsigned i, gbg_
 	return GBG_ESHAPE;
 }
 
+int gbg_from_block(const unsigned char *raw, long len, unsigned id, gbg_map *m)
+{
+	if (len == GEN1_BYTES + 2) {
+		/* a DOS DAX block's header word: Champions' 0x0400, Death
+		 * Knights' another value (Greybox geo.ts); the planes follow */
+		raw += 2;
+		len -= 2;
+	}
+	if (len != GEN1_BYTES)
+		return GBG_ESHAPE;
+	m->id = id;
+	m->width = m->height = GEN1_SIDE;
+	memcpy(m->planes, raw, GEN1_BYTES);
+	return 0;
+}
+
 /* The wall slot and door flag of edge `d` of cell (x, y). */
 static unsigned slot(const gbg_map *m, int x, int y, int d)
 {

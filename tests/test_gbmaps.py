@@ -136,3 +136,24 @@ def test_real_scripts_match_reference(cbin):
     assert len(blocks) == 47
     for b in blocks:
         assert bytes.fromhex(run(cbin, path, "member", b.block_id)) == b.raw, b.block_id
+
+
+def test_a_dax_block_is_a_map(cbin, tmp_path):
+    """Champions' and Death Knights' maps: each a .DAX block of 1026 bytes,
+    the 1024 planes behind a little-endian length word (gbgeo
+    from_gen1_block); the bare 1024 too."""
+    rnd = random.Random(11)
+    p = planes(16, 16, rnd)
+    for raw in (struct.pack("<H", 1024) + p, p):
+        f = tmp_path / "B.DAT"
+        f.write_bytes(raw)
+        m = gbgeo.GbMap.from_gen1_block(raw, 36)
+        assert bytes.fromhex(run(cbin, f, "block", 36, "geo")) == m.to_frua().build()
+        assert bytes.fromhex(run(cbin, f, "block", 36, "desc", 16)) \
+            == gbgeo.map_descriptor(m, 16)
+    # Death Knights' header word is not 0x0400; the planes are read all the same
+    f.write_bytes(struct.pack("<H", 0x830f) + p)
+    m = gbgeo.GbMap.from_gen1_block(struct.pack("<H", 0x830f) + p, 32)
+    assert bytes.fromhex(run(cbin, f, "block", 32, "geo")) == m.to_frua().build()
+    f.write_bytes(p[:1000])
+    assert run(cbin, f, "block", 36, "geo") == "ERR -4"

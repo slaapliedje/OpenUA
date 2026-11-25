@@ -129,10 +129,11 @@ class GbMap:
 
     @classmethod
     def from_gen1_block(cls, raw, area_id=None):
-        """A Gen1 16x16 block: 1024 plane bytes, or 1026 with DOS's length word."""
+        """A Gen1 16x16 block: 1024 plane bytes, or 1026 with a DOS header word
+        in front (Champions' 0x0400, Death Knights' another value)."""
         if len(raw) == GEN1_BYTES + 2:
-            if struct.unpack_from("<H", raw, 0)[0] != GEN1_BYTES:
-                raise GbGeoError("1026-byte block without the 0x0400 length word")
+            # Champions' header word is 0x0400; Death Knights' is something
+            # else (Greybox geo.ts: an area word), its planes at 2 all the same
             raw = raw[2:]
         if len(raw) != GEN1_BYTES:
             raise GbGeoError("Gen1 block is %d bytes, want 1024 or 1026" % len(raw))

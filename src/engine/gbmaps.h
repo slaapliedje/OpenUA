@@ -33,6 +33,11 @@ typedef struct gbg_map {
  * code. */
 int gbg_read_map(gbr_read_fn rd, void *ctx, const gbl_lib *lib, unsigned i, gbg_map *m);
 
+/* A 16x16 Gen1 map block (1024 bytes of planes, or 1026 with a DOS DAX
+ * block's little-endian length word in front: Champions and Death Knights
+ * of Krynn, tools/gbgeo.py from_gen1_block) as map `id`. 0, or GBG_ESHAPE. */
+int gbg_from_block(const unsigned char *raw, long len, unsigned id, gbg_map *m);
+
 /* The map as a FRUA area file (GEOnnn.DAT) into `out` (GBG_GEO_MAX):
  * walls on its edges, stock wall art, entry point 0 at the first cell with
  * a way out. Returns the file's length. */

@@ -48,8 +48,9 @@ def test_gen1_block_accepts_the_dos_length_word():
     raw = planes(16, 16, {(1, 1): ((7, 0, 0, 0), (0, 0, 0, 0))})
     assert GbMap.from_gen1_block(raw).slots[1][1][N] == 7
     assert GbMap.from_gen1_block(struct.pack("<H", 1024) + raw).slots[1][1][N] == 7
-    with pytest.raises(GbGeoError):
-        GbMap.from_gen1_block(b"\x00\x00" + raw)          # wrong length word
+    # Death Knights' header word is not 0x0400 (Greybox geo.ts): the planes
+    # behind it are read by the block's length all the same
+    assert GbMap.from_gen1_block(b"\x0f\x83" + raw).slots[1][1][N] == 7
     with pytest.raises(GbGeoError):
         GbMap.from_gen1_block(raw[:-1])
 
