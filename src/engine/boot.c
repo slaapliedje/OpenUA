@@ -107636,6 +107636,13 @@ static char           g_gbs_ready, g_gbs_active, g_gbs_init_pending;
  * their monster sprites are not converted yet, so they are left out rather
  * than asking for a disk that holds no such library */
 static char           g_gbs_dax;
+/* Champions numbers its pictures again in each of PIC1..3.DAX, and a
+ * script in ECLn.DAX shows PICn's (every picture its scripts show is
+ * there): each PIC file is then a library of its own, PICA, PICB, ...,
+ * and a picture is looked for in the running script's (g_gbs_ecl_file).
+ * Death Knights numbers its pictures once over PIC1..7: one library. */
+static char           g_gbs_dax_perfile;
+static unsigned char  g_gbs_ecl_file;
 static char           g_gbs_switching;              /* our own jt198 in flight */
 static char           g_gbs_running;                /* inside gbs_run          */
 static unsigned char  g_gbs_resume;                 /* script a loaded save left
@@ -107719,18 +107726,60 @@ static short gbs_read_game(const char *name, void *buf, short max)
  * the libraries a script's pictures come from (gbgeo.PICTURE_LIBS): FRUA's
  * screen is built from its own FRAME, wall and combat pieces, which the
  * game's would replace. Returns 1 when `design_path` now exists. */
+#define GBS_DAX_PICS 256
+static unsigned char g_gbs_daxbuf[65536];
+static short gbs_open_game(const char *name);
+static int   gbs_dax_game(void);
+
+/* Whether the game numbers its pictures again in each PIC file (Champions;
+ * g_gbs_dax_perfile): an id in two of PIC1..9.DAX. */
+static int gbs_dax_perfile(void)
+{
+	static unsigned char seen[256];
+	int  f, i, c, dup = 0;
+
+	memset(seen, 0, sizeof seen);
+	for (f = 1; f <= 9 && !dup; f++) {
+		char           name[16];
+		unsigned char  ids[256];
+		short          refnum, r;
+		long           got = 0;
+
+		jt394(name, "PIC%d.DAX", f);
+		refnum = gbs_open_game(name);
+		if (refnum < 0)
+			continue;
+		r = jt401(refnum, g_gbs_daxbuf, (short)2);      /* the table's length */
+		if (r == 2) {
+			long toc = g_gbs_daxbuf[0] | (long)g_gbs_daxbuf[1] << 8;
+
+			if (toc < 2300) {
+				r = jt401(refnum, g_gbs_daxbuf + 2, (short)toc);
+				got = r > 0 ? 2 + r : 0;
+			}
+		}
+		jt411(refnum);
+		c = gbdax_ids(g_gbs_daxbuf, got, ids, 256);
+		for (i = 0; i < c && i < 256; i++) {
+			if (seen[ids[i]] && seen[ids[i]] != f)
+				dup = 1;
+			seen[ids[i]] = (unsigned char)f;
+		}
+	}
+	return dup;
+}
+
 /* Champions' and Death Knights' pictures (PIC1..9.DAX, BIGPIC1..9.DAX) as
- * the picture library `out` (PICA.CTL, BIGPIC.CTL in the design folder):
+ * the picture library `out` (PICA.CTL, BIGPIC.CTL in the design folder),
+ * of archive `only` alone when not 0 (Champions' PICB.CTL is PIC2's):
  * gbdaxart.c, reference tools/gbdaxart.py library over archive_blocks. The
  * pictures go in archive order, an id seen before left out, each id
  * `shift` higher (the big pictures, 112.., are FRUA's 240..). Two passes,
  * so no more than one archive and one picture are held at a time. Returns
  * 1 when `out` was written. */
-#define GBS_DAX_PICS 256
-static short gbs_open_game(const char *name);
-static int   gbs_dax_game(void);
 
-static int gbs_dax_art(const char *kind, unsigned shift, const char *out)
+static int gbs_dax_art(const char *kind, unsigned shift, const char *out,
+                       int only)
 {
 	static unsigned      id[GBS_DAX_PICS];
 	static unsigned char fileof[GBS_DAX_PICS];
@@ -107766,6 +107815,9 @@ static int gbs_dax_art(const char *kind, unsigned shift, const char *out)
 			char           name[16];
 			unsigned char  ids[256], *d;
 			short          refnum, r;
+
+			if (only && f != only)
+				continue;
 			long           len = 0, got = 0;
 			int            c, i;
 
@@ -107855,10 +107907,12 @@ static int gbs_game_art(const char *name, const char *design_path)
 		return 0;
 	base[k] = 0;
 	if (gbs_dax_game()) {               /* Champions, Death Knights */
-		if (strcmp(base, "PICA") == 0)
-			return gbs_dax_art("PIC", 0, design_path);
+		if (strncmp(base, "PIC", 3) == 0 && base[3] >= 'A' && base[3] <= 'I'
+		 && base[4] == 0)
+			return gbs_dax_art("PIC", 0, design_path,
+			                   gbs_dax_perfile() ? base[3] - 'A' + 1 : 0);
 		if (strcmp(base, "BIGPIC") == 0)
-			return gbs_dax_art("BIGPIC", 128, design_path);
+			return gbs_dax_art("BIGPIC", 128, design_path, 0);
 		return 0;
 	}
 	for (k = 0; k < (short)(sizeof lib / sizeof lib[0]); k++)
@@ -108599,6 +108653,9 @@ static char gbs_pic_letter(short id)
 {
 	if (id >= 240)
 		return 0;
+	if (g_gbs_dax)                  /* Champions, Death Knights */
+		return (char)('A' + (g_gbs_dax_perfile && g_gbs_ecl_file > 0
+		                     ? g_gbs_ecl_file - 1 : 0));
 	return (char)(id < 128 ? 'A' : id < 151 ? 'B' : 'C');
 }
 
@@ -109709,7 +109766,7 @@ static int gbs_native_map(short slot, gbg_map *m)
  * the archives KIND1.DAX..KIND9.DAX into `out`: by id, or (`by_index`) the
  * archives' blocks counted in order across the files, the area slots'
  * order (slot 5 + i). Returns its size, or -1; `*idout` is its id. */
-static unsigned char g_gbs_daxbuf[65536];
+static unsigned char g_gbs_dax_from;    /* the archive the last block came from */
 
 static long gbs_dax_block(const char *kind, int want, int by_index,
                           unsigned char *out, long max, unsigned *idout)
@@ -109745,6 +109802,7 @@ static long gbs_dax_block(const char *kind, int want, int by_index,
 				continue;
 			if (idout != NULL)
 				*idout = ids[i];
+			g_gbs_dax_from = (unsigned char)f;
 			return gbdax_block(g_gbs_daxbuf, got, ids[i], out, max);
 		}
 	}
@@ -109833,6 +109891,7 @@ static short gbs_native_script(short id)
 		                    (long)(GBS_MAX - GBS_HDR), NULL);
 		if (len <= 0)
 			return -1;
+		g_gbs_ecl_file = g_gbs_dax_from;
 		memcpy(g_gbs_buf, "GBS2", 4);
 		g_gbs_buf[4] = gbs_dax_dialect();
 		g_gbs_buf[5] = g_gbs_buf[6] = g_gbs_buf[7] = 0;
@@ -110577,6 +110636,7 @@ static void gbs_area_load(short geo_num)
 		return;
 	}
 	g_gbs_dax = (char)gbs_dax_game();
+	g_gbs_dax_perfile = (char)(g_gbs_dax && gbs_dax_perfile());
 	g_gbs_w   = g_gbs_desc[4];
 	g_gbs_h   = g_gbs_desc[5];
 	g_gbs_map = g_gbs_desc[6];
