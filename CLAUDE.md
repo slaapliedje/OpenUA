@@ -77,8 +77,11 @@ name.)
   Cleric/Fighter/Red Mage", "Knight of the Sword"; NULL under FRUA's.
   The hall reads Dark Queen heroes (.QCH in the design's SAVE) itself:
   `src/engine/qch.c` (reference gbchar.py) makes the .CCH stream and jt577
-  reads it from memory; a .CCH of the same stem shadows the .QCH, and the
-  hall never writes or deletes a .QCH.
+  reads it from memory; a .CCH of the same stem shadows the .QCH. The
+  hall never deletes a .QCH, but in a design on the Dark Queen's rules it
+  writes one back (`qch_write_back` after each .CCH, `qch_from_cch`,
+  reference gbchar.py `to_qch`): only a .QCH already there, the old file
+  supplying what FRUA's record cannot hold; DOSBox loads the result.
   Krynn's one coin is steel where FRUA's is platinum (same record word,
   rec[76], one for one); its name is DQK.EXE's money table
   (`g_rules->coin`). A design holding RULES.DAT plays by THAT, in place

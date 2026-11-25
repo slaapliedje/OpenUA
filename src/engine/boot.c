@@ -22893,14 +22893,16 @@ static void cch_fallback(char *base, short slot)
 
 /* Delete the saved-character file `base` from the design's SAVE folder. */
 static int qch_name(const char *fn);
+static void qch_write_back(const char *cch);
 
 static void cch_unlink(const char *base)
 {
 	unsigned char pstr[64];
 	char          path[64];
 
-	/* A .QCH is the game's own file, which the hall reads and never writes
-	 * (ADR-0026 step (d)): a hero saved, renamed or deleted leaves it be. */
+	/* A .QCH is the game's own file: the hall rewrites it from the hero's
+	 * .CCH (qch_write_back) but never deletes it, so a hero renamed or
+	 * deleted leaves it be. */
 	if (qch_name(base))
 		return;
 	design_save_path(path, base);
@@ -22974,6 +22976,7 @@ static void save_roster(void)
 #endif
 			g_a5_long(-6902) = (long)(uintptr_t)cg_pool[i];
 			l00e0(path, (void *)jt578);
+			qch_write_back(base);           /* ADR-0026: to the game too */
 			cch_copy(cg_pool_fn[i], base);
 		} else if (cg_pool_fn[i][0] != 0) {
 			cch_unlink(cg_pool_fn[i]);
@@ -43030,6 +43033,65 @@ static int qch_native(void)
 		return 0;
 	(void)FSClose(ref);
 	return 1;
+}
+
+/* ADR-0026 decision 4: a hero who came from the game goes back to it. In a
+ * design on the Dark Queen's rules, once the hall has written a hero's
+ * .CCH (save_roster), the .QCH of the same stem is written again from it
+ * (qch_from_cch; tools/gbchar.py to_qch), the old file supplying what
+ * FRUA's record cannot hold, so the original game loads the hero as he
+ * now is. Only a .QCH that is there already is rewritten: a hero made in
+ * OpenUA has no .QCH to start from. */
+static void qch_write_back(const char *cch)
+{
+	static unsigned char q[QCH_FIXED + QCH_ITEM * 255 + QCH_NODE * 64];
+	static unsigned char c[QCH_REC + 18 * 255 + 10 * 64];
+	static unsigned char out[QCH_FIXED + QCH_ITEM * 255 + QCH_NODE * 64];
+	char          stem[16], path[64];
+	unsigned char pstr[64];
+	short         ref, k;
+	long          qn = (long)sizeof q, cn = (long)sizeof c, len, count;
+
+	if (!qch_native())
+		return;
+	for (k = 0; k < 12 && cch[k] != 0 && cch[k] != '.'; k++)
+		stem[k] = cch[k];
+	if (cch[k] != '.')
+		return;
+	memcpy(stem + k, ".QCH", 5);
+	design_save_path(path, stem);
+	str_c2p(pstr, path);
+	if (FSOpen((ConstStr255Param)pstr, 0, &ref) != noErr)
+		return;                         /* no .QCH: nothing goes back */
+	(void)FSRead(ref, &qn, q);
+	(void)FSClose(ref);
+	design_save_path(path, cch);
+	str_c2p(pstr, path);
+	if (FSOpen((ConstStr255Param)pstr, 0, &ref) != noErr)
+		return;
+	(void)FSRead(ref, &cn, c);
+	(void)FSClose(ref);
+	len = qch_from_cch(c, cn, q, qn, out, (long)sizeof out);
+	if (len < 0) {
+		dbg_log("qch: not written back (the .CCH or .QCH is not one):");
+		dbg_log(cch);
+		return;
+	}
+	if (len == qn && memcmp(out, q, (size_t)len) == 0)
+		return;                         /* nothing changed */
+	design_save_path(path, stem);
+	str_c2p(pstr, path);
+	(void)FSDelete((ConstStr255Param)pstr, 0);
+	if (Create((ConstStr255Param)pstr, 0, 'OpUA', 'QCH ') != noErr
+	 || FSOpen((ConstStr255Param)pstr, 0, &ref) != noErr) {
+		dbg_log("qch: could not write back:");
+		dbg_log(stem);
+		return;
+	}
+	count = len;
+	(void)FSWrite(ref, &count, out);
+	(void)FSClose(ref);
+	dbg_file_str("qch: written back for the game: ", stem);
 }
 
 static signed char qch_read(const char *fn, unsigned char *rec)
