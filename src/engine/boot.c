@@ -1571,6 +1571,7 @@ static void gbs_new_game(void);   /* PORT: Gold Box script memory, at the end */
 static unsigned char krynn_moon_phase(short robe);
 static void          krynn_moons_day(void);
 static void          krynn_moons_new(void);
+static void          krynn_moons_draw(void);
 static unsigned char krynn_moon_bonus(const unsigned char *rec);
 static short         krynn_moon_save(const unsigned char *rec);
 static short         krynn_moon_level(const unsigned char *rec);
@@ -8900,6 +8901,7 @@ static void jt938(void)
 		jt384(posbuf, jt488("%d,%d", (int)px, (int)py));
 		jt94((short)26, (short)13, (short)7, (short)0, "%s", posbuf);
 	}
+	krynn_moons_draw();                     /* PORT: the Dark Queen's moons */
 }
 /* JT[97] (CODE 6 + 0x42a0) — draw `a` copies of char `ch` across cells from
  * (col,row), via jt1089 "%c". Cell (col,row) -> 8000-space (×4 + 8000); each
@@ -109793,6 +109795,93 @@ static void krynn_moons_day(void)
 		} else {
 			(void)ecl_poke(&g_gbs_vm, at, (unsigned short)(n + 1));
 		}
+	}
+}
+
+/* The moons on the frame. DQK draws them with the 3D view's frame (0x13038,
+ * after piece 12) and again when a phase moves (0x5dcd): FRAME piece 29 +
+ * phase for Solinari, 33 + phase for Lunitari, 37 + phase for Nuitari,
+ * 8x8 jewels whose own bearings put them under the view at x 40, 64 and
+ * 88, y 119 (measured on the DOS screen, all three at high sanction).
+ * FRUA's FRAME has no jewels and must not be replaced by the game's (its
+ * screen is built from FRUA's pieces), so the game's FRAME.TLB is
+ * converted, once, into the design folder as GBFRAME.CTL and the jewels
+ * are drawn from that. Their pixels are the game's EGA colours 0..15;
+ * the play screen keeps EGA 0, 1 and 6..15 (the text colours,
+ * port_hud_text_clut) but gives 2..5 to the 3D backdrop, so a jewel's
+ * dark green, cyan, red or magenta is drawn in its light twin (+8): the
+ * jewel keeps its colour and loses its dark shade. */
+static unsigned char g_moon_glib[40960];
+static long          g_moon_base;
+static char          g_moon_tried;
+
+static void krynn_moon_art(void)
+{
+	static const char *const sub[] = { "DISK1\\", "DISK2\\", "DISK3\\" };
+	char  in[210], out[210], file[24];
+	short k, refnum, n;
+	long  got = 0;
+
+	g_moon_tried = 1;
+	out[0] = 0;
+	jt431(out, &g_a5_31336);
+	jt431(out, "GBFRAME.CTL");
+	refnum = jt398(out, 0);
+	for (k = 0; refnum < 0 && k < 3; k++) {
+		strcpy(file, sub[k]);           /* not jt431, which joins with ':' */
+		strcat(file, "FRAME.TLB");
+		in[0] = 0;
+		jt431(in, &g_a5_31336);
+		jt431(in, file);
+		if (ua_dos_art_convert_file(in, out))
+			refnum = jt398(out, 0);
+	}
+	if (refnum < 0)
+		return;
+	while (got < (long)sizeof g_moon_glib) {
+		long left = (long)sizeof g_moon_glib - got;
+
+		n = jt401(refnum, g_moon_glib + got, (short)(left > 16384 ? 16384 : left));
+		if (n <= 0)
+			break;
+		got += n;
+	}
+	jt411(refnum);
+	if (got <= 0 || got >= (long)sizeof g_moon_glib
+	 || l37aa((long)(uintptr_t)g_moon_glib, 0) == 0)
+		return;
+	for (k = 29; k <= 40; k++) {
+		unsigned char m[8], *px;
+		short i;
+
+		px = (unsigned char *)(uintptr_t)
+		     l2856((long)(uintptr_t)g_moon_glib, k, m);
+		if (px == NULL || m[0] != 0 || m[1] != 8 || (m[7] & 0x0f) != 0)
+			return;                 /* not the 8x8 raw jewels measured */
+		for (i = 0; i < 64; i++)
+			if (px[i] >= 2 && px[i] <= 5)
+				px[i] = (unsigned char)(px[i] + 8);
+	}
+	g_moon_base = (long)(uintptr_t)g_moon_glib;
+}
+
+static void krynn_moons_draw(void)
+{
+	short m;
+
+	if (!krynn_moons_here() || g_a5_byte(-27990) != 4 || g_a5_12290 != 0)
+		return;
+	if (!g_moon_tried)
+		krynn_moon_art();
+	if (g_moon_base == 0)
+		return;
+	jt1193();                               /* clip = full screen */
+	for (m = 0; m < 3; m++) {
+		unsigned char p = (unsigned char)ecl_peek(&g_gbs_vm,
+		                      (unsigned short)(GBS_MOON_PHASE + m));
+
+		l309c((short)8000, (short)8000, g_moon_base,
+		      (short)(29 + 4 * m + (p & 3)));
 	}
 }
 
