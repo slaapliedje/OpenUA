@@ -109795,7 +109795,8 @@ static void gbs_rules(void)
  * file has nowhere to put it. So it goes in a file of its own beside the
  * slot, "<design>\SAVE\GBSAV<slot>.DAT":
  *
- *   "GBV1", u8 script loaded, u8 dialect, u8 pages, u8 0,
+ *   "GBV1", u8 script loaded, u8 dialect, u8 pages, u8 the area's art set
+ *   (LOAD_FILES' second operand; 0 in files from before it was kept),
  *   then per page: u8 page number, 256 words big-endian
  *
  * Only pages that hold something are written. Loading clears the memory
@@ -109825,7 +109826,7 @@ static short gbs_state_write(short ref)
 	head[4] = g_gbs_script;
 	head[5] = g_gbs_dialect;
 	head[6] = (unsigned char)pages;     /* 256 pages cannot all be in use */
-	head[7] = 0;
+	head[7] = g_gbs_backdrop;           /* LOAD_FILES' art set (0: none) */
 	count = 8;
 	(void)FSWrite(ref, &count, head);
 	for (p = 0; p < 256; p++) {
@@ -109865,6 +109866,8 @@ static short gbs_state_read(short ref)
 		if (g_gbs_vm.page[p] != NULL)
 			jt399(g_gbs_vm.page[p], (short)512, 0);
 	pages = head[6];
+	if (head[7] != 0)                   /* older files: 0, the set unknown */
+		g_gbs_backdrop = head[7];
 	for (p = 0; p < pages; p++) {
 		count = (long)sizeof buf;
 		if (FSRead(ref, &count, buf) != noErr || count != (long)sizeof buf)
@@ -109880,6 +109883,143 @@ static short gbs_state_read(short ref)
 	g_gbs_script = head[4];             /* gbs_state_load loads it */
 	g_gbs_state_ok = 1;
 	return 0;
+}
+
+/* ADR-0026 decision 4: in a design on the Dark Queen's rules a save is
+ * also written as the game's own SAVGAM<c>.QSV, which the original loads
+ * (gbv_write; tools/gbsave.py write_qsv). The cells the engine serves
+ * (the clock, the map, the party size, ...) are taken where the engine
+ * keeps them (gbs_var), the rest from script memory; each member's record
+ * is the .CCH the hall would write (jt578), as a .QCH (qch_from_cch) over
+ * the same hero's record in the base save, or his .QCH, for what FRUA's
+ * record cannot hold. The base is the slot's old .QSV, else the one the
+ * game ships (SAVGAMA.QSV in SAVE or the design folder). The engine still
+ * loads its own .CSV for the slot; the .QSV is for the game. */
+static int gbs_read_whole(const char *path, unsigned char *buf, long max)
+{
+	unsigned char pstr[64];
+	short         ref;
+	long          n = max;
+
+	str_c2p(pstr, path);
+	if (FSOpen((ConstStr255Param)pstr, 0, &ref) != noErr)
+		return -1;
+	(void)FSRead(ref, &n, buf);
+	(void)FSClose(ref);
+	return (int)n;
+}
+
+static void gbs_qsv_save(int slot)
+{
+	static unsigned char base[GBV_SIZE], out[GBV_SIZE], recs[GBV_SIZE];
+	static unsigned char c[QCH_REC + 18 * 255 + 10 * 64];
+	static unsigned char hq[QCH_FIXED + QCH_ITEM * 255 + QCH_NODE * 64];
+	unsigned char  cells[GBV_CELLS], pstr[64];
+	const unsigned char *rec[GBV_MEMBERS];
+	long           rlen[GBV_MEMBERS], used = 0, blen = -1, w, cn;
+	char           name[16], path[64], tmp[64];
+	gbv_save       b;
+	unsigned       n = 0, i;
+	unsigned short v;
+	short          x, y, ref;
+	long           m;
+
+	jt394(name, "SAVGAM%c.QSV", slot);
+	design_save_path(path, name);
+	blen = gbs_read_whole(path, base, (long)sizeof base);
+	if (blen != GBV_SIZE) {
+		design_save_path(path, "SAVGAMA.QSV");
+		blen = gbs_read_whole(path, base, (long)sizeof base);
+	}
+	if (blen != GBV_SIZE) {
+		path[0] = 0;
+		jt431(path, &g_a5_31336);
+		jt431(path, "SAVGAMA.QSV");
+		blen = gbs_read_whole(path, base, (long)sizeof base);
+	}
+	if (blen != GBV_SIZE || gbv_read(base, blen, &b) != 0)
+		blen = -1;
+	if (g_gbs_backdrop == 0 && blen > 0 && b.map == g_gbs_map)
+		g_gbs_backdrop = (unsigned char)b.backdrop;   /* same area: its set */
+	if (g_gbs_backdrop == 0)
+		dbg_log("gbs: the area's art set is not known; the game may not load this save");
+
+	for (i = 1; i <= GBV_CELLS; i++) {
+		if (!gbs_var(NULL, (unsigned short)i, &v, 0))
+			v = ecl_peek(&g_gbs_vm, (unsigned short)i);
+		cells[i - 1] = (unsigned char)v;
+	}
+	x = (short)(signed char)g_a5_byte(-12288);
+	y = (short)(signed char)g_a5_byte(-12287);
+
+	design_save_path(tmp, "GBQSVTMP.CCH");
+	for (m = g_a5_long(-27928); m != 0 && n < GBV_MEMBERS;
+	     m = *(long *)(uintptr_t)m) {
+		const unsigned char *bq = NULL;
+		long bql = 0, len;
+		unsigned k;
+
+		g_a5_long(-6902) = m;
+		if (l00e0(tmp, (void *)jt578) == 0)
+			break;
+		cn = gbs_read_whole(tmp, c, (long)sizeof c);
+		if (cn <= 0)
+			break;
+		for (k = 0; blen > 0 && k < b.members; k++)   /* him, in the base */
+			if (memcmp(base + b.at[k] + QCH_NAME, c + 96, 16) == 0) {
+				bq = base + b.at[k];
+				bql = b.len[k];
+				break;
+			}
+		if (bq == NULL) {                               /* else his .QCH */
+			char stem[16];
+			int  q;
+
+			cch_file_name((unsigned char *)(uintptr_t)m, stem);
+			for (q = 0; stem[q] && stem[q] != '.'; q++)
+				;
+			memcpy(stem + q, ".QCH", 5);
+			design_save_path(path, stem);
+			bql = gbs_read_whole(path, hq, (long)sizeof hq);
+			bq = bql >= QCH_FIXED ? hq : NULL;
+		}
+		len = qch_from_cch(c, cn, bq, bq ? bql : 0, recs + used,
+		                   (long)sizeof recs - used);
+		if (len < 0)
+			break;
+		rec[n] = recs + used;
+		rlen[n] = len;
+		used += len;
+		n++;
+	}
+	str_c2p(pstr, tmp);
+	(void)FSDelete((ConstStr255Param)pstr, 0);
+
+	{
+		unsigned char d = 0;
+
+		if (x >= 0 && x < g_gbs_w && y >= 0 && y < g_gbs_h)
+			d = g_gbs_desc[GBS_HDR + (long)y * g_gbs_w + x];
+		w = gbv_write(cells, (unsigned char)x, (unsigned char)y,
+		              (unsigned char)(((unsigned char)g_a5_byte(-12286) >> 1) & 3),
+		              d, g_gbs_backdrop, rec, rlen, n, blen > 0 ? base : NULL,
+		              blen > 0 ? blen : 0, out, (long)sizeof out);
+	}
+	if (w != GBV_SIZE) {
+		dbg_log_num("gbs: the game's save could not be made: ", w);
+		return;
+	}
+	design_save_path(path, name);
+	str_c2p(pstr, path);
+	(void)FSDelete((ConstStr255Param)pstr, 0);
+	if (Create((ConstStr255Param)pstr, 0, 'OpUA', 'QSV ') == noErr
+	 && FSOpen((ConstStr255Param)pstr, 0, &ref) == noErr) {
+		long count = GBV_SIZE;
+
+		(void)FSWrite(ref, &count, out);
+		(void)FSClose(ref);
+		dbg_file_str("gbs: the game's own save written: ", name);
+	}
 }
 
 static void gbs_state_name(char *out, int slot)
@@ -109899,6 +110039,8 @@ static void gbs_state_save(int slot)
 	gbs_state_name(fn, slot);
 	if (l00e0(fn, (void *)gbs_state_write) == 0)
 		dbg_log("gbs: script memory could NOT be written beside the save");
+	if (g_gbs_dialect == ECL_GEN2 && qch_native())
+		gbs_qsv_save(slot);
 }
 
 static void gbs_state_load(int slot)
@@ -110364,6 +110506,9 @@ static int gbs_qsv_load(int slot)
 		}
 		g_gbs_nmon = 0;
 	}
+	/* the area's art set (DS:0xca03), after the load's new-game reset */
+	if (s.backdrop != 0 && s.backdrop < 256)
+		g_gbs_backdrop = (unsigned char)s.backdrop;
 	dbg_log_num("gbs: Dark Queen save loaded, map ", (long)s.map);
 	return 1;
 }
