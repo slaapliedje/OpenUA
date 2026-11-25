@@ -75,6 +75,10 @@ def test_walk_exception_admits_only_movement_esc_and_return():
     assert m, "the kind-mask bypass is gone entirely -- keys now always return"
     cond = m.group("cond")
     assert "g_walk_input" in cond, "the walk exception vanished; movement breaks"
+    assert re.search(r"g_a5_27990\s*==\s*5", cond), (
+        "the walk exception no longer keeps out combat view (-27990 == 5): a "
+        "fight runs inside the walk loop with g_walk_input set, and Esc or "
+        "Return returned as an event lands on the combat field's hit-test")
     assert re.search(r"ascii\s*>=\s*257", cond) and \
            re.search(r"ascii\s*<=\s*264", cond), (
         "the walk exception no longer restricts to the 257..264 movement "
@@ -90,10 +94,11 @@ def test_phase1_shortcircuit_covers_the_same_set():
     routed (falls into the hit-test) or routed but never delivered.
     """
     m = re.search(
-        r"if\s*\(\s*g_walk_input\s*&&\s*\(\s*\(\s*kc\s*>=\s*257\s*&&"
+        r"if\s*\(\s*g_walk_input\s*&&\s*\(\s*unsigned\s+char\s*\)\s*g_a5_27990"
+        r"\s*!=\s*5\s*&&\s*\(\s*\(\s*kc\s*>=\s*257\s*&&"
         r"\s*kc\s*<=\s*264\s*\)\s*\|\|\s*kc\s*==\s*27\s*\|\|\s*kc\s*==\s*13\s*\)",
         CODE)
     assert m, (
-        "Phase 1's walk short-circuit no longer matches {257..264, 27, 13}; it "
-        "must stay in step with the kind-mask exception or a key falls through "
+        "Phase 1's walk short-circuit no longer matches {257..264, 27, 13} "
+        "outside combat view; it must stay in step with the kind-mask exception or a key falls through "
         "to the coordinate hit-test")

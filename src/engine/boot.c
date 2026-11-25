@@ -24613,8 +24613,14 @@ static short  jt1125(short kind, long p1, long p2)
 		 * misfires intermittently. Letters still reach the command bar via
 		 * the -818/-820 pending stamp above — that is the accelerator path,
 		 * and it does not go through the hit-test. */
+		/* ...and not in a fight, which runs INSIDE the walk loop (a
+		 * step's event starts it) with g_walk_input still set: there
+		 * the keys keep to the pending stamp, where the combat
+		 * prompt's own filter (jt138) takes the arrows, and Esc and
+		 * Return never reach the hit-test. Same set as l2d3e's
+		 * Phase 1 short-circuit. */
 		if ((kind & (8 | 32)) == 0
-		 && (!g_walk_input
+		 && (!g_walk_input || (unsigned char)g_a5_27990 == 5
 		  || !((ascii >= 257 && ascii <= 264) || ascii == 27 || ascii == 13))) {
 #ifdef FRUA_ACCTRACE
 			if (g_walk_input)
