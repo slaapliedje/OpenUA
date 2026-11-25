@@ -107597,6 +107597,31 @@ static int gbs_game_art(const char *name, const char *design_path)
  * CONTINUE with nothing new still waits for Return on it. */
 static char g_gbs_cont;
 
+/* The panel's square, clock and compass while a Dark Queen script runs.
+ * The script's own cells are where the party stands and which way it
+ * faces (gbs_apply carries them into the engine only when the run ends),
+ * and its clock cells are FRUA's h[5..11] already; the DOS game's panel
+ * shows them with the script's first text (Palanthas's arrival: 1,2,
+ * 9:00 AM, facing west, where the port showed 0,0, 12:00 AM, east). */
+static void gbs_panel(void)
+{
+	unsigned char keep[3];
+	short k;
+
+	if (g_gbs_dialect != ECL_GEN2 || g_a5_byte(-27990) != 4
+	 || g_a5_28006 == 0)
+		return;
+	for (k = 0; k < 3; k++)
+		keep[k] = g_a5_byte(-12288 + k);
+	g_a5_byte(-12288) = (unsigned char)ecl_peek(&g_gbs_vm, GBS2_X);
+	g_a5_byte(-12287) = (unsigned char)ecl_peek(&g_gbs_vm, GBS2_Y);
+	g_a5_byte(-12286) = (unsigned char)((ecl_peek(&g_gbs_vm, GBS2_FACING) & 3) * 2);
+	jt938();
+	port_draw_compass();
+	for (k = 0; k < 3; k++)
+		g_a5_byte(-12288 + k) = keep[k];
+}
+
 static void gbs_draw(int confirm)
 {
 	if (g_gbs_textlen == 0) {
@@ -107618,6 +107643,7 @@ static void gbs_draw(int confirm)
 		jt20();
 		if (!g_gbs_pic && !g_gbs_sprite_up) /* l40b4 redraws the 3D view */
 			l40b4();            /* over the picture or sprite, if one is up */
+		gbs_panel();
 		g_a5_byte(-27911) = 17;
 		g_a5_byte(-27912) = 1;
 	} else if ((unsigned char)g_a5_byte(-27912) > 1 && g_gbs_text[0] != '\n') {
