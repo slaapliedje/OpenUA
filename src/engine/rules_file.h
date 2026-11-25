@@ -55,6 +55,10 @@ typedef struct rlf_rules {
 	const char *race_name[RLF_MAX_RACES + 1]; /* the last the monster's  */
 	const char *kind_label[RLF_KINDS];
 	const char *race_label[RLF_MAX_RACES];
+	/* SLOT and PROG: names for the text only, which the engine never
+	 * shows; read when present, and needed to write a file */
+	const char *slot_name[RLF_SLOTS];
+	const char *prog_name[RLF_MAX_PROGS];
 	/* SHET, the character sheet's words; all NULL when absent */
 	const char *sheet_kind[RLF_KINDS];
 	const char *god_name[RLF_GODS];
@@ -73,6 +77,13 @@ typedef struct rlf_rules {
 /* Parse the file `q` (`len` bytes). 0, or an RLF_E code; `*what`, when not
  * NULL, is set to the chunk at fault. */
 int rlf_parse(const unsigned char *q, long len, rlf_rules *r, const char **what);
+
+/* Write `r` as a file into `out` (`max` bytes): what tools/rules.py's
+ * to_bytes writes for the same ruleset, byte for byte. Every name list,
+ * the slot and progression names included, and every table must be
+ * there. The bytes written, or -1 when `out` is too small or a name
+ * does not fit. */
+long rlf_write(const rlf_rules *r, unsigned char *out, long max);
 
 /* The tag a table is kept under ("RKND"), for messages. */
 const char *rlf_tag(int table);

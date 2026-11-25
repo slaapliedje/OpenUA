@@ -129,6 +129,25 @@ def test_synthetic_rulesets_match_reference(cbin, tmp_path, shape):
     assert rules.to_bytes(rules.from_text(rules.to_text(back))) == data
 
 
+def c_write(cbin, path, out):
+    """rlf_write's file for the one rlf_parse read at `path`."""
+    subprocess.run([cbin, "-w", str(path), str(out)], check=True)
+    return out.read_bytes()
+
+
+@pytest.mark.parametrize("shape", SHAPES)
+def test_writer_matches_reference(cbin, tmp_path, shape):
+    """rlf_write gives back, byte for byte, the file rules.py's to_bytes
+    wrote: every shape, with and without a coin, the sheet's words and the
+    progression selectors (some of the three absent)."""
+    rnd = random.Random((hash(shape) + 1) & 0xffff)
+    rs = synthetic(rnd, *shape)
+    data = rules.to_bytes(rs)
+    p = tmp_path / "RULES.DAT"
+    p.write_bytes(data)
+    assert c_write(cbin, p, tmp_path / "OUT.DAT") == data
+
+
 def broken(rs, tag, fn):
     """The file for `rs` with chunk `tag`'s data passed through fn (None
     drops the chunk)."""
@@ -234,6 +253,7 @@ def test_frua_ruleset(cbin, tmp_path):
     p = tmp_path / "FRUA.DAT"
     p.write_bytes(data)
     assert c_read(cbin, p) == expected(rs)
+    assert c_write(cbin, p, tmp_path / "OUT.DAT") == data
     assert rules.to_bytes(rules.from_text(rules.to_text(rs))) == data
 
 
@@ -250,6 +270,7 @@ def test_dqk_ruleset(cbin, tmp_path):
     p = tmp_path / "KRYNN.DAT"
     p.write_bytes(data)
     assert c_read(cbin, p) == expected(rs)
+    assert c_write(cbin, p, tmp_path / "OUT.DAT") == data
     assert rules.to_bytes(rules.from_text(rules.to_text(rs))) == data
 
 

@@ -3,11 +3,13 @@
  * only by tests/test_rules_file.py. Not part of any engine build.
  *
  *   rules_file_host <RULES.DAT>
+ *   rules_file_host -w <RULES.DAT> <OUT>
  *
  * prints what the parser found, a line each: "head" and the header's
  * numbers, "name"/"coin" and the string, each name list ("knam ..." the
  * names joined by '|'), each table as "<TAG> <hex>", and "sel <slot> <hex>"
- * for each selector; or "ERR <code> <chunk>".
+ * for each selector; or "ERR <code> <chunk>". With -w it parses the file
+ * and writes it back out with rlf_write, for the test to compare.
  */
 #include <stdio.h>
 
@@ -32,6 +34,24 @@ int main(int argc, char **argv)
 	long        n, k;
 	int         rc, i;
 
+	if (argc == 4 && argv[1][0] == '-' && argv[1][1] == 'w') {
+		static unsigned char o[65536];
+
+		if ((f = fopen(argv[2], "rb")) == NULL)
+			return 2;
+		n = (long)fread(q, 1, sizeof q, f);
+		fclose(f);
+		if ((rc = rlf_parse(q, n, &r, &what)) != 0) {
+			printf("ERR %d %.4s\n", rc, what ? what : "-");
+			return 1;
+		}
+		if ((n = rlf_write(&r, o, (long)sizeof o)) < 0
+		    || (f = fopen(argv[3], "wb")) == NULL)
+			return 1;
+		fwrite(o, 1, (size_t)n, f);
+		fclose(f);
+		return 0;
+	}
 	if (argc != 2 || (f = fopen(argv[1], "rb")) == NULL)
 		return 2;
 	n = (long)fread(q, 1, sizeof q, f);

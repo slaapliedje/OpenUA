@@ -89,9 +89,9 @@ int rlf_parse(const unsigned char *q, long len, rlf_rules *r, const char **what)
 {
 	static const char *const named[] = { "HEAD", "NAME", "COIN", "KNAM",
 	                                     "RNAM", "KLAB", "RLAB", "PSEL",
-	                                     "SHET" };
+	                                     "SHET", "SLOT", "PROG" };
 	enum { C_HEAD, C_NAME, C_COIN, C_KNAM, C_RNAM, C_KLAB, C_RLAB, C_PSEL,
-	       C_SHET, C_NAMED };
+	       C_SHET, C_SLOT, C_PROG, C_NAMED };
 	chunk    c[C_NAMED], t[RLF_TABLES];
 	long     p = 8;
 	int      i, k;
@@ -173,6 +173,15 @@ int rlf_parse(const unsigned char *q, long len, rlf_rules *r, const char **what)
 		}
 	}
 
+	/* the text's names: optional here, the engine never shows them */
+	*what = "SLOT";
+	if (c[C_SLOT].data != NULL && !strings(c[C_SLOT], r->slot_name, RLF_SLOTS))
+		return RLF_ENAMES;
+	*what = "PROG";
+	if (c[C_PROG].data != NULL
+	    && !strings(c[C_PROG], r->prog_name, r->progressions))
+		return RLF_ENAMES;
+
 	*what = "SHET";
 	if (c[C_SHET].data != NULL) {
 		const char *w[RLF_KINDS + RLF_GODS + RLF_ROBES + RLF_ORDERS];
@@ -252,4 +261,131 @@ int rlf_parse(const unsigned char *q, long len, rlf_rules *r, const char **what)
 	}
 	*what = 0;
 	return 0;
+}
+
+/* ---- writing --------------------------------------------------------- */
+
+typedef struct {
+	unsigned char *out;
+	long           max, n, start;
+	int            bad;
+} wbuf;
+
+static void put(wbuf *w, const void *p, long n)
+{
+	if (w->bad || w->n + n > w->max) {
+		w->bad = 1;
+		return;
+	}
+	memcpy(w->out + w->n, p, (size_t)n);
+	w->n += n;
+}
+
+/* A chunk is its tag, a big-endian u16 length, a u16 0, the data, and
+ * zeros to a multiple of 4: open one, put its data, close it. */
+static void open_chunk(wbuf *w, const char *tag)
+{
+	static const unsigned char zero[4];
+
+	put(w, tag, 4);
+	put(w, zero, 4);
+	w->start = w->n;
+}
+
+static void close_chunk(wbuf *w)
+{
+	static const unsigned char zero[4];
+	long n = w->n - w->start;
+
+	if (w->bad)
+		return;
+	if (n > 0xffff) {
+		w->bad = 1;
+		return;
+	}
+	w->out[w->start - 4] = (unsigned char)(n >> 8);
+	w->out[w->start - 3] = (unsigned char)n;
+	put(w, zero, -n & 3);
+}
+
+static void put_strings(wbuf *w, const char *const *xs, int n)
+{
+	int i;
+
+	for (i = 0; i < n; i++) {
+		size_t k;
+
+		if (xs[i] == NULL || (k = strlen(xs[i])) > 40) {
+			w->bad = 1;
+			return;
+		}
+		put(w, xs[i], (long)k + 1);
+	}
+}
+
+static void string_chunk(wbuf *w, const char *tag, const char *const *xs, int n)
+{
+	open_chunk(w, tag);
+	put_strings(w, xs, n);
+	close_chunk(w);
+}
+
+long rlf_write(const rlf_rules *r, unsigned char *out, long max)
+{
+	wbuf w;
+	unsigned char head[8];
+	int  i, k, any = 0;
+
+	w.out = out, w.max = max, w.n = 0, w.start = 0, w.bad = 0;
+	put(&w, "UARULES1", 8);
+	head[0] = r->races, head[1] = r->progressions, head[2] = r->xp_levels;
+	head[3] = r->kind_row, head[4] = r->spell_rows;
+	head[5] = r->default_race, head[6] = r->flags, head[7] = 0;
+	open_chunk(&w, "HEAD");
+	put(&w, head, 8);
+	close_chunk(&w);
+	string_chunk(&w, "NAME", &r->name, 1);
+	if (r->coin != NULL)
+		string_chunk(&w, "COIN", &r->coin, 1);
+	string_chunk(&w, "KNAM", r->kind_name, RLF_KINDS);
+	string_chunk(&w, "RNAM", r->race_name, r->races + 1);
+	string_chunk(&w, "KLAB", r->kind_label, RLF_KINDS);
+	string_chunk(&w, "RLAB", r->race_label, r->races);
+	string_chunk(&w, "SLOT", r->slot_name, RLF_SLOTS);
+	string_chunk(&w, "PROG", r->prog_name, r->progressions);
+	for (i = 0; i < RLF_TABLES; i++) {
+		long want = dim(r, k_tab[i].rows) * dim(r, k_tab[i].cols)
+		          * k_tab[i].width;
+
+		if (r->table[i] == NULL || r->table_len[i] != want)
+			return -1;
+		open_chunk(&w, k_tab[i].tag);
+		put(&w, r->table[i], want);
+		close_chunk(&w);
+	}
+	if (r->god_name[0] != NULL) {
+		open_chunk(&w, "SHET");
+		put_strings(&w, r->sheet_kind, RLF_KINDS);
+		put_strings(&w, r->god_name, RLF_GODS);
+		put_strings(&w, r->robe_name, RLF_ROBES);
+		put_strings(&w, r->order_name, RLF_ORDERS);
+		close_chunk(&w);
+	}
+	for (i = 0; i < RLF_SELECTORS; i++)
+		if (r->sel_slot[i] != 255)
+			any = 1;
+	if (any) {
+		open_chunk(&w, "PSEL");
+		for (i = 0; i < RLF_SELECTORS; i++) {
+			put(&w, &r->sel_slot[i], 1);
+			for (k = 0; k < k_sel_len[i]; k++) {
+				unsigned char v = r->sel_slot[i] != 255 && r->sel[i] != NULL
+				                ? r->sel[i][k] : 0;
+
+				put(&w, &v, 1);
+			}
+		}
+		close_chunk(&w);
+	}
+	return w.bad ? -1 : w.n;
 }
