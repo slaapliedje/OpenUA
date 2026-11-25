@@ -85,6 +85,9 @@ int rlf_parse(const unsigned char *q, long len, rlf_rules *r, const char **what)
  * does not fit. */
 long rlf_write(const rlf_rules *r, unsigned char *out, long max);
 
+/* The bytes table `table` holds under `r`'s header numbers. */
+long rlf_table_len(const rlf_rules *r, int table);
+
 /* The tag a table is kept under ("RKND"), for messages. */
 const char *rlf_tag(int table);
 

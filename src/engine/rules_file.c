@@ -60,6 +60,14 @@ static long dim(const rlf_rules *r, int n)
 	}
 }
 
+long rlf_table_len(const rlf_rules *r, int table)
+{
+	if (table < 0 || table >= RLF_TABLES)
+		return 0;
+	return dim(r, k_tab[table].rows) * dim(r, k_tab[table].cols)
+	     * k_tab[table].width;
+}
+
 typedef struct {
 	const unsigned char *data;
 	long                 len;

@@ -7,6 +7,7 @@
  */
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "rules.h"
 #include "rules_file.h"
@@ -378,6 +379,122 @@ fail:
 		DisposePtr((Ptr)s_file);
 	s_file = NULL;
 	return NULL;
+}
+
+/* The names a file keeps for its text only (rules.py FRUA_SLOTS and
+ * gbrules.SLOTS / PROGRESSIONS), which no ruleset in memory carries. */
+static const char *const k_frua_slots[RLF_SLOTS] = {
+	"cleric", "druid", "fighter", "paladin", "ranger", "magic-user", "thief"
+};
+static const char *const k_dqk_slots[RLF_SLOTS] = {
+	"cleric", "knight", "fighter", "paladin", "ranger", "mage", "thief"
+};
+static const char *const k_dqk_progs[GBR_PROGS] = {
+	"cleric of good", "cleric of neutrality", "fighter",
+	"knight of the crown", "knight of the sword", "knight of the rose",
+	"ranger", "white robe mage", "red robe mage", "thief", "paladin"
+};
+
+long rules_write(const ruleset_t *rs, const char *(*strs)(unsigned short),
+                 unsigned char *out, long max)
+{
+	static const int kslot[RLF_SELECTORS] = { 0, 1, 5 };
+	static const unsigned char kn[RLF_SELECTORS] = { RLF_GODS, RLF_ORDERS,
+	                                                 RLF_ROBES };
+	unsigned char sel[RLF_SELECTORS][RLF_GODS];
+	rlf_rules     r;
+	int           i, k, rows = 0;
+
+	if (rs == &s_rules_file)                /* a design's own: as it came */
+		return rlf_write(&s_rlf, out, max);
+	memset(&r, 0, sizeof r);
+	r.races = rs->races;
+	r.progressions = rs->progressions;
+	r.xp_levels = rs->xp_levels;
+	r.kind_row = rs->race_kinds_stride;
+	for (i = 0; i < rs->progressions; i++)  /* the rows the slots cast by */
+		if (rs->slot_spell_row[i] != 255 && rs->slot_spell_row[i] + 1 > rows)
+			rows = rs->slot_spell_row[i] + 1;
+	r.spell_rows = (unsigned char)rows;
+	r.default_race = rs->default_race;
+	r.flags = (unsigned char)((rs->prime_limits ? RLF_FLAG_PRIME_LIMITS : 0)
+	                          | (rs->knights ? RLF_FLAG_KNIGHTS : 0));
+	r.name = rs->name;
+	r.coin = rs->coin;
+	for (i = 0; i < RLF_KINDS; i++)
+		r.kind_name[i] = (const char *)(uintptr_t)
+		                 ((const long *)(const void *)rs->kind_names)[i];
+	for (i = 0; i <= rs->races; i++)
+		r.race_name[i] = (const char *)(uintptr_t)
+		                 ((const long *)(const void *)rs->race_names)[i];
+	for (i = 0; i < RLF_KINDS; i++)
+		r.kind_label[i] = rs->kind_label_text ? rs->kind_label_text[i]
+		                : strs(rs->kind_label_strs[i]);
+	for (i = 0; i < rs->races; i++)
+		r.race_label[i] = rs->race_label_text ? rs->race_label_text[i]
+		                : strs(rs->race_label_strs[i]);
+	for (i = 0; i < RLF_SLOTS; i++)
+		r.slot_name[i] = rs->knights ? k_dqk_slots[i] : k_frua_slots[i];
+	for (i = 0; i < rs->progressions; i++)
+		r.prog_name[i] = rs->knights && rs->progressions == GBR_PROGS
+		               ? k_dqk_progs[i] : k_frua_slots[i < RLF_SLOTS ? i : 0];
+	if (rs->god_name != NULL) {
+		for (i = 0; i < RLF_KINDS; i++)
+			r.sheet_kind[i] = rs->sheet_kind[i];
+		for (i = 0; i < RLF_GODS; i++)
+			r.god_name[i] = rs->god_name[i];
+		for (i = 0; i < RLF_ROBES; i++)
+			r.robe_name[i] = rs->robe_name[i];
+		for (i = 0; i < RLF_ORDERS; i++)
+			r.order_name[i] = rs->order_name[i];
+	}
+
+	r.table[RLF_RACE_BASE] = rs->race_base;
+	r.table[RLF_KIND_LIST] = rs->kind_list;
+	r.table[RLF_RACE_KINDS] = rs->race_kinds;
+	r.table[RLF_KIND_ALIGNS] = rs->kind_aligns;
+	r.table[RLF_KIND_ABILITY_MIN] = rs->kind_ability_min;
+	r.table[RLF_RACE_ABILITIES] = rs->race_abilities;
+	r.table[RLF_RACE_AGE_CAT] = rs->race_age_cat;
+	r.table[RLF_RACE_START_AGE] = rs->race_start_age;
+	r.table[RLF_RACE_LEVEL_CAP] = rs->race_level_cap;
+	r.table[RLF_SLOT_XP] = rs->slot_xp;
+	r.table[RLF_SLOT_XP_STEP] = rs->slot_xp_step;
+	r.table[RLF_SLOT_SPELL_ROW] = rs->slot_spell_row;
+	r.table[RLF_SPELL_SLOTS] = rs->spell_slots;
+	r.table[RLF_SLOT_PROG] = rs->slot_prog;
+	r.table[RLF_SLOT_THAC0] = rs->slot_thac0;
+	r.table[RLF_SLOT_SAVES] = rs->slot_saves;
+	r.table[RLF_SLOT_ITEM_BIT] = rs->slot_item_bit;
+	r.table[RLF_SLOT_HALL_BIT] = rs->slot_hall_bit;
+	r.table[RLF_SLOT_NAME_LEVEL] = rs->slot_name_level;
+	r.table[RLF_SLOT_HD_COUNT] = rs->slot_hd_count;
+	r.table[RLF_SLOT_HD_SIZE] = rs->slot_hd_size;
+	r.table[RLF_THIEF_SKILLS] = rs->thief_skills;
+	r.table[RLF_RACE_THIEF_ADJ] = rs->race_thief_adj;
+	for (i = 0; i < RLF_TABLES; i++)
+		r.table_len[i] = rlf_table_len(&r, i);
+
+	/* The progression a slot plays by, by god, order or robe: asked of
+	 * the ruleset's own (DQK.EXE 0xbb19), for the slot each picks. */
+	for (i = 0; i < RLF_SELECTORS; i++)
+		r.sel_slot[i] = 255;
+	if (rs->prog != NULL) {
+		for (i = 0; i < RLF_SELECTORS; i++) {
+			for (k = 0; k < kn[i]; k++) {
+				unsigned char rec[REC_KRYNN + 1];
+
+				memset(rec, 0, sizeof rec);
+				rec[REC_KRYNN] = i == 0 ? KRYNN_PACK(k, 0, 0)
+				               : i == 1 ? KRYNN_PACK(0, 0, k)
+				               : KRYNN_PACK(0, k, 0);
+				sel[i][k] = rs->prog(rec, kslot[i]);
+			}
+			r.sel_slot[i] = (unsigned char)kslot[i];
+			r.sel[i] = sel[i];
+		}
+	}
+	return rlf_write(&r, out, max);
 }
 
 const char *rules_money_name(int i)

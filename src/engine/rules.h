@@ -182,4 +182,11 @@ const ruleset_t *rules_load_dqk(short refnum);
  * file read, so call it only while g_rules is not that file's. */
 const ruleset_t *rules_load_file(short refnum);
 
+/* Write `rs` as a RULES.DAT (rules_file.h's rlf_write) into `out`, `max`
+ * bytes: what `rules.py frua` / `rules.py dqk` then `rules.py compile`
+ * write for the same rules. A label kept as STRS text (FRUA's) is read
+ * through `strs`. The bytes written, or -1. */
+long rules_write(const ruleset_t *rs, const char *(*strs)(unsigned short),
+                 unsigned char *out, long max);
+
 #endif

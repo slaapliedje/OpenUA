@@ -17824,6 +17824,8 @@ static void        l4226(void *rec_v)
 }
 static short       jt354(void)                          { PROBE("jt354"); return (short)jt1160(); }   /* CODE 8+0x5ef8: thunk to JT[1160] */
 static void        jt365(void);                                                               /* CODE 8+0x7238 — full lift below jt129 */
+static void        port_new_design_rules(const char *dsn);
+static char        g_gbs_rules_again;
 /* JT[358] (CODE 8+0x6e4a) — read the game counter byte g_a5_-10374
  * (shown in the status line via jt367; gated by jt273). */
 static short       jt358(void)                          { PROBE("jt358"); return (short)(unsigned char)g_a5_byte(-10374); }
@@ -31206,6 +31208,8 @@ static int   jt315(void)
 				jt128();
 				g_a5_byte(-11662) = 1;
 				l7222();
+				/* PORT (ADR-0026 step (g)): the new design's rules */
+				port_new_design_rules((const char *)&g_a5_31336);
 			} else {
 				jt135();
 				jt361((short)0);
@@ -77013,6 +77017,82 @@ static void jt129(long name, short num, short w, long dest)
  * position up and reset the tail to 'A') until jt990 finds no existing NAME.DSN.
  * Persists the winner (jt431/jt435 path build, jt133 sets the design name) and
  * shows the game-name prompt (jt129 "GAME").  All-JT; the former stub. */
+/* PORT (ADR-0026 step (g)): the rules a new design plays by. FRUA's are
+ * built in and need no file; when some design folder holds the Dark
+ * Queen's DQK.EXE, Create New Design asks "Rules: FRUA Krynn", and Krynn's
+ * are read from that DQK.EXE and written into the new design as RULES.DAT
+ * (rules_write: what `rules.py dqk` then `rules.py compile` write). The
+ * design then plays by them with FRUA's items, pictures and monsters: the
+ * game's own come only with its files. */
+static const char *port_strs16(unsigned short off)
+{
+	return ua_strs_at((long)off);
+}
+
+static void port_new_design_rules(const char *dsn)
+{
+	enum { MAXD = 16 };
+	char          dirs[MAXD][16], path[202];
+	unsigned char pname[256];
+	unsigned char *buf;
+	signed char   is_dir = 0;
+	short         n = 0, k, refnum = -1, ref;
+	long          entry, len, count;
+	const ruleset_t *rs;
+
+	if (jt990((short)0, "*.DSN", NULL, (short)0, (short)1)) {
+		for (entry = jt991(&is_dir); entry != 0; entry = jt991(&is_dir))
+			if (n < MAXD && strlen((const char *)(uintptr_t)entry) < 16
+			 && strcmp((const char *)(uintptr_t)entry, dsn) != 0)
+				strcpy(dirs[n++], (const char *)(uintptr_t)entry);
+	}
+	for (k = 0; k < n && refnum < 0; k++) {
+		path[0] = 0;
+		jt431(path, dirs[k]);
+		jt431(path, "DQK.EXE");
+		refnum = jt398(path, 0);
+	}
+	if (refnum < 0)
+		return;                         /* no Krynn to offer: FRUA's */
+	/* as the main menu asks Quit's question (jt76, then jt159's jt182) */
+	jt76();
+	jt179(1);                               /* two buttons' shortcut slots */
+	/* a button starts at each capital (l2184): "Frua", shown "FRUA" */
+	if ((jt182("Rules:", (long)(uintptr_t)"Frua Krynn", 1, g_a5_22281)
+	     & 0xff) != 1) {
+		jt411(refnum);
+		return;
+	}
+	rs = rules_load_dqk(refnum);
+	jt411(refnum);
+	buf = (unsigned char *)NewPtr(16384);
+	if (rs == NULL || buf == NULL) {
+		if (buf != NULL)
+			DisposePtr((Ptr)buf);
+		return;
+	}
+	len = rules_write(rs, port_strs16, buf, 16384);
+	path[0] = 0;
+	jt431(path, dsn);
+	jt431(path, "RULES.DAT");
+	k = (short)strlen(path);
+	pname[0] = (unsigned char)k;
+	memcpy(pname + 1, path, (size_t)k);
+	if (len > 0
+	 && Create((ConstStr255Param)pname, 0, 'OpUA', 'RULE') == noErr
+	 && FSOpen((ConstStr255Param)pname, 0, &ref) == noErr) {
+		count = len;
+		if (FSWrite(ref, &count, buf) != noErr || count != len)
+			dbg_log("rules: RULES.DAT could not be written");
+		FSClose(ref);
+		dbg_log("rules: a new design plays by Krynn's (RULES.DAT)");
+		g_gbs_rules_again = 1;          /* it was current before the file */
+	}
+	DisposePtr((Ptr)buf);
+	if (g_gbs_rules_again)
+		gbs_rules();
+}
+
 static void jt365(void)
 {
 	char  name[200];    /* fp@(-202) — the design name being generated */
@@ -109576,6 +109656,8 @@ static long gbs_exe_read(void *ctx, long off, void *buf, long len)
 	return count;
 }
 
+static char g_gbs_rules_again;          /* the design's rules changed: reread */
+
 static void gbs_rules(void)
 {
 	static char have[202];
@@ -109583,8 +109665,9 @@ static void gbs_rules(void)
 	char        dpath[202];
 	short       refnum, k;
 
-	if (strcmp(dir, have) == 0)
+	if (strcmp(dir, have) == 0 && !g_gbs_rules_again)
 		return;
+	g_gbs_rules_again = 0;
 	for (k = 0; k < (short)sizeof have - 1 && dir[k] != 0; k++)
 		have[k] = dir[k];
 	have[k] = 0;
