@@ -2081,6 +2081,15 @@ arm, now done under Krynn's rules. Checked in Hatari: the memorized Special
 spell is offered by CAST in a fight (Caergoth's dragons) and targets with the
 range rule (touch: only an adjacent dragon); the damage at the clerical level
 was not seen, the fight never put Cinder beside a dragon with her turn free.
+(Later, 2026-11-25: seen. FRUA's own spell table already holds the Krynn
+god spells at 57..64 (class 3, level 0), and the -24066 effect table gives
+each the handler of its ordinary twin: 64 jt655 as Burning Hands 9, 57 jt699,
+59 jt685, 60 jt674, 61 jt687, 62 jt664, 63 jt686. jt655 deals jt17's caster
+level, which for class 3 is now the clerical arm. In Hatari, a test script's
+fight put a Greater Disir beside Cinder (cleric 8, fighter 9, mage 8): her
+Special Burning Hands took it from 41 to 33 hit points, 8, her clerical
+level; before the class-3 arm it was 0. Her mage level is also 8, so the
+damage alone does not tell the two arms apart; the code does.)
 
 **The moons also shift saves and casting level.** Searching for a robe's
 phase as 0x1f9 + robe found only the grid and the trim; DQK.EXE also reaches
