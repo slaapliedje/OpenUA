@@ -99708,6 +99708,16 @@ static short jt137(void *rec_v, short msg, ...)
 		jt1135(*(short *)(void *)(rec + 16), (short)8000, &y, &x);
 		if (!(rec[28] & 0x20))
 			y--;
+		/* PORT: a button whose row is nowhere near the screen draws
+		 * nothing on the Mac either (every piece is clipped), so leave
+		 * before its label is read. The Game Settings editor (and with
+		 * it Create New Design) carries such an item, 7 of its 18, at
+		 * y -32412 with a label pointer of 0x2b: the Mac reads low
+		 * memory there harmlessly, the Falcon takes a bus error (the
+		 * plate cache's label hash read it first, jt1089 would next).
+		 * Where the stray item comes from is not found yet. */
+		if (y < -32 || y > 512)
+			return 0;
 #ifdef FRUA_CLICKDIAG
 		/* Paint-vs-hitbox, settled from INSIDE the engine: the theory that
 		 * the plate is painted lower than the msg-2 rect came from mapping
