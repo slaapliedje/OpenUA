@@ -1953,6 +1953,14 @@ previous commit. Open:
 - the creation screen has room for seven races, so a file is held to seven;
 - choosing a ruleset in the editor (Create New Design) is not done: the file
   is copied into the design folder;
+  (Later, 2026-11-25: done, as the user chose. When some design folder
+  holds DQK.EXE, Create New Design asks "Rules: FRUA Krynn" once the new
+  design exists; FRUA writes nothing, Krynn writes RULES.DAT from the
+  rules read out of that DQK.EXE (`rules_write` in rules.c over
+  `rlf_write` in rules_file.c, the writer held byte for byte to rules.py
+  by tests/test_rules_file.py; the engine's file for Krynn is identical
+  to `rules.py dqk` + `compile`, checked in Hatari). Such a design plays
+  Krynn's classes and races with FRUA's items, pictures and monsters.)
 - `rules.py frua` reads the Mac resource fork; a DOS-only install has no way
   to write FRUA's rules as text yet;
 - what a ruleset cannot say is still code: the racial rules written into the
