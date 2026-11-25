@@ -320,7 +320,8 @@ class Block:
 # ---- containers -----------------------------------------------------------
 
 def dax_blocks(data):
-    """A DOS DAX archive -> {block id: decompressed bytes} (docs/dax-format.md)."""
+    """A DOS DAX archive -> {block id: decompressed bytes} (docs/dax-format.md);
+    an id listed twice gives its first block."""
     if len(data) < 2:
         raise EclError("not a DAX archive")
     (toc,) = struct.unpack_from("<H", data, 0)
@@ -347,7 +348,9 @@ def dax_blocks(data):
         if len(buf) != raw_size:
             raise EclError("DAX block %d decompressed to %d bytes, header says %d"
                            % (bid, len(buf), raw_size))
-        out[bid] = bytes(buf)
+        # A few picture archives list an id twice (Champions' PIC1, SPRIT2,
+        # SPRIT3); the first is kept, as a loader scanning the table finds it.
+        out.setdefault(bid, bytes(buf))
     return out
 
 
