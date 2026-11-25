@@ -3,7 +3,7 @@
  * gbdax.c), used only by tests/test_gbdaxart.py. Not part of any engine
  * build.
  *
- *   gbdaxart_host <OUT> <shift> <file.DAX>...
+ *   gbdaxart_host <OUT> <shift> <file.DAX>...      (shift -1: sprites)
  *
  * writes the picture library of every block of the archives in their order
  * (an id seen before is left out), as the engine
@@ -24,12 +24,13 @@ int main(int argc, char **argv)
 	static unsigned char blk[1 << 16], pic[1 << 18], head[4096];
 	unsigned id[256], n = 0, k, shift;
 	long     size[256], total;
-	int      f, nf = argc - 3, i, j;
+	int      f, nf = argc - 3, i, j, sprite;
 	FILE    *o, *fh;
 
 	if (argc < 4 || nf > 8)
 		return 2;
-	shift = (unsigned)atoi(argv[2]);
+	sprite = atoi(argv[2]) < 0;
+	shift = sprite ? 0u : (unsigned)atoi(argv[2]);
 	for (f = 0; f < nf; f++) {
 		if ((fh = fopen(argv[3 + f], "rb")) == NULL)
 			return 2;
@@ -53,7 +54,8 @@ int main(int argc, char **argv)
 
 		for (f = 0; f < nf && len < 0; f++)
 			len = gbdax_block(d[f], dl[f], (int)id[k], blk, (long)sizeof blk);
-		size[k] = gbda_picture(blk, len, NULL, 0);
+		size[k] = sprite ? gbda_sprite(blk, len, NULL, 0)
+		                 : gbda_picture(blk, len, NULL, 0);
 		if (len < 0 || size[k] < 0) {
 			printf("ERR %ld %u\n", size[k], id[k]);
 			return 0;
@@ -68,7 +70,8 @@ int main(int argc, char **argv)
 
 		for (f = 0; f < nf && len < 0; f++)
 			len = gbdax_block(d[f], dl[f], (int)id[k], blk, (long)sizeof blk);
-		m = gbda_picture(blk, len, pic, (long)sizeof pic);
+		m = sprite ? gbda_sprite(blk, len, pic, (long)sizeof pic)
+		           : gbda_picture(blk, len, pic, (long)sizeof pic);
 		fwrite(pic, 1, (size_t)m, o);
 		total += m;
 	}

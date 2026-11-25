@@ -17,8 +17,14 @@ THE BLOCKS. Every block of PIC*.DAX (the 88x88 event pictures) and SPRIT*.DAX
                             high nibble first, indices into the EGA palette
 
 which accounts for every PIC and SPRIT block of both games to the byte. A
-sprite has three frames, the monster far, middle and near, x and y placing
-each in 8-pixel units.
+sprite has three frames, the monster near, middle and far, x and y placing
+each in 8-pixel units. Read as the games load them (the Curse engine's
+load_pic_final, as COAB's ovr030.cs reimplements it; Greybox's
+dax-complex-subframe.md has the same): in a PIC block every frame after the
+first is stored XORed with the first, all its bytes but the last (that
+loop's bound, kept); a SPRIT block is loaded "masked": colour 0 is
+transparent and colour 13 (light magenta, the figures' outline and shadow)
+is drawn as colour 0, black.
 
 THE LIBRARY written is a Mac GLIB in the shape the Dark Queen's converted
 PICA.CTL has (tools/art_convert.py): an id table, then per picture a nested
@@ -28,6 +34,11 @@ time (method 18, type 2, art_convert.packbits_row) with pixel = 32 + index.
 
     python3 tools/gbdaxart.py PIC1.DAX [PIC2.DAX ...] -o PICA.CTL
     python3 tools/gbdaxart.py BIGPIC?.DAX --shift 128 -o BIGPIC.CTL
+    python3 tools/gbdaxart.py SPRIT?.DAX --sprite -o SPRIT.CTL
+
+A SPRITE (--sprite) is written as the Dark Queen's converted SPRIT.CTL has
+them: the colours at CLUT 176..191, each frame transparent where the pixel is
+EGA 0 (method 23, type 7) and placed by its x and y.
 
 The game data is the user's own; nothing here ships any.
 """
@@ -42,16 +53,19 @@ EGA = ((0, 0, 0), (0, 0, 170), (0, 170, 0), (0, 170, 170), (170, 0, 0),
        (85, 85, 255), (85, 255, 85), (85, 255, 255), (255, 85, 85),
        (255, 85, 255), (255, 255, 85), (255, 255, 255))
 BASE = 32                   # the CLUT entry EGA colour 0 goes to
+SPRITE_BASE = 176           # ... in a sprite, drawn over the 3D view (the
+                            # range the Dark Queen's converted SPRIT.CTL uses)
 
 
 class DaxArtError(ValueError):
     pass
 
 
-def frames(block):
+def frames(block, xor=False):
     """[(delay, height, width, x, y, [index per pixel, row-major])]. A block
     that is one plain frame (a big picture: the 17-byte header, no frame
-    count) is read as such."""
+    count) is read as such. With `xor` (a PIC block) the frames after the
+    first are undone against it."""
     if not block:
         raise DaxArtError("an empty block")
     if len(block) >= 17:
@@ -61,7 +75,7 @@ def frames(block):
             for b in block[17:]:
                 px += (b >> 4, b & 15)
             return [(0, h, 8 * w8, x, y, px)]
-    out, p = [], 1
+    out, p, first = [], 1, None
     for _ in range(block[0]):
         if p + 21 > len(block):
             raise DaxArtError("a frame header runs past the block")
@@ -73,8 +87,14 @@ def frames(block):
         n = h * w // 2 * max(items, 1)
         if items != 1 or not (h and w) or p + n > len(block):
             raise DaxArtError("not a frame this reads (%dx%d, %d items)" % (w, h, items))
+        raw = bytearray(block[p:p + n])
+        if xor and first is None:
+            first = bytes(raw)
+        elif xor:
+            for i in range(min(n, len(first)) - 1):
+                raw[i] ^= first[i]
         px = []
-        for b in block[p:p + n]:
+        for b in raw:
             px += (b >> 4, b & 15)
         out.append((delay, h, w, x, y, px))
         p += n
@@ -95,9 +115,10 @@ def _glib(entries, tag, id_table=0):
             + struct.pack(">%dI" % len(offs), *offs) + b"".join(entries))
 
 
-def palette_entry():
-    """Type 8: flags 5 (start and count given, no cycle ranges), CLUT 32..47."""
-    return (struct.pack(">HHH", 5, BASE, len(EGA)) + bytes([0, 0xc8])
+def palette_entry(base=BASE):
+    """Type 8: flags 5 (start and count given, no cycle ranges), CLUT
+    base..base + 15."""
+    return (struct.pack(">HHH", 5, base, len(EGA)) + bytes([0, 0xc8])
             + b"".join(bytes(c) for c in EGA))
 
 
@@ -110,18 +131,35 @@ def frame_entry(h, w, px):
     return struct.pack(">Hhh", h, 0, 0) + bytes([w // 8, 0xc2]) + body
 
 
-def picture(block):
-    """One picture: its nested TILE library."""
-    return _glib([palette_entry()] + [frame_entry(h, w, px)
-                                      for _, h, w, _, _, px in frames(block)], b"TILE")
+def sprite_entry(h, w, x, y, px):
+    """Method 23 (type 7): transparent where the pixel is EGA 0, 13 drawn as
+    0, placed by the frame's x and y, 8-pixel units, as the offsets -8y,
+    -8x (the Dark Queen's SPRIT.CTL places its frames the same way),
+    even-padded."""
+    body = art_convert.m23_encode(bytes(SPRITE_BASE + (0 if v == 13 else v) for v in px),
+                                  bytes(1 if v else 0 for v in px), w, h, False)
+    if len(body) % 2:
+        body += b"\x00"
+    return struct.pack(">Hhh", h, -8 * y, -8 * x) + bytes([w // 8, 0xc7]) + body
 
 
-def library(blocks, shift=0):
+def picture(block, sprite=False):
+    """One picture (or sprite: SPRIT*.DAX): its nested TILE library."""
+    if sprite:
+        ents = [palette_entry(SPRITE_BASE)] + [sprite_entry(h, w, x, y, px)
+                                               for _, h, w, x, y, px in frames(block)]
+    else:
+        ents = [palette_entry()] + [frame_entry(h, w, px)
+                                    for _, h, w, _, _, px in frames(block, True)]
+    return _glib(ents, b"TILE")
+
+
+def library(blocks, shift=0, sprite=False):
     """[(id, block)] -> the picture library, in that order, each id `shift`
     higher (the big pictures, 112.., go to FRUA's 240..)."""
     table = struct.pack(">H", len(blocks)) + b"".join(
         struct.pack(">HH", i + shift, k + 1) for k, (i, _) in enumerate(blocks))
-    return _glib([table] + [picture(b) for _, b in blocks], b"GLIB", 1)
+    return _glib([table] + [picture(b, sprite) for _, b in blocks], b"GLIB", 1)
 
 
 def archive_blocks(paths):
@@ -149,7 +187,7 @@ def main(argv):
     blocks = archive_blocks([a for a in argv[:argv.index("-o")]
                              if a.upper().endswith(".DAX")])
     with open(out, "wb") as fh:
-        fh.write(library(blocks, shift))
+        fh.write(library(blocks, shift, "--sprite" in argv))
     print("%s: %d pictures" % (out, len(blocks)))
     return 0
 

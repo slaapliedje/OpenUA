@@ -104,22 +104,57 @@ def test_synthetic_libraries_match_reference(cbin, tmp_path):
     for shift in (0, 128):
         want = gbdaxart.library(blocks, shift)
         assert c_build(cbin, tmp_path / "OUT.CTL", shift, [f]) == want
+    assert (c_build(cbin, tmp_path / "OUT.CTL", -1, [f])
+            == gbdaxart.library(blocks, 0, sprite=True))
     # and the rows decode back to the pixels, 32 + index
     lib = art_convert.parse(gbdaxart.library(blocks))
     pic = art_convert.parse(lib["entries"][2])
     ent = pic["entries"][1]
     h, w = struct.unpack(">H", ent[:2])[0], ent[6] * 8
-    rows, p, px = [], 8, gbdaxart.frames(dict(blocks)[24])[0][5]
+    px = gbdaxart.frames(dict(blocks)[24])[0][5]
     lin = art_convert.rle_decode(ent[8:], w * h)
     assert list(lin) == [32 + v for v in px]
 
 
+def test_pic_frames_after_the_first_are_xored_with_it():
+    """frames(xor=True): frame k > 0 is its bytes XOR frame 0's, all but the
+    last byte (load_pic_final's bound)."""
+    rnd = random.Random(3)
+    b = bytearray(block(rnd, [(8, 16), (8, 16)]))
+    f0, f1 = 1 + 21, 1 + 21 + 64 + 21
+    want = bytes(rnd.randrange(256) for _ in range(64))
+    for i in range(64):
+        b[f1 + i] = want[i] ^ b[f0 + i] if i < 63 else want[i]
+    got = gbdaxart.frames(bytes(b), xor=True)[1][5]
+    assert got == [n for c in want for n in (c >> 4, c & 15)]
+    assert gbdaxart.frames(bytes(b))[1][5] != got
+
+
 @pytest.mark.skipif(not os.path.isdir(GAMES[1]), reason="the games are not on this machine")
-@pytest.mark.parametrize("kind,shift", [("PIC", 0), ("BIGPIC", 128), ("SPRIT", 0)])
+@pytest.mark.parametrize("kind,shift", [("PIC", 0), ("BIGPIC", 128), ("SPRIT", -1)])
 def test_real_libraries_match_reference(cbin, tmp_path, kind, shift):
     for game in GAMES:
         files = sorted(glob.glob(os.path.join(game, kind + "?.DAX")))
         if not files:
             continue
-        want = gbdaxart.library(gbdaxart.archive_blocks(files), shift)
+        want = gbdaxart.library(gbdaxart.archive_blocks(files), max(shift, 0),
+                                sprite=shift < 0)
         assert c_build(cbin, tmp_path / "OUT.CTL", shift, files) == want, (game, kind)
+
+
+def test_sprite_frames_decode_transparent():
+    """A sprite frame decodes (art_convert.m23_decode, the linear layout)
+    to SPRITE_BASE + index where the index is not 0 (13 as 0, black),
+    nothing where it is, and sits at -8y, -8x."""
+    rnd = random.Random(7)
+    b = block(rnd, [(88, 56), (73, 32), (57, 24)])
+    lib = art_convert.parse(gbdaxart.library([(33, b)], sprite=True))
+    pic = art_convert.parse(lib["entries"][1])
+    assert struct.unpack(">HHH", pic["entries"][0][:6]) == (5, 176, 16)
+    for ent, (_, h, w, x, y, px) in zip(pic["entries"][1:], gbdaxart.frames(b)):
+        assert struct.unpack(">Hhh", ent[:6]) == (h, -8 * y, -8 * x)
+        assert ent[6] * 8 == w and ent[7] == 0xc7
+        got, mask, _ = art_convert.m23_decode(ent[8:], w, h, False)
+        assert list(mask) == [1 if v else 0 for v in px]
+        assert [g for g, m in zip(got, mask) if m] == [176 + (0 if v == 13 else v)
+                                                       for v in px if v]

@@ -5,8 +5,9 @@
  * tests/test_gbdaxart.py. tools/gbdaxart.py is the reference and its
  * docstring has the formats: a block is a frame count and per frame a
  * 4-byte delay, the 17-byte frame header and 4-bit pixels (a big picture:
- * one plain frame); a picture is a nested "TILE" GLIB, entry 0 the 16 EGA
- * colours at CLUT 32..47, then each frame run-coded a row at a time.
+ * one plain frame), a PIC frame after the first XORed with the first; a
+ * picture is a nested "TILE" GLIB, entry 0 the 16 EGA colours at CLUT
+ * 32..47, then each frame run-coded a row at a time.
  */
 #ifndef ENGINE_GBDAXART_H
 #define ENGINE_GBDAXART_H
@@ -20,6 +21,13 @@
  * max 0 only measures). Its size, or a GBDA_E code. */
 long gbda_picture(const unsigned char *block, long len,
                   unsigned char *out, long max);
+
+/* One sprite (SPRIT*.DAX), as gbda_picture: colours at CLUT 176..191,
+ * each frame transparent where the pixel is EGA 0 (method 23), 13 drawn
+ * as 0, and placed
+ * by its x and y (gbdaxart.sprite_entry). */
+long gbda_sprite(const unsigned char *block, long len,
+                 unsigned char *out, long max);
 
 /* The library's head: the GLIB header and offset table for `n` pictures
  * whose sizes are `size[]`, then entry 0, the id table (`id[k] + shift`
