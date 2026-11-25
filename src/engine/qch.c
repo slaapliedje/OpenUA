@@ -103,3 +103,106 @@ long qch_to_cch(const unsigned char *q, long len, unsigned char *out,
 	}
 	return size;
 }
+
+/* ---- writing a .QCH back ---------------------------------------------- */
+
+static int nonzero4(const unsigned char *p)
+{
+	return p[0] | p[1] | p[2] | p[3];
+}
+
+long qch_from_cch(const unsigned char *c, long clen,
+                  const unsigned char *base, long blen,
+                  unsigned char *out, long max)
+{
+	static const unsigned char zero[QCH_FIXED];
+	static const unsigned char one[4] = { 1, 0, 0, 0 };
+	const unsigned char *b = base ? base : zero;
+	const unsigned char *rec = c;
+	long  n, p = QCH_REC, k, kept = 0, nodes = 0, bnodes = 0;
+	long  bend = 0, size;
+	unsigned char *q = out, v;
+
+	if (clen < QCH_REC || (base != NULL && blen < QCH_FIXED))
+		return QCH_ESHORT;
+	if (base != NULL) {
+		long bi, bn;
+
+		if (split(base, blen, &bi, &bn) != 0)
+			return QCH_ESPLIT;
+		bend = QCH_FIXED + QCH_ITEM * bi;
+		bnodes = bn;
+	}
+	if (max < QCH_FIXED)
+		return QCH_EROOM;
+
+	/* the fixed part, convert(native)'s copy run backwards */
+	memcpy(q, b, QCH_FIXED);
+	memcpy(q + 0x44, rec + 0x44, 0x58 - 0x44);
+	for (k = 0; k < 8; k++)                 /* words, high bytes kept */
+		q[0x58 + 2 * k] = rec[0x58 + k];
+	q[0x5e] = b[0x5e];                      /* rec[0x5b] is REC_KRYNN */
+	v = rec[0x5b];
+	q[0x19b] = (unsigned char)((b[0x19b] & ~7) | (v & 7));
+	q[0x19d] = (unsigned char)((b[0x19d] & ~3) | (v >> 3 & 3));
+	q[0x19a] = (unsigned char)((b[0x19a] & ~3) | (v >> 5 & 3));
+	memcpy(q + 0x68, rec + 0x60, 0x157 - 0x68);
+	memcpy(q + 0x157, rec + 0x153, 0x182 - 0x157);
+	q[0xc7] = (unsigned char)((rec[0xbf] & ~0x20) | (b[0xc7] & 0x20));
+	memcpy(q + 0x18b, rec + 0x17e, 0x199 - 0x18b);
+
+	/* the items, containers and what they hold left out */
+	n = nonzero4(rec + 8) ? rec[193] : 0;
+	size = QCH_FIXED;
+	for (k = 0; k < n; k++) {
+		const unsigned char *it = c + p;
+
+		if (p + 18 > clen)
+			return QCH_ESPLIT;
+		p += 18;
+		if (it[0] == 73) {              /* and its contents, it[13] */
+			p += 18L * it[13];
+			if (p > clen)
+				return QCH_ESPLIT;
+			continue;
+		}
+		if (size + QCH_ITEM > max)
+			return QCH_EROOM;
+		memcpy(out + size, it, QCH_ITEM);
+		size += QCH_ITEM;
+		kept++;
+	}
+	q[8] = (unsigned char)kept;
+	q[0xc9] = (unsigned char)kept;
+
+	/* the affect nodes, their far pointers the base's where it had one */
+	if (nonzero4(rec + 4)) {
+		while (p + 10 <= clen) {
+			const unsigned char *d = c + p;
+			int last;
+
+			p += 10;
+			last = !nonzero4(d + 6);
+			if (size + QCH_NODE > max)
+				return QCH_EROOM;
+			out[size] = d[0];
+			memcpy(out + size + 1, d + 2, 4);
+			if (last)
+				memset(out + size + 5, 0, 4);
+			else if (nodes < bnodes
+			         && nonzero4(base + bend + QCH_NODE * nodes + 5))
+				memcpy(out + size + 5, base + bend + QCH_NODE * nodes + 5, 4);
+			else
+				memcpy(out + size + 5, one, 4);
+			size += QCH_NODE;
+			nodes++;
+			if (last)
+				break;
+		}
+	}
+	if (nodes == 0)
+		memset(q + 4, 0, 4);
+	else if (!nonzero4(q + 4))
+		memcpy(q + 4, one, 4);
+	return size;
+}

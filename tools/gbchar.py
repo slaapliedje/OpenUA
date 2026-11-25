@@ -159,6 +159,93 @@ def convert(q, knight=None, native=False):
     return bytes(rec) + bytes(stream), notes
 
 
+def split_cch(c):
+    """A .CCH stream -> (398-byte record, [18-byte items], [10-byte nodes]).
+    A container (type 73) is followed by its contents (item byte 13 of
+    them); both are returned in place, as the stream has them."""
+    if len(c) < REC:
+        raise GbCharError("%d bytes: shorter than the record" % len(c))
+    rec = c[:REC]
+    n = rec[193] if rec[8:12] != bytes(4) else 0
+    items, p = [], REC
+    for _ in range(n):
+        if p + 18 > len(c):
+            raise GbCharError("the items run past the end")
+        it = c[p:p + 18]
+        items.append(it)
+        p += 18
+        if it[0] == 73:
+            for _ in range(it[13]):
+                items.append(c[p:p + 18])
+                p += 18
+    nodes = []
+    if rec[4:8] != bytes(4):
+        while p + 10 <= len(c):
+            nodes.append(c[p:p + 10])
+            p += 10
+            if c[p - 4:p] == bytes(4):
+                break
+    return rec, items, nodes
+
+
+def to_qch(c, base=None):
+    """A .CCH stream (as the engine's hall writes it, under the Dark Queen's
+    own rules) -> the .QCH the game reads: the inverse of convert(native=
+    True). What FRUA's record has no room for comes from `base`, the hero's
+    .QCH as it was (zeros without one): the live pointers, 0x182..0x18a,
+    0x199, 0x19c, the high bytes of the words at 0x58..0x67 and the word at
+    0x5e, the bit of 0xc7 convert() derives, the affect nodes' far pointers.
+    Containers and what they hold are left out (convert() drops them too)."""
+    rec, items, nodes = split_cch(c)
+    b = bytearray(base[:QCH_FIXED]) if base else bytearray(QCH_FIXED)
+    if len(b) < QCH_FIXED:
+        raise GbCharError("the base is shorter than the fixed part")
+    q = bytearray(b)
+    kept, skip = [], 0
+    for it in items:
+        if skip:
+            skip -= 1
+            continue
+        if it[0] == 73:
+            skip = it[13]
+            continue
+        kept.append(it[:ITEM])
+    q[0x0c:0x58] = rec[0x0c:0x58]
+    q[0x0c:0x44] = b[0x0c:0x44]                 # the equip slots: live
+    q[0:8] = b[0:8]                             # party link, affect head
+    if not nodes:
+        q[4:8] = bytes(4)
+    elif q[4:8] == bytes(4):
+        q[4:8] = b"\x01\x00\x00\x00"
+    q[8] = len(kept)
+    q[9:12] = b[9:12]
+    for k in range(8):                          # words, high bytes kept
+        q[0x58 + 2 * k] = rec[0x58 + k]
+    q[0x5e] = b[0x5e]                           # rec[0x5b] is REC_KRYNN
+    v = rec[0x5b]
+    q[0x19b] = (b[0x19b] & ~7 | v & 7) & 0xff
+    q[0x19d] = (b[0x19d] & ~3 | v >> 3 & 3) & 0xff
+    q[0x19a] = (b[0x19a] & ~3 | v >> 5 & 3) & 0xff
+    q[0x68:0x157] = rec[0x60:0x14f]
+    q[0x157:0x182] = rec[0x153:0x17e]
+    q[0xc7] = (rec[0xbf] & ~0x20 | b[0xc7] & 0x20) & 0xff
+    q[0xc9] = len(kept)
+    q[0x18b:0x199] = rec[0x17e:0x18c]
+    out = bytes(q) + b"".join(bytes(it) for it in kept)
+    old = []
+    if base:
+        _, bi, _ = parse_qch(base)
+        end = QCH_FIXED + ITEM * len(bi)
+        old = [base[end + NODE * k + 5:end + NODE * k + 9]
+               for k in range((len(base) - end) // NODE)]
+    for k, d in enumerate(nodes):
+        last = k == len(nodes) - 1
+        ptr = bytes(4) if last else (old[k] if k < len(old) and old[k] != bytes(4)
+                                     else b"\x01\x00\x00\x00")
+        out += bytes([d[0], d[2], d[3], d[4], d[5]]) + ptr
+    return out
+
+
 def main(argv):
     if not argv or argv[0] in ("-h", "--help"):
         print(__doc__)

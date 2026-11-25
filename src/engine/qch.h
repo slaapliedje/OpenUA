@@ -30,4 +30,15 @@ long qch_cch_size(const unsigned char *q, long len);
 long qch_to_cch(const unsigned char *q, long len, unsigned char *out,
                 long max, int native);
 
+/* The inverse, for a design on the Dark Queen's own rules: the .QCH the
+ * game reads, from the .CCH stream `c` the engine's hall writes (`clen`
+ * bytes). What FRUA's record has no room for comes from `base`, the
+ * hero's .QCH as it was (NULL: zeros) — tools/gbchar.py to_qch. Writes
+ * into `out` (room for `max`) and returns the length, or a QCH_E* error
+ * (QCH_ESHORT: `c` or `base` too short, QCH_ESPLIT: the stream does not
+ * hold its items). */
+long qch_from_cch(const unsigned char *c, long clen,
+                  const unsigned char *base, long blen,
+                  unsigned char *out, long max);
+
 #endif
