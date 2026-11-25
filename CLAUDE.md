@@ -358,7 +358,16 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   the header gbgeo.py would write ("The Dark Queen of Krynn", area 5), and
   the pictures come from DISK1..3 (`gbs_game_art`, below). Checked in
   Hatari: nothing is written into it but PICB.ctl/PICC.ctl at its top level
-  and the hall's .CCH in SAVE. Scripts and maps
+  and the hall's .CCH in SAVE. **A copy of Death Knights' or Champions' own folder is a design
+  too** (no GEO.GLB): maps from GEO1..9.DAX (area slot 5 + i the
+  archives' i-th map; `src/engine/gbdax.c`, reference ecl.py
+  `dax_blocks`; a block is a header word, 0x0400 in Champions, another
+  value in Death Knights, then the 1024 plane bytes, `gbg_from_block`),
+  scripts from ECL1..9.DAX by number (Death Knights' dialect when DKK.CFG
+  is there), the header from `gbs_game_header`, and the start area runs
+  script 16. Their pictures are .DAX art nothing converts yet, so PICTURE
+  and sprites are skipped (`g_gbs_dax`); monsters, items, rules, CHRDATA
+  characters, party placement and saves are not read yet. Scripts and maps
   are numbered separately in these games — Dark Queen has 47 scripts over 20
   maps.
 - **`tools/ecl.py`** disassembles the scripts (Champions, Death Knights, Dark
