@@ -107938,14 +107938,21 @@ static short gbs_read_game(const char *name, void *buf, short max)
 static unsigned char g_gbs_daxbuf[65536];
 static short gbs_open_game(const char *name);
 static int   gbs_dax_game(void);
+static unsigned char gbs_dax_dialect(void);
 
 /* Whether the game numbers its pictures again in each PIC file (Champions;
- * g_gbs_dax_perfile): an id in two of PIC1..9.DAX. */
+ * g_gbs_dax_perfile): an id in two of PIC1..9.DAX. Death Knights numbers
+ * them once over PIC1..7, but keeps picture 96 (Lady Maya) in both PIC2
+ * and PIC5, so it is told by its DKK.CFG, not by a repeated id: taken for
+ * Champions, its PICG held PIC1's six pictures and script 16 stopped at
+ * the eulogy on a DISK READ ERROR. */
 static int gbs_dax_perfile(void)
 {
 	static unsigned char seen[256];
 	int  f, i, c, dup = 0;
 
+	if (gbs_dax_dialect() == ECL_GEN1_DOK)
+		return 0;
 	memset(seen, 0, sizeof seen);
 	for (f = 1; f <= 9 && !dup; f++) {
 		char           name[16];
