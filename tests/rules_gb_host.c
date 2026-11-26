@@ -3,6 +3,9 @@
  * by tests/test_rules_gb.py. Not part of any engine build.
  *
  *   rules_gb_host <exe> [verify]
+ *   rules_gb_host dax <START.EXE> <GAME.OVR> [verify]
+ *                         Champions' or Death Knights' (gbr_load_dax), after
+ *                         "OK" the game ("game 1" Champions, "game 2")
  *
  * Prints "OK" or "ERR <code> <table>", then on success one line per table,
  * "<field> <hex>", and "name <field> <index> <text>" for the names, in the
@@ -12,6 +15,7 @@
 #include <string.h>
 
 #include "../src/engine/rules_gb.h"
+#include "../src/engine/gbdaxmon.h"
 
 static long host_read(void *ctx, long off, void *buf, long len)
 {
@@ -41,16 +45,42 @@ int main(int argc, char **argv)
 	FILE       *f;
 	int         rc, i;
 
-	if (argc < 2 || (f = fopen(argv[1], "rb")) == NULL)
-		return 2;
-	rc = gbr_load_dqk(host_read, f, &t, argc > 2 && strcmp(argv[2], "verify") == 0,
-	                  &which);
-	fclose(f);
-	if (rc != GBR_OK) {
-		printf("ERR %d %s\n", rc, which ? which : "-");
-		return 0;
+	if (argc >= 4 && strcmp(argv[1], "dax") == 0) {
+		static unsigned char exe[262144], img[262144];
+		long n, m;
+		int  game = 0;
+
+		if ((f = fopen(argv[2], "rb")) == NULL)
+			return 2;
+		n = (long)fread(exe, 1, sizeof exe, f);
+		fclose(f);
+		m = gbx_unexepack(exe, n, img, sizeof img);
+		if (m < 0) {
+			printf("ERR unpack %ld\n", m);
+			return 0;
+		}
+		if ((f = fopen(argv[3], "rb")) == NULL)
+			return 2;
+		rc = gbr_load_dax(img, m, host_read, f, &t,
+		                  argc > 4 && strcmp(argv[4], "verify") == 0, &which, &game);
+		fclose(f);
+		if (rc != GBR_OK) {
+			printf("ERR %d %s\n", rc, which ? which : "-");
+			return 0;
+		}
+		printf("OK\ngame %d\n", game);
+	} else {
+		if (argc < 2 || (f = fopen(argv[1], "rb")) == NULL)
+			return 2;
+		rc = gbr_load_dqk(host_read, f, &t, argc > 2 && strcmp(argv[2], "verify") == 0,
+		                  &which);
+		fclose(f);
+		if (rc != GBR_OK) {
+			printf("ERR %d %s\n", rc, which ? which : "-");
+			return 0;
+		}
+		printf("OK\n");
 	}
-	printf("OK\n");
 	HEX(race_abilities);   HEX(race_kinds);      HEX(race_start_age);
 	HEX(race_age_cat);     HEX(race_level_cap);  HEX(race_thief_adj);
 	HEX(kind_ability_min); HEX(kind_aligns);     HEX(xp);

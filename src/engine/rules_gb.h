@@ -65,6 +65,7 @@ typedef long (*gbr_read_fn)(void *ctx, long off, void *buf, long len);
 #define GBR_ESUM     -2         /* a table's sum is not this build's      */
 #define GBR_ENAME    -3         /* a name pointer is not into the DS      */
                                 /* (or the label block does not split)    */
+#define GBR_EGAME    -4         /* not a START.EXE these rules are read from */
 
 /* Fill `t` from DQK.EXE. With `verify`, every table's 16-bit sum must be
  * the Steam DQK.EXE's (a different build is refused, nothing is filled
@@ -72,5 +73,17 @@ typedef long (*gbr_read_fn)(void *ctx, long off, void *buf, long len);
  * files). On an error, *which names the table. */
 int gbr_load_dqk(gbr_read_fn rd, void *ctx, gbr_tables *t, int verify,
                  const char **which);
+
+/* Champions of Krynn and Death Knights of Krynn (tools/gbrules.py
+ * read_dax): their rules are in START.EXE's data segment, `img` the
+ * program's load image (EXEPACK unpacked, gbdaxmon.h gbx_unexepack), and
+ * the knightly orders in GAME.OVR, read through `rd`. Which game is told
+ * by the image's length; *game is set to it. The same tables in the same
+ * layout as the Dark Queen's, the Knight in slot 1 and kind 1 as the Dark
+ * Queen's import moves it. `verify` as above. */
+#define GBR_COK 1
+#define GBR_DKK 2
+int gbr_load_dax(const unsigned char *img, long len, gbr_read_fn rd, void *ovr,
+                 gbr_tables *t, int verify, const char **which, int *game);
 
 #endif

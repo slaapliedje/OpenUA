@@ -25,6 +25,7 @@ import gbrules                                                 # noqa: E402
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 SRC = [os.path.join(ROOT, "src", "engine", "rules_gb.c"),
+       os.path.join(ROOT, "src", "engine", "gbdaxmon.c"),
        os.path.join(ROOT, "tests", "rules_gb_host.c")]
 
 KINDS = ["Kind%d" % k for k in range(gbrules.KINDS)]

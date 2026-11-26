@@ -269,3 +269,323 @@ int gbr_load_dqk(gbr_read_fn rd, void *ctx, gbr_tables *t, int verify,
 	*t = out;
 	return GBR_OK;
 }
+
+/* ---- Champions of Krynn and Death Knights of Krynn ----------------------
+ *
+ * tools/gbrules.py read_dax is the reference and its docstring the map:
+ * the tables are in START.EXE's data segment, 8 slots with the Knight in
+ * slot 7, levels to 12 (Champions) or 18; the engine's slot s is the
+ * game's k_dax_slot[s], and kinds 1 and 7 trade places. */
+
+enum {
+	D_THAC0, D_ITEM_BIT, D_HALL_BIT, D_NAME_LEVEL, D_THIEF, D_RACE_THIEF,
+	D_RACE_AB, D_RACE_KINDS, D_START_AGE, D_AGE_CAT, D_KIND_MIN, D_ALIGNS,
+	D_PROGS, D_SAVES, D_HD_COUNT, D_HD_SIZE, D_ALIGN_INDEX, D_KIND_NAMES,
+	D_RACE_NAMES, D_GOD_NAMES, D_ROBE_NAMES, D_MONEY_NAMES, D_LEVEL_CAP,
+	D_COUNT
+};
+
+typedef struct dax_game {
+	long           image;             /* the load image's length          */
+	long           ds;
+	int            top;               /* the top level its tables hold    */
+	int            progs, prog_rec, spell_levels;
+	struct { unsigned short off, len, sum; } tab[D_COUNT];
+	long           orders;            /* GAME.OVR: the knightly orders    */
+	unsigned short orders_len, orders_sum;
+} dax_game;
+
+static const char *const k_dax_names[D_COUNT] = {
+	"slot_thac0", "slot_item_bit", "slot_hall_bit", "slot_name_level",
+	"thief_skills", "race_thief_adj", "race_abilities", "race_kinds",
+	"race_start_age", "race_age_cat", "kind_ability_min", "kind_aligns",
+	"progressions", "slot_saves", "slot_hd_count", "slot_hd_size",
+	"align_index", "kind_names", "race_names", "god_names", "robe_names",
+	"money_names", "race_level_cap"
+};
+
+static const dax_game k_dax[2] = {
+	{ 65568, 0xbc60, 12, 10, 99, 5, {
+		{ 0x3882,  104, 0x11a4 }, { 0x38ea,    8, 0x00ff },
+		{ 0x38f2,    8, 0x0051 }, { 0x3903,    8, 0x0059 },
+		{ 0x3911,   96, 0x129f }, { 0x3971,   56, 0x085f },
+		{ 0x39e0,  112, 0x06bc }, { 0x3a50,  105, 0x0219 },
+		{ 0x3ab9,  224, 0x1028 }, { 0x3b99,   70, 0x12bb },
+		{ 0x3bdf,  102, 0x01d1 }, { 0x3c45,   17, 0x026a },
+		{ 0x3c6d,  990, 0xd72d }, { 0x405b,  480, 0x15fc },
+		{ 0x0b6e,    8, 0x000b }, { 0x0b76,    8, 0x0040 },
+		{ 0x0a9a,    6, 0x0015 }, { 0x0f5a,  459, 0x3faf },
+		{ 0x1140,  128, 0x1e12 }, { 0x1259,   96, 0x164a },
+		{ 0x12c0,   21, 0x0506 }, { 0x12e3,   77, 0x112d },
+		{ 0,         0, 0 } },              /* no level-cap table */
+	  0x26db3L, 41, 0x0d39 },
+	{ 82336, 0xbce0, 18, 11, 204, 8, {
+		{ 0x71f2,  152, 0x1b1d }, { 0x728a,    8, 0x00ff },
+		{ 0x7293,    8, 0x0051 }, { 0x72a4,    8, 0x0059 },
+		{ 0x72b4,  144, 0x2385 }, { 0x7344,   56, 0x085f },
+		{ 0x73b3,  112, 0x06bf }, { 0x7423,  105, 0x0225 },
+		{ 0x748c,  224, 0x1028 }, { 0x756c,   70, 0x12bb },
+		{ 0x75b2,  102, 0x0306 }, { 0x7618,   17, 0x030a },
+		{ 0x7640, 2244, 0x273f }, { 0x7f14,  720, 0x1ce4 },
+		{ 0x0656,    8, 0x000b }, { 0x065e,    8, 0x0040 },
+		{ 0x0584,    6, 0x0015 }, { 0x08ad,  459, 0x3faf },
+		{ 0x0a93,  128, 0x1e12 }, { 0x0bac,   96, 0x164a },
+		{ 0x0c13,   21, 0x0506 }, { 0x0c36,   77, 0x112d },
+		{ 0x82d4,   56, 0x01b2 } },
+	  0x23cb1L, 41, 0x0d39 },
+};
+
+static const unsigned char k_dax_slot[7] = { 0, 7, 2, 3, 4, 5, 6 };
+/* the Dark Queen's spell rows by progression (gbrules.read_dax) */
+static const unsigned char k_dax_spell_row[GBR_PROGS] = {
+	0, 1, 255, 255, 2, 3, 4, 5, 6, 255, 7
+};
+/* the slots each kind holds, engine numbering, as a bit mask; the slot of
+ * each progression (gbrules.KIND_SLOTS_OF, SLOT_OF_PROG) */
+static const unsigned char k_kind_slots[GBR_KINDS] = {
+	0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x00, 0x05, 0x25, 0x11, 0x21,
+	0x41, 0x24, 0x44, 0x64, 0x60
+};
+static const unsigned char k_prog_slot[GBR_PROGS] = {
+	0, 0, 2, 1, 1, 1, 4, 5, 5, 6, 3
+};
+
+#define DAX_NEVER     0x7fffffffL
+#define DAX_STEP_NONE 0x01ffffffL
+
+static int dax_kind(int k)
+{
+	return k == 1 ? 7 : k == 7 ? 1 : k;
+}
+
+static void put_be32(unsigned char *d, long v)
+{
+	d[0] = (unsigned char)(v >> 24);
+	d[1] = (unsigned char)(v >> 16);
+	d[2] = (unsigned char)(v >> 8);
+	d[3] = (unsigned char)v;
+}
+
+static long get_le32(const unsigned char *s)
+{
+	unsigned long v = s[0] | (unsigned long)s[1] << 8
+	                | (unsigned long)s[2] << 16 | (unsigned long)s[3] << 24;
+
+	return v & 0x80000000UL ? -(long)(~v & 0x7fffffffUL) - 1 : (long)v;
+}
+
+/* `count` Pascal strings `stride` apart into out[from..]; GBR_OK or
+ * GBR_ENAME. */
+static int dax_pascal(const unsigned char *b, int stride, int count,
+                      char (*out)[GBR_NAME_MAX], int from)
+{
+	int i;
+
+	for (i = 0; i < count; i++) {
+		int n = b[stride * i];
+
+		if (n >= stride || n >= GBR_NAME_MAX)
+			return GBR_ENAME;
+		memcpy(out[from + i], b + stride * i + 1, (size_t)n);
+		out[from + i][n] = 0;
+	}
+	return GBR_OK;
+}
+
+static void upper(char *d, const char *s)
+{
+	for (; *s; s++, d++)
+		*d = *s >= 'a' && *s <= 'z' ? (char)(*s - 32) : *s;
+	*d = 0;
+}
+
+int gbr_load_dax(const unsigned char *img, long len, gbr_read_fn rd, void *ovr,
+                 gbr_tables *t, int verify, const char **which, int *game)
+{
+	static gbr_tables    out;
+	static long          xp[GBR_PROGS][GBR_XP_LEVELS];
+	unsigned char        orders[64];
+	char                 money[7][GBR_NAME_MAX];
+	char                 names[GBR_KINDS][GBR_NAME_MAX];
+	const dax_game      *g = 0;
+	const unsigned char *b;
+	int                  tab, top, i, k, s, r, lv, rc;
+
+	*which = 0;
+	for (i = 0; i < 2; i++)
+		if (len == k_dax[i].image)
+			g = &k_dax[i];
+	if (g == 0)
+		return GBR_EGAME;
+	*game = g == &k_dax[0] ? GBR_COK : GBR_DKK;
+	for (tab = 0; tab < D_COUNT; tab++) {
+		*which = k_dax_names[tab];
+		if (g->tab[tab].len == 0)
+			continue;
+		if (g->ds + g->tab[tab].off + g->tab[tab].len > len)
+			return GBR_EREAD;
+		if (verify && sum16(img + g->ds + g->tab[tab].off, g->tab[tab].len)
+		              != g->tab[tab].sum)
+			return GBR_ESUM;
+	}
+	*which = "orders";
+	if (rd(ovr, g->orders, orders, g->orders_len) != g->orders_len)
+		return GBR_EREAD;
+	if (verify && sum16(orders, g->orders_len) != g->orders_sum)
+		return GBR_ESUM;
+
+#define T(x) (img + g->ds + g->tab[x].off)
+	memset(&out, 0, sizeof out);
+	top = g->top;
+	memcpy(out.race_abilities, T(D_RACE_AB), sizeof out.race_abilities);
+	memcpy(out.race_thief_adj, T(D_RACE_THIEF), sizeof out.race_thief_adj);
+	for (s = 0; s < 7; s++) {
+		out.slot_item_bit[s]   = T(D_ITEM_BIT)[k_dax_slot[s]];
+		out.slot_hall_bit[s]   = T(D_HALL_BIT)[k_dax_slot[s]];
+		out.slot_name_level[s] = T(D_NAME_LEVEL)[k_dax_slot[s]];
+		out.slot_hd_count[s]   = T(D_HD_COUNT)[k_dax_slot[s]];
+		out.slot_hd_size[s]    = T(D_HD_SIZE)[k_dax_slot[s]];
+		/* THAC0 levels 0..top; saves 1..top (level 0 is level 1's) */
+		b = T(D_THAC0) + (top + 1) * k_dax_slot[s];
+		for (lv = 0; lv < 22; lv++)
+			out.slot_thac0[22 * s + lv] = b[lv <= top ? lv : top];
+		b = T(D_SAVES) + 5 * top * k_dax_slot[s];
+		for (lv = 0; lv < 22; lv++) {
+			int from = lv < 1 ? 0 : lv > top ? top - 1 : lv - 1;
+
+			memcpy(out.slot_saves + 110 * s + 5 * lv, b + 5 * from, 5);
+		}
+	}
+	for (lv = 0; lv < 18; lv++)
+		memcpy(out.thief_skills + 8 * lv, T(D_THIEF) + 8 * (lv < top ? lv : top - 1), 8);
+
+	for (r = 0; r < GBR_RACES; r++) {
+		const unsigned char *row = T(D_RACE_KINDS) + 15 * r;
+
+		out.race_kinds[GBR_KIND_ROW * r] = row[0];
+		for (k = 0; k < 14; k++)
+			out.race_kinds[GBR_KIND_ROW * r + 1 + k] =
+				(unsigned char)(k < row[0] ? dax_kind(row[1 + k]) : row[1 + k]);
+		for (s = 0; s < 7; s++) {
+			const unsigned char *e = T(D_START_AGE) + 32 * r + 4 * k_dax_slot[s];
+			unsigned char       *d = out.race_start_age + 28 * r + 4 * s;
+
+			d[0] = e[1], d[1] = e[0], d[2] = e[2], d[3] = e[3];
+		}
+	}
+	for (k = 0; k < 5 * GBR_RACES; k++)
+		be16(out.race_age_cat + 2 * k, T(D_AGE_CAT) + 2 * k);
+	for (k = 0; k < GBR_KINDS; k++) {
+		unsigned char *al = out.kind_aligns + 12 * dax_kind(k);
+		int            j, n = 0;
+
+		memcpy(out.kind_ability_min + 6 * dax_kind(k), T(D_KIND_MIN) + 6 * k, 6);
+		for (j = 0; j < 6; j++)
+			if (T(D_ALIGNS)[k] >> j & 1)
+				al[1 + n++] = T(D_ALIGN_INDEX)[j];
+		al[0] = (unsigned char)n;
+	}
+
+	/* progressions: XP to levels 2..top, then the spells gained at each */
+	for (i = 0; i < GBR_PROGS; i++) {
+		const unsigned char *p = T(D_PROGS) + (long)g->prog_rec * i;
+		int                  row = k_dax_spell_row[i];
+		unsigned char        have[9] = { 0 };
+
+		for (lv = 0; lv < GBR_XP_LEVELS; lv++) {
+			long v = lv < 2 ? 0 : DAX_NEVER;
+
+			if (lv >= 2 && lv <= top && i < g->progs) {
+				v = get_le32(p + 4 * (lv - 2));
+				if (v <= 0)
+					v = DAX_NEVER;
+			}
+			xp[i][lv] = v;
+			put_be32(out.xp + 4 * (GBR_XP_LEVELS * i + lv), v);
+		}
+		put_be32(out.xp_step + 4 * i, DAX_STEP_NONE);
+		out.spell_row[i] = (unsigned char)row;
+		if (row == 255)
+			continue;
+		if (i == 0 || i == 1 || i == 7 || i == 8)
+			have[0] = 1;            /* a cleric's or mage's first */
+		for (lv = 1; lv < 30; lv++) {
+			if (lv >= 2 && lv <= top && i < g->progs)
+				for (k = 0; k < g->spell_levels; k++)
+					have[k] = (unsigned char)(have[k]
+					    + p[4 * (top - 1) + g->spell_levels * (lv - 2) + k]);
+			memcpy(out.spell_slots + 261 * row + 9 * (lv - 1), have, 9);
+		}
+	}
+
+	for (r = 0; r < GBR_RACES; r++) {
+		if (g->tab[D_LEVEL_CAP].len != 0) {
+			for (s = 0; s < 7; s++)
+				out.race_level_cap[7 * r + s] = T(D_LEVEL_CAP)[8 * r + k_dax_slot[s]];
+			continue;
+		}
+		/* Champions: where a class's XP stops, for a race that may be it;
+		 * a Kender fighter or ranger 7 (OVR 0x25061) */
+		for (s = 0; s < 7; s++) {
+			const unsigned char *row = out.race_kinds + GBR_KIND_ROW * r;
+			int                  offered = 0, cap = 0;
+
+			for (k = 0; k < row[0] && k < 14; k++)
+				if (row[1 + k] < GBR_KINDS && k_kind_slots[row[1 + k]] >> s & 1)
+					offered = 1;
+			if (!offered)
+				continue;
+			for (i = 0; i < GBR_PROGS; i++) {
+				if (k_prog_slot[i] != s)
+					continue;
+				for (lv = GBR_XP_LEVELS - 1; lv >= 1; lv--)
+					if (lv < 2 || xp[i][lv] != DAX_NEVER)
+						break;
+				if (lv > cap)
+					cap = lv;
+			}
+			if (r == 5 && (s == 2 || s == 4))
+				cap = 7;
+			out.race_level_cap[7 * r + s] = (unsigned char)cap;
+		}
+	}
+
+	*which = "kind_names";
+	if ((rc = dax_pascal(T(D_KIND_NAMES), 27, GBR_KINDS, names, 0)) != GBR_OK)
+		return rc;
+	for (k = 0; k < GBR_KINDS; k++) {
+		strcpy(out.kind_name[k], names[dax_kind(k)]);
+		strcpy(out.sheet_kind[k], names[dax_kind(k)]);
+		upper(out.kind_label[k], names[dax_kind(k)]);
+	}
+	*which = "race_names";
+	if ((rc = dax_pascal(T(D_RACE_NAMES), 16, GBR_RACES + 1, out.race_name, 0)) != GBR_OK)
+		return rc;
+	for (r = 0; r < GBR_RACES; r++)
+		upper(out.race_label[r], out.race_name[r]);
+	*which = "money_names";
+	if ((rc = dax_pascal(T(D_MONEY_NAMES), 11, 7, money, 0)) != GBR_OK)
+		return rc;
+	for (i = 0; i < GBR_MONEY; i++)         /* Steel, Gems, Jewelry */
+		strcpy(out.money_name[i], money[4 + i]);
+	*which = "god_names";
+	if ((rc = dax_pascal(T(D_GOD_NAMES), 12, GBR_GODS, out.god_name, 0)) != GBR_OK)
+		return rc;
+	*which = "robe_names";
+	if ((rc = dax_pascal(T(D_ROBE_NAMES), 7, GBR_ROBES - 1, out.robe_name, 1)) != GBR_OK)
+		return rc;
+	*which = "orders";
+	for (i = 1, k = 0; i < GBR_ORDERS; i++) {
+		int n = orders[k];
+
+		if (k + 1 + n > g->orders_len || n >= GBR_NAME_MAX)
+			return GBR_ENAME;
+		memcpy(out.order_name[i], orders + k + 1, (size_t)n);
+		out.order_name[i][n] = 0;
+		k += 1 + n;
+	}
+#undef T
+	*which = 0;
+	*t = out;
+	return GBR_OK;
+}
