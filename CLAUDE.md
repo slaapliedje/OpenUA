@@ -431,7 +431,7 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   three cell blocks go back and, as COAB loads, the script in 0x4bf2 runs
   its initial entry again (`g_gbs_resume_init`; the play loop's
   `gbs_arrive`). A save at script 0 (the shipped ones) is a new game.
-  DOSBox saves in data/work/cok-saves. The port does not write them yet.
+  DOSBox saves in data/work/cok-saves and dkk-saves. The port does not write them yet.
   Scripts and maps
   are numbered separately in these games — Dark Queen has 47 scripts over 20
   maps.

@@ -361,6 +361,8 @@ def test_gen1_wrong_size_and_count(cbin, tmp_path):
 
 GEN1_REAL = (sorted(glob.glob(os.path.join(ROOT, "data", "work", "cok-saves",
                                            "SAVGAM?.DAT")))
+             + sorted(glob.glob(os.path.join(ROOT, "data", "work", "dkk-saves",
+                                             "SAVGAM?.PTY")))
              + sorted(glob.glob(os.path.join(ROOT, "data", "work", "gamedata",
                                              "*.DSN", "SAVE", "SAVGAM?.DAT")))
              + sorted(glob.glob(os.path.join(ROOT, "data", "work", "gamedata",
@@ -391,3 +393,17 @@ def test_gen1_champions_save_d():
     assert (g.dkk, g.script, g.cell(gbsave.GEN1_CELL_DUNGEON)) == (False, 17, 0)
     assert (g.x, g.y, g.facing, g.time_of_day) == (7, 13, 1, (12, 2))
     assert len(g.names) == 6
+
+
+SAVE_DKK_C = os.path.join(ROOT, "data", "work", "dkk-saves", "SAVGAMC.PTY")
+
+
+@pytest.mark.skipif(not os.path.exists(SAVE_DKK_C), reason="no Death Knights save C")
+def test_gen1_death_knights_save_c():
+    """The camp before the Gargath celebration: script 16 has written its
+    overland square (33,13), its own number and the rest taken (0x4c04),
+    each a byte, as its listing writes them."""
+    g = gbsave.Gen1Save(open(SAVE_DKK_C, "rb").read())
+    assert (g.dkk, g.width, g.script) == (True, 1, 16)
+    assert (g.cell(0x4bc3), g.cell(0x4bc4), g.cell(0x4c04)) == (33, 13, 1)
+    assert (g.x, g.y, g.facing, len(g.names)) == (7, 13, 0, 6)
