@@ -400,8 +400,16 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   them differently and only bits 0x08 and 0x02 agree; four Champions
   quest items (Vial, Spike, Chime, Flask of Oil) are named by their
   stored text there, which a FRUA item cannot hold, so they show their
-  words (Diamond, Emerald, Sapphire, Ruby). Rules, CHRDATA characters,
-  party placement and saves are not read yet. Scripts and maps
+  words (Diamond, Emerald, Sapphire, Ruby). Their RULES are read from
+  START.EXE's data segment (EXEPACK, Turbo Pascal) and GAME.OVR
+  (`rules_load_dax`, `gbr_load_dax` in rules_gb.c, reference
+  `tools/gbrules.py` read_dax, whose docstring has the map) into the
+  Dark Queen's tables, so they play as a Krynn ruleset: 8 slots with the
+  Knight in slot 7, moved to 1 as the Dark Queen's import moves it;
+  levels to 18 (Champions 12); Champions has no paladin and no cap table
+  (a class stops where its XP does). Their item TYPES are the game's
+  ITEMS (a word, then FRUA's 128 x 16 table). CHRDATA characters, party
+  placement and saves are not read yet. Scripts and maps
   are numbered separately in these games — Dark Queen has 47 scripts over 20
   maps.
 - **`tools/ecl.py`** disassembles the scripts (Champions, Death Knights, Dark

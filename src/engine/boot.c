@@ -109770,9 +109770,11 @@ static const char *gbs_word(short idx)
 
 /* The game's class and race rules (ADR-0026). A converted Dark Queen design
  * carries the game's own DQK.EXE (gbgeo.py --exe copies it in); when such a
- * design is loaded (jt361) its rules are read out of it and played by. A
- * design holding RULES.DAT (tools/rules.py) plays by that instead. Any
- * other design plays by FRUA's. Read once per design folder. */
+ * design is loaded (jt361) its rules are read out of it and played by; a
+ * copy of Champions' or Death Knights' folder plays by theirs, read out of
+ * START.EXE and GAME.OVR. A design holding RULES.DAT (tools/rules.py) plays
+ * by that instead. Any other design plays by FRUA's. Read once per design
+ * folder. */
 static const ruleset_t *g_gbs_rules;
 
 /* The item TYPE table (ITEMS.DAT, 128 x 16 bytes, read by jt86 at boot):
@@ -109793,6 +109795,17 @@ static void gbs_item_types(int design)
 		if (gbs_read_game("ITEMS.DAT", dst, (short)2048) == 2048) {
 			dbg_log("rules: the design's own item types (ITEMS.DAT)");
 			return;
+		}
+		/* Champions' and Death Knights' ITEMS: a word, then the same
+		 * 128 x 16 table, its class bits theirs (rules_gb.c's item bits) */
+		if (gbs_dax_game()) {
+			static unsigned char dax[2050];
+
+			if (gbs_read_game("ITEMS", dax, (short)sizeof dax) == (short)sizeof dax) {
+				memcpy(dst, dax + 2, 2048);
+				dbg_log("rules: the game's own item types (ITEMS)");
+				return;
+			}
 		}
 	}
 	if (!own)
@@ -110356,6 +110369,19 @@ static void gbs_rules(void)
 			}
 		}
 		jt411(refnum);
+	}
+	/* A copy of Champions' or Death Knights' folder: their rules are in
+	 * START.EXE, the knights' orders in GAME.OVR (rules_load_dax). */
+	if (g_gbs_rules == NULL && gbs_dax_game()) {
+		short ovr = gbs_open_game("GAME.OVR");
+
+		refnum = gbs_open_game("START.EXE");
+		if (refnum >= 0 && ovr >= 0)
+			g_gbs_rules = rules_load_dax(refnum, ovr);
+		if (refnum >= 0)
+			jt411(refnum);
+		if (ovr >= 0)
+			jt411(ovr);
 	}
 	/* A design's own RULES.DAT (tools/rules.py) is played by in place of
 	 * any game's, so a design started from Krynn's can change them and

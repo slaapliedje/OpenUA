@@ -176,6 +176,12 @@ const char *rules_coin_text(const char *s);
  * from (logged). Reading does not play by them: g_rules is not changed. */
 const ruleset_t *rules_load_dqk(short refnum);
 
+/* Champions of Krynn's or Death Knights of Krynn's, read from the game's
+ * START.EXE and GAME.OVR (open on `start` and `ovr`; rules_gb.c, reference
+ * tools/gbrules.py read_dax). NULL when they are not those (logged). Like
+ * rules_load_dqk, it does not play by them. */
+const ruleset_t *rules_load_dax(short start, short ovr);
+
 /* A design's own rules, read from its RULES.DAT (open on `refnum`;
  * tools/rules.py compiles it, src/engine/rules_file.c parses it). Returns
  * them, or NULL when the file is not one (logged). Reading frees the last

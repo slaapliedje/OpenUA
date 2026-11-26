@@ -12,6 +12,7 @@
 #include "rules.h"
 #include "rules_file.h"
 #include "rules_gb.h"
+#include "gbdaxmon.h"         /* gbx_unexepack */
 #include "data_pool_replay.h"
 #include "dbglog.h"
 #include "files.h"              /* SetFPos / FSRead / GetEOF */
@@ -85,13 +86,26 @@ const ruleset_t g_rules_frua = {
 
 const ruleset_t *g_rules = &g_rules_frua;
 
-/* The Dark Queen's. The name tables are what the engine reads FRUA's as:
- * a pointer per entry, a long on the 68k. */
-static gbr_tables s_dqk;
-static long       s_dqk_kind_names[GBR_KINDS + 1];
-static long       s_dqk_race_names[GBR_RACES + 1];
-static unsigned char s_dqk_race_base[256];
-static const char   *s_dqk_race_labels[GBR_RACES];
+/* A Krynn game's rules, read into the Dark Queen's tables (rules_gb.c):
+ * the Dark Queen's from DQK.EXE, Champions' and Death Knights' from
+ * START.EXE. The name tables are what the engine reads FRUA's as: a
+ * pointer per entry, a long on the 68k. */
+typedef struct krynn_rules {
+	gbr_tables    t;
+	long          kind_names[GBR_KINDS + 1];
+	long          race_names[GBR_RACES + 1];
+	unsigned char race_base[256];
+	const char   *race_labels[GBR_RACES];
+	const char   *kind_labels[GBR_KINDS];
+	const char   *sheet_kind[GBR_KINDS];
+	const char   *god_name[GBR_GODS];
+	const char   *robe_name[GBR_ROBES];
+	const char   *order_name[GBR_ORDERS];
+	unsigned char kind_list[GBR_KINDS];
+	ruleset_t     rs;
+} krynn_rules;
+
+static krynn_rules s_dqk, s_dax;
 
 /* The slots' progressions with no character to ask (gbrules.PROGRESSIONS):
  * a cleric of good, a Knight of the Crown, a White Robe. */
@@ -101,7 +115,8 @@ static const unsigned char k_dqk_slot_prog[7] = { 0, 3, 2, 10, 6, 7, 9 };
  * god above Mishakal (4) is of neutrality (1), else of good (0); a knight's
  * order Crown/Sword/Rose is 3/4/5; a mage in the white robe is 7, any other
  * robe (none included) red, 8. The game leaves an order of 0 undefined; it
- * plays as the Crown here. */
+ * plays as the Crown here. Champions and Death Knights pick the same way
+ * (their training code, GAME.OVR 0x194a3, by the same 11 progressions). */
 static unsigned char dqk_prog(const unsigned char *rec, int slot)
 {
 	switch (slot) {
@@ -112,12 +127,6 @@ static unsigned char dqk_prog(const unsigned char *rec, int slot)
 	default: return k_dqk_slot_prog[slot >= 0 && slot < 7 ? slot : 2];
 	}
 }
-static const char   *s_dqk_kind_labels[GBR_KINDS];
-static const char   *s_dqk_sheet_kind[GBR_KINDS];
-static const char   *s_dqk_god_name[GBR_GODS];
-static const char   *s_dqk_robe_name[GBR_ROBES];
-static const char   *s_dqk_order_name[GBR_ORDERS];
-static unsigned char s_dqk_kind_list[GBR_KINDS];
 
 /* Each Krynn race plays FRUA's rules written into code for its nearest FRUA
  * race: both elves as elves, the dwarves as dwarves, kender as halflings
@@ -128,7 +137,6 @@ static const unsigned char k_dqk_race_base[GBR_RACES] = {
 	RACE_ELF, RACE_ELF, RACE_HALF_ELF, RACE_DWARF, RACE_DWARF,
 	RACE_HALFLING, RACE_HUMAN
 };
-static ruleset_t  s_rules_dqk;
 
 static long dqk_read(void *ctx, long off, void *buf, long len)
 {
@@ -168,12 +176,88 @@ static void kind_list(const unsigned char *race_kinds, int races, int stride,
 	}
 }
 
+/* The ruleset of tables `k->t` holds, named `name`. */
+static const ruleset_t *krynn_ruleset(krynn_rules *k, const char *name)
+{
+	int i;
+
+	for (i = 0; i < GBR_KINDS; i++)
+		k->kind_names[i] = (long)(uintptr_t)k->t.kind_name[i];
+	for (i = 0; i <= GBR_RACES; i++)
+		k->race_names[i] = (long)(uintptr_t)k->t.race_name[i];
+	for (i = 0; i < GBR_RACES; i++)
+		k->race_labels[i] = k->t.race_label[i];
+	for (i = 0; i < GBR_KINDS; i++)
+		k->kind_labels[i] = k->t.kind_label[i];
+	for (i = 0; i < GBR_KINDS; i++)
+		k->sheet_kind[i] = k->t.sheet_kind[i];
+	for (i = 0; i < GBR_GODS; i++)
+		k->god_name[i] = k->t.god_name[i];
+	for (i = 0; i < GBR_ROBES; i++)
+		k->robe_name[i] = k->t.robe_name[i];
+	for (i = 0; i < GBR_ORDERS; i++)
+		k->order_name[i] = k->t.order_name[i];
+	kind_list(k->t.race_kinds, GBR_RACES, GBR_KIND_ROW, k->kind_list);
+	for (i = 0; i < 256; i++)               /* 7 and up: monsters, as FRUA's 6 */
+		k->race_base[i] = (unsigned char)(i < GBR_RACES ? k_dqk_race_base[i] : i - 1);
+
+	k->rs = (ruleset_t){
+		.name             = name,
+		.races            = GBR_RACES,
+		.monster_race     = GBR_RACES,
+		.race_kinds_stride = GBR_KIND_ROW,
+		.progressions     = GBR_PROGS,
+		.xp_levels        = GBR_XP_LEVELS,
+		.race_base        = k->race_base,
+
+		.kind_names       = (const unsigned char *)k->kind_names,
+		.race_names       = (const unsigned char *)k->race_names,
+
+		.race_kinds       = k->t.race_kinds,
+		.kind_aligns      = k->t.kind_aligns,
+		.kind_ability_min = k->t.kind_ability_min,
+		.race_abilities   = k->t.race_abilities,
+		.race_age_cat     = k->t.race_age_cat,
+		.race_start_age   = k->t.race_start_age,
+		.race_level_cap   = k->t.race_level_cap,
+
+		.slot_xp          = k->t.xp,
+		.slot_xp_step     = k->t.xp_step,
+		.slot_thac0       = k->t.slot_thac0,
+		.slot_saves       = k->t.slot_saves,
+		.slot_item_bit    = k->t.slot_item_bit,
+		.slot_hall_bit    = k->t.slot_hall_bit,
+		.slot_name_level  = k->t.slot_name_level,
+		.slot_hd_count    = k->t.slot_hd_count,
+		.slot_hd_size     = k->t.slot_hd_size,
+		.slot_spell_row   = k->t.spell_row,
+		.spell_slots      = k->t.spell_slots,
+		.slot_prog        = k_dqk_slot_prog,
+
+		.thief_skills     = k->t.thief_skills,
+		.race_thief_adj   = k->t.race_thief_adj,
+
+		.race_label_text  = k->race_labels,
+		.kind_label_text  = k->kind_labels,
+		.kind_list        = k->kind_list,
+		.default_race     = 6,         /* human */
+		.prog             = dqk_prog,
+		.knights          = 1,
+		.coin             = k->t.money_name[0],
+		.sheet_kind       = k->sheet_kind,
+		.god_name         = k->god_name,
+		.robe_name        = k->robe_name,
+		.order_name       = k->order_name,
+	};
+	return &k->rs;
+}
+
 const ruleset_t *rules_load_dqk(short refnum)
 {
 	const char *which = 0;
-	int         rc, i;
+	int         rc;
 
-	rc = gbr_load_dqk(dqk_read, &refnum, &s_dqk, 1, &which);
+	rc = gbr_load_dqk(dqk_read, &refnum, &s_dqk.t, 1, &which);
 	if (rc != GBR_OK) {
 		dbg_log(rc == GBR_ESUM ? "rules: DQK.EXE is not the build its "
 		                         "rules are read from; table:"
@@ -181,76 +265,51 @@ const ruleset_t *rules_load_dqk(short refnum)
 		dbg_log(which ? which : "-");
 		return NULL;
 	}
-	for (i = 0; i < GBR_KINDS; i++)
-		s_dqk_kind_names[i] = (long)(uintptr_t)s_dqk.kind_name[i];
-	for (i = 0; i <= GBR_RACES; i++)
-		s_dqk_race_names[i] = (long)(uintptr_t)s_dqk.race_name[i];
-	for (i = 0; i < GBR_RACES; i++)
-		s_dqk_race_labels[i] = s_dqk.race_label[i];
-	for (i = 0; i < GBR_KINDS; i++)
-		s_dqk_kind_labels[i] = s_dqk.kind_label[i];
-	for (i = 0; i < GBR_KINDS; i++)
-		s_dqk_sheet_kind[i] = s_dqk.sheet_kind[i];
-	for (i = 0; i < GBR_GODS; i++)
-		s_dqk_god_name[i] = s_dqk.god_name[i];
-	for (i = 0; i < GBR_ROBES; i++)
-		s_dqk_robe_name[i] = s_dqk.robe_name[i];
-	for (i = 0; i < GBR_ORDERS; i++)
-		s_dqk_order_name[i] = s_dqk.order_name[i];
-	kind_list(s_dqk.race_kinds, GBR_RACES, GBR_KIND_ROW, s_dqk_kind_list);
-	for (i = 0; i < 256; i++)               /* 7 and up: monsters, as FRUA's 6 */
-		s_dqk_race_base[i] = (unsigned char)(i < GBR_RACES ? k_dqk_race_base[i] : i - 1);
-
-	s_rules_dqk = (ruleset_t){
-		.name             = "Dark Queen of Krynn",
-		.races            = GBR_RACES,
-		.monster_race     = GBR_RACES,
-		.race_kinds_stride = GBR_KIND_ROW,
-		.progressions     = GBR_PROGS,
-		.xp_levels        = GBR_XP_LEVELS,
-		.race_base        = s_dqk_race_base,
-
-		.kind_names       = (const unsigned char *)s_dqk_kind_names,
-		.race_names       = (const unsigned char *)s_dqk_race_names,
-
-		.race_kinds       = s_dqk.race_kinds,
-		.kind_aligns      = s_dqk.kind_aligns,
-		.kind_ability_min = s_dqk.kind_ability_min,
-		.race_abilities   = s_dqk.race_abilities,
-		.race_age_cat     = s_dqk.race_age_cat,
-		.race_start_age   = s_dqk.race_start_age,
-		.race_level_cap   = s_dqk.race_level_cap,
-
-		.slot_xp          = s_dqk.xp,
-		.slot_xp_step     = s_dqk.xp_step,
-		.slot_thac0       = s_dqk.slot_thac0,
-		.slot_saves       = s_dqk.slot_saves,
-		.slot_item_bit    = s_dqk.slot_item_bit,
-		.slot_hall_bit    = s_dqk.slot_hall_bit,
-		.slot_name_level  = s_dqk.slot_name_level,
-		.slot_hd_count    = s_dqk.slot_hd_count,
-		.slot_hd_size     = s_dqk.slot_hd_size,
-		.slot_spell_row   = s_dqk.spell_row,
-		.spell_slots      = s_dqk.spell_slots,
-		.slot_prog        = k_dqk_slot_prog,
-
-		.thief_skills     = s_dqk.thief_skills,
-		.race_thief_adj   = s_dqk.race_thief_adj,
-
-		.race_label_text  = s_dqk_race_labels,
-		.kind_label_text  = s_dqk_kind_labels,
-		.kind_list        = s_dqk_kind_list,
-		.default_race     = 6,         /* human */
-		.prog             = dqk_prog,
-		.knights          = 1,
-		.coin             = s_dqk.money_name[0],
-		.sheet_kind       = s_dqk_sheet_kind,
-		.god_name         = s_dqk_god_name,
-		.robe_name        = s_dqk_robe_name,
-		.order_name       = s_dqk_order_name,
-	};
 	dbg_log("rules: Dark Queen of Krynn's read from DQK.EXE");
-	return &s_rules_dqk;
+	return krynn_ruleset(&s_dqk, "Dark Queen of Krynn");
+}
+
+/* Champions' or Death Knights': START.EXE read whole and unpacked into a
+ * block of its own for the time it takes (about 75 KB and 83 KB), the
+ * knightly orders read out of GAME.OVR. */
+const ruleset_t *rules_load_dax(short start, short ovr)
+{
+	const char    *which = 0;
+	unsigned char *exe, *img;
+	long           len = 0, count, n;
+	int            rc = GBR_EREAD, game = 0;
+
+	if (GetEOF(start, &len) != noErr || len < 64 || len > 0x20000L) {
+		dbg_log("rules: START.EXE could not be read");
+		return NULL;
+	}
+	exe = (unsigned char *)NewPtr(len);
+	img = (unsigned char *)NewPtr(GBR_DAX_IMAGE_MAX);
+	count = len;
+	if (exe != NULL && img != NULL && SetFPos(start, fsFromStart, 0) == noErr
+	    && FSRead(start, &count, exe) == noErr && count == len) {
+		n = gbx_unexepack(exe, len, img, GBR_DAX_IMAGE_MAX);
+		rc = n < 0 ? GBR_EGAME
+		   : gbr_load_dax(img, n, dqk_read, &ovr, &s_dax.t, 1, &which, &game);
+	}
+	if (exe != NULL)
+		DisposePtr((Ptr)exe);
+	if (img != NULL)
+		DisposePtr((Ptr)img);
+	if (rc != GBR_OK) {
+		dbg_log(rc == GBR_ESUM ? "rules: START.EXE is not the build its "
+		                         "rules are read from; table:"
+		      : rc == GBR_EGAME ? "rules: START.EXE is not Champions' or "
+		                          "Death Knights'"
+		                        : "rules: START.EXE could not be read; table:");
+		if (rc != GBR_EGAME)
+			dbg_log(which ? which : "-");
+		return NULL;
+	}
+	dbg_log(game == GBR_COK ? "rules: Champions of Krynn's read from START.EXE"
+	                        : "rules: Death Knights of Krynn's read from START.EXE");
+	return krynn_ruleset(&s_dax, game == GBR_COK ? "Champions of Krynn"
+	                                             : "Death Knights of Krynn");
 }
 
 /* A design's own, from its RULES.DAT (tools/rules.py compiles it). The

@@ -83,6 +83,7 @@ int gbr_load_dqk(gbr_read_fn rd, void *ctx, gbr_tables *t, int verify,
  * Queen's import moves it. `verify` as above. */
 #define GBR_COK 1
 #define GBR_DKK 2
+#define GBR_DAX_IMAGE_MAX 0x14200L   /* the larger load image, Death Knights' */
 int gbr_load_dax(const unsigned char *img, long len, gbr_read_fn rd, void *ovr,
                  gbr_tables *t, int verify, const char **which, int *game);
 
