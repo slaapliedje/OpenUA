@@ -416,7 +416,14 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   `character`, `dax_char_read` in boot.c) and is read as one. The caster
   block's layout is the Champions import's (GAME.OVR 0x12e81); a .CCH
   named after the hero shadows the file, which is never deleted or
-  written. Party placement and saves are not read yet. Scripts and maps
+  written. Their scripts place the party through cells 0xC04B (east-west),
+  0xC04C (north-south) and 0xC04D (facing 0..3), with 0xC04E the wall slot
+  ahead and 0xC04F the cell byte (COAB ovr008, the same engine; both games'
+  scripts write the first three, about 100 times each in Champions):
+  `gbs_seed` fills all five, `gbs_apply` carries the first three back as
+  it does the Dark Queen's 0x34/0x35/0x11 (`GBS_CELL_X` etc.). The
+  overland map (0x4bc3/0x4bc4 while 0x4be6 is 0) is not played. Saves
+  are not read yet. Scripts and maps
   are numbered separately in these games — Dark Queen has 47 scripts over 20
   maps.
 - **`tools/ecl.py`** disassembles the scripts (Champions, Death Knights, Dark
@@ -434,8 +441,8 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   `facing >> 1`), and `tools/geo.py`'s `row` is the east-west axis. A square
   test room cannot tell the orders apart — use an asymmetric map.
 - **Wired so far:** text, menus (on the engine's button bar, JT[182]), yes/no,
-  number input (JT[891]), script chains, map loads, party placement (Dark
-  Queen's position variables only), pictures, fights, treasure, temples,
+  number input (JT[891]), script chains, map loads, party placement (the
+  Dark Queen's position variables; Champions' and Death Knights' 0xC04B..D), pictures, fights, treasure, temples,
   shops, inns, training halls, text entry (`jt98`), approaching monsters,
   the fight's starting range, and WHO (`gbs_who`: the camp's roster cursor
   under a Select bar; jt182 only reports the arrows with its echo and wait

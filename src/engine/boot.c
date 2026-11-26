@@ -107785,6 +107785,21 @@ static void jt500(short rings, short art, short sound)
 #define GBS2_ECL       0x0016
 #define GBS2_DESC      0x002D
 #define GBS2_AREA      0x001B
+/* Champions' and Death Knights' (Curse of the Azure Bonds' engine, COAB
+ * ovr008 vm_GetMemoryValue/vm_SetMemoryValue): the party's east-west and
+ * north-south square, its facing 0..3 (N E S W), the wall slot it faces
+ * and the cell's backdrop byte. Both games' scripts write the first three
+ * (Champions about a hundred times each) and only read the last two. */
+#define GBS1_X         0xC04B
+#define GBS1_Y         0xC04C
+#define GBS1_FACING    0xC04D
+#define GBS1_WALL      0xC04E
+#define GBS1_DESC      0xC04F
+
+/* The script cells that say where the party stands, in either dialect. */
+#define GBS_CELL_X     (g_gbs_dialect == ECL_GEN2 ? GBS2_X : GBS1_X)
+#define GBS_CELL_Y     (g_gbs_dialect == ECL_GEN2 ? GBS2_Y : GBS1_Y)
+#define GBS_CELL_FACE  (g_gbs_dialect == ECL_GEN2 ? GBS2_FACING : GBS1_FACING)
 
 static unsigned char *g_gbs_buf;                    /* the loaded ECL file     */
 static unsigned char  g_gbs_desc[GBS_HDR + 784];    /* the loaded GBD file     */
@@ -108153,14 +108168,13 @@ static void gbs_panel(void)
 	unsigned char keep[3];
 	short k;
 
-	if (g_gbs_dialect != ECL_GEN2 || g_a5_byte(-27990) != 4
-	 || g_a5_28006 == 0)
+	if (g_a5_byte(-27990) != 4 || g_a5_28006 == 0)
 		return;
 	for (k = 0; k < 3; k++)
 		keep[k] = g_a5_byte(-12288 + k);
-	g_a5_byte(-12288) = (unsigned char)ecl_peek(&g_gbs_vm, GBS2_X);
-	g_a5_byte(-12287) = (unsigned char)ecl_peek(&g_gbs_vm, GBS2_Y);
-	g_a5_byte(-12286) = (unsigned char)((ecl_peek(&g_gbs_vm, GBS2_FACING) & 3) * 2);
+	g_a5_byte(-12288) = (unsigned char)ecl_peek(&g_gbs_vm, GBS_CELL_X);
+	g_a5_byte(-12287) = (unsigned char)ecl_peek(&g_gbs_vm, GBS_CELL_Y);
+	g_a5_byte(-12286) = (unsigned char)((ecl_peek(&g_gbs_vm, GBS_CELL_FACE) & 3) * 2);
 	jt938();
 	port_draw_compass();
 	for (k = 0; k < 3; k++)
@@ -111323,8 +111337,21 @@ static void gbs_seed(void)
 		ecl_poke(&g_gbs_vm, GBS2_FACING,
 		         (unsigned short)(((unsigned char)g_a5_byte(-12286) >> 1) & 3));
 	} else {
-		/* Champions / Death Knights: the descriptor and its low six bits */
-		ecl_poke(&g_gbs_vm, 0xC04F, d);
+		/* Champions / Death Knights: the square, the facing, the wall
+		 * slot ahead (the low nibble of the edge byte, which gbgeo.py
+		 * carries over as the game's slot), the descriptor and its low
+		 * six bits */
+		const unsigned char *lvl = (const unsigned char *)(uintptr_t)g_a5_long(-12300);
+		short f = (short)(((unsigned char)g_a5_byte(-12286) >> 1) & 3);
+		unsigned short wall = 0;
+
+		if (lvl != NULL && x >= 0 && x < lvl[3] && y >= 0 && y < lvl[2])
+			wall = (unsigned short)jt285((short)(lvl[3] * y + x), (short)(f * 2));
+		ecl_poke(&g_gbs_vm, GBS1_X, (unsigned short)x);
+		ecl_poke(&g_gbs_vm, GBS1_Y, (unsigned short)y);
+		ecl_poke(&g_gbs_vm, GBS1_FACING, (unsigned short)f);
+		ecl_poke(&g_gbs_vm, GBS1_WALL, wall);
+		ecl_poke(&g_gbs_vm, GBS1_DESC, d);
 		ecl_poke(&g_gbs_vm, 0x7F79, (unsigned short)(d & 63));
 	}
 }
@@ -111360,14 +111387,14 @@ static void gbs_apply(void)
 		}
 	}
 	g_gbs_want_map = 0;
-	if (g_gbs_dialect != ECL_GEN2 || rec == NULL)
-		return;                     /* position exchange: Dark Queen only so far */
+	if (rec == NULL)
+		return;
 	lvl = (unsigned char *)(uintptr_t)g_a5_long(-12300);
 	if (lvl == NULL)
 		return;
-	x = (short)ecl_peek(&g_gbs_vm, GBS2_X);
-	y = (short)ecl_peek(&g_gbs_vm, GBS2_Y);
-	f = (short)(ecl_peek(&g_gbs_vm, GBS2_FACING) & 3);
+	x = (short)ecl_peek(&g_gbs_vm, GBS_CELL_X);
+	y = (short)ecl_peek(&g_gbs_vm, GBS_CELL_Y);
+	f = (short)(ecl_peek(&g_gbs_vm, GBS_CELL_FACE) & 3);
 	if (!moved
 	 && x == (short)(signed char)g_a5_byte(-12288)
 	 && y == (short)(signed char)g_a5_byte(-12287)
