@@ -313,3 +313,80 @@ long gbx_member(const unsigned char *q, const unsigned char *mem,
 		gbx_item17(itm + GBX_ITEM_REC * i + GBX_ITEM_TAIL, out + p);
 	return p;
 }
+
+/* ---- characters ------------------------------------------------------- */
+
+/* GAME.OVR 0x12eba..0x12f45, the rest of the Champions import: from, to,
+ * count into the zeroed 220-byte caster block */
+static const unsigned short k_cok_wiz[][3] = {
+	{ 0x01e, 0x00, 0x3a }, { 0x063, 0x4a, 0x6b }, { 0x11c, 0xbc, 5 },
+	{ 0x121, 0xc4, 5 }, { 0x126, 0xcc, 5 }, { 0x12b, 0xd4, 5 }
+};
+#define WIZ_MEMORIZED 0x4a      /* a character's list, zeros first        */
+#define WIZ_KNOWN     0x4a      /* a byte a spell, id - 1                 */
+#define WIZ_KNOWN_N   0x6b
+#define WIZ_SLOT      0xbc      /* four groups of eight spell levels      */
+#define DQK_KNOWN    0x157      /* the Dark Queen's known-spell bits      */
+#define DQK_KNOWN_N    128
+/* the cleric's and the mage's slot groups -> the Dark Queen's slot rows */
+static const unsigned short k_wiz_slots[][2] = { { 0, 0x167 }, { 3, 0x179 } };
+
+int gbx_cok_wiz(const unsigned char *c, long len, unsigned char *wiz)
+{
+	unsigned char k[GBX_DKK], mem[GBX_MEM];
+	unsigned      i;
+	int           has = gbx_cok_to_dkk(c, len, k, mem);
+
+	if (has <= 0)
+		return has;
+	memset(wiz, 0, GBX_WIZ);
+	for (i = 0; i < COUNT(k_cok_wiz); i++)
+		memcpy(wiz + k_cok_wiz[i][1], c + k_cok_wiz[i][0], k_cok_wiz[i][2]);
+	return 1;
+}
+
+long gbx_qch(const unsigned char *k, long klen, const unsigned char *wiz,
+             const unsigned char *eff, long eff_len,
+             const unsigned char *jnk, long jnk_len,
+             unsigned char *out, long max)
+{
+	long ni = jnk_len / GBX_ITEM_REC, ne = eff_len / GBX_NODE, p, i;
+	int  rc;
+
+	if (ni > 255)
+		ni = 255;
+	if (ne > 64)
+		ne = 64;
+	if (GBX_DQK + GBX_ITEM * ni + GBX_NODE * ne > max)
+		return GBX_EROOM;
+	if ((rc = gbx_dkk_to_dqk(k, klen, out)) != 0)
+		return rc;
+	if (wiz != NULL) {
+		unsigned n = 0;
+
+		for (i = 0; i < WIZ_MEMORIZED; i++)
+			if (wiz[i])
+				out[DQK_MEMORIZED + n++] = map(k_spell, COUNT(k_spell), wiz[i]);
+		for (i = 0; i < WIZ_KNOWN_N; i++)
+			if (wiz[WIZ_KNOWN + i]) {
+				unsigned s = map(k_spell, COUNT(k_spell), (unsigned char)(i + 1));
+
+				if (s >= 1 && s <= DQK_KNOWN_N)
+					out[DQK_KNOWN + ((s - 1) >> 3)] |=
+					    (unsigned char)(1u << ((s - 1) & 7));
+			}
+		for (i = 0; i < (long)COUNT(k_wiz_slots); i++)
+			memcpy(out + k_wiz_slots[i][1],
+			       wiz + WIZ_SLOT + 8 * k_wiz_slots[i][0], 8);
+	}
+	out[8] = (unsigned char)ni;
+	out[0xc9] = (unsigned char)ni;
+	p = GBX_DQK;
+	for (i = 0; i < ni; i++, p += GBX_ITEM)
+		gbx_item17(jnk + GBX_ITEM_REC * i + GBX_ITEM_TAIL, out + p);
+	for (i = 0; i < ne; i++, p += GBX_NODE) {
+		memcpy(out + p, eff + GBX_NODE * i, GBX_NODE);
+		out[p] = map(k_affect, COUNT(k_affect), eff[GBX_NODE * i]);
+	}
+	return p;
+}

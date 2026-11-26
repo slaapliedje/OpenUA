@@ -11,6 +11,9 @@
  *                                        each entry's gbx_table_find
  *   gbdaxmon_host monster CHA WIZ SPC ITM   the member, a line of hex
  *                                        ("-" for a block it lacks)
+ *   gbdaxmon_host qch REC WIZ EFF JNK    a character (.GAM, or a 409-byte
+ *                                        Champions .SAV whose WIZ is built)
+ *                                        as a .QCH, a line of hex
  * Errors print "ERR <code>".
  */
 #include <stdio.h>
@@ -131,6 +134,39 @@ int main(int argc, char **argv)
 			return 0;
 		}
 		m = gbx_member(q, has ? mem : NULL, d, sn, e, in, out, sizeof out);
+		if (m < 0) {
+			printf("ERR %ld\n", m);
+			return 0;
+		}
+		hex(out, m);
+		return 0;
+	}
+	if (strcmp(argv[1], "qch") == 0 && argc >= 6) {
+		static unsigned char k[GBX_DKK], wiz[GBX_WIZ], mem[GBX_MEM], out[16384];
+		long cn = slurp(argv[2], a, sizeof a);
+		long wn = slurp(argv[3], c, sizeof c);
+		long en = slurp(argv[4], d, sizeof d);
+		long jn = slurp(argv[5], e, sizeof e);
+		const unsigned char *w = NULL;
+		long m, kn = cn;
+
+		if (cn < 0 || wn < 0 || en < 0 || jn < 0)
+			return 2;
+		if (cn == GBX_COK) {
+			int has = gbx_cok_to_dkk(a, cn, k, mem);
+
+			if (has < 0 || (has = gbx_cok_wiz(a, cn, wiz)) < 0) {
+				printf("ERR %d\n", has);
+				return 0;
+			}
+			w = has ? wiz : NULL;
+			kn = GBX_DKK;
+		} else {
+			memcpy(k, a, cn < GBX_DKK ? (size_t)cn : GBX_DKK);
+			if (wn >= GBX_WIZ)
+				w = c;
+		}
+		m = gbx_qch(k, kn, w, d, en, e, jn, out, sizeof out);
 		if (m < 0) {
 			printf("ERR %ld\n", m);
 			return 0;

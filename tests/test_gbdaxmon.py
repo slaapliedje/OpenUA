@@ -273,3 +273,114 @@ def test_real_map_meets_the_dark_queens_own():
                              if a[i] != b[i] and i not in (0xbf, 0xc0))
     for name in ("WYNDLASS", "GHAST", "FIRE MINION", "WHISPER SPIDER", "SKEL WARRIOR"):
         assert near[name] <= 2, (name, near[name])
+
+
+# ---- characters -----------------------------------------------------------
+
+def c_qch(cbin, tmp_path, rec, wiz=None, eff=b"", jnk=b""):
+    files = []
+    for name, data in (("rec", rec), ("wiz", wiz), ("eff", eff), ("jnk", jnk)):
+        files.append(write(tmp_path, name, data) if data else "-")
+    out = run(cbin, "qch", *files)
+    return out[0] if out[0].startswith("ERR") else bytes.fromhex(out[0])
+
+
+def ref_qch(rec, wiz=None, eff=b"", jnk=b""):
+    if len(rec) == G.COK_SIZE:
+        return G.dqk_character(G.cok_to_dkk(rec)[0], G.cok_wiz(rec), eff, jnk)
+    return G.dqk_character(rec, wiz, eff, jnk)
+
+
+def some_wiz(rng):
+    w = bytearray(G.WIZ_SIZE)
+    spells = sorted(rng.randrange(1, 115) for _ in range(rng.randrange(30)))
+    w[G.WIZ_CHAR_MEMORIZED - len(spells):G.WIZ_CHAR_MEMORIZED] = bytes(spells)
+    for i in range(G.WIZ_KNOWN_N):
+        w[G.WIZ_KNOWN + i] = rng.random() < 0.3
+    for i in range(G.WIZ_SLOT, G.WIZ_SIZE):
+        w[i] = rng.randrange(8)
+    return bytes(w)
+
+
+@pytest.mark.parametrize("size,cls", [(216, 3), (216, 9), (409, 0), (409, 6), (409, 9)])
+def test_synthetic_characters_match_reference(cbin, tmp_path, size, cls):
+    rng = random.Random(size * 7 + cls)
+    for _ in range(6):
+        rec = bytearray(rng.randrange(256) for _ in range(size))
+        rec[0] = rng.randrange(16)
+        rec[0x21 if size == 216 else 0x5b] = cls
+        wiz = some_wiz(rng) if size == 216 and rng.random() < 0.8 else None
+        eff = bytes(rng.randrange(256) for _ in range(9 * rng.randrange(4)))
+        jnk = b"".join(bytes(42) + bytes(4) + t for t in some_items(rng, rng.randrange(6)))
+        assert c_qch(cbin, tmp_path, bytes(rec), wiz, eff, jnk) == \
+            ref_qch(bytes(rec), wiz, eff, jnk)
+
+
+def test_character_spells():
+    """The caster block's spells land where the Dark Queen's heroes keep
+    them: the list packed and translated, the known spells as bits, the
+    cleric's and the mage's slots in their rows."""
+    k = bytearray(216)
+    w = bytearray(G.WIZ_SIZE)
+    w[G.WIZ_CHAR_MEMORIZED - 3:G.WIZ_CHAR_MEMORIZED] = bytes([3, 15, 102])
+    for s in (1, 15, 102, 99):          # 99 -> the Dark Queen's 137: no bit
+        w[G.WIZ_KNOWN + s - 1] = 1
+    w[G.WIZ_SLOT:G.WIZ_SLOT + 3] = b"\x05\x04\x02"
+    w[G.WIZ_SLOT + 24:G.WIZ_SLOT + 26] = b"\x04\x02"
+    w[G.WIZ_SLOT + 8] = 9                # group 1: not carried
+    q = G.dqk_character(bytes(k), bytes(w), b"", b"")
+    assert list(q[0xce:0xd2]) == [3, 15, 59, 0]
+    bits = int.from_bytes(q[0x157:0x167], "little")
+    assert [n + 1 for n in range(128) if bits >> n & 1] == [1, 15, 59]
+    assert q[0x167:0x16a] == b"\x05\x04\x02" and q[0x179:0x17b] == b"\x04\x02"
+    assert q[0x170] == 0
+    assert len(q) == G.DQK_SIZE and q[8] == 0
+
+
+def test_short_record(cbin, tmp_path):
+    assert c_qch(cbin, tmp_path, bytes(100)) == "ERR -1"
+
+
+def save_characters():
+    out = []
+    for stem, pat in (("DKKRAW", "*.GAM"), ("COKRAW", "*.SAV")):
+        out += sorted(glob.glob(os.path.join(GAMES, stem + ".DSN", "SAVE", pat)))
+    if not out:
+        pytest.skip("no Champions or Death Knights saves here")
+    return out
+
+
+def test_real_characters_match_reference(cbin, tmp_path):
+    import gbchar
+    for path in save_characters():
+        stem = os.path.splitext(path)[0]
+
+        def side(ext):
+            p = stem + ext
+            return open(p, "rb").read() if os.path.exists(p) else b""
+
+        rec = open(path, "rb").read()
+        if path.upper().endswith(".SAV"):
+            got = c_qch(cbin, tmp_path, rec, None, side(".SFX"), side(".STF"))
+        else:
+            got = c_qch(cbin, tmp_path, rec, side(".WIZ"), side(".EFF"), side(".JNK"))
+        want = G.character(path)
+        assert got == want, path
+        fixed, items, nodes = gbchar.parse_qch(want)      # qch.c's reader takes it
+        assert gbchar.name_of(want) == rec[1:1 + rec[0]].decode("latin-1").rstrip("\0")[:15]
+        assert len(items) == (len(side(".JNK") or side(".STF")) // 63)
+
+
+def test_real_characters_facts():
+    folder = os.path.join(GAMES, "DKKRAW.DSN", "SAVE")
+    if not os.path.exists(os.path.join(folder, "CHRDATA4.GAM")):
+        pytest.skip("no Death Knights save here")
+    import gbchar
+    dryden = G.character(os.path.join(folder, "CHRDATA1.GAM"))
+    assert gbchar.name_of(dryden) == "SIR DRYDEN"
+    assert gbchar.classes_of(dryden) == [("knight", 7)]       # slot 7 -> 1
+    flavius = G.character(os.path.join(folder, "CHRDATA4.GAM"))
+    assert gbchar.classes_of(flavius) == [("cleric", 6), ("fighter", 7), ("mage", 6)]
+    bits = int.from_bytes(flavius[0x157:0x167], "little")
+    assert bits & (1 << 14) and bits & (1 << 59)            # Magic Missile; 103 -> 60
+    assert flavius[0x179:0x17c] == b"\x04\x02\x02"          # mage 6: 4/2/2

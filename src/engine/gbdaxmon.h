@@ -18,6 +18,7 @@
 #define GBX_DKK        216      /* a Death Knights character                */
 #define GBX_DQK      0x19e      /* the Dark Queen's, its fixed part         */
 #define GBX_MEM       0x3a      /* memorized spells in a caster block       */
+#define GBX_WIZ        220      /* a Death Knights caster block (.WIZ)      */
 #define GBX_ITEM_REC    63      /* an item record                           */
 #define GBX_ITEM_TAIL 0x2e      /* ... where its 17 item bytes start        */
 #define GBX_ITEM        17
@@ -85,5 +86,23 @@ long gbx_member(const unsigned char *q, const unsigned char *mem,
                 const unsigned char *spc, long spc_len,
                 const unsigned char *itm, long itm_len,
                 unsigned char *out, long max);
+
+/* ---- characters ------------------------------------------------------ */
+
+/* A Champions character's whole caster block (`wiz`, GBX_WIZ bytes) as
+ * Death Knights builds it on import (GAME.OVR 0x12e81): 1, 0 when its
+ * class has none, GBX_ESHORT. */
+int gbx_cok_wiz(const unsigned char *c, long len, unsigned char *wiz);
+
+/* A Death Knights character (the .GAM `k`, its .WIZ `wiz` or NULL, the
+ * .EFF nodes and the .JNK item records) -> the Dark Queen's .QCH, which
+ * qch.c reads (gbdaxmon.py dqk_character): the record as the Dark Queen
+ * imports it, the caster block's memorized and known spells and the
+ * cleric's and mage's slots, the items and the effects. Its length, or
+ * GBX_ESHORT / GBX_EROOM. */
+long gbx_qch(const unsigned char *k, long klen, const unsigned char *wiz,
+             const unsigned char *eff, long eff_len,
+             const unsigned char *jnk, long jnk_len,
+             unsigned char *out, long max);
 
 #endif

@@ -48,6 +48,27 @@ word 1) are FRUA's but for twenty, which the Dark Queen moves to its own
 numbers past FRUA's 126 (WORD_MAP); design_words() gives those numbers the
 game's own words.
 
+CHARACTERS. A player character is the same record in a file of its own:
+Death Knights' NAME.GAM (216 bytes) with .WIZ (its caster block, 220),
+.JNK (its items, 63-byte records) and .EFF (its effects, 9-byte nodes);
+Champions' NAME.SAV (409) with .STF (items) and .SFX (effects). A saved
+game's party is the same files named CHRDAT<save letter><place>, which
+the Gold Box halls list too ("from save game A", COAB ovr017). They go
+to the Dark Queen's .QCH (dqk_character, character()), which the engine
+already reads as a hero (qch.c). The caster block, read off the
+Champions import that builds one (GAME.OVR 0x12e81, COK_WIZ):
+
+    0x00..0x49   memorized spells; Champions' 58 at the front, Death
+                 Knights' kept sorted with the zeros first
+    0x4a..0xb4   a byte a spell, set when the spell is known (id - 1)
+    0xbc + 8 g   spell slots by spell level, four groups: 0 the cleric's,
+                 3 the mage's (as the heroes' levels show); 1 and 2 are
+                 empty in every save here and are not carried
+
+The two games number spells alike (START.EXE's string[40] tables differ
+only where Death Knights reused the evil spells' numbers), so Death
+Knights' import translates none.
+
     python3 tools/gbdaxmon.py GAMEFOLDER              # the bestiary, converted
     python3 tools/gbdaxmon.py GAMEFOLDER --items      # the item table
 
@@ -73,7 +94,15 @@ COK_TO_DKK = ((0x000, 0x00, 0x1e), (0x058, 0x1e, 0x0b), (0x0cf, 0x29, 0x08),
 COK_DKK_CLEAR = (0x7d, 0x3a, 0xbd, 0xb9, 0xc2)      # four-byte pointers
 COK_NO_WIZ = (2, 6, 14)                             # classes without one
 COK_MEMORIZED = (0x1e, 0x3a)                        # -> caster block 0
-WIZ_MEMORIZED = 0x3a
+WIZ_MEMORIZED = 0x3a        # what a monster's block holds (none reaches 0x3a)
+# the caster block whole, as the Champions import builds it: (from, to, count)
+COK_WIZ = ((0x1e, 0x00, 0x3a), (0x63, 0x4a, 0x6b)) + tuple(
+    (0x11c + 5 * g, 0xbc + 8 * g, 5) for g in range(4))
+WIZ_CHAR_MEMORIZED = 0x4a   # a character's list, right up to the known bytes
+WIZ_KNOWN, WIZ_KNOWN_N = 0x4a, 0x6b                 # a byte a spell, id - 1
+WIZ_SLOT = 0xbc                                     # four groups of 8 levels
+WIZ_SLOTS = ((0, 0x167), (3, 0x179))                # cleric, mage -> DQK rows
+DQK_KNOWN, DQK_KNOWN_N = 0x157, 128
 
 # DQK.EXE, the Death Knights import: (from, to, count), in the game's order
 DKK_TO_DQK = (
@@ -365,6 +394,86 @@ def frua_monster(folder, file_no, block_id, native=False):
     table = item_table(folder)
     index = gbmon.item_index(b"".join(table))
     return gbmon.convert(m, index, native)
+
+
+# ---- characters -----------------------------------------------------------
+
+def cok_wiz(c):
+    """A Champions character's caster block as Death Knights builds it on
+    import (GAME.OVR 0x12e81..0x12f45: allocated, zeroed, then COK_WIZ),
+    or None for a class without one."""
+    k, _ = cok_to_dkk(c)
+    if k[0x21] in COK_NO_WIZ:
+        return None
+    w = bytearray(WIZ_SIZE)
+    for src, dst, n in COK_WIZ:
+        w[dst:dst + n] = c[src:src + n]
+    return bytes(w)
+
+
+def dqk_character(k, wiz, eff, jnk):
+    """A Death Knights character (the 216-byte .GAM, its 220-byte .WIZ or
+    None, its .EFF nodes and .JNK item records) -> a Dark Queen .QCH: the
+    fixed record, the items, the effect nodes (tools/gbchar.py's layout).
+
+    The record goes across as the Dark Queen imports one (dkk_to_dqk).
+    The caster block, which that import leaves behind, is this port's:
+    the memorized spells (sorted, zeros first, in Death Knights) go to the
+    list at 0xce, packed; each known spell (a byte a spell, WIZ_KNOWN + id
+    - 1) sets its bit at 0x157 (bit (n - 1) & 7 of byte (n - 1) >> 3, the
+    Dark Queen's heroes and FRUA's rec[339] alike); both through
+    SPELL_MAP, and a spell past the 128 bits is not known. Of the slot
+    groups the cleric's and the mage's go to the Dark Queen's slot rows
+    (WIZ_SLOTS); the engine rebuilds them on its next recompute anyway."""
+    q = bytearray(dkk_to_dqk(k))
+    if wiz and len(wiz) >= WIZ_SIZE:
+        mem = [s for s in wiz[:WIZ_CHAR_MEMORIZED] if s]
+        for i, s in enumerate(mem):
+            q[DQK_MEMORIZED + i] = SPELL_MAP.get(s, s)
+        for i in range(WIZ_KNOWN_N):
+            if wiz[WIZ_KNOWN + i]:
+                n = SPELL_MAP.get(i + 1, i + 1)
+                if 1 <= n <= DQK_KNOWN_N:
+                    q[DQK_KNOWN + ((n - 1) >> 3)] |= 1 << ((n - 1) & 7)
+        for group, at in WIZ_SLOTS:
+            q[at:at + 8] = wiz[WIZ_SLOT + 8 * group:WIZ_SLOT + 8 * group + 8]
+    items = [item17(r[ITEM_TAIL:ITEM_TAIL + 17]) for r in records(jnk)][:255]
+    nodes = [eff[i:i + NODE] for i in range(0, len(eff) - NODE + 1, NODE)][:64]
+    q[8] = len(items)
+    q[0xc9] = len(items)
+    return (bytes(q) + b"".join(items)
+            + b"".join(bytes([AFFECT_MAP.get(e[0], e[0])]) + e[1:] for e in nodes))
+
+
+CHAR_FILES = {".GAM": (".WIZ", ".EFF", ".JNK"),      # Death Knights
+              ".SAV": (None, ".SFX", ".STF")}        # Champions
+
+
+def character(path):
+    """A game's own character file (Death Knights' NAME.GAM or a save's
+    CHRDATxn.GAM, Champions' .SAV) and the files beside it of the same
+    stem -> the Dark Queen's .QCH, or None for a file that is not one."""
+    stem, ext = os.path.splitext(path)
+    if ext.upper() not in CHAR_FILES:
+        return None
+
+    def side(e):
+        for p in (stem + e, stem + e.lower()):
+            if os.path.exists(p):
+                return open(p, "rb").read()
+        return b""
+
+    rec = open(path, "rb").read()
+    w, e, j = CHAR_FILES[ext.upper()]
+    if ext.upper() == ".SAV":
+        if len(rec) != COK_SIZE:
+            return None
+        k, wiz = cok_to_dkk(rec)[0], cok_wiz(rec)
+    else:
+        if len(rec) != DKK_SIZE:
+            return None
+        k, wiz = rec, side(w) or None
+    return dqk_character(k, wiz, side(e), side(j))
 
 
 def main(argv):
