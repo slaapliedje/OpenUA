@@ -408,8 +408,15 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   Knight in slot 7, moved to 1 as the Dark Queen's import moves it;
   levels to 18 (Champions 12); Champions has no paladin and no cap table
   (a class stops where its XP does). Their item TYPES are the game's
-  ITEMS (a word, then FRUA's 128 x 16 table). CHRDATA characters, party
-  placement and saves are not read yet. Scripts and maps
+  ITEMS (a word, then FRUA's 128 x 16 table). Their CHARACTERS join the
+  hall beside the .QCH: Death Knights' .GAM (.WIZ caster block, .JNK
+  items, .EFF effects) and Champions' .SAV (.STF, .SFX), a saved game's
+  party (CHRDAT<save letter><place>) among them as the Gold Box halls
+  list it; each becomes a .QCH (`gbx_qch`, reference gbdaxmon.py
+  `character`, `dax_char_read` in boot.c) and is read as one. The caster
+  block's layout is the Champions import's (GAME.OVR 0x12e81); a .CCH
+  named after the hero shadows the file, which is never deleted or
+  written. Party placement and saves are not read yet. Scripts and maps
   are numbered separately in these games — Dark Queen has 47 scripts over 20
   maps.
 - **`tools/ecl.py`** disassembles the scripts (Champions, Death Knights, Dark

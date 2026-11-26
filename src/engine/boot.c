@@ -11957,6 +11957,10 @@ static void qsv_path(char *out, int c);
 static signed char l_cch_read(const char *fn, unsigned char *rec);
 static signed char qch_read(const char *fn, unsigned char *rec);
 static int qch_shadowed(const char *qname);
+static int dax_shadowed(const char *bare);
+static signed char dax_char_read(const char *fn, unsigned char *rec);
+static int dax_char_title(const char *bare, char *name);
+static int gbs_dax_game(void);
 static void l24d2(unsigned char *rec);   /* CODE 17 ability roll (probe self-test) */
 /* Forward — jt127 (design-data loader) lifts further down; the
  * probe self-test below calls it. */
@@ -22896,6 +22900,7 @@ static void cch_fallback(char *base, short slot)
 
 /* Delete the saved-character file `base` from the design's SAVE folder. */
 static int qch_name(const char *fn);
+static int dax_char_name(const char *fn);
 static void qch_write_back(const char *cch);
 
 static void cch_unlink(const char *base)
@@ -22906,8 +22911,8 @@ static void cch_unlink(const char *base)
 	/* A .QCH is the game's own file: the hall rewrites it from the hero's
 	 * .CCH (qch_write_back) but never deletes it, so a hero renamed or
 	 * deleted leaves it be. */
-	if (qch_name(base))
-		return;
+	if (qch_name(base) || dax_char_name(base))
+		return;                         /* and a .GAM or .SAV: the same */
 	design_save_path(path, base);
 	str_c2p(pstr, path);
 	(void)FSDelete((ConstStr255Param)pstr, 0);
@@ -23037,7 +23042,7 @@ static int load_roster(void)
 {
 	char  pat[64], cname[16], path[64];
 	short n2 = 0;
-	int   found, migrating = 0, own_heroes = 0;
+	int   found, migrating = 0, own_heroes = 0, pass;
 
 	/* The design's own SAVE folder first — where DOS and the Mac put them. */
 	design_save_path(pat, "*.CCH");
@@ -23047,6 +23052,14 @@ static int load_roster(void)
 	if (!found) {
 		design_save_path(path, "*.QCH");
 		own_heroes = files_find_first(path, cname, (int)sizeof cname);
+	}
+	if (!found && !own_heroes && gbs_dax_game()) {
+		design_save_path(path, "*.GAM");
+		own_heroes = files_find_first(path, cname, (int)sizeof cname);
+		if (!own_heroes) {
+			design_save_path(path, "*.SAV");
+			own_heroes = files_find_first(path, cname, (int)sizeof cname);
+		}
 	}
 	if (!found && !own_heroes) {
 		/* MIGRATION: an install made before 2026-08-03 has this port's
@@ -23144,13 +23157,18 @@ static int load_roster(void)
 	 * has saved him to a .CCH, read above. The slot owns the .QCH: Add
 	 * reloads a drained hero from it (cg_pool_reload), and the first save
 	 * moves him to his .CCH without deleting it (cch_unlink). */
-	design_save_path(pat, "*.QCH");
+	/* Then, in a copy of Champions' or Death Knights' folder, theirs:
+	 * .GAM and .SAV, a saved game's party among them (dax_char_read). */
+	for (pass = 0; pass < 3; pass++) {
+	if (pass > 0 && !gbs_dax_game())
+		break;
+	design_save_path(pat, pass == 0 ? "*.QCH" : pass == 1 ? "*.GAM" : "*.SAV");
 	for (found = files_find_first(pat, cname, (int)sizeof cname);
 	     found && n2 < 16;
 	     found = files_find_next(cname, (int)sizeof cname)) {
 		int a;
 
-		if (qch_shadowed(cname))
+		if (pass == 0 ? qch_shadowed(cname) : dax_shadowed(cname))
 			continue;
 		memset(cg_pool[n2], 0, 512);
 		design_save_path(path, cname);
@@ -23164,6 +23182,7 @@ static int load_roster(void)
 				    cg_pool[n2][112 + a * 2];
 		cch_copy(cg_pool_fn[n2], cname);
 		n2++;
+	}
 	}
 	if (n2 == 0)
 		return 0;
@@ -35347,11 +35366,14 @@ static void l01be(const char *suffix, long *out1, long *out2)
 	 * releases use, so DOS- and Mac-authored characters enumerate here too;
 	 * then the Dark Queen's own heroes, *.QCH, each unless the hall has
 	 * saved him to a .CCH (ADR-0026 step (d); see qch_read). */
-	for (pass = 0; pass < 2; pass++) {
+	for (pass = 0; pass < 4; pass++) {
+	if (pass == 2 && !gbs_dax_game())
+		break;                  /* .GAM, .SAV: Champions', Death Knights' */
 	{
+		static const char *const k_pat[] = { "*.CCH", "*.QCH", "*.GAM", "*.SAV" };
 		char pat[64];
 
-		design_save_path(pat, pass ? "*.QCH" : "*.CCH");
+		design_save_path(pat, k_pat[pass]);
 		jt990(0, pat, NULL, 1, 0);             /* scan saved-char files */
 #ifdef FRUA_CCHTRACE
 		dbg_file_str("cch: l01be pattern", pat);
@@ -35369,7 +35391,9 @@ static void l01be(const char *suffix, long *out1, long *out2)
 		short         refnum, len;
 		long          n;
 
-		if (pass && qch_shadowed((const char *)(uintptr_t)entry))
+		if (pass == 1 && qch_shadowed((const char *)(uintptr_t)entry))
+			continue;
+		if (pass >= 2 && dax_shadowed((const char *)(uintptr_t)entry))
 			continue;
 		jt477((void *)(uintptr_t)g_a5_21156, 40, &node1); /* peer node   */
 		jt477((void *)(uintptr_t)g_a5_21156, 40, &node2); /* name node   */
@@ -35399,7 +35423,12 @@ static void l01be(const char *suffix, long *out1, long *out2)
 				pfn[len + 1] = full[len];
 		}
 		pfn[0] = (char)len;
-		if (FSOpen((ConstStr255Param)pfn, 0, &refnum) == noErr) {
+		if (pass >= 2) {                       /* a Pascal name at 0 */
+			char name[16];
+
+			if (dax_char_title(cfn, name))
+				jt384((char *)(uintptr_t)(node2 + 5), name);
+		} else if (FSOpen((ConstStr255Param)pfn, 0, &refnum) == noErr) {
 			n = (long)sizeof rec;
 			short at = pass ? QCH_NAME : 96;   /* the name, 16 bytes */
 
@@ -42991,6 +43020,8 @@ static signed char l_cch_read(const char *fn, unsigned char *rec)
 		return 0;
 	if (qch_name(fn))
 		return qch_read(fn, rec);
+	if (dax_char_name(fn))
+		return dax_char_read(fn, rec);
 	str_c2p(pstr, fn);
 	if (FSOpen((ConstStr255Param)pstr, 0, &ref) != noErr)
 		return 0;
@@ -43097,20 +43128,14 @@ static void qch_write_back(const char *cch)
 	dbg_file_str("qch: written back for the game: ", stem);
 }
 
-static signed char qch_read(const char *fn, unsigned char *rec)
+/* A .QCH image `q` (`n` bytes) into the record at `rec` through jt577, as
+ * a .CCH is read. */
+static signed char qch_load(const unsigned char *q, long n, int native,
+                            const char *fn, unsigned char *rec)
 {
-	static unsigned char q[QCH_FIXED + QCH_ITEM * 255 + QCH_NODE * 64];
-	unsigned char pstr[64];
-	short         ref;
-	long          n = (long)sizeof q, len;
+	long len = qch_to_cch(q, n, s_qch_stream, (long)sizeof s_qch_stream,
+	                      native);
 
-	str_c2p(pstr, fn);
-	if (FSOpen((ConstStr255Param)pstr, 0, &ref) != noErr)
-		return 0;
-	(void)FSRead(ref, &n, q);               /* eofErr: n says how much */
-	(void)FSClose(ref);
-	len = qch_to_cch(q, n, s_qch_stream, (long)sizeof s_qch_stream,
-	                 qch_native());
 	if (len < 0) {
 		dbg_log("qch: not a Dark Queen character file:");
 		dbg_log(fn);
@@ -43124,6 +43149,21 @@ static signed char qch_read(const char *fn, unsigned char *rec)
 	return 1;
 }
 
+static signed char qch_read(const char *fn, unsigned char *rec)
+{
+	static unsigned char q[QCH_FIXED + QCH_ITEM * 255 + QCH_NODE * 64];
+	unsigned char pstr[64];
+	short         ref;
+	long          n = (long)sizeof q;
+
+	str_c2p(pstr, fn);
+	if (FSOpen((ConstStr255Param)pstr, 0, &ref) != noErr)
+		return 0;
+	(void)FSRead(ref, &n, q);               /* eofErr: n says how much */
+	(void)FSClose(ref);
+	return qch_load(q, n, qch_native(), fn, rec);
+}
+
 /* A .QCH is shadowed by the .CCH the hall saved that hero to. */
 static int qch_shadowed(const char *qname)
 {
@@ -43135,6 +43175,130 @@ static int qch_shadowed(const char *qname)
 	for (j = 0; qname[j] && qname[j] != '.' && j < 8; j++)
 		base[j] = qname[j];
 	memcpy(base + j, ".CCH", 5);
+	design_save_path(path, base);
+	str_c2p(pstr, path);
+	if (FSOpen((ConstStr255Param)pstr, 0, &ref) != noErr)
+		return 0;
+	(void)FSClose(ref);
+	return 1;
+}
+
+/* ADR-0026: Champions' and Death Knights' own characters. In a copy of
+ * either game's folder (gbs_dax_game) the hall lists Death Knights' .GAM
+ * and Champions' .SAV beside the .QCH, a saved game's party (CHRDAT<save
+ * letter><place>) among them as the Gold Box halls list it. Each is read
+ * with the files of its stem (.WIZ/.EFF/.JNK, .SFX/.STF) into a Dark
+ * Queen .QCH (gbx_qch; tools/gbdaxmon.py character) and from there as a
+ * .QCH is: under the game's own rules, so the race stays the game's. Like
+ * a .QCH it is the game's own file: never deleted, and shadowed by the
+ * .CCH the hall saves that hero to (named, as every .CCH is, after him). */
+static int dax_char_name(const char *fn)
+{
+	size_t n = strlen(fn);
+	char   a, b, c;
+
+	if (n <= 4 || fn[n - 4] != '.')
+		return 0;
+	a = (char)(fn[n - 3] | 0x20);
+	b = (char)(fn[n - 2] | 0x20);
+	c = (char)(fn[n - 1] | 0x20);
+	return (a == 'g' && b == 'a' && c == 'm') || (a == 's' && b == 'a' && c == 'v');
+}
+
+/* The file `fn`, or the one beside it with extension `ext` (three
+ * letters, in the case of fn's own), into `buf`; its length, 0 for none. */
+static long dax_side(const char *fn, const char *ext, unsigned char *buf, long max)
+{
+	char          path[72];
+	unsigned char pstr[76];
+	size_t        k = strlen(fn), j;
+	short         ref;
+	long          n = max;
+
+	if (k < 4 || k >= sizeof path)
+		return 0;
+	memcpy(path, fn, k + 1);
+	if (ext != NULL)
+		for (j = 0; j < 3; j++)
+			path[k - 3 + j] = (fn[k - 3] & 0x20) ? (char)(ext[j] | 0x20) : ext[j];
+	str_c2p(pstr, path);
+	if (FSOpen((ConstStr255Param)pstr, 0, &ref) != noErr)
+		return 0;
+	(void)FSRead(ref, &n, buf);             /* eofErr: n says how much */
+	(void)FSClose(ref);
+	return n;
+}
+
+static signed char dax_char_read(const char *fn, unsigned char *rec)
+{
+	static unsigned char r[GBX_COK + 1], k[GBX_DKK], w[GBX_WIZ], mem[GBX_MEM];
+	static unsigned char e[GBX_NODE * 64], j[GBX_ITEM_REC * 255];
+	static unsigned char q[GBX_DQK + GBX_ITEM * 255 + GBX_NODE * 64];
+	const unsigned char *wiz = NULL;
+	size_t n = strlen(fn);
+	int    sav = (fn[n - 3] | 0x20) == 's';
+	long   rn = dax_side(fn, NULL, r, (long)sizeof r), en, jn, len;
+
+	if (sav) {
+		if (rn != GBX_COK || gbx_cok_to_dkk(r, rn, k, mem) < 0)
+			goto bad;
+		if (gbx_cok_wiz(r, rn, w) > 0)
+			wiz = w;
+		en = dax_side(fn, "SFX", e, (long)sizeof e);
+		jn = dax_side(fn, "STF", j, (long)sizeof j);
+	} else {
+		if (rn != GBX_DKK)
+			goto bad;
+		memcpy(k, r, GBX_DKK);
+		if (dax_side(fn, "WIZ", w, GBX_WIZ) == GBX_WIZ)
+			wiz = w;
+		en = dax_side(fn, "EFF", e, (long)sizeof e);
+		jn = dax_side(fn, "JNK", j, (long)sizeof j);
+	}
+	len = gbx_qch(k, GBX_DKK, wiz, e, en, j, jn, q, (long)sizeof q);
+	if (len < 0)
+		goto bad;
+	return qch_load(q, len, 1, fn, rec);
+bad:
+	dbg_log("gbs: not a Champions or Death Knights character:");
+	dbg_log(fn);
+	return 0;
+}
+
+/* The name in a .GAM or .SAV (`bare`, in the design's SAVE folder), as a
+ * C string into `name` (16 bytes); 0 when it cannot be read. */
+static int dax_char_title(const char *bare, char *name)
+{
+	unsigned char r[16];
+	char          path[64];
+	long          n;
+	int           i;
+
+	design_save_path(path, bare);
+	n = dax_side(path, NULL, r, (long)sizeof r);
+	if (n < 2 || r[0] == 0)
+		return 0;
+	for (i = 0; i < r[0] && i < 15 && i + 1 < n; i++)
+		name[i] = (char)r[1 + i];
+	name[i] = 0;
+	return 1;
+}
+
+/* Shadowed by a .CCH of its own stem, or of its hero's name. */
+static int dax_shadowed(const char *bare)
+{
+	unsigned char fake[112];
+	char          name[16], base[16], path[64];
+	unsigned char pstr[64];
+	short         ref;
+
+	if (qch_shadowed(bare))
+		return 1;
+	if (!dax_char_title(bare, name))
+		return 0;
+	memset(fake, 0, sizeof fake);
+	memcpy(fake + 96, name, strlen(name));
+	cch_file_name(fake, base);
 	design_save_path(path, base);
 	str_c2p(pstr, path);
 	if (FSOpen((ConstStr255Param)pstr, 0, &ref) != noErr)
