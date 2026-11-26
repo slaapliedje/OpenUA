@@ -422,8 +422,17 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   scripts write the first three, about 100 times each in Champions):
   `gbs_seed` fills all five, `gbs_apply` carries the first three back as
   it does the Dark Queen's 0x34/0x35/0x11 (`GBS_CELL_X` etc.). The
-  overland map (0x4bc3/0x4bc4 while 0x4be6 is 0) is not played. Saves
-  are not read yet. Scripts and maps
+  overland map (0x4bc3/0x4bc4 while 0x4be6 is 0) is not played. Their
+  SAVES load: SAVGAMx.DAT (Champions) / .PTY (Death Knights) in SAVE,
+  listed by jt582 (`gbs_dax_save_load`, reader `gbs1_read` in gbsave.c,
+  reference gbsave.py `Gen1Save`, whose docstring has the layout: COAB's
+  SaveGame without its script block; cells a word each in Champions, a
+  byte in Death Knights). The members are the CHRDAT files it names; the
+  three cell blocks go back and, as COAB loads, the script in 0x4bf2 runs
+  its initial entry again (`g_gbs_resume_init`; the play loop's
+  `gbs_arrive`). A save at script 0 (the shipped ones) is a new game.
+  DOSBox saves in data/work/cok-saves. The port does not write them yet.
+  Scripts and maps
   are numbered separately in these games — Dark Queen has 47 scripts over 20
   maps.
 - **`tools/ecl.py`** disassembles the scripts (Champions, Death Knights, Dark

@@ -133,3 +133,68 @@ long gbv_write(const unsigned char *cells, unsigned char x, unsigned char y,
 	}
 	return GBV_SIZE;
 }
+
+/* ---- Champions and Death Knights ---------------------------------------- */
+
+static const struct { unsigned base, n; } k_gbs1_blocks[3] = {
+	{ 0x4b00, 0x400 }, { 0x7c00, 0x400 }, { 0x7a00, 0x200 }
+};
+
+int gbs1_read(const unsigned char *q, long len, gbs1_save *s)
+{
+	long at = 1;
+	int  nsets, b;
+	unsigned i;
+
+	memset(s, 0, sizeof *s);
+	if (len == GBS1_COK_SIZE) {
+		s->width = 2;
+		nsets = 3;
+	} else if (len == GBS1_DKK_SIZE) {
+		s->dkk = 1;
+		s->width = 1;
+		nsets = 4;
+	} else
+		return GBV_ESHORT;
+	s->data = q;
+	s->game_area = q[0];
+	for (b = 0; b < 3; b++) {
+		s->block[b] = at;
+		at += (long)s->width * k_gbs1_blocks[b].n;
+	}
+	s->x = q[at];
+	s->y = q[at + 1];
+	s->facing = (unsigned char)(q[at + 2] >> 1 & 3);
+	s->wall = q[at + 3];
+	s->backdrop = q[at + 4];
+	s->last_state = q[at + 5];
+	s->state = q[at + 6];
+	at += 7 + 4L * nsets;
+	if (q[at] > GBS1_MEMBERS)
+		return GBV_ECOUNT;
+	s->members = q[at++];
+	for (i = 0; i < s->members; i++) {
+		const unsigned char *p = q + at + (long)GBS1_NAME * i;
+		unsigned n = p[0] < GBS1_NAME - 1 ? p[0] : GBS1_NAME - 1;
+
+		memcpy(s->names[i], p + 1, n);
+		s->names[i][n] = 0;
+	}
+	return 0;
+}
+
+unsigned gbs1_cell(const gbs1_save *s, unsigned addr)
+{
+	int b;
+
+	for (b = 0; b < 3; b++) {
+		unsigned k = addr - k_gbs1_blocks[b].base;
+
+		if (addr >= k_gbs1_blocks[b].base && k < k_gbs1_blocks[b].n) {
+			const unsigned char *p = s->data + s->block[b] + (long)s->width * k;
+
+			return s->width == 2 ? (unsigned)(p[0] | p[1] << 8) : p[0];
+		}
+	}
+	return 0;
+}

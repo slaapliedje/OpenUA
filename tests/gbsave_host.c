@@ -9,6 +9,11 @@
  *                        the save gbv_write makes of that save's own cells,
  *                        square, facing, descriptor and records (over BASE,
  *                        if given), in hex
+ *   gbsave_host -1 <SAVGAMx.DAT|.PTY>
+ *                        a Champions or Death Knights save: "dkk area x y
+ *                        facing wall backdrop last state members", the
+ *                        names a line each, then "cell value" for every
+ *                        non-zero cell
  */
 #include <stdio.h>
 
@@ -23,6 +28,32 @@ int main(int argc, char **argv)
 	unsigned i;
 	int      rc;
 
+	if (argc == 3 && argv[1][0] == '-' && argv[1][1] == '1') {
+		static const unsigned blocks[3][2] = {
+			{ 0x4b00, 0x400 }, { 0x7c00, 0x400 }, { 0x7a00, 0x200 }
+		};
+		gbs1_save g;
+		unsigned  b, c;
+
+		if ((f = fopen(argv[2], "rb")) == NULL)
+			return 2;
+		n = (long)fread(q, 1, sizeof q, f);
+		fclose(f);
+		if ((rc = gbs1_read(q, n, &g)) != 0) {
+			printf("ERR %d\n", rc);
+			return 0;
+		}
+		printf("%d %u %u %u %u %u %u %u %u %u\n", g.dkk, g.game_area, g.x,
+		       g.y, g.facing, g.wall, g.backdrop, g.last_state, g.state,
+		       g.members);
+		for (i = 0; i < g.members; i++)
+			printf("%s\n", g.names[i]);
+		for (b = 0; b < 3; b++)
+			for (c = blocks[b][0]; c < blocks[b][0] + blocks[b][1]; c++)
+				if (gbs1_cell(&g, c) != 0)
+					printf("%x %u\n", c, gbs1_cell(&g, c));
+		return 0;
+	}
 	if (argc >= 3 && argv[1][0] == '-' && argv[1][1] == 'w') {
 		static unsigned char b[GBV_SIZE + 4096], out[GBV_SIZE];
 		const unsigned char *rec[GBV_MEMBERS];

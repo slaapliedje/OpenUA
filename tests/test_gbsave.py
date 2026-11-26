@@ -282,3 +282,112 @@ def test_backdrop_is_the_areas_art_set():
     for m, v in by_map.items():
         if m in want:
             assert v == want[m], (m, v)
+
+
+# ---- Champions and Death Knights (gbs1_read, gbsave.Gen1Save) -------------
+
+def gen1_save(dkk, cells, x, y, facing, names, sets=None):
+    """A save of either game laid out as tools/gbsave.py's docstring says."""
+    width = 1 if dkk else 2
+    out = bytearray([1])
+    for base, n in gbsave.GEN1_BLOCKS:
+        for i in range(n):
+            v = cells.get(base + i, 0)
+            out += bytes([v & 255]) if dkk else struct.pack("<H", v)
+    out += bytes([x, y, facing * 2, 3, 9, 4, 2])
+    nsets = 4 if dkk else 3
+    for b, s in (sets or [(-1, -1)] * nsets):
+        out += struct.pack("<hh", b, s)
+    out += bytes([len(names)])
+    for k in range(gbsave.GEN1_MEMBERS):
+        nm = names[k].encode() if k < len(names) else b""
+        slot = bytes([len(nm)]) + nm
+        out += slot + bytes([0x5a]) * (gbsave.GEN1_NAME - len(slot))  # junk
+    assert len(out) == (gbsave.GEN1_DKK_SIZE if dkk else gbsave.GEN1_COK_SIZE)
+    assert width
+    return bytes(out)
+
+
+def c_read1(cbin, path):
+    out = subprocess.run([cbin, "-1", str(path)], check=True,
+                         capture_output=True, text=True).stdout.split("\n")
+    if out[0].startswith("ERR"):
+        return out[0]
+    head = [int(v) for v in out[0].split()]
+    names = out[1:1 + head[-1]]
+    cells = {int(a, 16): int(b) for a, b in
+             (ln.split() for ln in out[1 + head[-1]:] if ln)}
+    return head, names, cells
+
+
+def py_read1(data):
+    g = gbsave.Gen1Save(data)
+    head = [int(g.dkk), g.game_area, g.x, g.y, g.facing, g.wall, g.backdrop,
+            g.last_state, g.state, len(g.names)]
+    return head, g.names, {k: v for k, v in g.cells.items() if v}
+
+
+@pytest.mark.parametrize("dkk", [False, True])
+def test_gen1_synthetic_matches_reference(cbin, tmp_path, dkk):
+    rnd = random.Random(7 + dkk)
+    cells = {gbsave.GEN1_CELL_SCRIPT: 17, gbsave.GEN1_CELL_MAP: 34,
+             0x4bc7: 2, 0x4bc9: 12, 0x7ec6: 75, 0x7a00: 1, 0x7bff: 200,
+             0x4eff: 9}
+    for _ in range(50):
+        cells[rnd.choice((0x4b00, 0x7c00, 0x7a00)) + rnd.randrange(0x200)] = \
+            rnd.randrange(256 if dkk else 65536)
+    names = ["CHRDATC%d" % i for i in range(1, 7)]
+    data = gen1_save(dkk, cells, 7, 13, 1, names)
+    p = tmp_path / "s"
+    p.write_bytes(data)
+    assert c_read1(cbin, p) == py_read1(data)
+    g = gbsave.Gen1Save(data)
+    assert (g.script, g.map, g.time_of_day) == (17, 34, (12, 2))
+    assert (g.x, g.y, g.facing, g.names) == (7, 13, 1, names)
+    assert g.cell(0x4eff) == 9 and g.cell(0x7bff) == 200
+
+
+def test_gen1_wrong_size_and_count(cbin, tmp_path):
+    p = tmp_path / "s"
+    p.write_bytes(bytes(100))
+    assert c_read1(cbin, p) == "ERR -1"
+    with pytest.raises(gbsave.GbSaveError):
+        gbsave.Gen1Save(bytes(100))
+    data = bytearray(gen1_save(False, {}, 0, 0, 0, []))
+    data[gbsave.GEN1_COK_SIZE - 1 - 8 * gbsave.GEN1_NAME] = 9
+    p.write_bytes(bytes(data))
+    assert c_read1(cbin, p) == "ERR -2"
+
+
+GEN1_REAL = (sorted(glob.glob(os.path.join(ROOT, "data", "work", "cok-saves",
+                                           "SAVGAM?.DAT")))
+             + sorted(glob.glob(os.path.join(ROOT, "data", "work", "gamedata",
+                                             "*.DSN", "SAVE", "SAVGAM?.DAT")))
+             + sorted(glob.glob(os.path.join(ROOT, "data", "work", "gamedata",
+                                             "*.DSN", "SAVE", "SAVGAM?.PTY"))))
+
+
+@pytest.mark.skipif(not GEN1_REAL, reason="no Champions or Death Knights saves")
+def test_gen1_real_saves_match_reference(cbin):
+    for path in GEN1_REAL:
+        data = open(path, "rb").read()
+        if len(data) not in (gbsave.GEN1_COK_SIZE, gbsave.GEN1_DKK_SIZE):
+            continue
+        assert c_read1(cbin, path) == py_read1(data), path
+        g = gbsave.Gen1Save(data)
+        letter = os.path.basename(path)[6]
+        assert g.names == ["CHRDAT%s%d" % (letter, i)
+                           for i in range(1, len(g.names) + 1)], path
+
+
+SAVE_D = os.path.join(ROOT, "data", "work", "cok-saves", "SAVGAMD.DAT")
+
+
+@pytest.mark.skipif(not os.path.exists(SAVE_D), reason="no Champions save D")
+def test_gen1_champions_save_d():
+    """After the caravan fight: back at the outpost (script 17, in town),
+    7,13 facing east, 12:02, as the game's own panel showed."""
+    g = gbsave.Gen1Save(open(SAVE_D, "rb").read())
+    assert (g.dkk, g.script, g.cell(gbsave.GEN1_CELL_DUNGEON)) == (False, 17, 0)
+    assert (g.x, g.y, g.facing, g.time_of_day) == (7, 13, 1, (12, 2))
+    assert len(g.names) == 6

@@ -63,6 +63,39 @@ from its own files writes its vaults this way too (jt75). The vault itself
 is the Imperial Bank of Kristophan: a COMBAT with no monsters and area byte
 0x31 set. The engine loads a save through boot.c's gbs_qsv_load.
 
+CHAMPIONS AND DEATH KNIGHTS save differently (Gen1Save, read_gen1): a
+party file in SAVE, SAVGAMx.DAT in Champions (5469 bytes) and SAVGAMx.PTY
+in Death Knights (2913), with each member in CHRDATxn files of their own
+(tools/gbdaxmon.py character()). The layout is Curse of the Azure Bonds'
+(COAB ovr017 SaveGame, the same engine) without its 0x1e00-byte script
+block, checked against saves made in DOSBox (Champions: the outpost after
+the commandant, then after a fight on the overland, 12:02 facing east):
+
+    0              the game area (the ECL/GEO file set; 1 in both games)
+    1              script cells 0x4b00..0x4eff: Champions a 16-bit little-
+                   endian word a cell (0x800 bytes), Death Knights a byte
+                   a cell (0x400). Among them (COAB Area1):
+                     0x4bc3, 0x4bc4  the overland square
+                     0x4bc5          the 3D map loaded (a GEO block id)
+                     0x4bc7..0x4bc9  minutes, tens of minutes, hours
+                     0x4be6          1 in a dungeon, 0 overland or in town
+                     0x4bf0, 0x4bf1  the last square
+                     0x4bf2          the script running; its initial entry
+                                     tests it, as the Dark Queen's 0x16
+           then    script cells 0x7c00..0x7fff, the same way (0x7f12 the
+                   game area again)
+           then    script cells 0x7a00..0x7bff, the same way
+    then 5 bytes   the party's square x, y, facing (0=N 2=E 4=S 6=W), the
+                   wall slot ahead and the square's backdrop byte
+    then 2 bytes   the last game state and the game state
+    then           the wall sets, (block id, set id) u16 pairs: three in
+                   Champions, four in Death Knights; -1 unused
+    then 1 byte    the party size, and 8 names as string[40] (41 bytes a
+                   name, a length byte first): CHRDAT<slot><place>
+
+On loading, COAB loads the script in 0x4bf2 and runs its initial entry
+with the memory kept. Both games ship saves at script 0 (no game begun).
+
     python3 tools/gbsave.py SAVGAMA.QSV              # summary
     python3 tools/gbsave.py SAVGAMA.QSV --qch DIR    # each member as a .QCH
 
@@ -240,6 +273,77 @@ def read_vault(data):
                    for k in range(count)]
 
 
+GEN1_COK_SIZE, GEN1_DKK_SIZE = 5469, 2913
+GEN1_BLOCKS = ((0x4b00, 0x400), (0x7c00, 0x400), (0x7a00, 0x200))
+GEN1_NAME = 41
+GEN1_MEMBERS = 8
+GEN1_CELL_MAP = 0x4bc5
+GEN1_CELL_SCRIPT = 0x4bf2
+GEN1_CELL_DUNGEON = 0x4be6
+GEN1_CELL_CLOCK = 0x4bc7        # minutes, tens of minutes, hours
+
+
+class Gen1Save:
+    """Champions' SAVGAMx.DAT or Death Knights' SAVGAMx.PTY (the docstring
+    has the layout); which one is told by the size."""
+
+    def __init__(self, data):
+        if len(data) == GEN1_COK_SIZE:
+            self.dkk, width, nsets = False, 2, 3
+        elif len(data) == GEN1_DKK_SIZE:
+            self.dkk, width, nsets = True, 1, 4
+        else:
+            raise GbSaveError("%d bytes is neither game's save" % len(data))
+        self.width = width
+        self.game_area = data[0]
+        self.cells = {}
+        at = 1
+        for base, n in GEN1_BLOCKS:
+            for i in range(n):
+                v = (struct.unpack_from("<H", data, at + 2 * i)[0] if width == 2
+                     else data[at + i])
+                self.cells[base + i] = v
+            at += width * n
+        self.x, self.y = data[at], data[at + 1]
+        self.facing = data[at + 2] >> 1 & 3
+        self.wall, self.backdrop = data[at + 3], data[at + 4]
+        self.last_state, self.state = data[at + 5], data[at + 6]
+        at += 7
+        self.sets = [struct.unpack_from("<hh", data, at + 4 * i)
+                     for i in range(nsets)]
+        at += 4 * nsets
+        count = data[at]
+        if count > GEN1_MEMBERS:
+            raise GbSaveError("%d party members" % count)
+        at += 1
+        self.names = []
+        for i in range(count):
+            n = min(data[at + GEN1_NAME * i], GEN1_NAME - 1)
+            self.names.append(data[at + GEN1_NAME * i + 1:
+                                   at + GEN1_NAME * i + 1 + n].decode("latin-1"))
+        self.names_at = at
+
+    def cell(self, n):
+        return self.cells.get(n, 0)
+
+    @property
+    def script(self):
+        return self.cell(GEN1_CELL_SCRIPT)
+
+    @property
+    def map(self):
+        return self.cell(GEN1_CELL_MAP)
+
+    @property
+    def time_of_day(self):
+        c = GEN1_CELL_CLOCK
+        return self.cell(c + 2), self.cell(c + 1) * 10 + self.cell(c)
+
+
+def read_gen1(data):
+    return Gen1Save(data)
+
+
 def name_of(record):
     return record[0x68:0x78].split(b"\0")[0].decode("latin-1")
 
@@ -248,7 +352,17 @@ def main(argv):
     if not argv:
         print(__doc__)
         return 2
-    s = GbSave(open(argv[0], "rb").read())
+    data = open(argv[0], "rb").read()
+    if len(data) in (GEN1_COK_SIZE, GEN1_DKK_SIZE):
+        g = Gen1Save(data)
+        print("%s: script %d, map %d, %s, at %d,%d facing %s, %02d:%02d"
+              % ("Death Knights" if g.dkk else "Champions", g.script, g.map,
+                 "dungeon" if g.cell(GEN1_CELL_DUNGEON) else "overland/town",
+                 g.x, g.y, "NESW"[g.facing], *g.time_of_day))
+        for n in g.names:
+            print("  " + n)
+        return 0
+    s = GbSave(data)
     print("map %d, script %d, at %d,%d facing %s, descriptor %d"
           % (s.map, s.script, s.x, s.y, "NESW"[s.facing], s.desc))
     for r in s.members:

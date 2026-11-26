@@ -5343,6 +5343,12 @@ static void jt948(void)
 		 * the party icon is visible at entry before any move. */
 		if ((short)g_a5_18878 <= 4 && g_a5_27990 == 3)
 			l2cf4();
+#ifndef FRUA_SKIP_ENTRY_EVENTS
+		/* PORT (ADR-0026): play resumed from a Champions or Death Knights
+		 * save runs the saved script's initial entry, as COAB does on a
+		 * load (gbs_dax_save_load); nothing is pending otherwise. */
+		gbs_arrive();
+#endif
 
 		for (;;) {                              /* L4be8 — the play loop */
 			g_a5_byte(-24140) = want;
@@ -11953,6 +11959,8 @@ static signed char l00e0_load(const char *fn, void *cb);
 static void gbs_state_load(int slot);   /* PORT: Gold Box script memory, at the end */
 static void gbs_state_save(int slot);
 static int  gbs_qsv_load(int slot);     /* PORT: a save the Dark Queen wrote */
+static int  gbs_dax_save_load(int slot); /* ... Champions or Death Knights did */
+static void dax_save_path(char *out, int c, int pty);
 static void qsv_path(char *out, int c);
 static signed char l_cch_read(const char *fn, unsigned char *rec);
 static signed char qch_read(const char *fn, unsigned char *rec);
@@ -44027,6 +44035,16 @@ static void qsv_path(char *out, int c)
 	design_save_path(out, base);
 }
 
+/* ... and as Champions names it, "SAVE\SAVGAM<c>.DAT", or Death Knights,
+ * "SAVE\SAVGAM<c>.PTY" (tools/gbsave.py Gen1Save). */
+static void dax_save_path(char *out, int c, int pty)
+{
+	char base[16];
+
+	jt394(base, pty ? "SAVGAM%c.PTY" : "SAVGAM%c.DAT", c);
+	design_save_path(out, base);
+}
+
 /* Make sure "<design>.DSN\SAVE" exists before a slot is written into it.
  *
  * GEMDOS Fcreate will not make the folder, and neither will AmigaDOS Open() —
@@ -44442,6 +44460,12 @@ static void jt582(void)
 	savgam_scan(present, path);
 	qsv_path(path, '*');                         /* ... and the Dark Queen's own */
 	savgam_scan(present, path);
+	if (gbs_dax_game()) {                        /* ... or Champions' or Death */
+		dax_save_path(path, '*', 0);             /* Knights' */
+		savgam_scan(present, path);
+		dax_save_path(path, '*', 1);
+		savgam_scan(present, path);
+	}
 
 	jt399(g_a5_24126, (short)40, (short)0xFF);
 	j = 0;
@@ -44476,7 +44500,8 @@ static void jt582(void)
 	jt94((short)0, (short)24, (short)7, (short)0, "%s", "Loading...Please Wait");
 
 	if (g_a5_22733 == 1
-	 && !gbs_qsv_load((int)(unsigned char)g_a5_byte(-6923)))
+	 && !gbs_qsv_load((int)(unsigned char)g_a5_byte(-6923))
+	 && !gbs_dax_save_load((int)(unsigned char)g_a5_byte(-6923)))
 		l143e(fn);                       /* open + read the slot file */
 
 	jt176();
@@ -107827,6 +107852,8 @@ static char           g_gbs_switching;              /* our own jt198 in flight *
 static char           g_gbs_running;                /* inside gbs_run          */
 static unsigned char  g_gbs_resume;                 /* script a loaded save left
                                                      * running; 0 once play is on */
+static char           g_gbs_resume_init;            /* ... whose initial entry
+                                                     * runs again (Gen1, COAB) */
 static char           g_gbs_text[GBS_TEXT_MAX];
 static short          g_gbs_textlen;
 static char           g_gbs_shown;
@@ -111074,6 +111101,7 @@ static void gbs_new_game(void)
 				jt399(g_gbs_vm.page[p], (short)512, 0);
 	krynn_moons_new();
 	g_gbs_resume = 0;
+	g_gbs_resume_init = 0;
 	g_gbs_nmon = 0;
 	g_gbs_want_map = 0;
 	g_gbs_backdrop = 0;
@@ -111142,8 +111170,8 @@ static void gbs_area_load(short geo_num)
 		 * once more when the player leaves the hall for the map, and that
 		 * must not start the area's script over on top of what the save
 		 * restored. */
-		g_gbs_init_pending = 0;
-		(void)gbs_script_load((short)g_gbs_resume);
+		g_gbs_init_pending = (char)(gbs_script_load((short)g_gbs_resume)
+		                            && g_gbs_resume_init);
 		return;
 	}
 	/* The engine brought us here (a new game, a saved game): start the script
@@ -111317,6 +111345,148 @@ static int gbs_qsv_load(int slot)
 	return 1;
 }
 
+/* A SAVED GAME CHAMPIONS OR DEATH KNIGHTS WROTE: "SAVGAM<slot>.DAT" or
+ * ".PTY" in the design's SAVE folder (gbsave.c gbs1_read; tools/gbsave.py
+ * Gen1Save has the layout), listed by the load menu in a copy of either
+ * game's folder. A slot the port has saved into (a .CSV) is read in its
+ * place, and the game's file is never written.
+ *
+ * As gbs_qsv_load does: the members (CHRDAT<slot><place>, each read as
+ * the hall reads it, dax_char_read) replace the pool, the square and
+ * facing go where jt582's tail reads them, the level is loaded (the 3D
+ * map in cell 0x4bc5, else the design's start area), and the three blocks
+ * of script memory go back. Then, as COAB loads a save (ovr003: the
+ * script in 0x4bf2 is loaded and its initial entry run, the memory kept),
+ * the saved script's initial entry runs again: a script tests 0x4bf2
+ * against its own number and skips its arrival. A save at script 0 (both
+ * games ship such saves) starts as a new game does. The clock's minutes
+ * and hours (cells 0x4bc7..0x4bc9) go to FRUA's h[6..8] for the panel.
+ * Returns 1 when the save was loaded. */
+static int gbs_dax_save_load(int slot)
+{
+	static unsigned char q[GBS1_COK_SIZE + 16];
+	static const unsigned blocks[3][2] = {
+		{ 0x4b00, 0x400 }, { 0x7c00, 0x400 }, { 0x7a00, 0x200 }
+	};
+	unsigned char *h = (unsigned char *)g_a5_28006;
+	unsigned char  pstr[64];
+	char           fn[64], bare[24];
+	gbs1_save      s;
+	short          ref, level;
+	long           n = 0;
+	unsigned       i, b, c, script, map;
+	int            pty;
+
+	if (h == NULL || !gbs_dax_game())
+		return 0;
+	savgam_path(fn, slot);
+	str_c2p(pstr, fn);
+	if (FSOpen((ConstStr255Param)pstr, 0, &ref) == noErr) {
+		(void)FSClose(ref);
+		return 0;                       /* the port's own save of this slot */
+	}
+	for (pty = 1; pty >= 0; pty--) {
+		dax_save_path(fn, slot, pty);
+		str_c2p(pstr, fn);
+		if (FSOpen((ConstStr255Param)pstr, 0, &ref) == noErr) {
+			n = (long)sizeof q;
+			(void)FSRead(ref, &n, q);   /* eofErr: n says how much */
+			(void)FSClose(ref);
+			break;
+		}
+	}
+	if (n == 0 || gbs1_read(q, n, &s) != 0 || s.members == 0) {
+		if (n != 0) {
+			dbg_log("gbs: not a Champions or Death Knights saved game:");
+			dbg_log(fn);
+		}
+		return 0;
+	}
+	script = gbs1_cell(&s, GBS1_CELL_SCRIPT);
+	map = gbs1_cell(&s, GBS1_CELL_MAP);
+	level = 0;
+	if (script != 0 && map != 0)
+		level = gbs_slot_of((unsigned char)map);
+	if (level <= 4)
+		level = (short)g_a5_buf(-18876)[48];
+	if (level <= 4) {
+		dbg_log_num("gbs: a saved game on a map this design lacks: ", (long)map);
+		return 0;
+	}
+
+	/* the party, as jt579 builds it */
+	g_a5_long(-27928) = 0;
+	g_a5_long(-27932) = 0;
+	h[32] = 0;
+	for (i = 0; i < s.members; i++) {
+		jt394(bare, "%s.%s", s.names[i], pty ? "GAM" : "SAV");
+		design_save_path(fn, bare);
+		memset(cg_pool[i], 0, 512);
+		if (!dax_char_read(fn, cg_pool[i]))
+			break;
+		jt21((long)(uintptr_t)cg_pool[i]);
+	}
+	if (i == 0)
+		return 0;
+	cg_pool_count = (short)i;
+	for (i = 0; i < (unsigned)cg_pool_count; i++) {
+		*(long *)cg_pool[i] = 0;
+		jt590(cg_pool[i]);
+	}
+	save_roster();
+
+	/* where, read back by jt582's tail (record -> globals) */
+	g_a5_byte(-6924)  = h[58];
+	g_a5_byte(-22218) = (signed char)slot;
+	g_a5_18485 = 0;                     /* the port plays their maps as dungeons */
+	h[19] = (unsigned char)level;
+	h[67] = s.x;
+	h[68] = s.y;
+	h[17] = (unsigned char)(s.facing * 2);
+	h[134] = (unsigned char)(script != 0);
+
+	/* l143e's reload: the members' sprites, the level, dungeon play */
+	g_a5_long(-27932) = g_a5_long(-27928);
+	while (g_a5_long(-27932) != 0) {
+		unsigned char *m = (unsigned char *)g_a5_ptr(-27932);
+
+		if (m[147] < 128)
+			l03d2((short)1);
+		else
+			jt56("CPIC", (short)m[181], (short)m[189]);
+		g_a5_long(-27932) = *(long *)(uintptr_t)m;
+	}
+	g_a5_long(-27932) = g_a5_long(-27928);
+	gbs_new_game();
+	jt198(level);
+	jt952();
+	if (g_a5_byte(-6924) != h[58])
+		jt85((short)h[58]);
+
+	if (script != 0) {
+		h[6] = (unsigned char)gbs1_cell(&s, GBS1_CELL_CLOCK);
+		h[7] = (unsigned char)gbs1_cell(&s, GBS1_CELL_CLOCK + 1);
+		h[8] = (unsigned char)gbs1_cell(&s, GBS1_CELL_CLOCK + 2);
+	}
+	if (script != 0 && g_gbs_active && g_gbs_ready) {
+		for (b = 0; b < 3; b++)
+			for (c = blocks[b][0]; c < blocks[b][0] + blocks[b][1]; c++) {
+				unsigned v = gbs1_cell(&s, c);
+
+				if (v != 0 || ecl_peek(&g_gbs_vm, (unsigned short)c) != 0)
+					ecl_poke(&g_gbs_vm, (unsigned short)c, (unsigned short)v);
+			}
+		if (gbs_script_load((short)script)) {
+			g_gbs_init_pending = 1;     /* COAB runs it again on a load */
+			g_gbs_resume = (unsigned char)script;
+			g_gbs_resume_init = 1;
+		}
+		g_gbs_nmon = 0;
+	}
+	dbg_log_num("gbs: Champions/Death Knights save loaded, script ", (long)script);
+	return 1;
+}
+
 /* Tell the script where the party is. */
 static void gbs_seed(void)
 {
@@ -111424,6 +111594,7 @@ static void gbs_run(int entry)
 	int status, hops;
 
 	g_gbs_resume = 0;               /* play is under way */
+	g_gbs_resume_init = 0;
 	if (g_gbs_script == 0 || !ecl_enter(&g_gbs_vm, entry))
 		return;
 	gbs_seed();

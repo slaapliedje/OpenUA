@@ -74,4 +74,41 @@ long gbv_write(const unsigned char *cells, unsigned char x, unsigned char y,
                const unsigned char *base, long blen,
                unsigned char *out, long max);
 
+/* CHAMPIONS' AND DEATH KNIGHTS' saves (tools/gbsave.py Gen1Save has the
+ * layout): SAVGAMx.DAT (Champions, script cells a 16-bit word each) or
+ * SAVGAMx.PTY (Death Knights, a byte each) in SAVE, the members in
+ * CHRDAT<slot><place> files beside it. Three blocks of script cells
+ * (0x4b00.., 0x7c00.., 0x7a00..), the square, the states, the wall sets
+ * and the members' file names. */
+#define GBS1_COK_SIZE   5469
+#define GBS1_DKK_SIZE   2913
+#define GBS1_MEMBERS    8
+#define GBS1_NAME       41      /* string[40]                              */
+#define GBS1_CELL_MAP     0x4bc5  /* the 3D map loaded, a GEO block id     */
+#define GBS1_CELL_SCRIPT  0x4bf2  /* the script running                    */
+#define GBS1_CELL_DUNGEON 0x4be6  /* 1 in a dungeon                        */
+#define GBS1_CELL_CLOCK   0x4bc7  /* minutes, tens of minutes, hours       */
+
+typedef struct gbs1_save {
+	const unsigned char *data;
+	int           dkk;                      /* Death Knights' layout        */
+	int           width;                    /* bytes a cell: 2 or 1         */
+	long          block[3];                 /* where each cell block starts */
+	unsigned char game_area;
+	unsigned char x, y;                     /* x east, y south              */
+	unsigned char facing;                   /* 0=N 1=E 2=S 3=W              */
+	unsigned char wall, backdrop;
+	unsigned char last_state, state;
+	unsigned      members;
+	char          names[GBS1_MEMBERS][GBS1_NAME];   /* C strings          */
+} gbs1_save;
+
+/* Read `q` (`len` bytes, kept in memory while `s` is used); which game's
+ * save it is goes by the size. 0, or GBV_ESHORT (neither size) or
+ * GBV_ECOUNT (more members than a party holds). */
+int gbs1_read(const unsigned char *q, long len, gbs1_save *s);
+
+/* Script cell `addr` as saved; 0 for a cell the save does not hold. */
+unsigned gbs1_cell(const gbs1_save *s, unsigned addr);
+
 #endif
