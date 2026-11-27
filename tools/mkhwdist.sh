@@ -316,8 +316,8 @@ say "Amiga AGA (A1200/A4000) — 880 KB, binary raw"
 readme "$WORK/README" "Amiga AGA (A1200 / A4000)" \
 	"frua    the engine. Needs Kickstart 3.0+ and about 4 MB." \
 	"(uainst, which installs a DOS fan module from its ZIP, and uaconv," \
-	" the optional art pre-converter, no longer fit on this disk: they" \
-	" are in the zip and the .lha hard-drive package.)" \
+	" the optional art pre-converter, no longer fit on this disk. Both" \
+	" are in the .lha hard-drive package; uainst is in the zip too.)" \
 	"" \
 	"TO INSTALL: double-click the Install icon (Workbench). It uses the" \
 	"AmigaOS Installer if the machine has one; Workbench 3.1 never shipped" \
@@ -327,8 +327,8 @@ readme "$WORK/README" "Amiga AGA (A1200 / A4000)" \
 amiga_install_files aga 6
 # ★ No uaconv on the AGA floppy since 1.0.0-beta: frua grew to 723,512 with the
 # MIDI player and the disk was left 7 KB short of holding instdisk. uaconv is
-# optional and ships in the zip and the .lha; the ECS set keeps it (disk 1
-# holds only half the binary).
+# optional and ships in the .lha (NOT the zip, which has no uaconv); the ECS
+# set keeps it (disk 1 holds only half the binary).
 # ★ No uainst on it either since 1.0.1-beta: frua grew to 818 KB with the Gold
 # Box code, and frua + uainst (107 KB) overfilled the disk. Same home: the
 # zip and the .lha.
@@ -391,8 +391,16 @@ amiga_img "$OUT/openua-amiga-ecs-$VERSION-disk2.adf" "OpenUA-ECS-2" "$WORK" \
 # format every Amiga HD setup extracts natively (it is the Aminet standard).
 # Built with `lha-make` (LHa for UNIX built from jca02266/lha — the distro
 # `lha` is lhasa, which EXTRACTS but cannot create); skipped with a warning
-# when absent so floppy-image builds still work anywhere.
+# when absent so floppy-image builds still work anywhere. The Amiga GCC 16
+# kit ships LHa for UNIX as bin/lha, so that is the fallback (v1.0.1-beta
+# went out without its .lha packages because nothing looked there).
 LHAMK="$(command -v lha-make || true)"
+if [ -z "$LHAMK" ]; then
+	KITLHA="${AMIGA_TOOLROOT:-$HOME/dev/toolchains/amigaos-gcc16}/bin/lha"
+	if [ -x "$KITLHA" ] && "$KITLHA" --version 2>&1 | grep -q 'LHa for UNIX'; then
+		LHAMK="$KITLHA"
+	fi
+fi
 if [ -z "$LHAMK" ]; then
 	echo "mkhwdist: lha-make not found - skipping the .lha HD packages" >&2
 else
