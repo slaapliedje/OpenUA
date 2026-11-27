@@ -86944,9 +86944,30 @@ static long jt403(short refnum)
 static unsigned char jt972(short refnum, void *spec) __attribute__((unused));
 static unsigned char jt972(short refnum, void *spec)
 {
+	long size = jt403(refnum);
+	unsigned char h[8];
+
 	PROBE("jt972");
 	(void)spec;
-	return (unsigned char)jt1016(refnum, jt403(refnum), g_a5_3622);
+	/* Port: read a GLIB's DECLARED size (plus the odd-size pad byte), not
+	 * the whole file. The Mac reads to EOF and l4010 then demands that the
+	 * declared size match, so any trailing bytes failed the load as
+	 * "Invalid library header" -- including the 4-byte ARTCONV_TRAILER every
+	 * .ctl the port converts now ends in (ALWAYS.CTL regenerated beside its
+	 * DOS .tlb stopped the boot). Without trailing bytes, the size passed
+	 * is jt403's as before. */
+	if (size > 16 && jt412(refnum, 0, 1) == 0) {
+		if (jt401(refnum, h, 8) == 8 && memcmp(h, "GLIB", 4) == 0) {
+			long decl = ((long)h[4] << 24) | ((long)h[5] << 16)
+			          | ((long)h[6] << 8) | (long)h[7];
+			long want = decl + (decl & 1);
+
+			if (want > 16 && want < size)
+				size = want;
+		}
+		jt412(refnum, 0, 0);
+	}
+	return (unsigned char)jt1016(refnum, size, g_a5_3622);
 }
 
 /* JT[1014] (CODE 5+0x36a4) — the plain-name library loader. Build the
