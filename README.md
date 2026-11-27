@@ -133,6 +133,28 @@ step. **Step-by-step setup — which files go where, per platform — is in
 [`GAMEDATA.md`](GAMEDATA.md)**; the Mac release's unpacking pipeline is in
 [`docs/mac-release.md`](docs/mac-release.md).
 
+### Install floppies for your Atari or Amiga
+
+`mkdatadisks.py` turns your own GOG or Steam copy of FRUA into floppy images
+for every machine, on Windows, macOS or Linux, with nothing but Python 3:
+Atari 1.44 MB and 720 KB disks, one FlashFloppy Gotek image, and Amiga
+880 KB disks. It finds your FRUA install by itself.
+
+- **From a release:** download the zip for your machine from the
+  [releases page](https://github.com/slaapliedje/OpenUA/releases) (v1.0.3-beta
+  and later carry it), unzip it, and run `python3 mkdatadisks.py`. Disk 1 then
+  carries the installer for that machine.
+- **From the source, today:** download
+  [the repository as a zip](https://github.com/slaapliedje/OpenUA/archive/refs/heads/main.zip),
+  unzip it, and run `python3 tools/mkdatadisks.py`. This has no compiled
+  installer to put on disk 1. On the Amiga that is fine: the engine floppy's
+  Install icon installs the data disks. On the Atari use a release zip.
+
+The images appear in `openua-data-disks/`. **They contain SSI's copyrighted
+game data: they are for you only, never share or upload them.** Options and
+the install steps are in [`GAMEDATA.md`](GAMEDATA.md) and
+[`HARDWARE.md`](HARDWARE.md).
+
 ## Building
 
 `MACHINE` selects the target family (default `falcon`, which also covers the
