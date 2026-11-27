@@ -153,6 +153,11 @@ static long parse_xmi(const unsigned char *data, long len, struct note *notes,
 	if (n > len - (i + 8))
 		n = len - (i + 8);		/* the Python slices; a short file just ends */
 
+	/* A stream that ends early keeps the notes before the cut, as the
+	 * Python reference does: seven fan-module XMIs are one byte short,
+	 * inside the closing FF 2F. Each `break` below is that case; none is
+	 * inside a nested loop or switch, so each leaves the event loop. */
+
 	while (p < n) {
 		unsigned b = ev[p];
 		if (b < 0x80) {			/* interval byte (bare, not VLQ) */
@@ -164,14 +169,14 @@ static long parse_xmi(const unsigned char *data, long len, struct note *notes,
 			unsigned meta;
 			long ln2, q;
 			if (p + 1 >= n)
-				return XMI2SLB_ERR_BAD;
+				break;
 			meta = ev[p + 1];
 			q = p + 2;
 			if (rd_vlq(ev, n, &q, &ln2) < 0)
-				return XMI2SLB_ERR_BAD;
+				break;
 			if (meta == 0x51) {
 				if (q + 3 > n)
-					return XMI2SLB_ERR_BAD;
+					break;
 				*tempo = ((unsigned long)ev[q] << 16)
 				       | ((unsigned long)ev[q + 1] << 8)
 				       | (unsigned long)ev[q + 2];
@@ -186,10 +191,10 @@ static long parse_xmi(const unsigned char *data, long len, struct note *notes,
 			if (st == 0x90) {	/* note on + VLQ duration, no note-offs */
 				long q, dur;
 				if (p + 3 > n)
-					return XMI2SLB_ERR_BAD;
+					break;
 				q = p + 3;
 				if (rd_vlq(ev, n, &q, &dur) < 0)
-					return XMI2SLB_ERR_BAD;
+					break;
 				if (count >= cap)
 					return XMI2SLB_ERR_SPACE;
 				notes[count].tick = t;

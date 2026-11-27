@@ -135,46 +135,52 @@ def parse_xmi(data):
     p = 0
     tempo = TEMPO_REF
     notes = []
-    while p < len(ev):
-        b = ev[p]
-        if b < 0x80:                        # interval byte
-            t += b
-            p += 1
-            continue
-        if b == 0xFF:                       # meta
-            meta = ev[p + 1]
-            ln2, q = 0, p + 2
-            while True:
-                c = ev[q]
-                ln2 = (ln2 << 7) | (c & 0x7F)
-                q += 1
-                if not (c & 0x80):
+    # A stream can end early: seven fan-module XMIs are each one byte
+    # short, cut inside the closing end-of-track meta (FF 2F with no
+    # length byte), every note before it intact. Stop where it stops.
+    try:
+        while p < len(ev):
+            b = ev[p]
+            if b < 0x80:                        # interval byte
+                t += b
+                p += 1
+                continue
+            if b == 0xFF:                       # meta
+                meta = ev[p + 1]
+                ln2, q = 0, p + 2
+                while True:
+                    c = ev[q]
+                    ln2 = (ln2 << 7) | (c & 0x7F)
+                    q += 1
+                    if not (c & 0x80):
+                        break
+                if meta == 0x51:
+                    tempo = (ev[q] << 16) | (ev[q + 1] << 8) | ev[q + 2]
+                if meta == 0x2F:
                     break
-            if meta == 0x51:
-                tempo = (ev[q] << 16) | (ev[q + 1] << 8) | ev[q + 2]
-            if meta == 0x2F:
-                break
-            p = q + ln2
-            continue
-        st, ch = b & 0xF0, b & 0x0F
-        if st == 0x90:                      # note on + VLQ duration
-            note, vel = ev[p + 1], ev[p + 2]
-            q = p + 3
-            dur = 0
-            while True:
-                c = ev[q]
-                dur = (dur << 7) | (c & 0x7F)
-                q += 1
-                if not (c & 0x80):
-                    break
-            notes.append((t, ch, note, vel, dur))
-            p = q
-        elif st in (0x80, 0xA0, 0xB0, 0xE0):
-            p += 3
-        elif st in (0xC0, 0xD0):
-            p += 2
-        else:
-            p += 1
+                p = q + ln2
+                continue
+            st, ch = b & 0xF0, b & 0x0F
+            if st == 0x90:                      # note on + VLQ duration
+                note, vel = ev[p + 1], ev[p + 2]
+                q = p + 3
+                dur = 0
+                while True:
+                    c = ev[q]
+                    dur = (dur << 7) | (c & 0x7F)
+                    q += 1
+                    if not (c & 0x80):
+                        break
+                notes.append((t, ch, note, vel, dur))
+                p = q
+            elif st in (0x80, 0xA0, 0xB0, 0xE0):
+                p += 3
+            elif st in (0xC0, 0xD0):
+                p += 2
+            else:
+                p += 1
+    except IndexError:
+        pass
     return notes, tempo
 
 

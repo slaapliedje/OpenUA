@@ -104,6 +104,12 @@ SYNTHETIC = {
     "tempo_560747": _xmi([(0, 0, 60, 100, 72), (72, 0, 62, 100, 72)], tempo_us=560747),
     "tempo_half_even": _xmi([(0, 0, 60, 100, 10)], tempo_us=1000000),
     "empty_events": _xmi([]),
+    # Seven fan-module XMIs end one byte short, inside the closing FF 2F
+    # (no length byte) while the chunk header still counts it; the Python
+    # parser read past the end there and stage_dos died. Cut further, the
+    # stream stops inside a note's duration.
+    "one_byte_short": _xmi([(0, 0, 60, 100, 60), (60, 0, 62, 100, 60)])[:-1],
+    "cut_inside_a_note": _xmi([(0, 0, 60, 100, 60), (60, 0, 62, 100, 300)])[:-5],
 }
 
 
