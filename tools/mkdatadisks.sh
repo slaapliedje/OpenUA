@@ -387,7 +387,7 @@ if [[ ${#MODFILES[@]} -gt 0 ]]; then
 		echo "    (askdisk (prompt (cat \"Insert $MODULE disk \" i \" of $NDISKS\"))"
 		echo "             (help \"The disks are labelled $VOLBASE-1 .. $VOLBASE-$NDISKS.\")"
 		echo "             (dest (cat \"$VOLBASE-\" i)))"
-		echo "    (copyfiles (source (cat \"$VOLBASE-\" i \":\")) (dest uadir) (pattern \"~(DISK.LST|instdisk|Install|Install.info|Install.script)\"))"
+		echo "    (copyfiles (source (cat \"$VOLBASE-\" i \":\")) (dest uadir) (pattern \"~(DISK.LST|NDISKS|instdisk|Install|Install.info|Install.script)\"))"
 		echo '    (set i (+ i 1))'
 		echo '  )'
 		echo ')'
@@ -409,6 +409,9 @@ for ((n = 1; n <= NDISKS; n++)); do
 	done < <(tail -n +2 "$WORK/disk$n.lst")
 	cp "$WORK/disk$n.lst" "$STAGE/DISK.LST"
 	[[ $n -eq 1 ]] && cp "$INST" "$STAGE/$INSTNAME"
+	# NDISKS: the count alone, no newline, for the Amiga engine disk's
+	# Install.script, which cannot parse DISK.LST (tools/mkhwdist.sh).
+	[[ $n -eq 1 ]] && printf '%d' "$NDISKS" > "$STAGE/NDISKS"
 	if [[ $n -eq 1 ]]; then for mf in "${MODFILES[@]}"; do cp "$WORK/$mf" "$STAGE/$mf"; done; fi
 	[[ $n -eq 1 && -n "${INST2:-}" ]] && cp "$INST2" "$STAGE/$INST2NAME"
 

@@ -174,8 +174,8 @@ amiga_img() {       # amiga_img <out.adf> <label> <srcdir> <file...>
 # standard since Workbench 2.0 but lives in SYS:Utilities on 2.x/3.0/3.1
 # and SYS:System on 3.1.4/3.2 — neither is in the path, and IconX (in C:)
 # is. Nothing is shipped that is not ours.
-amiga_install_files() {   # amiga_install_files <variant: aga|ecs> <datadisks-default>
-	local variant="$1" ndata="${2:-6}" vol kickreq
+amiga_install_files() {   # amiga_install_files <variant: aga|ecs> <datadisks-default, sets without NDISKS>
+	local variant="$1" ndata="${2:-1}" vol kickreq
 	[ "$variant" = aga ] && vol=OpenUA-AGA || vol=OpenUA-ECS-1
 	# Measured minimums (#43), not guesses — see docs/TODO.md and HARDWARE.md.
 	[ "$variant" = aga ] && kickreq="Kickstart 3.0 or later (AGA)" \
@@ -266,8 +266,9 @@ EOS
 		echo '(makedir uadir (infos))'
 		echo '(message "Installing the engine into " uadir)'
 		if [ "$variant" = aga ]; then
+			# No uainst: it left this disk in 1.0.1-beta (a52d969f) and
+			# this line went on asking for it, which stops the Installer.
 			echo '(copyfiles (source "OpenUA-AGA:frua") (dest uadir) (infos))'
-			echo '(copyfiles (source "OpenUA-AGA:uainst") (dest uadir) (infos))'
 		else
 			echo '(copyfiles (source "OpenUA-ECS-1:frua.00") (dest uadir))'
 			echo '(copyfiles (source "OpenUA-ECS-1:uainst") (dest uadir) (infos))'
@@ -280,16 +281,40 @@ EOS
 			echo '(delete (tackon uadir "frua.00"))'
 			echo '(delete (tackon uadir "frua.01"))'
 		fi
-		echo "(set ndisks (asknumber (prompt \"How many OpenUA DATA disks do you have?\")"
-		echo '  (help "The game data set is numbered OpenUA-Data-1, -2, ... The number is on the first line of DISK.LST on any of them.")'
-		echo "  (default $ndata)))"
+		# The COUNT comes from data disk 1's NDISKS (mkdatadisks writes it):
+		# the Installer cannot parse DISK.LST, and the old fixed default
+		# (6, the Atari HD count) was a guess at someone else's set. A set
+		# made before NDISKS existed still gets the question.
+		echo '(askdisk (prompt "Insert OpenUA data disk 1")'
+		echo '         (help "The numbered game-data disks made with mkdatadisks, from your own copy of FRUA.")'
+		echo '         (dest "OpenUA-Data-1"))'
+		echo '(set ndisks 0)'
+		echo '(if (exists "OpenUA-Data-1:NDISKS")'
+		echo '  ('
+		echo '    (run "Copy OpenUA-Data-1:NDISKS ENV:OpenUA_ndisks QUIET")'
+		echo '    (set ndisks (+ 0 (getenv "OpenUA_ndisks")))'
+		echo '    (run "Delete ENV:OpenUA_ndisks QUIET")'
+		echo '  )'
+		echo ')'
+		# Novice mode answers every ask* with its default WITHOUT asking,
+		# which would install disk 1 alone; raise the level for this one.
+		echo '(if (< ndisks 1)'
+		echo '  ('
+		echo '    (set olduser @user-level)'
+		echo '    (user 1)'
+		echo "    (set ndisks (asknumber (prompt \"How many OpenUA DATA disks do you have?\")"
+		echo '      (help "The set is numbered OpenUA-Data-1, -2, ... The second number on the first line of DISK.LST is the count.")'
+		echo "      (range 1 20) (default $ndata)))"
+		echo '    (user olduser)'
+		echo '  )'
+		echo ')'
 		echo '(set i 1)'
 		echo '(while (<= i ndisks)'
 		echo '  ('
 		echo '    (askdisk (prompt (cat "Insert OpenUA data disk " i " of " ndisks))'
 		echo '             (help "The numbered game-data disks made with mkdatadisks.")'
 		echo '             (dest (cat "OpenUA-Data-" i)))'
-		echo '    (copyfiles (source (cat "OpenUA-Data-" i ":")) (dest uadir) (pattern "~(DISK.LST|instdisk)"))'
+		echo '    (copyfiles (source (cat "OpenUA-Data-" i ":")) (dest uadir) (pattern "~(DISK.LST|NDISKS|instdisk)"))'
 		echo '    (set i (+ i 1))'
 		echo '  )'
 		echo ')'
@@ -324,7 +349,7 @@ readme "$WORK/README" "Amiga AGA (A1200 / A4000)" \
 	"it, so there it runs OpenUA's own instdisk (on this disk) in a window." \
 	"Or run instdisk from data disk 1 — it installs the data and then asks" \
 	"for this disk to install the engine."
-amiga_install_files aga 6
+amiga_install_files aga 1
 # ★ No uaconv on the AGA floppy since 1.0.0-beta: frua grew to 723,512 with the
 # MIDI player and the disk was left 7 KB short of holding instdisk. uaconv is
 # optional and ships in the .lha (NOT the zip, which has no uaconv); the ECS
@@ -368,7 +393,7 @@ readme "$WORK/README" "Amiga ECS / OCS — disk 1 of 2" \
 	"it, so there it runs OpenUA's own instdisk (on this disk) in a window." \
 	"Or run instdisk from data disk 1 — it installs the data, then asks for" \
 	"this disk and disk 2 and joins the halves itself."
-amiga_install_files ecs 6
+amiga_install_files ecs 1
 printf '1 2 OpenUA engine (ECS)\nfrua.00 frua\nfrua.info frua.info\nuainst uainst\nuainst.info uainst.info\nuaconv uaconv\nuaconv.info uaconv.info\n' > "$WORK/ENGINE.LST"
 amiga_img "$OUT/openua-amiga-ecs-$VERSION-disk1.adf" "OpenUA-ECS-1" "$WORK" \
 	frua.00 README ENGINE.LST Install Install.info Install.script instdisk
