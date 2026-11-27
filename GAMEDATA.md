@@ -101,6 +101,35 @@ Copy the engine binary from the release zip into that folder and you are done.
 Re-running the script later is safe — it overwrites data but deletes nothing,
 so save games and rolled characters survive.
 
+### Floppy disks for your Atari or Amiga — one command
+
+To install from floppies (or a Gotek), let the release zip make the disk
+images. With FRUA installed from GOG or Steam on the same PC (Windows, macOS
+or Linux, Python 3, nothing else):
+
+```sh
+python3 mkdatadisks.py
+```
+
+It finds your FRUA install, stages it as above, and writes images for every
+machine into `openua-data-disks/`: Atari 1.44 MB (`atari`), Atari 720 KB
+(`atari720`), one FlashFloppy Gotek image (`gotek`) and Amiga 880 KB
+(`amiga`). Disk 1 of each set carries the installer that sits beside the
+script (`INSTDISK` in the Atari zips, `instdisk` in the Amiga ones).
+
+```sh
+python3 mkdatadisks.py "D:/GOG Games/Forgotten Realms UA"   # say where FRUA is
+python3 mkdatadisks.py --for amiga --out disks               # one machine family
+python3 mkdatadisks.py --perband off                         # SSI's palettes (256-colour machines)
+python3 fruafind.py                                          # where it looked, and what it found
+```
+
+**These images contain SSI's copyrighted game data: they are for you only.
+Never share or upload them.** HARDWARE.md says how to install from them.
+
+If a mod manager has patched your GOG/Steam install, the tools notice: they
+build from the originals it kept in `MM_BACKUP` and say so.
+
 ### No PC? Build `frua.rsc` on the Atari or Amiga itself
 
 `uainst` can do the `frua.rsc` step natively, so a set of DOS floppies and the

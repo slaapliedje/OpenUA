@@ -27,18 +27,18 @@ files, plus one design — on top of the ~1 MB engine binary. That is three
 
 (It used to be 7.4 MB. A staged directory holds every art library **twice** —
 the DOS original `.TLB` and the Mac `.ctl` twin the converter derives from it,
-23 pairs. `tools/mkdatadisks.sh` ships **SSI's DOS files** by default and the
+23 pairs. `mkdatadisks.py` ships **SSI's DOS files** by default and the
 engine converts each library on first touch, so the set halves and what you
 install is what SSI shipped. Budget ~7.4 MB at the destination even so: the
-converted twin is written back beside the original. `ART=ctl` ships the
-converted art instead — one disk fewer, no first-touch pause. `ART=both` keeps
+converted twin is written back beside the original. `--art ctl` ships the
+converted art instead — one disk fewer, no first-touch pause. `--art both` keeps
 both, which you want only to revive the monochrome build.)
 
 **The art is pre-reduced for you by default.** An Atari ST/STE or an Amiga
 ECS cannot show SSI's 256-colour art directly, so the engine has to reduce
 every scene as it draws it — and that runtime reduction is where the band
 seams, the stray wrong-coloured pixels and a good share of the CPU cost come
-from. `mkdatadisks.sh` now does that work on the PC instead, where there is
+from. `mkdatadisks.py` does that work on the PC instead, where there is
 unlimited time to do it properly, so the art already fits what the hardware
 can show and the engine has nothing left to cut. The budget comes from the
 target: 24 colours per band for the Amiga set, 12 for the Atari set.
@@ -49,13 +49,19 @@ the default `ART=tlb` — the converter reads SSI's DOS files directly, so the
 engine's first-touch conversion carries the reduced palettes through.
 
 ```sh
-tools/mkdatadisks.sh amiga                 # converted for ECS (budget 24)
-tools/mkdatadisks.sh atari                 # converted for ST/STE (budget 12)
-PERBAND=off tools/mkdatadisks.sh atari     # SSI's palettes, untouched
-PERBAND=16 tools/mkdatadisks.sh atari      # your own budget
+python3 mkdatadisks.py --for amiga               # converted for ECS (budget 24)
+python3 mkdatadisks.py --for atari               # converted for ST/STE (budget 12)
+python3 mkdatadisks.py --for atari --perband off # SSI's palettes, untouched
+python3 mkdatadisks.py --for atari --perband 16  # your own budget
 ```
 
-**Use `PERBAND=off` when the disks are for a 256-colour machine only** — a
+`mkdatadisks.py` is in every release zip (GAMEDATA.md, "Floppy disks for your
+Atari or Amiga"); with no arguments it finds your GOG/Steam FRUA and makes
+every family. In a source checkout `tools/mkdatadisks.sh <family>` runs the
+same tool with the developer defaults (`ART=`, `PERBAND=`, `MODULE=` as
+before).
+
+**Use `--perband off` when the disks are for a 256-colour machine only** — a
 Falcon, a TT, an A1200, or any graphics card. One set of disks serves a whole
 family (the Atari set feeds the ST *and* the Falcon/TT; the Amiga set feeds
 ECS *and* AGA), so the default helps the member that must reduce the art and
@@ -256,7 +262,8 @@ which is what the engine needs — it looks for `frua.rsc` relative to where it
 runs.
 
 **From the disk set (no PC in the loop at install time).** Make the data disks
-on the PC once (`tools/mkdatadisks.sh`, see "The images"), then on the machine:
+on the PC once (`python3 mkdatadisks.py` from the release zip, see
+GAMEDATA.md), then on the machine:
 
 - **Atari:** run `INSTDISK.PRG` from data disk 1 (a GEM window with a progress
   bar: pick the destination folder in the file selector, feed the disks in
@@ -289,7 +296,7 @@ machine is a Gotek, build the module as disks rather than shipping a ZIP the
 Amiga cannot see:
 
 ```sh
-MODULE=Curse tools/mkdatadisks.sh amiga <staged-module-dir> <outdir> Curse.dsn
+python3 mkdatadisks.py <staged-module-dir> --for amiga --module Curse --design Curse.dsn
 ```
 
 The volumes are labelled `Curse-Data-1..N`, disk 1 carries a Workbench

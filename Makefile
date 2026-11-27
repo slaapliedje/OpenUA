@@ -774,6 +774,10 @@ clean:
 	find src compat platform third_party -name '*.o' -delete 2>/dev/null || true
 	find src compat platform third_party -name '*.d' -delete 2>/dev/null || true
 	$(RM) frua frua.prg uainst.prg uainst.ttp uainst_amiga uainst.info frua.info openua modman.prg modman_amiga
+	@# The other machine tools too: their rules depend on the sources only, so
+	@# a compiler change (the Amiga's 6.5 -> 16, 2026-11-26) left the old
+	@# builds in place, and mkhwdist packed a stale uaconv.
+	$(RM) uaconv_amiga instdisk.ttp instdisk.prg instdisk_amiga
 
 # clean does NOT remove dist/ — release-all cleans objects between platforms and
 # must keep the earlier binaries' packaged output. `distclean` wipes dist too.
@@ -802,7 +806,7 @@ distclean: clean
 #               desktops that cannot drop onto a .PRG at all.
 # Same objects either way; the selector is simply unreachable from the .TTP
 # because the desktop has already left GEM by the time it runs.
-installer: uainst.prg uainst.ttp
+installer: uainst.prg uainst.ttp instdisk.ttp instdisk.prg
 UAINST_SRC = installer/main.c installer/modinst.c installer/modcore.c installer/fsel_atari.c installer/miniz.c \
 	     src/convert/artconv.c src/convert/xmi2slb.c installer/rsrc_from_dos.c
 
@@ -899,7 +903,7 @@ uaconv_amiga: installer/uaconv.c installer/asl_amiga.c src/convert/artconv.c src
 	    -fomit-frame-pointer -s -Iinstaller \
 	    -o $@ installer/uaconv.c installer/asl_amiga.c src/convert/artconv.c src/convert/xmi2slb.c
 
-installer-amiga: uainst_amiga uainst.info frua.info uaconv_amiga uaconv.info
+installer-amiga: uainst_amiga uainst.info frua.info uaconv_amiga uaconv.info instdisk_amiga
 uainst_amiga: installer/main.c installer/modinst.c installer/modinst.h installer/modcore.c installer/modcore.h installer/asl_amiga.c installer/miniz.c src/convert/artconv.c src/convert/artconv.h installer/rsrc_from_dos.c installer/rsrc_from_dos.h installer/strs_map_dos12.h src/convert/xmi2slb.c src/convert/xmi2slb.h
 	$(AMIGA_CROSS)gcc -m68000 -msoft-float -noixemul -std=gnu99 -O2 \
 	    -fomit-frame-pointer -s \
@@ -984,6 +988,11 @@ define PKG_DIST
 	    tools/macrsrc.py tools/glb2glib.py tools/xmi2slb.py tools/voc2glb.py \
 	    tools/hlib_extract.py tools/appledouble.py \
 	    installer/strs_map_dos12.json dist/$(1)/
+	@# The data-disk tool: finds the player's FRUA (fruafind), stages it and
+	@# writes floppy images for every machine (diskimg: no mtools/amitools,
+	@# so it runs on Windows). make_amiga_icon makes a module set's icon.
+	@cp tools/mkdatadisks.py tools/diskimg.py tools/fruafind.py \
+	    tools/make_amiga_icon.py dist/$(1)/
 	@# Every release target runs `installer`/`installer-amiga` first, so a
 	@# missing file here is a BUILD BUG, not a variation. It used to be
 	@# `[ -f x ] && cp ... || true`, which would have shipped a zip with no
@@ -991,11 +1000,14 @@ define PKG_DIST
 	@case "$(1)" in \
 	*falcon*|*atari*) \
 		cp uainst.prg dist/$(1)/UAINST.PRG; \
-		cp uainst.ttp dist/$(1)/UAINST.TTP;; \
+		cp uainst.ttp dist/$(1)/UAINST.TTP; \
+		cp instdisk.prg dist/$(1)/INSTDISK.PRG; \
+		cp instdisk.ttp dist/$(1)/INSTDISK.TTP;; \
 	*amiga*) \
 		cp uainst_amiga dist/$(1)/uainst; \
 		cp uainst.info dist/$(1)/uainst.info; \
-		cp frua.info dist/$(1)/frua.info;; \
+		cp frua.info dist/$(1)/frua.info; \
+		cp instdisk_amiga dist/$(1)/instdisk;; \
 	esac
 	@case "$(1)" in \
 	*amiga*) \
