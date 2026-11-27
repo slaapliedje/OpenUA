@@ -17,6 +17,15 @@ void plat_console_puts(const char *s);
 /* Block until a key is pressed and return it. Bring-up / demo pauses only. */
 int plat_console_getc(void);
 
+/* Tell the user something in the SYSTEM's own dialog, before the engine owns
+ * the screen, and wait until they dismiss it: a GEM alert on the Atari (the
+ * console when there is no AES, e.g. from AUTO), an Intuition requester on
+ * the Amiga, stderr under Unix. `text` is GEM-shaped: lines split by '|', at
+ * most 5 lines of 30 characters, no '[' ']' or '%'. For the start-up checks
+ * that would otherwise fail inside a dialog drawn with the missing data —
+ * which is a black screen. */
+void plat_alert(const char *text);
+
 /* Largest single free RAM block, in bytes (the Mac FreeMem stand-in). */
 unsigned long plat_mem_largest_free(void);
 

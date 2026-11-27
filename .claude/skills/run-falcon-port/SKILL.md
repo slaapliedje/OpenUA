@@ -30,8 +30,10 @@ sudo apt install hatari xvfb imagemagick x11-utils xdotool python3
   `docs/toolchain-softfloat-020.md` into `~/opt/cross-mint` (the Makefile's
   `TOOLROOT` default). Verify it resolves: `m68k-atari-mint-gcc --version`.
 - **Game data** is copyrighted and git-ignored (`data/`). It is staged at
-  `data/work/gamedata` here. `run`/`screenshot` need it; without it the engine
-  boots "with no resources" (a near-empty screen). Staging is documented in
+  `data/work/gamedata` here. `run`/`screenshot` need it; without `frua.rsc`
+  or the ALWAYS art library the engine puts up a GEM alert saying what is
+  missing and exits (`check_game_data` in src/main.c), so `start` never sees
+  "menu: modal up". Staging is documented in
   `docs/mac-release.md` (`make gamedata DSN=HEIRS.DSN`).
 
 ## Newer Hatari (2.6.1) — already built at `~/opt/hatari`

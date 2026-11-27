@@ -382,11 +382,67 @@ static void load_frua_cursors(void)
 	dbg_log_num("main: frua.cur cursors loaded = ", (long)count);
 }
 
+/* Is there a file of this name beside the engine? */
+static int data_file_present(const char *pname)
+{
+	short ref;
+
+	if (FSOpen((ConstStr255Param)pname, 0, &ref) != noErr)
+		return 0;
+	(void)FSClose(ref);
+	return 1;
+}
+
+/*
+ * Is the user's FRUA data here at all? Without it the engine starts anyway
+ * and stops in an error dialog drawn with the font, frames and palette it
+ * failed to load — a black screen that never changes, its reason only in
+ * DBG.LOG (no frua.rsc: "Group 19 in use for ''"; DOS files without frua.rsc:
+ * "LBLoad: Bad Lib: '.CTL'"). So ask before the display is taken, and say
+ * it in the system's own dialog. frua.rsc comes from either release (the Mac
+ * application or the DOS CKIT.EXE); ALWAYS is one of the art libraries both
+ * carry (.CTL converted or Mac colour, .TLB DOS or Mac B&W).
+ * Returns 0 to go on.
+ */
+static int check_game_data(void)
+{
+	if (!data_file_present("\010frua.rsc")) {
+		if (data_file_present("\010CKIT.EXE"))
+			plat_alert("OpenUA: frua.rsc is missing.|"
+			           "It is built from your DOS|"
+			           "CKIT.EXE: run uainst on it|"
+			           "(see GAMEDATA.md), then|"
+			           "start OpenUA again.");
+		else
+			plat_alert("OpenUA found no FRUA data.|"
+			           "Copy the files from your own|"
+			           "DOS or Mac copy of FRUA into|"
+			           "this folder (GAMEDATA.md).");
+		return 1;
+	}
+	if (!data_file_present("\012ALWAYS.CTL")
+	    && !data_file_present("\012ALWAYS.TLB")) {
+		plat_alert("OpenUA: the FRUA art files|"
+		           "(ALWAYS.TLB and the rest)|"
+		           "are missing. Copy all your|"
+		           "FRUA files into this folder|"
+		           "(see GAMEDATA.md).");
+		return 1;
+	}
+	return 0;
+}
+
 static int frua_main_body(void)
 {
 	const dsp_backend_t *dsp;
 	dsp_surface_t       *surf;
 	int                  rc;
+
+	/* FIRST, before anything writes to the console: dbg_log's early lines
+	 * go there (they would sit over the desktop behind the alert), and the
+	 * Mega STe boost below would need undoing. */
+	if (check_game_data() != 0)
+		return 1;
 
 	dbg_log("main: entered");
 	dbg_log("main: OpenUA " FRUA_VERSION);

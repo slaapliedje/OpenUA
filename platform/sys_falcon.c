@@ -7,7 +7,8 @@
  * and the free-memory figure now that those callers route through the HAL.
  */
 
-#include <stddef.h>             /* NULL */
+#include <stddef.h>             /* NULL, size_t */
+#include <string.h>             /* memcpy */
 #include <mint/osbind.h>
 
 #include "plat_sys.h"
@@ -21,6 +22,69 @@ void plat_console_puts(const char *s)
 int plat_console_getc(void)
 {
 	return (int)Cnecin();
+}
+
+/* --- plat_alert: a GEM form_alert, raw AES (the engine links no gemlib) ---
+ * The trap shape is installer/gem_atari.c's, registers loaded INSIDE the asm
+ * template (installer/fsel_atari.c says why). */
+static short al_contrl[5];
+static short al_global[16];
+static short al_intin[16];
+static short al_intout[16];
+static long  al_addrin[8];
+static long  al_addrout[8];
+static void *const al_pb[6] = {
+	al_contrl, al_global, al_intin, al_intout, al_addrin, al_addrout
+};
+
+static void al_aes(short op, short nintin, short nintout, short naddrin)
+{
+	void *const pb = (void *)al_pb;
+
+	al_contrl[0] = op;
+	al_contrl[1] = nintin;
+	al_contrl[2] = nintout;
+	al_contrl[3] = naddrin;
+	al_contrl[4] = 0;
+	__asm__ volatile ("move.l %0,%%d1\n\t"
+	                  "move.w #200,%%d0\n\t"
+	                  "trap   #2"
+	                  :
+	                  : "a" (pb)
+	                  : "d0", "d1", "d2", "a0", "a1", "a2", "cc", "memory");
+}
+
+void plat_alert(const char *text)
+{
+	static char buf[200];
+	const char *s;
+	size_t      n;
+
+	/* appl_init. Without an AES (run from AUTO) the trap changes nothing,
+	 * so preset the answer and also require the version word it fills. */
+	al_intout[0] = -1;
+	al_global[0] = 0;
+	al_aes(10, 0, 1, 0);
+	if (al_intout[0] >= 0 && al_global[0] != 0) {
+		n = 0;
+		buf[n++] = '['; buf[n++] = '3'; buf[n++] = ']'; buf[n++] = '[';
+		for (s = text; *s && n < sizeof buf - 12; s++)
+			buf[n++] = *s;
+		memcpy(buf + n, "][ Quit ]", 10);
+		al_intin[0]  = 1;                 /* default button */
+		al_addrin[0] = (long)buf;
+		al_aes(52, 1, 1, 1);              /* form_alert */
+		al_aes(19, 0, 1, 0);              /* appl_exit */
+		return;
+	}
+	for (s = text; *s; s++) {
+		if (*s == '|')
+			Cconws("\r\n");
+		else
+			Cconout(*s);
+	}
+	Cconws("\r\n\r\nPress a key.\r\n");
+	(void)Cnecin();
 }
 
 /*

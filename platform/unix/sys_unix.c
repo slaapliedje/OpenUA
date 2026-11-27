@@ -27,6 +27,18 @@ int plat_console_getc(void)
 	return read(0, &c, 1) == 1 ? c : 0;
 }
 
+/* plat_alert: stderr, one line per '|' — the X11 port is started from a
+ * terminal, and Xlib has no stock message box to borrow. */
+void plat_alert(const char *text)
+{
+	const char *s;
+
+	write(2, "OpenUA: ", 8);
+	for (s = text; *s; s++)
+		write(2, *s == '|' ? " " : s, 1);
+	write(2, "\n", 1);
+}
+
 /* The Mac's FreeMem/MaxMem: the engine sizes caches from it. A Unix
  * process can grow well past what it asks for here; report a generous,
  * fixed figure rather than probing the heap. */

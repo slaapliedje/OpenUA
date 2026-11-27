@@ -26,6 +26,9 @@
 #include <dos/dos.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
+#include <intuition/intuition.h>
+#include <proto/intuition.h>
+#include <stddef.h>
 
 /* --- stack floor -----------------------------------------------------------
  *
@@ -82,6 +85,45 @@ int plat_console_getc(void)
 {
 	/* Bring-up pause only; the AGA target has no interactive console yet. */
 	return 0;
+}
+
+/* plat_alert: an Intuition EasyRequest (KS 2.0+, the port's floor) on the
+ * default public screen — the Workbench, since the engine has not opened
+ * its own yet. IntuitionBase is display_rtg.c's global; it is opened here
+ * only if nothing has, and left as it was found. The text also goes to the
+ * Shell, for a CLI start whose output is being captured. */
+extern struct IntuitionBase *IntuitionBase;
+
+void plat_alert(const char *text)
+{
+	static char body[200];
+	struct EasyStruct es;
+	int opened = 0;
+	size_t n;
+
+	for (n = 0; text[n] && n < sizeof body - 1; n++)
+		body[n] = (text[n] == '|') ? '\n' : text[n];
+	body[n] = '\0';
+	PutStr((CONST_STRPTR)body);
+	PutStr((CONST_STRPTR)"\n");
+
+	if (IntuitionBase == NULL) {
+		IntuitionBase = (struct IntuitionBase *)
+		    OpenLibrary((CONST_STRPTR)"intuition.library", 36);
+		opened = IntuitionBase != NULL;
+	}
+	if (IntuitionBase == NULL)
+		return;
+	es.es_StructSize   = sizeof es;
+	es.es_Flags        = 0;
+	es.es_Title        = (UBYTE *)"OpenUA";
+	es.es_TextFormat   = (UBYTE *)body;
+	es.es_GadgetFormat = (UBYTE *)"Quit";
+	(void)EasyRequestArgs(NULL, &es, NULL, NULL);
+	if (opened) {
+		CloseLibrary((struct Library *)IntuitionBase);
+		IntuitionBase = NULL;
+	}
 }
 
 unsigned long plat_mem_largest_free(void)
