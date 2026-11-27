@@ -16,8 +16,8 @@ V="${1:?usage: release_integrity.sh <version>}"
 R="$(cd "$(dirname "$0")/.." && pwd)"
 ATD="${MINT_OBJDUMP:-$HOME/opt/cross-mint/bin/m68k-atari-mint-objdump}"
 ATN="${MINT_NM:-$HOME/opt/cross-mint/bin/m68k-atari-mint-nm}"
-AOD="${AMIGA_OBJDUMP:-$HOME/opt/amiga/bin/m68k-amigaos-objdump}"
-AON="${AMIGA_NM:-$HOME/opt/amiga/bin/m68k-amigaos-nm}"
+AOD="${AMIGA_OBJDUMP:-${AMIGA_TOOLROOT:-$HOME/dev/toolchains/amigaos-gcc16}/bin/m68k-amigaos-objdump}"
+AON="${AMIGA_NM:-${AMIGA_TOOLROOT:-$HOME/dev/toolchains/amigaos-gcc16}/bin/m68k-amigaos-nm}"
 for t in "$ATD" "$ATN" "$AOD" "$AON"; do
 	[ -x "$t" ] || { echo "FATAL: missing tool $t"; exit 1; }
 done

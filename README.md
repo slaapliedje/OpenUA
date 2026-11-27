@@ -161,9 +161,10 @@ non-negotiable (`-m68020-60 -msoft-float`); see [`CLAUDE.md`](CLAUDE.md).
 
 ### Amiga (AGA / RTG)
 
-Requires the **Bebbo `m68k-amigaos` GCC** toolchain (build it once per
+Requires the **`m68k-amigaos` GCC** toolchain, GCC 16 (AmigaPorts'
+continuation of Bebbo's amiga-gcc; build it once per
 [`docs/toolchain-amiga.md`](docs/toolchain-amiga.md); default prefix
-`~/opt/amiga`).
+`~/dev/toolchains/amigaos-gcc16`, override with `AMIGA_TOOLROOT=…`).
 
 ```sh
 make MACHINE=amiga               # build frua (an AmigaOS hunk executable)

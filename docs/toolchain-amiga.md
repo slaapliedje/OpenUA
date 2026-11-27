@@ -1,11 +1,61 @@
-# Amiga AGA toolchain (Bebbo m68k-amigaos GCC)
+# Amiga toolchain (m68k-amigaos GCC 16)
 
-The Amiga AGA target (ADR-0012) builds with **Bebbo's `m68k-amigaos-gcc`** — a
-modern GCC that emits AmigaOS hunk executables and bundles the NDK. It is **not
-a stock package**; you build it from source once, then point
-`toolchain/m68k-amigaos.mk` at it.
+The Amiga targets (ADR-0012) build with **`m68k-amigaos-gcc` 16**, AmigaPorts'
+continuation of Bebbo's amiga-gcc: GCC that emits AmigaOS hunk executables and
+bundles the NDK. It is **not a stock package**; you build it from source once.
+The build looks for it at `~/dev/toolchains/amigaos-gcc16`; point
+`AMIGA_TOOLROOT` elsewhere (not `TOOLROOT` — that name is the Atari
+toolchain's, and a command-line `TOOLROOT` reaches the test suite's Atari
+build too).
+
+## GCC 16 replaced Bebbo's GCC 6.5 (2026-11-26)
+
+Bebbo's GCC 6.5.0b still builds the engine
+(`make MACHINE=amiga AMIGA_TOOLROOT=<its prefix>`), but this host's copy at
+`~/opt/amiga` has an empty `libgcc.a` (no `__udivdi3`, so `uainst` does not
+link), and a working 6.5 needed `-fno-tree-loop-distribute-patterns` and
+`-g0` (its link-time `-s` left the debug hunks in). GCC 16 needs neither.
+
+Measured on the 201-key HEIRS walk (`FRUA_WALKPROF`, engine ticks; amiberry
+`cpu_speed=real`, every run ending on the same frame):
+
+| A1200 (AGA) build              | binary  | walk ticks |
+|--------------------------------|---------|-----------:|
+| GCC 6.5, `-O2`                 | 816 KB  | 5557 |
+| GCC 16, `-O2`                  | 977 KB  | 5025 |
+| GCC 16, `-Os`                  | 754 KB  | 5654 |
+| GCC 16, `boot.c` `-Os`, rest `-O2` (shipped) | 789 KB | 5140 |
+
+On the A500 (ECS, 68000) the same walk took 76,776 ticks with GCC 6.5
+`-O2` (76,526 on a second run), 76,569 with GCC 16 `-O2` and 73,265 with the
+shipped mix. ECS end frames differ by a few thousand slightly different
+pixels from run to run with the SAME binary (its palette follows the timing),
+so compare them against a second run, not against zero.
+
+At `-O2` the AGA binary no longer fits its floppy raw, and 182 KB of the
+220 KB that `-O2` adds is `boot.c` alone, so the mk compiles that one file
+for size (`AMIGA_BOOT_OPT`). The walk's hot loops are mostly outside it.
+The release binaries: AGA 787 KB, ECS 795 KB (6.5 made 818 KB and 1,119 KB).
+
+The `-fbbb` set (below) is kept: GCC 16 has the same Bebbo passes. Save
+loading, the path the `r` pass broke, works with it.
+
+The rest of this file is the original GCC 6.5 history, kept for the
+miscompiler notes.
 
 ## Build it (on a networked host, not a filtered sandbox)
+
+GCC 16:
+
+```sh
+git clone https://github.com/AmigaPorts/m68k-amigaos-gcc ~/dev/toolchains/m68k-amigaos-gcc16-src
+cd ~/dev/toolchains/m68k-amigaos-gcc16-src
+make all PREFIX=$HOME/dev/toolchains/amigaos-gcc16 -j"$(nproc)"
+```
+
+Its `doc/build.md` lists the host packages. The kit includes LHa for UNIX
+as `bin/lha`, which `tools/mkhwdist.sh` uses (as `lha-make` on `PATH`) to
+pack the `.lha` hard-drive packages. The steps below are for Bebbo's GCC 6.5.
 
 Bebbo's build clones ~15 component repos from GitHub and pulls the NDK from
 aminet, so run it in a shell with normal internet (a CI sandbox behind a

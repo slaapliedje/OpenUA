@@ -119,7 +119,13 @@ INCLUDE := -Isrc -Icompat/include -Iplatform/include -Ithird_party/c2p-68k/inclu
 # plausible set of measurements from the wrong build (2026-07-29, #96). A
 # checksum over the whole string cannot miss a flag change.
 EXTRA_CFLAGS_SUM := $(shell printf '%s' '$(EXTRA_CFLAGS)' | cksum | cut -d' ' -f1)
-BUILDSTAMP := $(MACHINE)-$(or $(CPU68K),default)-$(or $(FPU),nofpu)-$(or $(NOEMBED),embed)-planar$(or $(PLANAR),1)-probe$(or $(ENGINE_PROBE),0)-x$(EXTRA_CFLAGS_SUM)
+# ★ The COMPILER and OPT are checksummed too. Without them a tree built with
+# one toolchain relinked its objects under another (the Amiga default moved
+# from GCC 6.5 to 16 on 2026-11-26: every object in an existing tree was 6.5
+# code), and `make OPT=-Os` after an -O2 build rebuilt nothing — an A/B of
+# the two that measured the same objects twice.
+TOOL_SUM := $(shell printf '%s' '$(CC) $(OPT) $(AMIGA_BOOT_OPT)' | cksum | cut -d' ' -f1)
+BUILDSTAMP := $(MACHINE)-$(or $(CPU68K),default)-$(or $(FPU),nofpu)-$(or $(NOEMBED),embed)-planar$(or $(PLANAR),1)-probe$(or $(ENGINE_PROBE),0)-x$(EXTRA_CFLAGS_SUM)-c$(TOOL_SUM)
 ifneq ($(shell cat .machine 2>/dev/null),$(BUILDSTAMP))
 $(shell find src compat platform third_party -name '*.o' -delete 2>/dev/null; \
         find src compat platform third_party -name '*.d' -delete 2>/dev/null; \
@@ -820,9 +826,10 @@ uainst.ttp: uainst.prg
 # The Amiga build of the same installer. Adds installer/asl_amiga.c: with
 # no ZIP argument it pops the standard asl.library file/drawer requesters
 # (task #24) instead of prompting on the console, then runs the identical
-# extract+convert core. Uses the Bebbo toolchain directly — installer
+# extract+convert core. Uses the Amiga toolchain directly — installer
 # builds are standalone, not part of the MACHINE= engine object tree.
-AMIGA_CROSS ?= $(HOME)/opt/amiga/bin/m68k-amigaos-
+AMIGA_TOOLROOT ?= $(HOME)/dev/toolchains/amigaos-gcc16
+AMIGA_CROSS ?= $(AMIGA_TOOLROOT)/bin/m68k-amigaos-
 # modman — the on-machine module manager (ADR-0025): browse the fan archive's
 # list, download a module and install it, in a GEM window. The screen logic
 # is installer/modapp.c (shared with the Amiga build); the window and events

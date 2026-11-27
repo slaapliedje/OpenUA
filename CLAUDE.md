@@ -333,9 +333,9 @@ D:\MODMAN.PRG` to `xaaes.cnf`. That link is bursty (about 10 KB/s, with
 silences over 30 s while TCP retransmits; a bare read() loop sees the same),
 which is why `MN_READ_MS` is 60 s. Under fVDI, a font request that names a family gets an
 outline face; the GEM shell asks for neither so it keeps the system
-font. Build `modman-amiga` with
-`AMIGA_CROSS=$HOME/dev/toolchains/amigaos/bin/m68k-amigaos-`; the
-`~/opt/amiga` default lacks `__udivdi3`. Half of an early test download set was saved web error pages
+font. The Amiga toolchain is GCC 16 at `~/dev/toolchains/amigaos-gcc16`
+(`AMIGA_TOOLROOT`; never `TOOLROOT`, which also reaches the Atari sub-makes);
+the old `~/opt/amiga` GCC 6.5 lacks `__udivdi3`. Half of an early test download set was saved web error pages
 renamed `.zip`. Still ask the user before fetching modules from the internet.
 
 ## Gold Box script areas (ADR-0023)

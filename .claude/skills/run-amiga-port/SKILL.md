@@ -11,8 +11,9 @@ quirks amiberry needs. Paths below are relative to the repo root.
 
 ## Prerequisites (all verified present here)
 
-- **Bebbo m68k-amigaos-gcc** at `~/opt/amiga` — NOT a stock package; build per
-  `docs/toolchain-amiga.md`. Verify: `~/opt/amiga/bin/m68k-amigaos-gcc --version`.
+- **m68k-amigaos-gcc 16** at `~/dev/toolchains/amigaos-gcc16` (`AMIGA_TOOLROOT`)
+  — NOT a stock package; build per `docs/toolchain-amiga.md`. Verify:
+  `~/dev/toolchains/amigaos-gcc16/bin/m68k-amigaos-gcc --version`.
 - **amiberry** flatpak: `flatpak run com.blitterstudio.amiberry` resolves.
 - **Kickstart 3.2** at `~/Amiberry/ROMs/kicka1200.rom` and the machine config
   `~/Amiberry/Configurations/openua.uae` (A1200, AGA, 2MB chip + 8MB fast,
