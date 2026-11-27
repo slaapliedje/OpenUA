@@ -106,7 +106,9 @@ What works (on every target unless noted):
   own music, not only the one current at boot.
 
 It plays the bundled sample design **HEIRS TO SKULL CRAG** and real commercial
-modules (e.g. *Pool of Radiance*) on their own art. The current gaps are
+modules (e.g. *Pool of Radiance*) on their own art, and it is beginning to
+play SSI's **Krynn games from their own DOS files** (see
+[The Krynn games](#the-krynn-games-experimental)). The current gaps are
 fidelity/polish, not missing features — see
 [`docs/enhancements.md`](docs/enhancements.md).
 
@@ -225,6 +227,45 @@ against the matched pair. Design/data files (`.DAT`/`.GEO`/…) are byte-identic
 between releases and need no conversion; only the art containers do. See
 [`docs/fan-module-hacks.md`](docs/fan-module-hacks.md) and
 [`docs/dos-inventory.md`](docs/dos-inventory.md).
+
+## The Krynn games (experimental)
+
+FRUA was never able to play SSI's other Gold Box games. OpenUA is learning to:
+it reads the DOS releases' **own files** at run time (their maps, scripts,
+pictures, monsters, items, rules and saves), so there is nothing to convert
+and nothing to install beyond a copy. You supply the games yourself; the
+DOS releases sold today work.
+
+**To play one,** copy the game's whole DOS folder next to your other designs
+and rename the copy `<NAME>.DSN` (for example `DQK.DSN`), then pick it with
+**SELECT A DESIGN** on the main menu like any other. Work on a copy, never on the original: the
+first time the design opens, the engine writes its converted pictures
+(`PIC*.ctl`, `BIGPIC.ctl`, `SPRIT.ctl`) into that folder, and the heroes and
+saves you make there go into its `SAVE` folder.
+
+- **Dark Queen of Krynn** is the furthest along. A new game starts where the
+  original does and plays by the game's own rules: Krynn's races, knights of
+  the three orders, clerics by god (with their own spells), mages by robe
+  with the moons' bonuses and penalties, and steel as the coin. Scripted
+  text and menus, fights against the game's own monsters, treasure, shops,
+  inns, temples, training and the bank all run. The game's own heroes
+  (`.QCH`) appear in the Training Hall and are written back when you change
+  them, and its saved games (`SAVGAMx.QSV`) are listed under Load; saving
+  also writes a `.QSV` the DOS game can load. **Checked so far:** the
+  opening, and a DOS save in Caergoth that walks into the same dragon
+  ambush on the same step as DOS. Nobody has played it through yet, so
+  expect gaps further in, and tell us where they are.
+- **Champions of Krynn** and **Death Knights of Krynn** open too, from their
+  own `.DAX` files: the opening scripts, pictures and sprites, fights, the
+  games' rules and items, their characters in the hall, and their saved
+  games (`SAVGAMx.DAT` / `.PTY`) loading. **Not yet:** the overland travel
+  map, and saving in a form the DOS game can read back (the port's own save
+  works). A Death Knights design opened by an older build may hold a short
+  `PICG.ctl`; delete it and the next open builds the full one.
+
+All of this has been tested in Hatari on the Falcon build only. The ST and
+Amiga builds should behave the same but have not been run on these games yet.
+Reports from any machine are welcome.
 
 `tools/` also holds the resource-fork extractors (`macrsrc.py`, `hfs_extract.py`,
 `appledouble.py`), the `HLIB`/`GLIB` extractors (`hlib_extract.py`,
