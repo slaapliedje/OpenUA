@@ -118,17 +118,20 @@ atari_img "$OUT/openua-falcon-$VERSION.st" 1440 "$WORK" \
 	FRUA.PRG UAINST.TTP README.TXT ENGINE.LST
 rm -f "$WORK/FRUA.PRG"
 
-say "Mega ST / STE — 720 KB, compressed (the binary is 1.04 MB)"
-( cd "$ST" && zip -q -9 "$WORK/FRUA.ZIP" frua.prg )
+say "Mega ST / STE — 720 KB, compressed (the binary is $(wc -c < "$ST/frua.prg") bytes)"
+# The engine AND uainst go inside the one zip: since v1.0.1 the zipped engine
+# (~594 KB) plus a loose UAINST.TTP (~203 KB) no longer fit a 720K disk.
+( cd "$ST" && zip -q -9 "$WORK/FRUA.ZIP" frua.prg UAINST.TTP )
+STBYTES=$(wc -c < "$ST/frua.prg" | tr -d ' ')
 readme "$WORK/README.TXT" "Atari ST / STE / Mega ST" \
-	"FRUA.ZIP    the engine, zipped — 1,063,312 bytes unpacked, which is" \
-	"            more than this 720K disk holds. Unpack it onto your hard" \
-	"            disk / CF (PC-side is easiest) and run FRUA.PRG there." \
-	"UAINST.TTP  installs a DOS fan module from its ZIP." \
+	"FRUA.ZIP    the engine (FRUA.PRG, $STBYTES bytes unpacked, more than" \
+	"            this 720K disk holds) and UAINST.TTP, which installs a DOS" \
+	"            fan module from its ZIP. Unpack it onto your hard disk / CF" \
+	"            (PC-side is easiest) and run FRUA.PRG there." \
 	"" \
 	"Needs 2 MB and a colour monitor. ST-low, 16 colours."
 atari_img "$OUT/openua-atari-st-$VERSION.st" 720 "$WORK" \
-	FRUA.ZIP UAINST.TTP README.TXT
+	FRUA.ZIP README.TXT
 rm -f "$WORK/FRUA.ZIP"
 
 say "Atari ST on a GOTEK — 1.44 MB at 150 rpm, binary raw"
@@ -312,9 +315,9 @@ EOS
 say "Amiga AGA (A1200/A4000) — 880 KB, binary raw"
 readme "$WORK/README" "Amiga AGA (A1200 / A4000)" \
 	"frua    the engine. Needs Kickstart 3.0+ and about 4 MB." \
-	"uainst  installs a DOS fan module from its ZIP." \
-	"(uaconv, the optional art pre-converter, no longer fits on this disk:" \
-	" it is in the zip and the .lha hard-drive package.)" \
+	"(uainst, which installs a DOS fan module from its ZIP, and uaconv," \
+	" the optional art pre-converter, no longer fit on this disk: they" \
+	" are in the zip and the .lha hard-drive package.)" \
 	"" \
 	"TO INSTALL: double-click the Install icon (Workbench). It uses the" \
 	"AmigaOS Installer if the machine has one; Workbench 3.1 never shipped" \
@@ -326,9 +329,12 @@ amiga_install_files aga 6
 # MIDI player and the disk was left 7 KB short of holding instdisk. uaconv is
 # optional and ships in the zip and the .lha; the ECS set keeps it (disk 1
 # holds only half the binary).
-printf '1 1 OpenUA engine (AGA)\nfrua frua\nfrua.info frua.info\nuainst uainst\nuainst.info uainst.info\n' > "$WORK/ENGINE.LST"
+# ★ No uainst on it either since 1.0.1-beta: frua grew to 818 KB with the Gold
+# Box code, and frua + uainst (107 KB) overfilled the disk. Same home: the
+# zip and the .lha.
+printf '1 1 OpenUA engine (AGA)\nfrua frua\nfrua.info frua.info\n' > "$WORK/ENGINE.LST"
 amiga_img "$OUT/openua-amiga-aga-$VERSION.adf" "OpenUA-AGA" "$AGA" \
-	frua frua.info uainst uainst.info
+	frua frua.info
 for f in README ENGINE.LST Install Install.info Install.script instdisk; do
 	"$XDFTOOL" "$OUT/openua-amiga-aga-$VERSION.adf" write "$WORK/$f" >/dev/null
 done
@@ -342,7 +348,7 @@ say "Amiga ECS/OCS (A500+/A600/A2000) — 993 KB binary, so a TWO-disk set"
 # inside an 880 K disk alongside the installer.
 split -n 2 -d "$ECS/frua" "$WORK/frua."
 readme "$WORK/README" "Amiga ECS / OCS — disk 1 of 2" \
-	"The engine is 993,296 bytes and an 880K disk holds ~878K, so it is" \
+	"The engine is $(wc -c < "$ECS/frua" | tr -d ' ') bytes and an 880K disk holds ~878K, so it is" \
 	"split in half. Copy BOTH halves to your hard disk / CF, then use the" \
 	"stock AmigaDOS Join command — no LhA or unzip needed:" \
 	"" \
