@@ -52,6 +52,55 @@ def find_file(base, name):
     return None
 
 
+def pick_ckit(dos):
+    """(ckit path or None, backup dir or None, message).
+
+    rsrc_from_dos reads CKIT.EXE's strings at fixed offsets, so it takes only
+    the v1.2 build it was mapped against. A mod manager that patched the game
+    (seen on a Steam install, 2026-11) leaves the originals in MM_BACKUP: the
+    v1.2 CKIT.EXE there, and the DISK1..3 files it replaced. Then the
+    originals are used, and the caller lays the backed-up DISK files over the
+    modded ones, since OpenUA is tested against SSI's data."""
+    import json
+    with open(rsrc_from_dos.DEFAULT_MAP) as fh:
+        doc = json.load(fh)
+    top = find_file(dos, "CKIT.EXE")
+    if top is None:
+        return None, None, "no CKIT.EXE"
+    ok, msg = rsrc_from_dos.verify_exe(open(top, "rb").read(), doc)
+    if ok:
+        return top, None, msg
+    bak = find_dir(dos, "MM_BACKUP")
+    bck = find_file(bak, "CKIT.EXE") if bak else None
+    if bck:
+        ok2, _ = rsrc_from_dos.verify_exe(open(bck, "rb").read(), doc)
+        if ok2:
+            return bck, bak, ("CKIT.EXE was changed by a mod manager; using "
+                              "the v1.2 originals it kept in MM_BACKUP")
+    return None, None, msg
+
+
+def design_dirs(dos):
+    """Folders that may hold *.DSN design folders, searched in order.
+
+    GOG keeps the designs beside CKIT.EXE. Steam keeps the player's working
+    designs (HEIRS, TUTORIAL and any installed modules) in
+    <edition>/DESIGNS/UA and untouched copies of HEIRS and TUTORIAL in
+    <edition>/Default files/Saves/UA, two levels above GAME/UA. A design
+    found earlier wins, so the player's copy beats the default."""
+    out = [dos]
+    edition = os.path.dirname(os.path.dirname(dos))
+    des = find_dir(edition, "DESIGNS") if os.path.isdir(edition) else None
+    if des and find_dir(des, "UA"):
+        out.append(find_dir(des, "UA"))
+    dflt = find_dir(edition, "Default files") if os.path.isdir(edition) else None
+    if dflt:
+        saves = find_dir(dflt, "Saves")
+        if saves and find_dir(saves, "UA"):
+            out.append(find_dir(saves, "UA"))
+    return out
+
+
 def copy_into(src_dir, dst_dir):
     n = 0
     for f in sorted(os.listdir(src_dir)):
@@ -73,11 +122,17 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     dos, dest = os.path.abspath(args.dos), os.path.abspath(args.dest)
-    ckit = find_file(dos, "CKIT.EXE")
-    if ckit is None:
+    if find_file(dos, "CKIT.EXE") is None:
         print("stage_dos: no CKIT.EXE in %s — point me at the DOS FRUA "
               "install folder" % dos, file=sys.stderr)
         return 1
+    ckit, backup, why = pick_ckit(dos)
+    if ckit is None:
+        print("stage_dos: %s. OpenUA needs the English v1.2 DOS release "
+              "(GOG/Steam); nothing was staged." % why, file=sys.stderr)
+        return 1
+    if backup:
+        print("stage_dos: " + why)
     os.makedirs(dest, exist_ok=True)
 
     # 1) the shared data files + the design folders
@@ -86,31 +141,47 @@ def main(argv=None):
         sd = find_dir(dos, d)
         if sd:
             total += copy_into(sd, dest)
+    if backup:
+        # the mod manager's backups of the DISK files it replaced
+        for d in ("DISK1", "DISK2", "DISK3"):
+            sd = find_dir(backup, d)
+            if sd:
+                copy_into(sd, dest)
     print("stage_dos: copied %d data files" % total)
-    for e in sorted(os.listdir(dos)):
-        if not e.upper().endswith(".DSN"):
-            continue
-        sd = os.path.join(dos, e)
-        if not os.path.isdir(sd):
-            continue
-        dd = os.path.join(dest, e)
-        os.makedirs(dd, exist_ok=True)
-        copy_into(sd, dd)
-        save = find_dir(sd, "SAVE")
-        if save:
-            copy_into(save, dd)
-        print("stage_dos: design %s" % e)
+    taken = set()
+    for where in design_dirs(dos):
+        for e in sorted(os.listdir(where)):
+            if not e.upper().endswith(".DSN") or e.upper() in taken:
+                continue
+            sd = os.path.join(where, e)
+            if not os.path.isdir(sd):
+                continue
+            taken.add(e.upper())
+            dd = os.path.join(dest, e)
+            os.makedirs(dd, exist_ok=True)
+            copy_into(sd, dd)
+            save = find_dir(sd, "SAVE")
+            if save:
+                copy_into(save, dd)
+            print("stage_dos: design %s" % e)
 
     # 2) art -> .ctl twins (colour only; the mono synthesis is a separate,
     #    slower pass the colour engine never reads)
-    tlbs = sorted(glob.glob(os.path.join(dest, "*.[Tt][Ll][Bb]"))
-                  + glob.glob(os.path.join(dest, "*.DSN", "*.[Tt][Ll][Bb]"))
-                  + glob.glob(os.path.join(dest, "*.dsn", "*.[Tt][Ll][Bb]")))
+    # a set: on a case-blind file system (Windows) *.DSN and *.dsn match
+    # the same folders
+    tlbs = sorted(set(glob.glob(os.path.join(dest, "*.[Tt][Ll][Bb]"))
+                      + glob.glob(os.path.join(dest, "*.[Dd][Ss][Nn]",
+                                               "*.[Tt][Ll][Bb]"))))
     if tlbs:
         print("stage_dos: converting %d art libraries..." % len(tlbs))
-        subprocess.run([sys.executable, os.path.join(HERE, "art_convert.py"),
-                        "--no-mono"] + tlbs,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # in batches: a Steam install with its fan modules has thousands,
+        # and Windows caps a command line at 32767 characters
+        for k in range(0, len(tlbs), 100):
+            subprocess.run([sys.executable,
+                            os.path.join(HERE, "art_convert.py"),
+                            "--no-mono"] + tlbs[k:k + 100],
+                           stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL)
 
     # 3) root data banks HLIB -> GLIB (skips anything already GLIB)
     glb2glib.main(sorted(glob.glob(os.path.join(dest, "*.[Gg][Ll][Bb]"))))
@@ -131,10 +202,19 @@ def main(argv=None):
             continue
         paths, _pref = xmi2slb.find_xmi_set(dsn)
         if paths:
-            xmi2slb.main([dsn, os.path.join(dsn, "MUSIC.SLB")])
+            # one module's music must not stop the whole staging
+            try:
+                xmi2slb.main([dsn, os.path.join(dsn, "MUSIC.SLB")])
+            except Exception as exc:
+                print("stage_dos: %s: its music did not convert (%s); it "
+                      "plays the base game's" % (os.path.basename(dsn), exc))
 
     # 6) the engine resource archive, from CKIT.EXE alone
-    rsrc_from_dos.main([ckit, "-o", os.path.join(dest, "frua.rsc")])
+    # (its failure used to go unnoticed: a folder without frua.rsc and
+    # "DONE", which the engine starts as a black screen)
+    if rsrc_from_dos.main([ckit, "-o", os.path.join(dest, "frua.rsc")]) != 0:
+        print("stage_dos: frua.rsc could not be built", file=sys.stderr)
+        return 1
 
     # 7) colour mouse pointers (optional nicety; mono fallback if it fails)
     always = find_file(dest, "ALWAYS.TLB")
