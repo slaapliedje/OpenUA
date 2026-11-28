@@ -442,7 +442,8 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   in GBSAV's "WSET" trailer; a script load sets 0x4be6 (COAB
   vm_init_ecl) and LOAD_FILES in a dungeon sets 0x4bc5. Checked: DOS
   Champions loads the port's saves (the party, the outpost, a member
-  removed in the hall). OPEN: Champions' outpost menu (save C) takes no
+  removed in the hall), and DOS Death Knights the port's save of its
+  save C (the eulogy at 7,13, as the original save shows it). OPEN: Champions' outpost menu (save C) takes no
   key or click in the port, an older bug.
   Scripts and maps
   are numbered separately in these games — Dark Queen has 47 scripts over 20

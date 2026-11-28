@@ -282,7 +282,7 @@ saves you make there go into its `SAVE` folder.
   own `.DAX` files: the opening scripts, pictures and sprites, fights, the
   games' rules and items, their characters in the hall, and their saved
   games (`SAVGAMx.DAT` / `.PTY`) loading. Saving also writes the game's own
-  save, which the DOS game loads (checked with Champions; heroes made in
+  save, which the DOS game loads (checked with both; heroes made in
   OpenUA cannot go into one). **Not yet:** the overland travel map. A Death Knights design opened by an older build may hold a short
   `PICG.ctl`; delete it and the next open builds the full one.
 
