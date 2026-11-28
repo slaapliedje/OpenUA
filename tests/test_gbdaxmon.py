@@ -384,3 +384,169 @@ def test_real_characters_facts():
     bits = int.from_bytes(flavius[0x157:0x167], "little")
     assert bits & (1 << 14) and bits & (1 << 59)            # Magic Missile; 103 -> 60
     assert flavius[0x179:0x17c] == b"\x04\x02\x02"          # mage 6: 4/2/2
+
+
+# ---- a character back to the game (gbdaxmon.py character_back) -----------
+
+def some_hero(rng, tmp_path, cok, cls, name="HERO"):
+    """A synthetic hero of either game in tmp_path: (path, {ext: bytes})."""
+    size = G.COK_SIZE if cok else G.DKK_SIZE
+    rec = bytearray(rng.randrange(256) for _ in range(size))
+    rec[0] = rng.randrange(1, 16)
+    rec[0x21 if not cok else 0x5b] = cls
+    files = {}
+    if cok:
+        files[".SAV"] = bytes(rec)
+        ext_e, ext_j = ".SFX", ".STF"
+    else:
+        files[".GAM"] = bytes(rec)
+        if rng.random() < 0.8:
+            files[".WIZ"] = some_wiz(rng)
+        ext_e, ext_j = ".EFF", ".JNK"
+    files[ext_e] = b"".join(bytes([rng.choice([1, 2, 9, 34, 50])]) + bytes(
+        rng.randrange(256) for _ in range(8)) for _ in range(rng.randrange(4)))
+    files[ext_j] = b"".join(bytes([5]) + b"Thing" + bytes(36) + bytes(4) + t
+                            for t in some_items(rng, rng.randrange(1, 6)))
+    files = {e: d for e, d in files.items() if d}
+    stem = tmp_path / name
+    for e, d in files.items():
+        (tmp_path / (name + e)).write_bytes(d)
+    return str(stem) + (".SAV" if cok else ".GAM"), files
+
+
+def write_back(tmp_path, path, out):
+    """character_back's files over the hero's (an empty one removed)."""
+    stem = os.path.splitext(path)[0]
+    for e in (".SAV", ".GAM", ".WIZ", ".EFF", ".JNK", ".SFX", ".STF"):
+        if os.path.exists(stem + e) and e not in out:
+            os.remove(stem + e)
+    for e, d in out.items():
+        open(stem + e, "wb").write(d)
+
+
+@pytest.mark.parametrize("cok,cls", [(False, 3), (False, 7), (True, 0), (True, 6)])
+def test_back_unchanged_is_the_game_file(tmp_path, cok, cls):
+    rng = random.Random(cok * 100 + cls)
+    for i in range(6):
+        path, files = some_hero(rng, tmp_path, cok, cls, "H%d" % i)
+        assert G.character_back(G.character(path), path) == files
+
+
+def test_sources_are_one_to_one():
+    srcs = [s for s in G.DKK_SOURCES if s is not None]
+    assert len(srcs) == len(set(srcs))
+
+
+@pytest.mark.parametrize("cok", [False, True])
+def test_back_carries_every_changed_byte(tmp_path, cok):
+    """A byte of the .QCH the game's record carries, changed, comes back
+    when the written files are read again; nothing else moves."""
+    rng = random.Random(5 + cok)
+    covered = set(range(G.DKK_SIZE))
+    if cok:
+        covered = {d + i for _, d, n in G.COK_TO_DKK for i in range(n)}
+        covered -= {p + i for p in G.COK_DKK_CLEAR for i in range(4)}
+    places = [d for d, s in enumerate(G.DKK_SOURCES)
+              if s is not None and s in covered and d not in (0x5a, 0x5b, 0xc9)]
+    for i in range(8):
+        path, _ = some_hero(rng, tmp_path, cok, 3, "C%d" % i)
+        q = bytearray(G.character(path))
+        old = bytes(q)
+        for d in rng.sample(places, 25):
+            q[d] = (q[d] + 1 + rng.randrange(255)) & 0xff
+        write_back(tmp_path, path, G.character_back(bytes(q), path))
+        again = G.character(path)
+        assert again[:G.DQK_SIZE] == bytes(q[:G.DQK_SIZE]), \
+            [hex(k) for k in range(G.DQK_SIZE) if again[k] != q[k]]
+        assert again[G.DQK_SIZE:] == old[G.DQK_SIZE:]
+
+
+def test_back_name(tmp_path):
+    rng = random.Random(11)
+    path, files = some_hero(rng, tmp_path, False, 3)
+    q = bytearray(G.character(path))
+    q[0x68:0x78] = b"ARIANNA".ljust(16, b"\0")
+    out = G.character_back(bytes(q), path)
+    assert out[".GAM"][0] == 7 and out[".GAM"][1:16] == b"ARIANNA" + bytes(8)
+
+
+def test_back_items_and_effects(tmp_path):
+    """Items kept keep their records (the readied byte the new one's), one
+    from the game's archives comes whole, a new one is made; effects
+    likewise."""
+    rng = random.Random(12)
+    path, files = some_hero(rng, tmp_path, False, 3)
+    q = G.character(path)
+    fixed, items, nodes = G._qch_parts(q)
+    old = G.records(files[".JNK"])
+    src = bytearray(old[0])
+    src[0:6] = b"\x05Other"
+    src[G.ITEM_TAIL + 1] = 99                       # a different item
+    made = bytearray(G.item17(src[G.ITEM_TAIL:]))
+    made[1] = 98
+    keep = bytearray(items[-1])
+    keep[10] ^= 1                                   # readied flips
+    new = [bytes(keep), G.item17(bytes(src[G.ITEM_TAIL:])), bytes(made)]
+    fx = list(nodes) + [bytes([0x81, 3, 0, 0xff, 0, 0, 0, 0, 0])]
+    fixed = bytearray(fixed)
+    fixed[8] = fixed[0xc9] = 3
+    out = G.character_back(bytes(fixed) + b"".join(new) + b"".join(fx), path,
+                           sources=[bytes(src)])
+    recs = G.records(out[".JNK"])
+    assert recs[0][:G.ITEM_TAIL + 6] == old[-1][:G.ITEM_TAIL + 6]
+    assert recs[0][G.ITEM_TAIL + 6] == old[-1][G.ITEM_TAIL + 6] ^ 1
+    assert recs[1][:6] == b"\x05Other" and recs[1][0x2a:0x2e] == bytes(4)
+    assert recs[2][G.ITEM_TAIL + 1] == 98 and recs[2][0] == 0
+    assert out[".GAM"][0x7c] == 3
+    eff = out.get(".EFF", b"")
+    assert eff[:len(files.get(".EFF", b""))] == files.get(".EFF", b"")
+    assert eff[-9] == 2                             # 0x81 is the game's 2
+
+
+def test_item_name_from_words():
+    words = [None] + ["W%d" % i for i in range(1, 126)]
+    assert G.item_name(bytes([5, 0, 0x6f % 126, 18]) + bytes(13), words) == b"W18 W111 "
+    assert G.item_name(bytes(17), None) == b""
+
+
+def test_back_spells(tmp_path):
+    """Memorized spells go back sorted, the empty ones first, in the
+    game's numbers; a newly known spell sets its byte; Champions keeps
+    58 at the front of the record."""
+    rng = random.Random(13)
+    path, files = some_hero(rng, tmp_path, False, 3)
+    files[".WIZ"] = bytes(G.WIZ_SIZE)
+    open(os.path.splitext(path)[0] + ".WIZ", "wb").write(files[".WIZ"])
+    q = bytearray(G.character(path))
+    q[0xce:0xd1] = bytes([59, 15, 3])            # 59 is the game's 102
+    q[0x157] |= 1 << 2                           # spell 3 known
+    out = G.character_back(bytes(q), path)
+    w = out[".WIZ"]
+    assert w[G.WIZ_CHAR_MEMORIZED - 3:G.WIZ_CHAR_MEMORIZED] == bytes([3, 15, 102])
+    assert w[:G.WIZ_CHAR_MEMORIZED - 3] == bytes(G.WIZ_CHAR_MEMORIZED - 3)
+    assert w[G.WIZ_KNOWN + 2] == 1
+
+    path, files = some_hero(rng, tmp_path, True, 0, "COK")
+    q = bytearray(G.character(path))
+    q[0xce:0x118] = bytes(0x4a)
+    q[0xce:0xd0] = bytes([15, 3])
+    out = G.character_back(bytes(q), path)
+    c = out[".SAV"]
+    assert c[0x1e:0x58] == bytes(0x3a - 2) + bytes([3, 15])
+
+
+def test_real_heroes_come_back_whole():
+    """The DOSBox saves' heroes, through the hall's .CCH and back: the
+    game's files as they were."""
+    import gbchar
+    paths = (glob.glob(os.path.join(ROOT, "data", "work", "cok-saves", "*.SAV"))
+             + glob.glob(os.path.join(ROOT, "data", "work", "dkk-saves", "*.GAM")))
+    if not paths:
+        pytest.skip("no DOSBox saves here")
+    for path in paths:
+        q = G.character(path)
+        c, _ = gbchar.convert(q, native=True)
+        out = G.character_back(gbchar.to_qch(c, base=q), path)
+        stem = os.path.splitext(path)[0]
+        for e, d in out.items():
+            assert open(stem + e, "rb").read() == d, (path, e)

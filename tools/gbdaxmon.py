@@ -69,6 +69,14 @@ The two games number spells alike (START.EXE's string[40] tables differ
 only where Death Knights reused the evil spells' numbers), so Death
 Knights' import translates none.
 
+BACK TO THE GAME (character_back): a hero the port changed goes back into
+his own files by reading those imports backwards, byte for byte and only
+where his .QCH changed, so whatever they never carried (pointers, the
+bytes the Dark Queen drops) stays as the game wrote it. A kept item keeps
+its record, a new one comes from the game's archives when it is there,
+and the games read the item and effect files to their end, not along
+their pointers (COAB ovr017), so a made record's pointer is zero.
+
     python3 tools/gbdaxmon.py GAMEFOLDER              # the bestiary, converted
     python3 tools/gbdaxmon.py GAMEFOLDER --items      # the item table
 
@@ -474,6 +482,250 @@ def character(path):
             return None
         k, wiz = rec, side(w) or None
     return dqk_character(k, wiz, side(e), side(j))
+
+
+# ---- a character back to the game ---------------------------------------
+#
+# The port keeps a hero as FRUA's record; the hall writes him as a .CCH and
+# gbchar.to_qch makes the Dark Queen's .QCH of it over the one he came
+# from. From there he goes back into the game's own files by undoing the
+# imports above, ONLY where his .QCH changed: each byte of the new .QCH
+# that differs from the old goes to the byte of the game's record it came
+# from (dkk_to_dqk's moves read backwards), and what the imports never
+# carried (pointers, the bytes the Dark Queen drops, a knight's slot 7)
+# stays as the game wrote it. Items and effects are matched against the
+# files' own records, so an item he kept keeps its record (its name, its
+# own numbers where the Dark Queen's translation folds two into one).
+
+def _dkk_sources():
+    """[src or None] for each byte of dkk_to_dqk's result: the byte of the
+    Death Knights record it holds. The name (0x68..0x77) goes apart."""
+    prov = [None] * DQK_SIZE
+    for src, dst, n in DKK_TO_DQK:
+        if src == 0x45:
+            prov[0x9f] = prov[0xa5]
+        prov[dst:dst + n] = range(src, src + n)
+        if src == 0x45:
+            prov[0xa6] = prov[0xac]
+            prov[0xac:0xb4] = [None] * 8
+    prov[0x68:0x78] = [None] * 16
+    return prov
+
+
+DKK_SOURCES = _dkk_sources()
+DKK_NAME_MAX = 15
+
+
+def _spell_back(n, known):
+    """The game's number of the Dark Queen's spell n: SPELL_MAP folds some
+    pairs into one, so one the hero knows (`known`, the game's numbers) is
+    taken first, then a number SPELL_MAP moves, then n itself."""
+    cands = [d for d in range(1, 256) if SPELL_MAP.get(d, d) == n]
+    for d in cands:
+        if d in known:
+            return d
+    for d in cands:
+        if d in SPELL_MAP:
+            return d
+    return cands[0] if cands else n
+
+
+def dkk_from_qch(q_new, q_old, k_old):
+    """The Death Knights record (216 bytes) for the .QCH `q_new`, over
+    `k_old`, the record `q_old` (its .QCH) was made from."""
+    k = bytearray(k_old)
+    for dst, src in enumerate(DKK_SOURCES):
+        if src is not None and q_new[dst] != q_old[dst]:
+            k[src] = q_new[dst]
+    name = bytes(q_new[0x68:0x78]).split(b"\0")[0][:DKK_NAME_MAX]
+    if name != bytes(q_old[0x68:0x78]).split(b"\0")[0][:DKK_NAME_MAX]:
+        k[0] = len(name)
+        k[1:1 + DKK_NAME_MAX] = name.ljust(DKK_NAME_MAX, b"\0")
+    return bytes(k)
+
+
+def wiz_from_qch(q_new, q_old, wiz_old, width=WIZ_CHAR_MEMORIZED):
+    """The caster block for `q_new` over `wiz_old` (what `q_old` was made
+    with). `width` is how many memorized spells the game keeps at its
+    front: Death Knights' 0x4a, Champions' 0x3a; they are kept sorted, the
+    empty ones first, as both games keep them."""
+    w = bytearray(wiz_old)
+    known = {i + 1 for i in range(WIZ_KNOWN_N) if wiz_old[WIZ_KNOWN + i]}
+    end = DQK_MEMORIZED + WIZ_CHAR_MEMORIZED
+    if bytes(q_new[DQK_MEMORIZED:end]) != bytes(q_old[DQK_MEMORIZED:end]):
+        mem = sorted(_spell_back(s, known) for s in q_new[DQK_MEMORIZED:end] if s)
+        mem = mem[-width:]
+        w[0:width] = bytes(width - len(mem)) + bytes(mem)
+    for n in range(1, DQK_KNOWN_N + 1):
+        byte, bit = DQK_KNOWN + ((n - 1) >> 3), 1 << ((n - 1) & 7)
+        if (q_new[byte] ^ q_old[byte]) & bit:
+            d = _spell_back(n, known)
+            if 1 <= d <= WIZ_KNOWN_N:
+                w[WIZ_KNOWN + d - 1] = 1 if q_new[byte] & bit else 0
+    for group, at in WIZ_SLOTS:
+        if bytes(q_new[at:at + 8]) != bytes(q_old[at:at + 8]):
+            w[WIZ_SLOT + 8 * group:WIZ_SLOT + 8 * group + 8] = q_new[at:at + 8]
+    return bytes(w)
+
+
+def cok_from_dkk(c_old, k_new, k_old, wiz_new=None, wiz_old=None):
+    """The Champions record (409 bytes) for Death Knights' `k_new`, over
+    `c_old` (from which cok_to_dkk made `k_old` and cok_wiz `wiz_old`)."""
+    c = bytearray(c_old)
+    for src, dst, n in COK_TO_DKK:
+        for i in range(n):
+            if k_new[dst + i] != k_old[dst + i]:
+                c[src + i] = k_new[dst + i]
+    if wiz_new is not None and wiz_old is not None:
+        for src, dst, n in COK_WIZ:
+            for i in range(n):
+                if wiz_new[dst + i] != wiz_old[dst + i]:
+                    c[src + i] = wiz_new[dst + i]
+    return bytes(c)
+
+
+def item17_back(q):
+    """A Dark Queen entry -> the 17 bytes as the older games keep them
+    (item17 backwards; where it folds two numbers into one the one it
+    moves is taken)."""
+    back_word = {v: k for k, v in WORD_MAP.items()}
+    t = bytearray(17)
+    t[0] = q[0]
+    t[1:4] = bytes(back_word.get(w, w) for w in q[1:4])
+    t[9:11] = q[4:6]
+    t[12:14] = q[6:8]
+    t[4:9] = q[8:13]
+    t[11] = q[13]
+    t[14:17] = q[14:17]
+    lo = lambda b: (_spell_back(b & 0x7f, ()) | (b & 0x80)) & 0xff
+    if t[0] in SCROLL_TYPES:
+        t[14:17] = bytes(lo(b) for b in t[14:17])
+    elif t[16] == 0x80:
+        back = [d for d, v in AFFECT_MAP.items() if v == t[15] and v]
+        t[15] = back[0] if back else t[15]
+    else:
+        t[15] = lo(t[15])
+    return bytes(t)
+
+
+def item_name(t, words):
+    """A record's name as the game makes it (COAB Item.GenerateName, one
+    of each word, last first), from `words` (game_words); b"" without."""
+    if not words:
+        return b""
+    out = b""
+    for w in (t[3], t[2], t[1]):
+        if w and w < len(words) and words[w]:
+            out += words[w].encode("latin-1") + b" "
+    return out[:41]
+
+
+def items_back(items, old, sources=(), words=None):
+    """The item records (63 bytes each) for the Dark Queen entries `items`:
+    each from an old record of the same item (`old`, the file's records),
+    else from one of `sources` (records of the game's own archives), else
+    made (item17_back, its name from `words`). The readied byte is the
+    new one's. The pointer word is the old record's: the games read these
+    files to their end, not along it (COAB ovr017)."""
+    used = [False] * len(old)
+    out = []
+    for q in items:
+        key = table_key(q)
+        rec = None
+        for i, r in enumerate(old):
+            if not used[i] and table_key(item17(r[ITEM_TAIL:ITEM_TAIL + 17])) == key:
+                used[i] = True
+                rec = bytearray(r)
+                break
+        if rec is None:
+            for r in sources:
+                if table_key(item17(r[ITEM_TAIL:ITEM_TAIL + 17])) == key:
+                    rec = bytearray(r)
+                    rec[0x2a:0x2e] = bytes(4)
+                    break
+        if rec is None:
+            t = item17_back(q)
+            rec = bytearray(ITEM_REC)
+            name = item_name(t, words)
+            rec[0] = len(name)
+            rec[1:1 + len(name)] = name
+            rec[ITEM_TAIL:] = t
+        rec[ITEM_TAIL + 6] = q[10]
+        out.append(bytes(rec))
+    return b"".join(out)
+
+
+def effects_back(nodes, old):
+    """The effect nodes (9 bytes) for the .QCH's `nodes`: an old node of the
+    same effect as it is, else the node with its number taken back through
+    AFFECT_MAP (the one it moves, where it folds several into one)."""
+    old = [old[i:i + NODE] for i in range(0, len(old) - NODE + 1, NODE)]
+    used = [False] * len(old)
+    out = []
+    for e in nodes:
+        rec = None
+        for i, o in enumerate(old):
+            if not used[i] and bytes([AFFECT_MAP.get(o[0], o[0])]) + o[1:5] == e[:5]:
+                used[i] = True
+                rec = o
+                break
+        if rec is None:
+            back = [d for d, v in AFFECT_MAP.items() if v == e[0]]
+            rec = bytes([back[0] if back else e[0]]) + bytes(e[1:NODE])
+        out.append(bytes(rec))
+    return b"".join(out)
+
+
+def _qch_parts(qch):
+    """(fixed record, [17-byte items], [9-byte nodes]) of a .QCH as
+    dqk_character writes one (the item count at 8, the nodes after)."""
+    fixed = qch[:DQK_SIZE]
+    n = fixed[8]
+    at = DQK_SIZE + 17 * n
+    items = [qch[DQK_SIZE + 17 * i:DQK_SIZE + 17 * (i + 1)] for i in range(n)]
+    nodes = [qch[i:i + NODE] for i in range(at, len(qch) - NODE + 1, NODE)]
+    return fixed, items, nodes
+
+
+def character_back(qch, path, sources=(), words=None):
+    """The game's own files for the hero whose new .QCH is `qch` and whose
+    file is `path` (a .GAM or .SAV, with the files of its stem): {extension:
+    bytes}, an empty file left out. The old .QCH is character(path)."""
+    stem, ext = os.path.splitext(path)
+    ext = ext.upper()
+
+    def side(e):
+        for p in (stem + e, stem + e.lower()):
+            if os.path.exists(p):
+                return open(p, "rb").read()
+        return b""
+
+    old = character(path)
+    if old is None:
+        raise GbDaxMonError("%s is not a hero of either game" % path)
+    q_old, _, _ = _qch_parts(old)
+    q_new, items, nodes = _qch_parts(qch)
+    rec = open(path, "rb").read()
+    w, e, j = CHAR_FILES[ext]
+    out = {}
+    if ext == ".SAV":
+        k_old, wiz_old = cok_to_dkk(rec)[0], cok_wiz(rec)
+    else:
+        k_old, wiz_old = rec, side(w) or None
+    k_new = dkk_from_qch(q_new, q_old, k_old)
+    wiz_new = None
+    if wiz_old is not None and len(wiz_old) >= WIZ_SIZE:
+        wiz_new = wiz_from_qch(q_new, q_old, wiz_old,
+                               COK_MEMORIZED[1] if ext == ".SAV" else WIZ_CHAR_MEMORIZED)
+    if ext == ".SAV":
+        out[ext] = cok_from_dkk(rec, k_new, k_old, wiz_new, wiz_old)
+    else:
+        out[ext] = k_new
+        if wiz_new is not None:
+            out[w] = wiz_new
+    out[j] = items_back(items, records(side(j)), sources, words)
+    out[e] = effects_back(nodes, side(e))
+    return {x: d for x, d in out.items() if d}
 
 
 def main(argv):
