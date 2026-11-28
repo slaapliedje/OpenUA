@@ -169,7 +169,13 @@ int gbs1_read(const unsigned char *q, long len, gbs1_save *s)
 	s->backdrop = q[at + 4];
 	s->last_state = q[at + 5];
 	s->state = q[at + 6];
-	at += 7 + 4L * nsets;
+	at += 7;
+	s->nsets = nsets;
+	for (b = 0; b < nsets; b++) {
+		s->sets[b][0] = (short)(q[at + 4 * b] | q[at + 4 * b + 1] << 8);
+		s->sets[b][1] = (short)(q[at + 4 * b + 2] | q[at + 4 * b + 3] << 8);
+	}
+	at += 4L * nsets;
 	if (q[at] > GBS1_MEMBERS)
 		return GBV_ECOUNT;
 	s->members = q[at++];
@@ -197,4 +203,86 @@ unsigned gbs1_cell(const gbs1_save *s, unsigned addr)
 		}
 	}
 	return 0;
+}
+
+int gbs1_cell_index(unsigned addr)
+{
+	int b, at = 0;
+
+	for (b = 0; b < 3; b++) {
+		unsigned k = addr - k_gbs1_blocks[b].base;
+
+		if (addr >= k_gbs1_blocks[b].base && k < k_gbs1_blocks[b].n)
+			return at + (int)k;
+		at += (int)k_gbs1_blocks[b].n;
+	}
+	return -1;
+}
+
+long gbs1_write(const unsigned char *base, long blen,
+                const unsigned short *cells,
+                unsigned char x, unsigned char y, unsigned char facing,
+                unsigned char wall, unsigned char backdrop,
+                int last_state, int state,
+                const short (*sets)[2], int nsets,
+                const char *const *names, unsigned n,
+                unsigned char *out, long max)
+{
+	gbs1_save g;
+	long      at = 1;
+	int       b, ci = 0;
+	unsigned  i, k;
+
+	if (base == NULL || gbs1_read(base, blen, &g) != 0 || max < blen)
+		return GBV_ESHORT;
+	if (n > GBS1_MEMBERS)
+		return GBV_ECOUNT;
+	memcpy(out, base, (size_t)blen);
+	for (b = 0; b < 3; b++) {
+		for (k = 0; k < k_gbs1_blocks[b].n; k++, ci++) {
+			unsigned short v;
+
+			if (cells == NULL)
+				continue;
+			v = cells[ci];
+			if (g.width == 2) {
+				out[at + 2 * k] = (unsigned char)v;
+				out[at + 2 * k + 1] = (unsigned char)(v >> 8);
+			} else
+				out[at + k] = (unsigned char)v;
+		}
+		at += (long)g.width * k_gbs1_blocks[b].n;
+	}
+	out[at] = x;
+	out[at + 1] = y;
+	out[at + 2] = (unsigned char)((facing & 3) << 1);
+	out[at + 3] = wall;
+	out[at + 4] = backdrop;
+	if (last_state >= 0)
+		out[at + 5] = (unsigned char)last_state;
+	if (state >= 0)
+		out[at + 6] = (unsigned char)state;
+	at += 7;
+	if (sets != NULL)
+		for (b = 0; b < g.nsets; b++) {
+			short blk = b < nsets ? sets[b][0] : -1;
+			short sid = b < nsets ? sets[b][1] : -1;
+
+			out[at + 4 * b] = (unsigned char)blk;
+			out[at + 4 * b + 1] = (unsigned char)((unsigned short)blk >> 8);
+			out[at + 4 * b + 2] = (unsigned char)sid;
+			out[at + 4 * b + 3] = (unsigned char)((unsigned short)sid >> 8);
+		}
+	at += 4L * g.nsets;
+	out[at++] = (unsigned char)n;
+	for (i = 0; i < n; i++) {
+		unsigned char *p = out + at + (long)GBS1_NAME * i;
+		size_t         len = strlen(names[i]);
+
+		if (len > GBS1_NAME - 1)
+			len = GBS1_NAME - 1;
+		p[0] = (unsigned char)len;      /* what follows is the base's */
+		memcpy(p + 1, names[i], len);
+	}
+	return blen;
 }

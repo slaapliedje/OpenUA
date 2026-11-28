@@ -407,3 +407,54 @@ def test_gen1_death_knights_save_c():
     assert (g.dkk, g.width, g.script) == (True, 1, 16)
     assert (g.cell(0x4bc3), g.cell(0x4bc4), g.cell(0x4c04)) == (33, 13, 1)
     assert (g.x, g.y, g.facing, len(g.names)) == (7, 13, 0, 6)
+
+
+# ---- writing a Champions or Death Knights save (write_gen1, gbs1_write) ---
+
+def c_write1(cbin, path, base, states=None):
+    args = [cbin, "-W", str(path), str(base)] + [str(v) for v in (states or ())]
+    out = subprocess.run(args, check=True, capture_output=True,
+                         text=True).stdout.strip()
+    return bytes.fromhex(out) if not out.startswith("ERR") else out
+
+
+def py_write1(data, base, states=None):
+    g = gbsave.Gen1Save(data)
+    return gbsave.write_gen1(base, dict(g.cells), g.x, g.y, g.facing, g.wall,
+                             g.backdrop, g.names, g.sets, states)
+
+
+@pytest.mark.parametrize("dkk", [False, True])
+def test_gen1_writes_match_reference(cbin, tmp_path, dkk):
+    rnd = random.Random(70 + dkk)
+    saves = []
+    for case in range(5):
+        cells = {rnd.choice(range(0x4b00, 0x4f00)): rnd.randrange(1, 256 if dkk else 65536)
+                 for _ in range(40)}
+        names = ["CHRDATC%d" % (k + 1) for k in range(case + 1)]
+        sets = [(rnd.randrange(-1, 30), rnd.randrange(-1, 4)) for _ in range(4 if dkk else 3)]
+        p = tmp_path / ("g%d" % case)
+        p.write_bytes(gen1_save(dkk, cells, rnd.randrange(16), rnd.randrange(16),
+                                rnd.randrange(4), names, sets))
+        saves.append(p)
+    for p in saves:
+        for base in saves:
+            assert c_write1(cbin, p, base) == py_write1(p.read_bytes(), base.read_bytes())
+            assert c_write1(cbin, p, base, (4, 2)) == \
+                py_write1(p.read_bytes(), base.read_bytes(), (4, 2))
+        assert py_write1(p.read_bytes(), p.read_bytes()) == p.read_bytes()
+    w = gbsave.Gen1Save(py_write1(saves[0].read_bytes(), saves[1].read_bytes(), (4, 2)))
+    g = gbsave.Gen1Save(saves[0].read_bytes())
+    assert (w.x, w.y, w.facing, w.sets, w.names, w.cells) == \
+        (g.x, g.y, g.facing, g.sets, g.names, g.cells)
+    assert (w.last_state, w.state) == (4, 2)
+
+
+def test_gen1_real_saves_write_back_byte_for_byte(cbin):
+    paths = [p for p in (SAVE_D, SAVE_DKK_C) if os.path.exists(p)]
+    if not paths:
+        pytest.skip("no DOSBox saves of either game here")
+    for p in paths:
+        data = open(p, "rb").read()
+        assert py_write1(data, data) == data
+        assert c_write1(cbin, p, p) == data

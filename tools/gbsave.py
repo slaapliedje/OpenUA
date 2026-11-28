@@ -96,6 +96,13 @@ the commandant, then after a fight on the overland, 12:02 facing east):
 On loading, COAB loads the script in 0x4bf2 and runs its initial entry
 with the memory kept. Both games ship saves at script 0 (no game begun).
 
+write_gen1 writes one the game loads, over one of its own (which game,
+the game area and what is not given come from it). The wall sets are
+COAB's setBlocks: (WALLDEF block, symbol set 1..3) for each set LOAD_PIECES
+loaded, -1 for none; on loading, COAB loads the 3D map in 0x4bc5 and each
+set again only when the first set's block is not 0, and only when the
+game state is not 0 (the start menu, as in a save made from the hall).
+
     python3 tools/gbsave.py SAVGAMA.QSV              # summary
     python3 tools/gbsave.py SAVGAMA.QSV --qch DIR    # each member as a .QCH
 
@@ -342,6 +349,59 @@ class Gen1Save:
 
 def read_gen1(data):
     return Gen1Save(data)
+
+
+GEN1_SETS_COK, GEN1_SETS_DKK = 3, 4
+
+
+GEN1_DUNGEON_MAP, GEN1_CAMPING = 4, 2    # COAB's GameState DungeonMap, Camping
+
+
+def write_gen1(base, cells, x, y, facing, wall, backdrop, names, sets=None,
+               states=None):
+    """A Champions SAVGAMx.DAT or Death Knights .PTY the game loads: the
+    game's own save `base` (which game, the game area; the wall sets
+    unless `sets` gives them, [(block id, set id)]; the last game state and
+    the game state unless `states` does, a pair) with
+    `cells` ({address: value}; one not named keeps the base's), the square,
+    facing 0..3, the wall slot ahead, the square's backdrop byte and the
+    members' file names (CHRDAT<slot><place>). COAB ovr017 SaveGame writes
+    the same fields; on loading it reloads the 3D map in 0x4bc5 and the
+    wall sets only when the first set's block is not 0."""
+    g = Gen1Save(base)
+    if len(names) > GEN1_MEMBERS:
+        raise GbSaveError("%d party members" % len(names))
+    out = bytearray(base)
+    at = 1
+    for b, n in GEN1_BLOCKS:
+        for i in range(n):
+            if b + i in cells:
+                v = cells[b + i] & (0xffff if g.width == 2 else 0xff)
+                if g.width == 2:
+                    struct.pack_into("<H", out, at + 2 * i, v)
+                else:
+                    out[at + i] = v
+        at += g.width * n
+    out[at:at + 5] = bytes([x & 0xff, y & 0xff, (facing & 3) << 1,
+                            wall & 0xff, backdrop & 0xff])
+    if states is not None:
+        out[at + 5], out[at + 6] = states[0] & 0xff, states[1] & 0xff
+    at += 7
+    nsets = GEN1_SETS_DKK if g.dkk else GEN1_SETS_COK
+    if sets is not None:
+        for i in range(nsets):
+            blk, sid = sets[i] if i < len(sets) else (-1, -1)
+            struct.pack_into("<hh", out, at + 4 * i, blk, sid)
+    at += 4 * nsets
+    out[at] = len(names)
+    at += 1
+    for i in range(GEN1_MEMBERS):
+        if i < len(names):                  # what follows a name is the base's
+            nm = names[i].encode("latin-1")[:GEN1_NAME - 1]
+            p = at + GEN1_NAME * i
+            out[p] = len(nm)
+            out[p + 1:p + 1 + len(nm)] = nm
+    return bytes(out)
 
 
 def name_of(record):

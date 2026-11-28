@@ -99,6 +99,8 @@ typedef struct gbs1_save {
 	unsigned char facing;                   /* 0=N 1=E 2=S 3=W              */
 	unsigned char wall, backdrop;
 	unsigned char last_state, state;
+	int           nsets;                    /* 3 Champions, 4 Death Knights */
+	short         sets[4][2];               /* (block id, set id); -1 none  */
 	unsigned      members;
 	char          names[GBS1_MEMBERS][GBS1_NAME];   /* C strings          */
 } gbs1_save;
@@ -110,5 +112,31 @@ int gbs1_read(const unsigned char *q, long len, gbs1_save *s);
 
 /* Script cell `addr` as saved; 0 for a cell the save does not hold. */
 unsigned gbs1_cell(const gbs1_save *s, unsigned addr);
+
+/* The script cells a save holds, the three blocks in order. */
+#define GBS1_CELLS      (0x400 + 0x400 + 0x200)
+#define GBS1_DUNGEON_MAP  4     /* COAB GameState DungeonMap               */
+#define GBS1_CAMPING      2     /* ... Camping                             */
+
+/* The index into a GBS1_CELLS array of cell `addr`, or -1. */
+int gbs1_cell_index(unsigned addr);
+
+/* Write a save the game loads (tools/gbsave.py write_gen1): the game's own
+ * save `base` (`blen` bytes; which game, the game area, and what is not
+ * given) with `cells` (GBS1_CELLS values in block order, NULL keeps the
+ * base's), the square, facing 0..3, the wall slot ahead, the square's
+ * backdrop byte, the two game states (-1 keeps the base's), the wall sets
+ * (`sets` of `nsets` pairs, NULL keeps the base's; pairs past nsets are
+ * -1) and `n` members' file names (C strings, CHRDAT<slot><place>). Writes
+ * blen bytes into `out` (room for `max`) and returns blen, or a GBV_E
+ * code. */
+long gbs1_write(const unsigned char *base, long blen,
+                const unsigned short *cells,
+                unsigned char x, unsigned char y, unsigned char facing,
+                unsigned char wall, unsigned char backdrop,
+                int last_state, int state,
+                const short (*sets)[2], int nsets,
+                const char *const *names, unsigned n,
+                unsigned char *out, long max);
 
 #endif

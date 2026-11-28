@@ -14,8 +14,13 @@
  *                        facing wall backdrop last state members", the
  *                        names a line each, then "cell value" for every
  *                        non-zero cell
+ *   gbsave_host -W <SAVGAMx> <BASE> [<last> <state>]
+ *                        gbs1_write over BASE of that save's own cells,
+ *                        square, wall sets and names (and the two game
+ *                        states, if given), in hex
  */
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "../src/engine/gbsave.h"
 
@@ -52,6 +57,48 @@ int main(int argc, char **argv)
 			for (c = blocks[b][0]; c < blocks[b][0] + blocks[b][1]; c++)
 				if (gbs1_cell(&g, c) != 0)
 					printf("%x %u\n", c, gbs1_cell(&g, c));
+		return 0;
+	}
+	if (argc >= 4 && argv[1][0] == '-' && argv[1][1] == 'W') {
+		static unsigned char b[GBS1_COK_SIZE + 16], out[GBS1_COK_SIZE + 16];
+		static unsigned short cells[GBS1_CELLS];
+		static const unsigned blocks[3][2] = {
+			{ 0x4b00, 0x400 }, { 0x7c00, 0x400 }, { 0x7a00, 0x200 }
+		};
+		const char *names[GBS1_MEMBERS];
+		gbs1_save g;
+		long      blen, w;
+		unsigned  bk, c;
+		int       ci = 0;
+
+		if ((f = fopen(argv[2], "rb")) == NULL)
+			return 2;
+		n = (long)fread(q, 1, sizeof q, f);
+		fclose(f);
+		if ((f = fopen(argv[3], "rb")) == NULL)
+			return 2;
+		blen = (long)fread(b, 1, sizeof b, f);
+		fclose(f);
+		if ((rc = gbs1_read(q, n, &g)) != 0) {
+			printf("ERR %d\n", rc);
+			return 0;
+		}
+		for (bk = 0; bk < 3; bk++)
+			for (c = blocks[bk][0]; c < blocks[bk][0] + blocks[bk][1]; c++)
+				cells[ci++] = (unsigned short)gbs1_cell(&g, c);
+		for (i = 0; i < g.members; i++)
+			names[i] = g.names[i];
+		w = gbs1_write(b, blen, cells, g.x, g.y, g.facing, g.wall, g.backdrop,
+		               argc > 5 ? atoi(argv[4]) : -1, argc > 5 ? atoi(argv[5]) : -1,
+		               (const short (*)[2])g.sets, g.nsets, names, g.members,
+		               out, (long)sizeof out);
+		if (w < 0) {
+			printf("ERR %ld\n", w);
+			return 0;
+		}
+		for (k = 0; k < w; k++)
+			printf("%02x", out[k]);
+		printf("\n");
 		return 0;
 	}
 	if (argc >= 3 && argv[1][0] == '-' && argv[1][1] == 'w') {
