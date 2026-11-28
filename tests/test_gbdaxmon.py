@@ -550,3 +550,75 @@ def test_real_heroes_come_back_whole():
         stem = os.path.splitext(path)[0]
         for e, d in out.items():
             assert open(stem + e, "rb").read() == d, (path, e)
+
+
+def c_back(cbin, tmp_path, qch, path, sources=b"", words=None):
+    """gbx_character_back on the hero at `path`: {extension: bytes} as
+    character_back gives it."""
+    stem, ext = os.path.splitext(path)
+    cok = ext.upper() == ".SAV"
+
+    def side(e):
+        p = stem + e
+        return p if os.path.exists(p) else "-"
+
+    qp = write(tmp_path, "q.qch", qch)
+    sp = write(tmp_path, "src.bin", sources) if sources else "-"
+    wp = "-"
+    if words:
+        wp = write(tmp_path, "words.txt", "\n".join(words[1:]).encode() + b"\n")
+    e, j = (".SFX", ".STF") if cok else (".EFF", ".JNK")
+    out = run(cbin, "back", qp, path, "-" if cok else side(".WIZ"),
+              side(e), side(j), sp, wp)
+    if out[0].startswith("ERR"):
+        return out[0]
+    rec, wiz, jnk, eff = out[:4]
+    got = {ext.upper(): bytes.fromhex(rec), j: bytes.fromhex(jnk),
+           e: bytes.fromhex(eff)}
+    if wiz != "-":
+        got[".WIZ"] = bytes.fromhex(wiz)
+    return {x: d for x, d in got.items() if d}
+
+
+@pytest.mark.parametrize("cok", [False, True])
+def test_back_c_matches_reference(cbin, tmp_path, cok):
+    rng = random.Random(40 + cok)
+    words = [None] + ["W%d" % i for i in range(1, 126)]
+    for i in range(10):
+        path, files = some_hero(rng, tmp_path, cok, rng.choice([0, 3, 6, 7]), "B%d" % i)
+        q = bytearray(G.character(path))
+        for d in rng.sample(range(G.DQK_SIZE), 60):
+            if d != 8:
+                q[d] = rng.randrange(256)
+        fixed, items, nodes = G._qch_parts(bytes(q))
+        items = [bytes(it) for it in items]
+        if items and rng.random() < 0.5:
+            items.pop(rng.randrange(len(items)))
+        extra = some_items(rng, 2)
+        items += extra
+        src = b"".join(bytes([4]) + b"Rare" + bytes(37) + b"\x07\0\0\0" + t
+                       for t in some_items(rng, 3))
+        if rng.random() < 0.5:
+            items.append(G.item17(G.records(src)[1][G.ITEM_TAIL:]))
+        fixed = bytearray(fixed)
+        fixed[8] = len(items)
+        nodes = list(nodes)
+        if rng.random() < 0.6:
+            nodes.append(bytes([rng.choice([0x81, 0x47, 5])]) + bytes(
+                rng.randrange(256) for _ in range(8)))
+        qch = bytes(fixed) + b"".join(items) + b"".join(nodes)
+        want = G.character_back(qch, path, G.records(src), words)
+        assert c_back(cbin, tmp_path, qch, path, src, words) == want, path
+
+
+def test_back_c_real_heroes(cbin, tmp_path):
+    import gbchar
+    paths = (glob.glob(os.path.join(ROOT, "data", "work", "cok-saves", "*.SAV"))
+             + glob.glob(os.path.join(ROOT, "data", "work", "dkk-saves", "*.GAM")))
+    if not paths:
+        pytest.skip("no DOSBox saves here")
+    for path in paths:
+        q = G.character(path)
+        c, _ = gbchar.convert(q, native=True)
+        q2 = gbchar.to_qch(c, base=q)
+        assert c_back(cbin, tmp_path, q2, path) == G.character_back(q2, path), path

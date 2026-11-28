@@ -14,6 +14,11 @@
  *   gbdaxmon_host qch REC WIZ EFF JNK    a character (.GAM, or a 409-byte
  *                                        Champions .SAV whose WIZ is built)
  *                                        as a .QCH, a line of hex
+ *   gbdaxmon_host back QCH REC WIZ EFF JNK SRC WORDS
+ *                                        gbx_character_back: four lines of
+ *                                        hex, the record, the .WIZ, the
+ *                                        items, the effects ("-" for none;
+ *                                        WORDS a file of 125 lines)
  * Errors print "ERR <code>".
  */
 #include <stdio.h>
@@ -172,6 +177,47 @@ int main(int argc, char **argv)
 			return 0;
 		}
 		hex(out, m);
+		return 0;
+	}
+	if (strcmp(argv[1], "back") == 0 && argc >= 9) {
+		static unsigned char q[16384], src[65536];
+		static gbx_back out;
+		long qn = slurp(argv[2], q, sizeof q);
+		long rn = slurp(argv[3], a, sizeof a);
+		long wn = slurp(argv[4], c, sizeof c);
+		long en = slurp(argv[5], d, sizeof d);
+		long jn = slurp(argv[6], e, sizeof e);
+		long sn = slurp(argv[7], src, sizeof src);
+		int  have_words = 0, rc;
+
+		if (qn < 0 || rn < 0 || wn < 0 || en < 0 || jn < 0 || sn < 0)
+			return 2;
+		if (strcmp(argv[8], "-") != 0) {
+			FILE *f = fopen(argv[8], "r");
+			int   i;
+
+			if (f == NULL)
+				return 2;
+			for (i = 1; i <= GBX_WORDS && fgets(words[i], GBX_WORD_MAX, f); i++)
+				words[i][strcspn(words[i], "\n")] = 0;
+			fclose(f);
+			have_words = 1;
+		}
+		rc = gbx_character_back(q, qn, a, rn, wn >= GBX_WIZ ? c : NULL,
+		                        d, en, e, jn, sn ? src : NULL, sn,
+		                        have_words ? (const char (*)[GBX_WORD_MAX])words : NULL,
+		                        &out);
+		if (rc != 0) {
+			printf("ERR %d\n", rc);
+			return 0;
+		}
+		hex(out.rec, out.rec_len);
+		if (out.has_wiz)
+			hex(out.wiz, GBX_WIZ);
+		else
+			printf("-\n");
+		hex(out.jnk, out.jnk_len);
+		hex(out.eff, out.eff_len);
 		return 0;
 	}
 	return 2;

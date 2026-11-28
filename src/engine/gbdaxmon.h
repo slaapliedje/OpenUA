@@ -105,4 +105,56 @@ long gbx_qch(const unsigned char *k, long klen, const unsigned char *wiz,
              const unsigned char *jnk, long jnk_len,
              unsigned char *out, long max);
 
+/* ---- a character back to the game (gbdaxmon.py character_back) -------- */
+
+/* The Death Knights byte that byte `dst` of the Dark Queen's record comes
+ * from, -1 for none (the name, 0x68..0x77, goes apart). */
+int gbx_dkk_source(int dst);
+
+/* The Death Knights record `k` (GBX_DKK) for the .QCH fixed part `q_new`,
+ * over `k_old`, from which `q_old` was made: only the bytes that changed. */
+void gbx_dkk_from_qch(const unsigned char *q_new, const unsigned char *q_old,
+                      const unsigned char *k_old, unsigned char *k);
+
+/* The caster block `w` for `q_new` over `w_old`; `width` memorized spells
+ * at its front (Death Knights 0x4a, Champions GBX_MEM). */
+void gbx_wiz_from_qch(const unsigned char *q_new, const unsigned char *q_old,
+                      const unsigned char *w_old, int width, unsigned char *w);
+
+/* The Champions record `c` for Death Knights' `k_new` over `c_old`. */
+void gbx_cok_from_dkk(const unsigned char *c_old, const unsigned char *k_new,
+                      const unsigned char *k_old, const unsigned char *w_new,
+                      const unsigned char *w_old, unsigned char *c);
+
+/* gbx_item17 backwards, and the name the game makes of an item's words
+ * (`out`, at most 41 bytes; its length, 0 without words). */
+void gbx_item17_back(const unsigned char *q, unsigned char *t);
+int  gbx_item_name(const unsigned char *t, const char (*words)[GBX_WORD_MAX],
+                   unsigned char *out);
+
+typedef struct gbx_back {
+	unsigned char rec[GBX_COK];             /* .SAV or .GAM               */
+	long          rec_len;
+	unsigned char wiz[GBX_WIZ];             /* .WIZ (Death Knights)       */
+	int           has_wiz;
+	unsigned char jnk[GBX_ITEM_REC * 255];  /* .JNK / .STF                */
+	long          jnk_len;
+	unsigned char eff[GBX_NODE * 64];       /* .EFF / .SFX                */
+	long          eff_len;
+} gbx_back;
+
+/* The game's own files for a hero whose new .QCH is `qch`, over his old
+ * ones: the record `rec` (GBX_COK bytes for Champions, GBX_DKK for Death
+ * Knights), Death Knights' .WIZ `wiz` (NULL none), the effects and the
+ * items; `src` the item records of the game's archives (NULL none) and
+ * `words` its words (NULL none) for an item he did not have. 0, or a
+ * GBX_E code. A length of 0 is a file to remove. */
+int gbx_character_back(const unsigned char *qch, long qlen,
+                       const unsigned char *rec, long rlen,
+                       const unsigned char *wiz,
+                       const unsigned char *eff, long eff_len,
+                       const unsigned char *jnk, long jnk_len,
+                       const unsigned char *src, long src_len,
+                       const char (*words)[GBX_WORD_MAX], gbx_back *out);
+
 #endif
