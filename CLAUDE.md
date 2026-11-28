@@ -431,7 +431,19 @@ growing that: Dark Queen of Krynn's opening plays from the game's own files.
   three cell blocks go back and, as COAB loads, the script in 0x4bf2 runs
   its initial entry again (`g_gbs_resume_init`; the play loop's
   `gbs_arrive`). A save at script 0 (the shipped ones) is a new game.
-  DOSBox saves in data/work/cok-saves and dkk-saves. The port does not write them yet.
+  DOSBox saves in data/work/cok-saves and dkk-saves. Saving also writes
+  them (`gbs_dax_save`: gbs1_write over the slot's old save or SAVGAMA,
+  reference gbsave.py `write_gen1`; each member back into his own game
+  files by `gbx_character_back`, reference gbdaxmon.py `character_back`,
+  found by name: the slot's CHRDAT, the save he was loaded from, his
+  hall file, any saved party). A hero made in OpenUA has no game file,
+  and then nothing is written. The wall sets are COAB's setBlocks, kept
+  from LOAD_PIECES (`gbs1_load_pieces`, block counts from WALLDEF<n>.DAX)
+  in GBSAV's "WSET" trailer; a script load sets 0x4be6 (COAB
+  vm_init_ecl) and LOAD_FILES in a dungeon sets 0x4bc5. Checked: DOS
+  Champions loads the port's saves (the party, the outpost, a member
+  removed in the hall). OPEN: Champions' outpost menu (save C) takes no
+  key or click in the port, an older bug.
   Scripts and maps
   are numbered separately in these games — Dark Queen has 47 scripts over 20
   maps.

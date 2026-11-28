@@ -107854,6 +107854,12 @@ static unsigned char  g_gbs_map;                    /* the game's map number   *
 static unsigned char  g_gbs_script;                 /* the loaded script, or 0 */
 static unsigned char  g_gbs_want_map;               /* LOAD_FILES, pending     */
 static unsigned char  g_gbs_backdrop;               /* LOAD_FILES' combat set  */
+/* Champions' and Death Knights' wall sets, COAB's setBlocks: (WALLDEF
+ * block, symbol set 1..3) for each set LOAD_PIECES loaded, -1 none
+ * (gbs1_load_pieces). The port draws its own walls; these are kept for
+ * the save the game reads (gbs_dax_save), whose loader loads them again. */
+static short          g_gbs1_sets[4][2] = { { 0, 1 }, { -1, -1 }, { -1, -1 }, { -1, -1 } };
+static char           g_gbs1_from;          /* the game's save the party came from */
 static unsigned char  g_gbs_index[GBS_MAPS][2];
 static short          g_gbs_nindex = -1;            /* -1: not read yet        */
 static char           g_gbs_ready, g_gbs_active, g_gbs_init_pending;
@@ -108653,6 +108659,92 @@ static void gbs_add_npc(short id, short morale)
 	jt21(g_a5_long(-27932));
 	gbs_seed_who();
 	jt937(g_a5_long(-27932));
+}
+
+static void gbs1_sets_new(void)
+{
+	int i;
+
+	g_gbs1_sets[0][0] = 0;                  /* COAB seg001: set 1, block 0 */
+	g_gbs1_sets[0][1] = 1;
+	for (i = 1; i < 4; i++)
+		g_gbs1_sets[i][0] = g_gbs1_sets[i][1] = -1;
+}
+
+/* How many wall sets block `blk` of the game's WALLDEF<area>.DAX holds
+ * (0x30c bytes a set, COAB ovr031 LoadWalldef); 1 when it cannot be read. */
+static int gbs1_walldef_sets(int area, int blk)
+{
+	unsigned char head[2 + 9 * 64];
+	char          name[16];
+	short         refnum, got;
+	int           k, toc;
+
+	jt394(name, "WALLDEF%d.DAX", area);
+	refnum = gbs_open_game(name);
+	if (refnum < 0)
+		return 1;
+	got = jt401(refnum, head, (short)sizeof head);
+	jt411(refnum);
+	if (got < 2)
+		return 1;
+	toc = head[0] | head[1] << 8;
+	for (k = 0; k < toc / 9 && 2 + 9 * k + 9 <= got; k++)
+		if (head[2 + 9 * k] == blk) {
+			int size = head[2 + 9 * k + 5] | head[2 + 9 * k + 6] << 8;
+
+			return size >= 0x30c ? size / 0x30c : 1;
+		}
+	return 1;
+}
+
+/* COAB ovr031 LoadWalldef, as far as setBlocks: block `blk` goes into
+ * symbol set `set` and the sets after it it fills, which it empties. */
+static void gbs1_walldef(const ecl_vm *vm, int set, int blk)
+{
+	int area = ecl_peek(vm, 0x7f12), n, i;
+
+	if (set < 1 || set > 3)
+		return;
+	n = blk > 0 ? gbs1_walldef_sets(area > 0 && area < 10 ? area : 1, blk) : 1;
+	for (i = 0; i < n; i++)
+		if (set + i >= 1 && set + i <= 3)
+			g_gbs1_sets[set + i - 1][0] = g_gbs1_sets[set + i - 1][1] = -1;
+	g_gbs1_sets[set - 1][0] = (short)blk;
+	g_gbs1_sets[set - 1][1] = (short)set;
+}
+
+/* LOAD_PIECES a, b, c in Champions and Death Knights (0x37; COAB ovr003
+ * CMD_LoadFiles' other half): WALLDEF blocks for symbol sets 1, 2 and 3.
+ * a = 127 loads set 1 from block 0; 255 empties a set; with area cells
+ * 0x4be7 and 0x4be8 both set only sets 1 and 3 are touched. 127 for b or
+ * c keeps the set (Death Knights' LOAD_PIECES n,127,127, one block that
+ * fills all three; Champions' 15,16,127). */
+static void gbs1_load_pieces(const ecl_vm *vm, unsigned a, unsigned b, unsigned c)
+{
+	int i;
+
+	if (a == 0x7f) {
+		gbs1_walldef(vm, 1, 0);
+		return;
+	}
+	if (ecl_peek(vm, 0x4be7) != 0 && ecl_peek(vm, 0x4be8) != 0) {
+		if (a != 0xff)
+			gbs1_walldef(vm, 1, (int)a);
+		if (c != 0xff && c != 0x7f)
+			gbs1_walldef(vm, 3, (int)c);
+		return;
+	}
+	for (i = 0; i < 3; i++) {
+		unsigned v = i == 0 ? a : i == 1 ? b : c;
+
+		if (v == 0x7f)
+			continue;
+		if (v != 0xff)
+			gbs1_walldef(vm, i + 1, (int)v);
+		else
+			g_gbs1_sets[i][0] = g_gbs1_sets[i][1] = -1;
+	}
 }
 
 /* 0x37 name, dest. Greybox calls it LOAD_PIECES, after Champions; in Dark
@@ -109687,6 +109779,14 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 		if (ins->argc > 0 && !(g_gbs_dialect != ECL_GEN2
 		                       && ecl_rvalue(vm, &ins->arg[0]) == 127))
 			g_gbs_want_map = (unsigned char)ecl_rvalue(vm, &ins->arg[0]);
+		/* ... and in a dungeon the map is kept in area cell 0x4bc5, which
+		 * a saved game reloads it from (COAB ovr003 CMD_LoadFiles) */
+		if (ins->argc > 0 && g_gbs_dialect != ECL_GEN2) {
+			unsigned short m = ecl_rvalue(vm, &ins->arg[0]);
+
+			if (m != 0xff && m != 0x7f && ecl_peek(vm, GBS1_CELL_DUNGEON) != 0)
+				ecl_poke(vm, GBS1_CELL_MAP, m);
+		}
 		/* operand 1, the Dark Queen's combat backdrop (255: keep it) */
 		if (ins->argc > 1 && g_gbs_dialect == ECL_GEN2) {
 			unsigned short b = ecl_rvalue(vm, &ins->arg[1]);
@@ -109747,6 +109847,12 @@ static int gbs_op(void *ctx, ecl_vm *vm, const ecl_insn *ins)
 		            (short)ecl_rvalue(vm, &ins->arg[1]));
 		return ECL_HOST_OK;
 	case 0x37:                      /* FIND_NPC name, dest */
+		if (g_gbs_dialect != ECL_GEN2 && ins->argc >= 3) {
+			gbs1_load_pieces(vm, ecl_rvalue(vm, &ins->arg[0]),
+			                 ecl_rvalue(vm, &ins->arg[1]),
+			                 ecl_rvalue(vm, &ins->arg[2]));
+			return ECL_HOST_OK;     /* LOAD_PIECES: the port draws its own */
+		}
 		if (g_gbs_dialect != ECL_GEN2 || ins->argc < 2)
 			return ECL_HOST_UNHANDLED;
 		(void)ecl_var_set(vm, ins->arg[1].word, gbs_find_npc(vm, &ins->arg[0]));
@@ -109893,6 +109999,12 @@ static int gbs_script_load(short id)
 		return 0;
 	}
 	g_gbs_script = (unsigned char)id;
+	/* Champions and Death Knights: loading a script puts the party in a
+	 * dungeon (COAB ovr008 vm_init_ecl, area cell 0x4be6 = 1, after a
+	 * NEWECL and after a saved game loads); a script in a town or on the
+	 * overland clears it again. LOAD_FILES reads it. */
+	if (g_gbs_dialect != ECL_GEN2)
+		ecl_poke(&g_gbs_vm, GBS1_CELL_DUNGEON, 1);
 	dbg_log_num("gbs: script ", (long)id);
 	return 1;
 }
@@ -110645,6 +110757,9 @@ static void gbs_rules(void)
  *   "GBV1", u8 script loaded, u8 dialect, u8 pages, u8 the area's art set
  *   (LOAD_FILES' second operand; 0 in files from before it was kept),
  *   then per page: u8 page number, 256 words big-endian
+ *   then, in Champions and Death Knights, "WSET" and the four wall sets
+ *   (g_gbs1_sets, block and set as big-endian words; a file without it
+ *   leaves them as a new game has them)
  *
  * Only pages that hold something are written. Loading clears the memory
  * first, so nothing of the game that was being played leaks into the one
@@ -110693,6 +110808,19 @@ static short gbs_state_write(short ref)
 		count = (long)sizeof buf;
 		(void)FSWrite(ref, &count, buf);
 	}
+	if (g_gbs_dialect != ECL_GEN2) {
+		unsigned char t[4 + 16];
+
+		t[0] = 'W'; t[1] = 'S'; t[2] = 'E'; t[3] = 'T';
+		for (i = 0; i < 8; i++) {
+			unsigned short v = (unsigned short)g_gbs1_sets[i >> 1][i & 1];
+
+			t[4 + 2 * i] = (unsigned char)(v >> 8);
+			t[5 + 2 * i] = (unsigned char)v;
+		}
+		count = (long)sizeof t;
+		(void)FSWrite(ref, &count, t);
+	}
 	return 0;
 }
 
@@ -110726,6 +110854,17 @@ static short gbs_state_read(short ref)
 				ecl_poke(&g_gbs_vm,
 				         (unsigned short)(((unsigned short)buf[0] << 8) | i), v);
 		}
+	}
+	gbs1_sets_new();
+	if (head[5] != ECL_GEN2) {
+		unsigned char t[4 + 16];
+
+		count = (long)sizeof t;
+		if (FSRead(ref, &count, t) == noErr && count == (long)sizeof t
+		 && t[0] == 'W' && t[1] == 'S' && t[2] == 'E' && t[3] == 'T')
+			for (i = 0; i < 8; i++)
+				g_gbs1_sets[i >> 1][i & 1] =
+				    (short)(unsigned short)(t[4 + 2 * i] << 8 | t[5 + 2 * i]);
 	}
 	g_gbs_script = head[4];             /* gbs_state_load loads it */
 	g_gbs_state_ok = 1;
@@ -110869,6 +111008,230 @@ static void gbs_qsv_save(int slot)
 	}
 }
 
+/* ADR-0026 decision 4 for Champions and Death Knights: a save in a copy
+ * of either game's folder is also written as the game's own, SAVGAM<c>.DAT
+ * (Champions) or .PTY (Death Knights) in SAVE with the party in
+ * CHRDAT<c><place> files (gbs1_write; tools/gbsave.py write_gen1), which
+ * the DOS game loads. The base is the slot's old save, else the one the
+ * game ships (SAVGAMA). Script memory goes as the engine keeps it, the
+ * clock's minutes and hours from FRUA's h[6..8]; the game state is the
+ * camp in a dungeon (saving is from camp); the wall sets are
+ * g_gbs1_sets. Each member is the .CCH the hall would write (jt578), as a
+ * .QCH over his old one (qch_from_cch), back into the game's own files
+ * over those he came from (gbx_character_back): found by his name among
+ * the saved parties' CHRDAT files and the hall's files named after him.
+ * A hero with no file of the game's (one made in OpenUA) cannot be
+ * written, and then nothing is. The engine still loads its own .CSV for
+ * the slot. */
+static long gbs1_file(const char *bare, unsigned char *buf, long max)
+{
+	char path[64];
+
+	design_save_path(path, bare);
+	return dax_side(path, NULL, buf, max);
+}
+
+static int gbs1_same_name(const char *title, const unsigned char *name)
+{
+	int i;
+
+	for (i = 0; i < 15; i++) {
+		if ((unsigned char)title[i] != name[i])
+			return 0;
+		if (name[i] == 0)
+			return 1;
+	}
+	return title[15] == 0;
+}
+
+static int gbs1_hero_file(const unsigned char *name, int slot, int place,
+                          int pty, const unsigned char *rec, char *bare)
+{
+	const char *ext = pty ? "GAM" : "SAV";
+	char        title[16];
+	int         l, p, pass;
+
+	/* the slot's own file for his place, then the save he was loaded
+	 * from, then the hall's file named after him, then any saved party */
+	for (pass = 0; pass < 4; pass++)
+		for (l = 'A'; l <= 'J'; l++)
+			for (p = 1; p <= GBS1_MEMBERS; p++) {
+				if (pass == 0 && (l != slot || p != place))
+					continue;
+				if (pass == 1 && (l != g_gbs1_from || p != place))
+					continue;
+				if (pass == 2) {
+					char stem[16];
+					int  k;
+
+					if (l != 'A' || p != 1)
+						continue;
+					cch_file_name(rec, stem);
+					for (k = 0; stem[k] && stem[k] != '.'; k++)
+						bare[k] = stem[k];
+					bare[k++] = '.';
+					memcpy(bare + k, ext, 4);
+				} else
+					jt394(bare, "CHRDAT%c%d.%s", l, p, ext);
+				if (dax_char_title(bare, title) && gbs1_same_name(title, name))
+					return 1;
+			}
+	return 0;
+}
+
+static void gbs1_put(const char *bare, const unsigned char *data, long len)
+{
+	unsigned char pstr[64];
+	char          path[64];
+	short         ref;
+
+	design_save_path(path, bare);
+	str_c2p(pstr, path);
+	(void)FSDelete((ConstStr255Param)pstr, 0);
+	if (len <= 0)
+		return;
+	if (Create((ConstStr255Param)pstr, 0, 'OpUA', 'DAT ') == noErr
+	 && FSOpen((ConstStr255Param)pstr, 0, &ref) == noErr) {
+		long count = len;
+
+		(void)FSWrite(ref, &count, data);
+		(void)FSClose(ref);
+	}
+}
+
+static void gbs_dax_save(int slot)
+{
+	static unsigned char base[GBS1_COK_SIZE + 16], out[GBS1_COK_SIZE + 16];
+	static unsigned short cells[GBS1_CELLS];
+	static unsigned char c[QCH_REC + 18 * 255 + 10 * 64];
+	static unsigned char q_old[GBX_DQK + GBX_ITEM * 255 + GBX_NODE * 64];
+	static unsigned char q_new[GBX_DQK + GBX_ITEM * 255 + GBX_NODE * 64];
+	static unsigned char r[GBX_COK + 1], w[GBX_WIZ], e[GBX_NODE * 64];
+	static unsigned char j[GBX_ITEM_REC * 255], k[GBX_DKK], mem[GBX_MEM];
+	static const unsigned blocks[3][2] = {
+		{ 0x4b00, 0x400 }, { 0x7c00, 0x400 }, { 0x7a00, 0x200 }
+	};
+	unsigned char *h = (unsigned char *)g_a5_28006;
+	int            pty = gbs_dax_dialect() == ECL_GEN1_DOK;
+	const char    *ext = pty ? "GAM" : "SAV";
+	char           names[GBS1_MEMBERS][16], bare[24], tmp[64];
+	unsigned char  pstr_tmp[64];
+	const char    *np[GBS1_MEMBERS];
+	gbx_back      *backs = NULL;
+	long           blen, m, wl;
+	unsigned       n = 0, i, b, a, ci = 0;
+	short          x, y;
+
+	jt394(bare, pty ? "SAVGAM%c.PTY" : "SAVGAM%c.DAT", slot);
+	blen = gbs1_file(bare, base, (long)sizeof base);
+	if (blen != (pty ? GBS1_DKK_SIZE : GBS1_COK_SIZE)) {
+		jt394(bare, pty ? "SAVGAMA.PTY" : "SAVGAMA.DAT");
+		blen = gbs1_file(bare, base, (long)sizeof base);
+	}
+	if (blen != (pty ? GBS1_DKK_SIZE : GBS1_COK_SIZE)) {
+		dbg_log("gbs: no save of the game's to write over; its save is not written");
+		return;
+	}
+	backs = (gbx_back *)NewPtr((long)sizeof(gbx_back) * GBS1_MEMBERS);
+	if (backs == NULL)
+		return;
+
+	design_save_path(tmp, "GBDAXTMP.CCH");
+	for (m = g_a5_long(-27928); m != 0 && n < GBS1_MEMBERS;
+	     m = *(long *)(uintptr_t)m, n++) {
+		const unsigned char *rec = (const unsigned char *)(uintptr_t)m;
+		long cn, rn, wn = 0, en, jn, ql, nl;
+		int  sav;
+
+		if (!gbs1_hero_file(rec + 96, slot, (int)n + 1, pty, rec, bare)) {
+			dbg_file_str("gbs: a hero has no file of the game's, so its save is not written: ",
+			             (const char *)rec + 96);
+			goto done;
+		}
+		g_a5_long(-6902) = m;
+		if (l00e0(tmp, (void *)jt578) == 0
+		 || (cn = gbs_read_whole(tmp, c, (long)sizeof c)) <= 0)
+			goto done;
+		design_save_path(tmp, bare);
+		rn = dax_side(tmp, NULL, r, (long)sizeof r);
+		sav = !pty;
+		en = dax_side(tmp, sav ? "SFX" : "EFF", e, (long)sizeof e);
+		jn = dax_side(tmp, sav ? "STF" : "JNK", j, (long)sizeof j);
+		if (sav) {
+			const unsigned char *wz = NULL;
+
+			if (rn != GBX_COK || gbx_cok_to_dkk(r, rn, k, mem) < 0)
+				goto done;
+			if (gbx_cok_wiz(r, rn, w) > 0)
+				wz = w;
+			ql = gbx_qch(k, GBX_DKK, wz, e, en, j, jn, q_old, (long)sizeof q_old);
+		} else {
+			if (rn != GBX_DKK)
+				goto done;
+			wn = dax_side(tmp, "WIZ", w, GBX_WIZ);
+			ql = gbx_qch(r, GBX_DKK, wn == GBX_WIZ ? w : NULL, e, en, j, jn,
+			             q_old, (long)sizeof q_old);
+		}
+		design_save_path(tmp, "GBDAXTMP.CCH");
+		if (ql < 0)
+			goto done;
+		nl = qch_from_cch(c, cn, q_old, ql, q_new, (long)sizeof q_new);
+		if (nl < 0 || gbx_character_back(q_new, nl, r, rn,
+		                                 wn == GBX_WIZ ? w : NULL, e, en, j, jn,
+		                                 NULL, 0, NULL, &backs[n]) != 0)
+			goto done;
+		jt394(names[n], "CHRDAT%c%d", slot, (int)n + 1);
+		np[n] = names[n];
+	}
+	if (n == 0)
+		goto done;
+
+	for (i = 0; i < n; i++) {
+		char nm[24];
+
+		jt394(nm, "%s.%s", names[i], ext);
+		gbs1_put(nm, backs[i].rec, backs[i].rec_len);
+		jt394(nm, "%s.%s", names[i], pty ? "JNK" : "STF");
+		gbs1_put(nm, backs[i].jnk, backs[i].jnk_len);
+		jt394(nm, "%s.%s", names[i], pty ? "EFF" : "SFX");
+		gbs1_put(nm, backs[i].eff, backs[i].eff_len);
+		if (pty) {
+			jt394(nm, "%s.WIZ", names[i]);
+			gbs1_put(nm, backs[i].wiz, backs[i].has_wiz ? GBX_WIZ : 0);
+		}
+	}
+
+	for (b = 0; b < 3; b++)
+		for (a = blocks[b][0]; a < blocks[b][0] + blocks[b][1]; a++)
+			cells[ci++] = ecl_peek(&g_gbs_vm, (unsigned short)a);
+	if (h != NULL) {
+		cells[gbs1_cell_index(GBS1_CELL_CLOCK)] = h[6];
+		cells[gbs1_cell_index(GBS1_CELL_CLOCK + 1)] = h[7];
+		cells[gbs1_cell_index(GBS1_CELL_CLOCK + 2)] = h[8];
+	}
+	x = (short)(signed char)g_a5_byte(-12288);
+	y = (short)(signed char)g_a5_byte(-12287);
+	wl = gbs1_write(base, blen, cells, (unsigned char)x, (unsigned char)y,
+	                (unsigned char)(((unsigned char)g_a5_byte(-12286) >> 1) & 3),
+	                (unsigned char)ecl_peek(&g_gbs_vm, GBS1_WALL),
+	                (unsigned char)ecl_peek(&g_gbs_vm, GBS1_DESC),
+	                GBS1_DUNGEON_MAP, GBS1_CAMPING,
+	                (const short (*)[2])g_gbs1_sets, 4, np, n,
+	                out, (long)sizeof out);
+	if (wl != blen) {
+		dbg_log_num("gbs: the game's save could not be made: ", wl);
+		goto done;
+	}
+	jt394(bare, pty ? "SAVGAM%c.PTY" : "SAVGAM%c.DAT", slot);
+	gbs1_put(bare, out, wl);
+	dbg_file_str("gbs: the game's own save written: ", bare);
+done:
+	design_save_path(tmp, "GBDAXTMP.CCH");
+	str_c2p(pstr_tmp, tmp);
+	(void)FSDelete((ConstStr255Param)pstr_tmp, 0);
+	DisposePtr((Ptr)backs);
+}
+
 static void gbs_state_name(char *out, int slot)
 {
 	char base[16];
@@ -110888,6 +111251,8 @@ static void gbs_state_save(int slot)
 		dbg_log("gbs: script memory could NOT be written beside the save");
 	if (g_gbs_dialect == ECL_GEN2 && qch_native())
 		gbs_qsv_save(slot);
+	else if (g_gbs_dialect != ECL_GEN2 && gbs_dax_game())
+		gbs_dax_save(slot);
 }
 
 static void gbs_state_load(int slot)
@@ -111133,6 +111498,7 @@ static void gbs_new_game(void)
 	g_gbs_nmon = 0;
 	g_gbs_want_map = 0;
 	g_gbs_backdrop = 0;
+	gbs1_sets_new();
 }
 
 #define GBS_DQK_NEW_GAME_SCRIPT 4u      /* DQK.EXE 0x32e3a */
@@ -111466,6 +111832,7 @@ static int gbs_dax_save_load(int slot)
 	/* where, read back by jt582's tail (record -> globals) */
 	g_a5_byte(-6924)  = h[58];
 	g_a5_byte(-22218) = (signed char)slot;
+	g_gbs1_from = (char)slot;
 	g_a5_18485 = 0;                     /* the port plays their maps as dungeons */
 	h[19] = (unsigned char)level;
 	h[67] = s.x;
@@ -111486,6 +111853,10 @@ static int gbs_dax_save_load(int slot)
 	}
 	g_a5_long(-27932) = g_a5_long(-27928);
 	gbs_new_game();
+	for (i = 0; i < 4; i++) {
+		g_gbs1_sets[i][0] = i < (unsigned)s.nsets ? s.sets[i][0] : -1;
+		g_gbs1_sets[i][1] = i < (unsigned)s.nsets ? s.sets[i][1] : -1;
+	}
 	jt198(level);
 	jt952();
 	if (g_a5_byte(-6924) != h[58])

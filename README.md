@@ -281,9 +281,9 @@ saves you make there go into its `SAVE` folder.
 - **Champions of Krynn** and **Death Knights of Krynn** open too, from their
   own `.DAX` files: the opening scripts, pictures and sprites, fights, the
   games' rules and items, their characters in the hall, and their saved
-  games (`SAVGAMx.DAT` / `.PTY`) loading. **Not yet:** the overland travel
-  map, and saving in a form the DOS game can read back (the port's own save
-  works). A Death Knights design opened by an older build may hold a short
+  games (`SAVGAMx.DAT` / `.PTY`) loading. Saving also writes the game's own
+  save, which the DOS game loads (checked with Champions; heroes made in
+  OpenUA cannot go into one). **Not yet:** the overland travel map. A Death Knights design opened by an older build may hold a short
   `PICG.ctl`; delete it and the next open builds the full one.
 
 All of this has been tested in Hatari on the Falcon build only. The ST and
